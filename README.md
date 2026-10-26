@@ -4,6 +4,28 @@ Open-source authoring environment inspired by classic Macromedia/Adobe Flash, bu
 
 **Status: development preview, 0.1.0. This is a working foundation, not a complete Flash replacement.** Full AS2/AS3 compatibility, general FLA/SWF import, a complete vector toolset and DOM-based web layouts remain substantial work. See the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
 
+<!-- progress:start -->
+## Где мы сейчас
+
+Работает основа редактора: вложенные таймлайны, вектор, скрипты и автономный HTML5. Полные AS2/AS3, импорт FLA/SWF, переносимые медиа и DOM-приложения ещё в работе.
+
+| Направление | Готово | Частично | В плане | Выполнено по реестру |
+| --- | ---: | ---: | ---: | ---: |
+| ActionScript 2 | 5/35 | 17 | 13 | 14.3% |
+| ActionScript 3 | 6/36 | 17 | 13 | 16.7% |
+| Редактор и графика | 5/12 | 5 | 2 | 41.7% |
+| Таймлайны и анимация | 5/10 | 3 | 2 | 50.0% |
+| HTML5 и интерактивность | 6/12 | 2 | 4 | 50.0% |
+| Импорт и совместимость файлов | 1/10 | 6 | 3 | 10.0% |
+| Платформа и качество | 4/10 | 5 | 1 | 40.0% |
+
+Готово = выполнена описанная граница пункта; частичные пункты не включены в процент. Это покрытие нашего реестра возможностей, **не процент совместимости с Flash и не покрытие строк кода тестами**. Размер пунктов различается; единого процента готовности продукта нет.
+
+[Текущее покрытие](https://jazzymiles.github.io/NeoFlash/progress.html) · [История по дням](https://jazzymiles.github.io/NeoFlash/history.html) · [Подробный реестр](docs/progress/DETAILS.md) · [Правила подсчёта](docs/progress/README.md)
+
+Сводка генерируется из `docs/progress/*.json`; GitHub Pages пересобирается при каждом push в `main`.
+<!-- progress:end -->
+
 ## Run
 
 Install [Rust with rustup](https://rust-lang.org/tools/install/) and Xcode Command Line Tools on macOS. The repository pins its Rust toolchain. Node.js 22+ is used only by the test suite, not by the desktop application or published content.

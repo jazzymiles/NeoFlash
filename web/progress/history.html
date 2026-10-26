@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="История реализации NeoFlash по дням: AS2, AS3 и остальные возможности.">
+  <meta name="color-scheme" content="light">
+  <title>NeoFlash — история реализации</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body data-page="history">
+  <a class="skip-link" href="#main">К содержимому</a>
+  <header class="site-header"><a class="brand" href="./"><span class="brand-mark" aria-hidden="true">N<span>f</span></span><span>NeoFlash <small>ОТКРЫТАЯ РАЗРАБОТКА</small></span></a><nav aria-label="Основная навигация"><a href="./">Реализация</a><a href="history.html" aria-current="page">История</a><a data-repo href="https://github.com/jazzymiles/NeoFlash">GitHub <span aria-hidden="true">↗</span></a></nav></header>
+  <main id="main">
+    <section class="intro history-intro"><div><p class="eyebrow">ПРОГРЕСС ПРОЕКТА / ИСТОРИЯ</p><h1>От коммита<br><span>к возможности.</span></h1><p class="lead">Реализованное, частичное и запланированное.<br>Один снимок на день разработки, UTC.</p></div><aside class="intro-note"><span class="note-index">02 / ЧТЕНИЕ ГРАФИКОВ</span><p>У каждого направления своя шкала. Наведите на точку или выберите её клавишей Tab — появятся точные числа.</p><p>История начинается с первого учтённого снимка. Старые достижения не восстанавливаются по догадкам. При изменении методики линия прерывается.</p><a class="text-link" data-method href="https://github.com/jazzymiles/NeoFlash/blob/main/docs/progress/README.md">Как считаем <span aria-hidden="true">↗</span></a></aside></section>
+    <div class="snapshot-bar"><span><span class="live-dot" aria-hidden="true"></span><span id="snapshot-label">Загружаем снимок…</span></span><a id="revision-link" href="https://github.com/jazzymiles/NeoFlash">Исходный код</a></div>
+    <div id="load-error" class="load-error" role="alert" hidden></div>
+    <section class="section" aria-labelledby="charts-title"><div class="section-heading"><h2 id="charts-title">История по направлениям</h2><a class="text-link" href="history.json">Скачать JSON <span aria-hidden="true">↓</span></a></div><div class="chart-legend"><span><i class="legend-line implemented"></i>Реализовано</span><span><i class="legend-line partial"></i>Частично</span><span><i class="legend-line total"></i>Всего в реестре</span></div><p id="history-note" class="fine-print"></p><div id="charts" class="chart-grid"></div></section>
+    <section class="section" aria-labelledby="history-table-title"><div class="section-heading"><h2 id="history-table-title">Точные числа</h2><label class="compact-filter">Направление<select id="history-category"></select></label></div><p class="fine-print">Доля = реализованные пункты / все пункты реестра. Частичная поддержка не округляется до готовой. Это не оценка полноты Flash API или языковой совместимости.</p><div class="table-scroll"><table class="history-table"><thead><tr><th scope="col">Дата (UTC)</th><th scope="col">Коммит</th><th scope="col">Реализовано</th><th scope="col">Частично</th><th scope="col">В планах</th><th scope="col">Всего</th><th scope="col">Доля</th><th scope="col">Методика</th></tr></thead><tbody id="history-rows"></tbody></table></div></section>
+    <noscript><p class="load-error">Для графиков нужен JavaScript. Полная история доступна в <a href="history.json">JSON</a>.</p></noscript>
+  </main>
+  <footer><span>NeoFlash · Открытая разработка</span><div><a data-method href="https://github.com/jazzymiles/NeoFlash/blob/main/docs/progress/README.md">Методика</a><a data-compat href="https://github.com/jazzymiles/NeoFlash/blob/main/docs/COMPATIBILITY.md">Совместимость</a><a href="history.json">Исходные данные</a></div></footer>
+</body>
+</html>
