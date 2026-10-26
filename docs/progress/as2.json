@@ -1,0 +1,421 @@
+{
+  "schemaVersion": 1,
+  "category": {
+    "id": "as2",
+    "title": "ActionScript 2",
+    "description": "Учтённые семейства возможностей языка и Flash API. Доля завершённых пунктов этого реестра не является процентом совместимости с Flash Player."
+  },
+  "features": [
+    {
+      "id": "as2-diagnostics",
+      "title": "Диагностика исходного кода",
+      "status": "implemented",
+      "scope": "Ошибки разбора и неподдерживаемые конструкции frontend сообщаются с языком, строкой и колонкой; ошибка компиляции блокирует экспорт.",
+      "limitations": "Это гарантия compiler diagnostics, а не проверка всей семантики Flash API.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "crates/neoflash-script/src/lib.rs",
+        "crates/neoflash-export/src/lib.rs"
+      ]
+    },
+    {
+      "id": "as2-literals",
+      "title": "Литералы",
+      "status": "partial",
+      "scope": "Числа decimal/hex/exponent, строки, Boolean, null/undefined/NaN/Infinity, массивы без пропусков и объектные литералы.",
+      "limitations": "Не реализован полный набор литералов и исторических правил Flash; устаревшие числа с ведущим нулём отклоняются.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-variables",
+      "title": "Переменные и область видимости",
+      "status": "partial",
+      "scope": "var, несколько объявлений, поля владельца handler, hoisting локальных var и параметров.",
+      "limitations": "Модель полей handler отличается от классов и полного scope chain Flash; объявления верхнего уровня имеют оговорённую повторную инициализацию.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript/scope.rs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-operators",
+      "title": "Арифметика, логика и присваивания",
+      "status": "partial",
+      "scope": "Базовая арифметика, сравнения, короткое замыкание, битовые операции, ++/-- и составные присваивания.",
+      "limitations": "Часть операций использует JavaScript coercion; это не полная семантика AVM и всех версий Flash Player.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-branches",
+      "title": "Ветвления if/else",
+      "status": "implemented",
+      "scope": "Разбор и исполнение if/else, блоков и условного выражения ?: с выбором одной ветви.",
+      "limitations": "Покрывается управление потоком поддержанного frontend; преобразования произвольных Flash-объектов относятся к незавершённой совместимости типов.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "crates/neoflash-script/tests/execute.mjs"
+      ]
+    },
+    {
+      "id": "as2-loops",
+      "title": "Обычные циклы и переходы",
+      "status": "implemented",
+      "scope": "while, do/while, трёхчастный for, вложенные break/continue с проверкой цели перехода.",
+      "limitations": "Перебор свойств for..in и полная совместимость преобразований условий учитываются отдельно.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "crates/neoflash-script/src/actionscript/control_tests.rs",
+        "crates/neoflash-script/tests/control-flow-fixtures.mjs"
+      ]
+    },
+    {
+      "id": "as2-switch",
+      "title": "Switch и fallthrough",
+      "status": "implemented",
+      "scope": "Однократное вычисление subject, последовательный поиск case, default, fallthrough и break.",
+      "limitations": "Поддержанный контракт использует строгое сравнение; общий профиль версий Flash Player не сертифицирован.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "crates/neoflash-script/tests/control-flow-fixtures.mjs"
+      ]
+    },
+    {
+      "id": "as2-functions",
+      "title": "Объявления и вызовы функций",
+      "status": "partial",
+      "scope": "Function declarations/expressions, рекурсия, взаимная рекурсия, return, callbacks и немедленный вызов function expression.",
+      "limitations": "Объявления только непосредственно в теле функции/handler; общий динамический поиск методов и межскриптовое разрешение символов отсутствуют.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript/scope.rs",
+        "crates/neoflash-script/src/actionscript.rs",
+        "crates/neoflash-script/tests/execute.mjs"
+      ]
+    },
+    {
+      "id": "as2-closures",
+      "title": "Замыкания и захват переменных",
+      "status": "partial",
+      "scope": "Лексические локальные переменные, shadowing, сохранение closure после возврата и захват владельца handler.",
+      "limitations": "Полная модель receiver, global object и цепочки областей Flash не реализована.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript/scope.rs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "crates/neoflash-script/tests/host-integration.mjs"
+      ]
+    },
+    {
+      "id": "as2-parameters",
+      "title": "Параметры и результаты функций",
+      "status": "partial",
+      "scope": "Позиционные параметры; аннотации AS2 стираются; недостающие и лишние аргументы обрабатываются JavaScript.",
+      "limitations": "Нет default/rest parameters, arguments и общего Function.call/apply; полная совместимость типов и ошибок вызова не доказана.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-receiver",
+      "title": "this и привязка метода",
+      "status": "partial",
+      "scope": "this владельца frame/object handler; имена полей владельца доступны внутри функций.",
+      "limitations": "Явный this в AS2-функциях, вложенных объявлениях и function expressions отклоняется; общее поведение receiver не реализовано.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript/scope.rs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "crates/neoflash-script/tests/host-integration.mjs"
+      ]
+    },
+    {
+      "id": "as2-types",
+      "title": "Аннотации и система типов",
+      "status": "partial",
+      "scope": "Принимаются выбранные Number/String/Boolean/Function/Error и возвращаемый Void; аннотации стираются.",
+      "limitations": "Нет полного type checker, пользовательских классов и типизированных instance slots; запись this.field и из другого handler не гарантирует тип.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-exceptions",
+      "title": "Throw, catch и finally",
+      "status": "partial",
+      "scope": "Явный throw с сохранением payload, untyped catch и catch(Error), finally и повторный throw.",
+      "limitations": "AS2 catch не перехватывает нативные ошибки JavaScript/host; существуют ограничения имён и capture в catch.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "crates/neoflash-script/src/actionscript/exceptions.js",
+        "crates/neoflash-script/tests/control-flow-fixtures.mjs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-errors",
+      "title": "Объекты Error",
+      "status": "partial",
+      "scope": "Ограниченный new Error, message и toString.",
+      "limitations": "Нет общего конструктора классов, getStackTrace, полной prototype-семантики и всех Flash error codes.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "crates/neoflash-script/src/actionscript/exceptions.js",
+        "crates/neoflash-script/tests/control-flow-fixtures.mjs"
+      ]
+    },
+    {
+      "id": "as2-classes",
+      "title": "Классы, наследование и интерфейсы",
+      "status": "planned",
+      "scope": "Полная модель class/interface, extends/implements, members, super, getters/setters и обычный new.",
+      "limitations": "Конструкции отклоняются frontend; Error facade не является реализацией произвольных классов.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "docs/COMPATIBILITY.md",
+        "docs/ROADMAP.md"
+      ]
+    },
+    {
+      "id": "as2-imports",
+      "title": "Импорты и связывание проекта",
+      "status": "planned",
+      "scope": "import, внешние AS2-классы, linkage символов и межфайловое разрешение.",
+      "limitations": "Текущая единица компиляции — отдельный синхронный frame/object handler.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "crates/neoflash-script/src/actionscript/scope.rs",
+        "docs/COMPATIBILITY.md",
+        "docs/ROADMAP.md"
+      ]
+    },
+    {
+      "id": "as2-dynamic-object",
+      "title": "Динамические объекты и прототипы",
+      "status": "partial",
+      "scope": "Объектные литералы, custom fields, property/index reads и явно определённые function members.",
+      "limitations": "Нет полной Object/prototype/scope-chain модели; computed calls, общий alias/type inference и часть динамических методов отклоняются.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript/scope.rs",
+        "crates/neoflash-script/src/actionscript.rs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-enumeration",
+      "title": "Перебор свойств и with",
+      "status": "planned",
+      "scope": "Перебор for..in и корректный поиск имён в with.",
+      "limitations": "Не поддержаны; обычный трёхчастный for не считается реализацией перечисления свойств.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-special-operators",
+      "title": "Дополнительные операторы языка",
+      "status": "planned",
+      "scope": "instanceof, in, delete, unary void и произвольный new.",
+      "limitations": "Отклоняются с диагностикой; отдельный new Error не закрывает эту возможность.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-primitive-globals",
+      "title": "Примитивы и глобальные преобразования",
+      "status": "partial",
+      "scope": "Number, String, Boolean, parseInt, parseFloat, isNaN и isFinite доступны через JavaScript.",
+      "limitations": "Специфические правила Flash/версий, boxed values и полная стандартная библиотека не реализованы.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-math",
+      "title": "Math",
+      "status": "partial",
+      "scope": "Поддержан закрытый список числовых методов Math, включая trig, abs, min/max, pow, random и round.",
+      "limitations": "Исполнение делегируется JavaScript; полный контракт и числовое соответствие Flash не сертифицированы.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-collections",
+      "title": "Array, String и Number methods",
+      "status": "partial",
+      "scope": "Выбранные push/pop/shift/unshift/join/slice/indexOf/substring/charAt/charCodeAt/toString/toFixed/split/concat/reverse.",
+      "limitations": "Список ограничен; используется JavaScript-поведение, включая возможные различия диапазонов, преобразований и ошибок.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-trace",
+      "title": "Trace через browser host",
+      "status": "implemented",
+      "scope": "trace из handler и вложенных функций проходит через host, обновляет консоль и строку состояния player.",
+      "limitations": "Реализован наблюдаемый канал вывода NeoFlash; полное форматирование всех Flash-типов не заявлено.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "web/runtime.js",
+        "crates/neoflash-script/tests/host-integration.mjs"
+      ]
+    },
+    {
+      "id": "as2-timeline",
+      "title": "MovieClip и таймлайны",
+      "status": "partial",
+      "scope": "play/stop, gotoAndPlay/gotoAndStop, nextFrame/prevFrame, текущий/общий кадр, именованные дети и независимые nested clocks.",
+      "limitations": "Это ограниченный фасад MovieClip; полный construction/re-entry, scenes, dynamic display list и Flash lifecycle не реализованы.",
+      "evidence": [
+        "web/runtime.js",
+        "crates/neoflash-core/tests/core.rs",
+        "web/tests/runtime.test.cjs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-display",
+      "title": "Свойства отображения",
+      "status": "partial",
+      "scope": "Положение, rotation, alpha и scale; AS2 aliases _x/_y/_rotation/_alpha/_xscale/_yscale, root/parent.",
+      "limitations": "Нет полного DisplayObject API, visible, width/height, mask и filters; произвольные custom fields не доказывают изменение изображения.",
+      "evidence": [
+        "web/runtime.js",
+        "crates/neoflash-core/tests/core.rs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-events",
+      "title": "События и обработчики",
+      "status": "partial",
+      "scope": "Авторские frame scripts и object events load/click/enter_frame; проверка жизни target и ограничение рекурсивных dispatch.",
+      "limitations": "Нет полной Flash event model, keyboard/mouse API, button states и совместимого порядка всех lifecycle events.",
+      "evidence": [
+        "web/runtime.js",
+        "crates/neoflash-core/tests/core.rs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-graphics-api",
+      "title": "Программное рисование",
+      "status": "planned",
+      "scope": "MovieClip drawing API, bitmap fill и программная графика Flash.",
+      "limitations": "Авторские векторные формы и их Canvas-отрисовка не являются доступным из ActionScript Graphics API.",
+      "evidence": [
+        "docs/COMPATIBILITY.md",
+        "docs/ROADMAP.md",
+        "web/runtime.js"
+      ]
+    },
+    {
+      "id": "as2-text-api",
+      "title": "TextField и текстовые API",
+      "status": "planned",
+      "scope": "Динамический и вводимый текст, форматирование, измерения, selection и программное управление TextField.",
+      "limitations": "Статический текст модели не реализует Flash TextField; custom field с именем text не меняет нарисованную строку.",
+      "evidence": [
+        "docs/COMPATIBILITY.md",
+        "docs/ROADMAP.md",
+        "web/runtime.js"
+      ]
+    },
+    {
+      "id": "as2-media-api",
+      "title": "Звук, видео и загрузка ресурсов",
+      "status": "planned",
+      "scope": "Flash media APIs, загрузка изображений, звука и видео, управление воспроизведением и синхронизация.",
+      "limitations": "Модель authoring/runtime пока не предоставляет соответствующих AS API.",
+      "evidence": [
+        "docs/COMPATIBILITY.md",
+        "docs/ROADMAP.md"
+      ]
+    },
+    {
+      "id": "as2-network-api",
+      "title": "Сеть, хранилища и внешние связи",
+      "status": "planned",
+      "scope": "Flash network/loaders, SharedObject и явно определённые browser bridges.",
+      "limitations": "Доступ JavaScript к браузеру не означает наличие одноимённых ActionScript API.",
+      "evidence": [
+        "docs/COMPATIBILITY.md",
+        "docs/ROADMAP.md"
+      ]
+    },
+    {
+      "id": "as2-components",
+      "title": "Компоненты и платформенные библиотеки",
+      "status": "planned",
+      "scope": "AS2 UI/component libraries и соответствующие Flash platform APIs.",
+      "limitations": "Библиотеки не реализованы; перенос платформенных API требует явного supported/adapted/unavailable контракта.",
+      "evidence": [
+        "docs/COMPATIBILITY.md",
+        "docs/ROADMAP.md"
+      ]
+    },
+    {
+      "id": "as2-vm-conformance",
+      "title": "Полная семантика виртуальной машины",
+      "status": "planned",
+      "scope": "Совместимость с AVM1, включая версии Flash Player, coercion, scope chain и runtime errors.",
+      "limitations": "Текущий frontend выдаёт JavaScript; собственные regression tests не равны сертификации Flash Player conformance.",
+      "evidence": [
+        "docs/COMPATIBILITY.md",
+        "docs/ROADMAP.md"
+      ]
+    },
+    {
+      "id": "as2-debugger",
+      "title": "Отладчик и source maps",
+      "status": "planned",
+      "scope": "Отладка ActionScript с исходными строками, breakpoints и просмотром состояния.",
+      "limitations": "Диагностика compile/publish уже есть; полноценный source debugger отсутствует.",
+      "evidence": [
+        "docs/COMPATIBILITY.md",
+        "docs/ROADMAP.md"
+      ]
+    },
+    {
+      "id": "as2-event-wrappers",
+      "title": "Исходные on / onClipEvent",
+      "status": "planned",
+      "scope": "Разбор legacy object-script wrappers и совместимая регистрация событий AS2.",
+      "limitations": "Выбор события в редакторе принимает только тело handler; source wrappers не поддержаны.",
+      "evidence": [
+        "crates/neoflash-script/src/actionscript.rs",
+        "docs/COMPATIBILITY.md"
+      ]
+    },
+    {
+      "id": "as2-xml",
+      "title": "XML",
+      "status": "planned",
+      "scope": "AS2 XML/XMLNode и соответствующие parsing/traversal/network contracts.",
+      "limitations": "XML API отсутствует; XML-парсинг импортёра XFL не является исполнением AS2 XML.",
+      "evidence": [
+        "docs/COMPATIBILITY.md",
+        "docs/ROADMAP.md"
+      ]
+    }
+  ]
+}

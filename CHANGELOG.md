@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added reviewed AS2/AS3 and product capability inventories, compact README/public coverage, detailed local evidence, and Git-backed daily progress charts published automatically to GitHub Pages. Partial support is counted separately from completed scope.
+
 - Added structured ActionScript switch/do control flow, AS3 labels, synchronous exceptions and selected typed error support, with explicit per-language boundaries and executable cleanup/scope regressions.
 - Fixed HTML5 failure reporting for arbitrary thrown values; added an editable AS2/AS3 recovery example and integration checks through the actual compiler, browser host and WASM Player.
 - Preserved initiating paste-key modifiers in a pinned egui-winit adapter, removing the Shift/V release-order ambiguity while retaining one text paste event.
