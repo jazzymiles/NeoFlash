@@ -172,9 +172,8 @@ fn probes_legacy_fla_and_swf_without_claiming_editable_import() {
     let temp = Temp::new();
     let fla = temp.0.join("legacy.fla");
     fs::write(&fla, [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]).unwrap();
-    let report = inspect(&fla).unwrap();
-    assert_eq!(report.format, ImportFormat::LegacyBinaryFla);
-    assert!(!report.can_import);
+    // A magic signature alone is a truncated container, not a recognized FLA.
+    assert!(inspect(&fla).is_err());
     let swf = temp.0.join("movie.swf");
     fs::write(&swf, [b'F', b'W', b'S', 8, 8, 0, 0, 0]).unwrap();
     let report = inspect(&swf).unwrap();

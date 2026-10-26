@@ -602,6 +602,9 @@ impl Editor {
                 ui.separator();
                 for (tool, label, hint) in [
                     (Tool::Select, "↖", "Selection (V)"),
+                    (Tool::Subselect, "◇", "Subselection — edit path points (A)"),
+                    (Tool::Pen, "P", "Pen — click corners, drag curves (P)"),
+                    (Tool::Pencil, "✎", "Pencil (Y)"),
                     (Tool::Rectangle, "▭", "Rectangle (R)"),
                     (Tool::Ellipse, "○", "Oval (O)"),
                     (Tool::Text, "T", "Text (T)"),
@@ -615,7 +618,7 @@ impl Editor {
                         .on_hover_text(hint)
                         .clicked()
                     {
-                        self.tool = tool;
+                        self.set_tool(tool);
                     }
                 }
                 ui.separator();
@@ -835,6 +838,35 @@ impl Editor {
                         if let Err(e) = self.fonts.load(ctx, font_family) {
                             ui.colored_label(Color32::DARK_RED, e);
                         }
+                    }
+                    ElementKind::Path {
+                        commands,
+                        fill_rule,
+                        fill,
+                        stroke,
+                        stroke_width,
+                    } => {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("Vector path · {} commands", commands.len()));
+                            ui.label("Fill");
+                            ui.color_edit_button_srgba_unmultiplied(fill);
+                            ui.label("Stroke");
+                            ui.color_edit_button_srgba_unmultiplied(stroke);
+                            ui.add(egui::DragValue::new(stroke_width).range(0.0..=100.));
+                            egui::ComboBox::from_id_salt("fill_rule")
+                                .selected_text(if *fill_rule == FillRule::EvenOdd {
+                                    "Even–odd"
+                                } else {
+                                    "Nonzero"
+                                })
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(fill_rule, FillRule::NonZero, "Nonzero");
+                                    ui.selectable_value(fill_rule, FillRule::EvenOdd, "Even–odd");
+                                });
+                            if ui.button("Edit points (A)").clicked() {
+                                self.tool = Tool::Subselect;
+                            }
+                        });
                     }
                     ElementKind::Instance {
                         symbol_id,

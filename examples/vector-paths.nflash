@@ -1,0 +1,894 @@
+{
+  "format_version": 1,
+  "name": "Paths in motion",
+  "width": 960,
+  "height": 600,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Vector studies",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 120,
+        "layers": [
+          {
+            "id": "background-layer",
+            "name": "Cards",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "card-a",
+                    "name": "card-a",
+                    "transform": {
+                      "x": 60,
+                      "y": 238,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 280,
+                      "height": 246,
+                      "fill": [
+                        26,
+                        34,
+                        46,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card-b",
+                    "name": "card-b",
+                    "transform": {
+                      "x": 350,
+                      "y": 238,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 260,
+                      "height": 246,
+                      "fill": [
+                        26,
+                        34,
+                        46,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card-c",
+                    "name": "card-c",
+                    "transform": {
+                      "x": 620,
+                      "y": 238,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 280,
+                      "height": 246,
+                      "fill": [
+                        26,
+                        34,
+                        46,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "typography-layer",
+            "name": "Typography",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "edition",
+                    "name": "edition",
+                    "transform": {
+                      "x": 60,
+                      "y": 48,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / VECTOR STUDY 02",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 12,
+                      "color": [
+                        160,
+                        174,
+                        193,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "headline",
+                    "name": "headline",
+                    "transform": {
+                      "x": 60,
+                      "y": 85,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Paths, in motion.",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 50,
+                      "color": [
+                        235,
+                        242,
+                        251,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 62,
+                      "y": 155,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Editable curves. Precise contours. Reusable symbols.",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 18,
+                      "color": [
+                        160,
+                        174,
+                        193,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "tag",
+                    "name": "tag",
+                    "transform": {
+                      "x": 727,
+                      "y": 51,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "DRAW / NEST / PUBLISH",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 11,
+                      "color": [
+                        160,
+                        174,
+                        193,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "curve-label",
+                    "name": "curve-label",
+                    "transform": {
+                      "x": 86,
+                      "y": 444,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "01  /  BEZIER CURVES",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 12,
+                      "color": [
+                        160,
+                        174,
+                        193,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "cutout-label",
+                    "name": "cutout-label",
+                    "transform": {
+                      "x": 376,
+                      "y": 444,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "02  /  EVEN-ODD FILL",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 12,
+                      "color": [
+                        160,
+                        174,
+                        193,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "corner-label",
+                    "name": "corner-label",
+                    "transform": {
+                      "x": 646,
+                      "y": 444,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "03  /  CONCAVE PATHS",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 12,
+                      "color": [
+                        160,
+                        174,
+                        193,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer-line",
+                    "name": "footer-line",
+                    "transform": {
+                      "x": 60,
+                      "y": 518,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 840,
+                      "height": 1,
+                      "fill": [
+                        49,
+                        61,
+                        78,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 62,
+                      "y": 540,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Click the painted geometry. Holes and empty corners stay empty.",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 14,
+                      "color": [
+                        160,
+                        174,
+                        193,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "wave-layer",
+            "name": "Animated Bezier wave",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "wave",
+                    "name": "wave",
+                    "transform": {
+                      "x": 200,
+                      "y": 350,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": -8,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "curve-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "trace(\"Bezier stroke clicked\");"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": ""
+              },
+              {
+                "frame": 60,
+                "elements": [
+                  {
+                    "id": "wave",
+                    "name": "wave",
+                    "transform": {
+                      "x": 200,
+                      "y": 350,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 8,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "curve-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "trace(\"Bezier stroke clicked\");"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": ""
+              },
+              {
+                "frame": 119,
+                "elements": [
+                  {
+                    "id": "wave",
+                    "name": "wave",
+                    "transform": {
+                      "x": 200,
+                      "y": 350,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": -8,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "curve-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "trace(\"Bezier stroke clicked\");"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "cutout-layer",
+            "name": "Cutout",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "cutout",
+                    "name": "cutout",
+                    "transform": {
+                      "x": 480,
+                      "y": 350,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "cutout-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "trace(\"Even-odd fill clicked\");"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "corner-layer",
+            "name": "Corner",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "corner",
+                    "name": "corner",
+                    "transform": {
+                      "x": 760,
+                      "y": 350,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "corner-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "trace(\"Concave fill clicked\");"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "java_script",
+              "source": "trace(\"Explore the vector geometry\");"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "curve-symbol",
+      "name": "Bezier wave",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "curve-symbol-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "curve-drawing",
+                    "name": "wave",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": -95,
+                          "y": 25
+                        },
+                        {
+                          "op": "cubic_to",
+                          "cx1": -70,
+                          "cy1": -110,
+                          "cx2": -10,
+                          "cy2": 115,
+                          "x": 30,
+                          "y": -10
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 80,
+                          "cy": -100,
+                          "x": 105,
+                          "y": 25
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke": [
+                        77,
+                        210,
+                        228,
+                        255
+                      ],
+                      "stroke_width": 12
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "cutout-symbol",
+      "name": "Even-odd cutout",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "cutout-symbol-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "cutout-drawing",
+                    "name": "ring",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 82,
+                          "y": 0
+                        },
+                        {
+                          "op": "cubic_to",
+                          "cx1": 82,
+                          "cy1": 45.28734948612507,
+                          "cx2": 45.28734948612507,
+                          "cy2": 82,
+                          "x": 0,
+                          "y": 82
+                        },
+                        {
+                          "op": "cubic_to",
+                          "cx1": -45.28734948612507,
+                          "cy1": 82,
+                          "cx2": -82,
+                          "cy2": 45.28734948612507,
+                          "x": -82,
+                          "y": 0
+                        },
+                        {
+                          "op": "cubic_to",
+                          "cx1": -82,
+                          "cy1": -45.28734948612507,
+                          "cx2": -45.28734948612507,
+                          "cy2": -82,
+                          "x": 0,
+                          "y": -82
+                        },
+                        {
+                          "op": "cubic_to",
+                          "cx1": 45.28734948612507,
+                          "cy1": -82,
+                          "cx2": 82,
+                          "cy2": -45.28734948612507,
+                          "x": 82,
+                          "y": 0
+                        },
+                        {
+                          "op": "close"
+                        },
+                        {
+                          "op": "move_to",
+                          "x": 40,
+                          "y": 0
+                        },
+                        {
+                          "op": "cubic_to",
+                          "cx1": 40,
+                          "cy1": 22.091389993231743,
+                          "cx2": 22.091389993231743,
+                          "cy2": 40,
+                          "x": 0,
+                          "y": 40
+                        },
+                        {
+                          "op": "cubic_to",
+                          "cx1": -22.091389993231743,
+                          "cy1": 40,
+                          "cx2": -40,
+                          "cy2": 22.091389993231743,
+                          "x": -40,
+                          "y": 0
+                        },
+                        {
+                          "op": "cubic_to",
+                          "cx1": -40,
+                          "cy1": -22.091389993231743,
+                          "cx2": -22.091389993231743,
+                          "cy2": -40,
+                          "x": 0,
+                          "y": -40
+                        },
+                        {
+                          "op": "cubic_to",
+                          "cx1": 22.091389993231743,
+                          "cy1": -40,
+                          "cx2": 40,
+                          "cy2": -22.091389993231743,
+                          "x": 40,
+                          "y": 0
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "evenodd",
+                      "fill": [
+                        250,
+                        156,
+                        92,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "corner-symbol",
+      "name": "Concave corner",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "corner-symbol-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "corner-drawing",
+                    "name": "corner",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": -76,
+                          "y": -76
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 76,
+                          "y": -76
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 76,
+                          "y": -26
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -26,
+                          "y": -26
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -26,
+                          "y": 76
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -76,
+                          "y": 76
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        144,
+                        227,
+                        182,
+                        255
+                      ],
+                      "stroke": [
+                        206,
+                        252,
+                        225,
+                        255
+                      ],
+                      "stroke_width": 2
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ]
+}

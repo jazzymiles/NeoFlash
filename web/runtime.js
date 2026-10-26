@@ -8,7 +8,7 @@
     if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-12) return null;
     return [(d * (x - tx) - c * (y - ty)) / determinant, (-b * (x - tx) + a * (y - ty)) / determinant];
   }
-  function hitShape(kind, x, y, measureText) {
+  function hitShape(kind, x, y, measureText, testPath) {
     if (kind.type === 'rectangle') return x >= 0 && y >= 0 && x <= kind.width && y <= kind.height;
     if (kind.type === 'ellipse') {
       if (kind.width <= 0 || kind.height <= 0) return false;
@@ -19,6 +19,7 @@
       return x >= 0 && y >= 0 && y <= lines.length * kind.font_size * 1.2 &&
         x <= Math.max(0, ...lines.map(line => measureText(line, kind)));
     }
+    if (kind.type === 'path') return testPath(kind, x, y);
     return false;
   }
   function oneBasedFrame(value, total, resolveLabel) {
@@ -57,6 +58,8 @@
     const canvas = document.getElementById('stage');
     const context = canvas.getContext('2d');
     if (!context) throw new Error('This browser does not provide Canvas 2D.');
+    if (!global.NeoFlashPaths) throw new Error('The vector path runtime is missing. Re-export this project.');
+    const paths = new global.NeoFlashPaths.PathCache();
     const status = document.getElementById('status');
     const toggle = document.getElementById('toggle');
     const functions = new Map();
@@ -213,6 +216,19 @@
             context.lineWidth = kind.stroke_width;
             context.stroke();
           }
+        } else if (kind.type === 'path') {
+          const path = paths.get(kind.commands);
+          if (kind.fill[3] > 0) {
+            context.fillStyle = color(kind.fill);
+            context.fill(path, kind.fill_rule || 'nonzero');
+          }
+          if (kind.stroke_width > 0 && kind.stroke[3] > 0) {
+            context.strokeStyle = color(kind.stroke);
+            context.lineWidth = kind.stroke_width;
+            context.lineCap = 'round';
+            context.lineJoin = 'round';
+            context.stroke(path);
+          }
         } else if (kind.type === 'text') {
           context.font = font(kind);
           context.textBaseline = 'top';
@@ -236,7 +252,7 @@
         if (hitShape(item.kind, ...local, (line, kind) => {
           context.font = font(kind);
           return context.measureText(line).width;
-        })) return item.instance_path;
+        }, (kind, x, y) => global.NeoFlashPaths.contains(context, kind, x, y, paths.get(kind.commands)))) return item.instance_path;
       }
       return null;
     }

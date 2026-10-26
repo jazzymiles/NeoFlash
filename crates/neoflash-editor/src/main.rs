@@ -2,6 +2,7 @@ mod app;
 mod fonts;
 mod panels;
 mod stage;
+mod vector;
 
 #[cfg(test)]
 mod tests;

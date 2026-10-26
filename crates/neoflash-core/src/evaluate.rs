@@ -215,6 +215,34 @@ fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
             *font_size = lerp(*a, *b, t);
             *color = color_lerp(*ac, *bc, t);
         }
+        (
+            ElementKind::Path {
+                commands: a,
+                fill_rule: ar,
+                fill: af,
+                stroke: as_,
+                stroke_width: aw,
+            },
+            ElementKind::Path {
+                commands: b,
+                fill_rule: br,
+                fill: bf,
+                stroke: bs,
+                stroke_width: bw,
+            },
+            ElementKind::Path {
+                commands,
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            },
+        ) if ar == br && paths_have_same_topology(a, b) => {
+            *commands = crate::geometry::interpolate_commands(a, b, t);
+            *fill = color_lerp(*af, *bf, t);
+            *stroke = color_lerp(*as_, *bs, t);
+            *stroke_width = lerp(*aw, *bw, t).max(0.);
+        }
         _ => {}
     }
     e

@@ -11,6 +11,7 @@ use std::{
 use thiserror::Error;
 
 const HOST: &str = include_str!("../../../web/runtime.js");
+const PATH_GEOMETRY: &str = include_str!("../../../web/path.js");
 const MARKER: &str = "neoflash-export.json";
 
 #[derive(Debug, Error)]
@@ -199,6 +200,7 @@ pub fn export_project(
     for (name, contents) in [
         ("neoflash_web.js", bindings.as_str()),
         ("runtime.js", HOST),
+        ("path.js", PATH_GEOMETRY),
         ("bundle.js", bundle_js.as_str()),
         ("README.txt", readme.as_str()),
     ] {
@@ -253,6 +255,7 @@ fn html_document(title: &str) -> String {
   </style>
   <script defer src="neoflash_web.js"></script>
   <script defer src="bundle.js"></script>
+  <script defer src="path.js"></script>
   <script defer src="runtime.js"></script>
 </head>
 <body>
@@ -302,6 +305,12 @@ mod tests {
                 .contains("AGFzbQEAAAA=")
         );
         assert!(!html.contains("https://"));
+        assert!(html.find("src=\"path.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
+        assert!(
+            fs::read_to_string(output.join("path.js"))
+                .unwrap()
+                .contains("isPointInStroke")
+        );
         fs::remove_dir_all(dir).unwrap();
     }
     #[test]

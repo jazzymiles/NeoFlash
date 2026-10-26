@@ -4,13 +4,13 @@ use eframe::egui::{
 };
 use neoflash_core::*;
 
-fn affine(m: [f64; 6], p: Pos2) -> Pos2 {
+pub(crate) fn affine(m: [f64; 6], p: Pos2) -> Pos2 {
     Pos2::new(
         (m[0] * p.x as f64 + m[2] * p.y as f64 + m[4]) as f32,
         (m[1] * p.x as f64 + m[3] * p.y as f64 + m[5]) as f32,
     )
 }
-fn inverse(m: [f64; 6], p: Pos2) -> Option<Pos2> {
+pub(crate) fn inverse(m: [f64; 6], p: Pos2) -> Option<Pos2> {
     let d = m[0] * m[3] - m[1] * m[2];
     if d.abs() < 1e-10 {
         return None;
@@ -61,6 +61,21 @@ fn local_bounds(item: &DrawItem, p: &egui::Painter) -> Rect {
             text_galley(p, text, font_family, *font_size, Color32::BLACK).size(),
         ),
         ElementKind::Instance { .. } => Rect::NOTHING,
+        ElementKind::Path {
+            commands,
+            stroke_width,
+            ..
+        } => path_bounds(commands)
+            .ok()
+            .flatten()
+            .map(|b| {
+                Rect::from_min_max(
+                    Pos2::new(b.x_min as f32, b.y_min as f32),
+                    Pos2::new(b.x_max as f32, b.y_max as f32),
+                )
+                .expand(*stroke_width as f32 / 2.)
+            })
+            .unwrap_or(Rect::NOTHING),
     }
 }
 fn world_bounds(item: &DrawItem, p: &egui::Painter) -> Rect {
@@ -169,6 +184,41 @@ fn draw_item(
             }
         }
         ElementKind::Instance { .. } => {}
+        ElementKind::Path {
+            commands,
+            fill_rule,
+            fill,
+            stroke,
+            stroke_width,
+        } => {
+            let scale = (item.transform[0].hypot(item.transform[1]))
+                .max(item.transform[2].hypot(item.transform[3]))
+                .max(0.001);
+            crate::vector::paint_path(
+                p,
+                commands,
+                crate::vector::PathPaint {
+                    rule: *fill_rule,
+                    fill: if outlines {
+                        Color32::TRANSPARENT
+                    } else {
+                        color(*fill, alpha, tint)
+                    },
+                    stroke: if outlines {
+                        color([90, 110, 130, 255], alpha, tint)
+                    } else {
+                        color(*stroke, alpha, tint)
+                    },
+                    width: if outlines {
+                        1. / (scale * zoom as f64)
+                    } else {
+                        *stroke_width
+                    },
+                    tolerance: (0.25 / (scale * zoom as f64)).clamp(0.001, 1.) as f32,
+                },
+                screen,
+            );
+        }
     }
 }
 
@@ -186,6 +236,17 @@ impl Editor {
                     );
                     if self.dirty() {
                         ui.label("•");
+                    }
+                    if self.vector.draft.is_some() {
+                        if ui.small_button("Finish · Enter").clicked() {
+                            self.finish_path(false);
+                        }
+                        if ui.small_button("Close path").clicked() {
+                            self.finish_path(true);
+                        }
+                        if ui.small_button("Cancel · Esc").clicked() {
+                            self.vector.draft = None;
+                        }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(10.);
@@ -316,7 +377,31 @@ impl Editor {
                             if !bounds.contains(local) {
                                 return false;
                             }
-                            if matches!(item.kind, ElementKind::Ellipse { .. }) {
+                            if let ElementKind::Path {
+                                commands,
+                                fill_rule,
+                                fill,
+                                stroke,
+                                stroke_width,
+                            } = &item.kind
+                            {
+                                hit_test_path(
+                                    commands,
+                                    *fill_rule,
+                                    [local.x as f64, local.y as f64],
+                                    fill[3] > 0,
+                                    if stroke[3] > 0 { *stroke_width } else { 0. },
+                                    FlattenOptions {
+                                        tolerance: 0.25
+                                            / ((item.transform[0].hypot(item.transform[1]))
+                                                .max(item.transform[2].hypot(item.transform[3]))
+                                                .max(0.001)
+                                                * zoom as f64),
+                                        ..Default::default()
+                                    },
+                                )
+                                .unwrap_or(false)
+                            } else if matches!(item.kind, ElementKind::Ellipse { .. }) {
                                 let nx = (local.x - bounds.center().x) / (bounds.width() / 2.);
                                 let ny = (local.y - bounds.center().y) / (bounds.height() / 2.);
                                 nx * nx + ny * ny <= 1.
@@ -336,7 +421,7 @@ impl Editor {
                 };
                 if response.hovered() {
                     ctx.set_cursor_icon(match self.tool {
-                        Tool::Select => egui::CursorIcon::Default,
+                        Tool::Select | Tool::Subselect => egui::CursorIcon::Default,
                         Tool::Text => egui::CursorIcon::Text,
                         _ => egui::CursorIcon::Crosshair,
                     });
@@ -349,8 +434,25 @@ impl Editor {
                         self.pan += delta;
                     }
                 }
+                let on_path_handle = self.tool == Tool::Subselect
+                    && self.selected_sampled().is_some_and(|e| {
+                        if let ElementKind::Path { commands, .. } = &e.kind {
+                            let matrix = transform_matrix(e.transform);
+                            response.interact_pointer_pos().is_some_and(|pos| {
+                                crate::vector::handles(commands).iter().any(|h| {
+                                    (origin + affine(matrix, h.point).to_vec2() * zoom)
+                                        .distance(pos)
+                                        < 8.
+                                })
+                            })
+                        } else {
+                            false
+                        }
+                    });
                 if response.clicked()
-                    && self.tool == Tool::Select
+                    && matches!(self.tool, Tool::Select | Tool::Subselect)
+                    && !on_path_handle
+                    && self.vector.point_drag.is_none()
                     && let Some(pos) = response.interact_pointer_pos()
                 {
                     if let Some((object, _layerid)) = pick(pos) {
@@ -439,7 +541,7 @@ impl Editor {
                                 self.draw_start.get_or_insert(pos);
                             }
                         }
-                        Tool::Text => {}
+                        Tool::Text | Tool::Pen | Tool::Pencil | Tool::Subselect => {}
                     }
                 }
                 if response.dragged()
@@ -519,6 +621,7 @@ impl Editor {
                         local.y as f64,
                     );
                 }
+                self.vector_stage(ui, &content, origin, page, &response);
                 ui.horizontal(|ui| {
                     ui.add_space(8.);
                     ui.label(egui::RichText::new(&self.status).size(11.));

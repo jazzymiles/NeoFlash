@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NeoFlash path geometry verification</title>
+<style>
+body{font:16px system-ui;background:#151922;color:#e2e8f0;max-width:960px;margin:32px auto;padding:0 24px}h1{font-size:26px}li{margin:10px 0}.pass{color:#80e6be}.fail{color:#ff8a8a}canvas{background:#202734;border:1px solid #3a4555;width:100%;height:auto}#summary{font-weight:600}
+</style>
+<h1>NeoFlash · Canvas path verification</h1>
+<p>Real browser Path2D fill and stroke checks, using the same geometry module as HTML5 exports.</p>
+<p id="summary">Running…</p><ol id="results"></ol><canvas id="sample" width="900" height="240"></canvas>
+<script src="../path.js"></script>
+<script>
+'use strict';
+const context=document.getElementById('sample').getContext('2d');
+const path=(commands,options={})=>({type:'path',commands,fill_rule:'nonzero',fill:[80,180,220,255],stroke:[0,0,0,0],stroke_width:0,...options});
+const move=(x,y)=>({op:'move_to',x,y}),line=(x,y)=>({op:'line_to',x,y}),close=()=>({op:'close'});
+const square=(x,y,size)=>[move(x,y),line(x+size,y),line(x+size,y+size),line(x,y+size),close()];
+const hit=(shape,x,y)=>NeoFlashPaths.contains(context,shape,x,y);
+const check=(condition,message)=>{if(!condition)throw Error(message||'Unexpected hit result')};
+let passed=0,failed=0;
+function test(name,run){const item=document.createElement('li');try{run();item.textContent=name+' — passed';item.className='pass';passed++}catch(error){item.textContent=name+' — FAILED: '+error.message;item.className='fail';failed++}document.getElementById('results').append(item)}
+const concave=path([move(0,0),line(120,0),line(120,30),line(30,30),line(30,120),line(0,120),close()]);
+const donut=path([...square(0,0,120),...square(35,35,50)],{fill_rule:'evenodd'});
+const quadratic=path([move(0,0),{op:'quadratic_to',cx:60,cy:120,x:120,y:0}],{fill:[0,0,0,0],stroke:[240,140,70,255],stroke_width:10});
+const cubic=path([move(0,0),{op:'cubic_to',cx1:0,cy1:120,cx2:120,cy2:120,x:120,y:0}],{fill:[0,0,0,0],stroke:[160,130,245,255],stroke_width:10});
+test('Concave fill selects the visible arm',()=>check(hit(concave,15,90)));
+test('Concave fill excludes empty bounding-box area',()=>check(!hit(concave,90,90)));
+test('Even-odd contours leave an actual hole',()=>{check(hit(donut,15,60));check(!hit(donut,60,60))});
+test('Nonzero contours use winding instead of even-odd',()=>check(hit({...donut,fill_rule:'nonzero'},60,60)));
+test('Transparent fill has no clickable interior',()=>check(!hit({...concave,fill:[0,0,0,0]},15,90)));
+test('Quadratic stroke follows the curve, not its bounds',()=>{check(hit(quadratic,60,60));check(!hit(quadratic,60,0))});
+test('Cubic stroke follows its true curve',()=>{check(hit(cubic,60,90));check(!hit(cubic,60,30))});
+test('Open contours do not invent a closing stroke',()=>{const open=path([move(0,0),line(120,0),line(120,120)],{fill:[0,0,0,0],stroke:[255,255,255,255],stroke_width:10});check(!hit(open,60,60));check(hit({...open,commands:[...open.commands,close()]},60,60))});
+test('Round line caps use the declared stroke width',()=>{const stroke=path([move(0,0),line(120,0)],{fill:[0,0,0,0],stroke:[255,255,255,255],stroke_width:10});check(hit(stroke,-4,0));check(!hit(stroke,-6,0))});
+test('Hit testing ignores DPR and restores caller transform',()=>{context.setTransform(2,0,0,3,45,67);check(hit(concave,15,90));const matrix=context.getTransform();check(matrix.a===2&&matrix.d===3&&matrix.e===45&&matrix.f===67);context.resetTransform()});
+const summary=`${passed} passed · ${failed} failed`;document.getElementById('summary').textContent=summary;document.title='NeoFlash path tests — '+summary;
+for(const [index,shape] of [concave,donut,quadratic,cubic].entries()){context.save();context.translate(40+index*220,50);const geometry=NeoFlashPaths.createPath(shape.commands);context.fillStyle='rgb('+shape.fill.slice(0,3).join(',')+')';if(shape.fill[3])context.fill(geometry,shape.fill_rule);context.strokeStyle='rgb('+shape.stroke.slice(0,3).join(',')+')';context.lineWidth=shape.stroke_width;context.lineCap='round';context.lineJoin='round';if(shape.stroke[3])context.stroke(geometry);context.restore()}
+</script>
+</html>

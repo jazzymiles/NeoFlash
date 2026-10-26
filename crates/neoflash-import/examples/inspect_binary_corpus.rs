@@ -1,0 +1,118 @@
+//! Aggregate-only local audit. Never emits paths, stream names, strings or bytes.
+use neoflash_import::{ImportFormat, inspect};
+use serde_json::json;
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let root = std::env::args_os()
+        .nth(1)
+        .ok_or("provide a local corpus directory")?;
+    let output = std::env::args_os()
+        .nth(2)
+        .ok_or("provide a new aggregate JSON output path")?;
+    let mut paths = Vec::new();
+    gather(Path::new(&root), 0, &mut paths)?;
+    let (mut recognized, mut blocked, mut invalid, mut complete_streams) =
+        (0usize, 0usize, 0usize, 0usize);
+    let mut versions = BTreeMap::<String, usize>::new();
+    let mut roles = BTreeMap::<String, usize>::new();
+    let mut codes = BTreeMap::<String, usize>::new();
+    let mut classes = BTreeMap::<String, usize>::new();
+    let mut failures = BTreeMap::<String, usize>::new();
+    let mut complete_records = BTreeMap::<&str, usize>::new();
+    for path in &paths {
+        match inspect(path) {
+            Ok(report) => {
+                recognized += usize::from(report.format == ImportFormat::LegacyBinaryFla);
+                blocked += usize::from(!report.can_import);
+                *versions
+                    .entry(report.version.unwrap_or_else(|| "unknown".into()))
+                    .or_default() += 1;
+                if let Some(binary) = report.binary_fla {
+                    for stream in binary.streams {
+                        *roles.entry(format!("{:?}", stream.role)).or_default() += 1;
+                        complete_streams += usize::from(stream.structure_complete);
+                        for (kind, count) in [
+                            ("pages", stream.records.pages),
+                            ("layers", stream.records.layers),
+                            ("frames", stream.records.frames),
+                            ("shapes", stream.records.shapes),
+                        ] {
+                            *complete_records.entry(kind).or_default() += count;
+                        }
+                        if let Some(class) = stream.root_class {
+                            *classes.entry(class).or_default() += 1;
+                        }
+                    }
+                }
+                for d in report.diagnostics {
+                    *codes.entry(d.code).or_default() += 1;
+                }
+            }
+            Err(error) => {
+                invalid += 1;
+                let category = match error {
+                    neoflash_import::ImportError::Container(message) => {
+                        // XFL container errors can include source entry names.
+                        // Only our static CFB categories are safe to aggregate.
+                        let categories = [
+                            "root entry name",
+                            "name not null-terminated",
+                            "name ordering",
+                            "adjacent red nodes",
+                            "loop in tree",
+                            "root stream len",
+                            "FAT has",
+                            "not marked",
+                            "MiniFAT",
+                            "directory",
+                            "DIFAT",
+                            "FAT",
+                            "sector",
+                            "header or directory metadata",
+                        ];
+                        categories
+                            .into_iter()
+                            .find(|c| message == format!("invalid CFB structure ({c})"))
+                            .unwrap_or("container limit or format rejection")
+                            .to_owned()
+                    }
+                    _ => "read failure".into(),
+                };
+                *failures.entry(category).or_default() += 1;
+            }
+        }
+    }
+    let result = json!({"files":paths.len(), "recognized_binary_fla":recognized, "blocked_editable_conversion":blocked, "container_failures":invalid, "container_failure_categories":failures, "save_targets":versions, "stream_roles":roles, "complete_structure_streams":complete_streams, "complete_records":complete_records, "root_classes":classes, "diagnostic_codes":codes});
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output)?;
+    serde_json::to_writer_pretty(&mut file, &result)?;
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
+}
+
+fn gather(path: &Path, depth: usize, paths: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    if depth > 16 || paths.len() > 10_000 {
+        return Err(std::io::Error::other("corpus budget exceeded"));
+    }
+    for entry in std::fs::read_dir(path)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            gather(&entry.path(), depth + 1, paths)?;
+        } else if kind.is_file()
+            && entry
+                .path()
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("fla"))
+        {
+            paths.push(entry.path());
+        }
+    }
+    Ok(())
+}

@@ -9,6 +9,9 @@ pub enum Tool {
     Rectangle,
     Ellipse,
     Text,
+    Pen,
+    Pencil,
+    Subselect,
 }
 #[derive(Clone, Copy, PartialEq)]
 pub enum BottomTab {
@@ -60,6 +63,7 @@ pub struct Editor {
     pub timeline_cell: f32,
     pub timeline_key_drag: Option<(usize, u32)>,
     pub library_selected: Option<String>,
+    pub vector: crate::vector::VectorState,
 }
 
 #[derive(Clone, Copy)]
@@ -108,6 +112,7 @@ impl Editor {
             output: vec!["NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser.".into()],
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
             timeline_cell: 13., timeline_key_drag: None, library_selected: None,
+            vector: crate::vector::VectorState::default(),
         };
         s.load_project_fonts(ctx);
         s.normalize_selection();
@@ -131,13 +136,20 @@ impl Editor {
             .expect("editor has a valid symbol")
     }
     pub fn dirty(&self) -> bool {
-        serde_json::to_string(&self.project).unwrap_or_default() != self.saved_json
+        self.vector
+            .draft
+            .as_ref()
+            .is_some_and(|d| d.anchors.len() >= 2)
+            || serde_json::to_string(&self.project).unwrap_or_default() != self.saved_json
     }
     pub fn message(&mut self, msg: impl Into<String>) {
         self.status = msg.into();
         self.output.push(self.status.clone());
     }
     pub fn transact(&mut self, f: impl FnOnce(&mut Self)) {
+        if self.vector.point_drag.take().is_some() {
+            self.history.commit(&self.project);
+        }
         self.history.begin(&self.project);
         f(self);
         self.history.commit(&self.project);
@@ -172,10 +184,12 @@ impl Editor {
         }
     }
     pub fn undo(&mut self) {
+        self.vector = Default::default();
         self.history.undo(&mut self.project);
         self.normalize_selection();
     }
     pub fn redo(&mut self) {
+        self.vector = Default::default();
         self.history.redo(&mut self.project);
         self.normalize_selection();
     }
@@ -281,6 +295,7 @@ impl Editor {
                 ElementKind::Ellipse { .. } => "oval",
                 ElementKind::Text { .. } => "text",
                 ElementKind::Instance { .. } => "clip",
+                ElementKind::Path { .. } => "path",
             };
             let name = format!("{name}_{}", id.rsplit('-').next().unwrap_or("1"));
             let element = Element {
@@ -390,6 +405,7 @@ impl Editor {
         });
     }
     pub fn enter_symbol(&mut self, id: String) {
+        self.finish_vector_edit();
         if self.project.symbol(&id).is_none() {
             return;
         }
@@ -430,6 +446,7 @@ impl Editor {
         }
     }
     pub fn perform(&mut self, pending: Pending, ctx: &egui::Context) {
+        self.cancel_vector();
         match pending {
             Pending::New | Pending::Demo => {
                 self.project = if matches!(pending, Pending::New) {
@@ -542,6 +559,7 @@ impl Editor {
         let Some(path) = path else {
             return false;
         };
+        self.finish_vector_edit();
         let result = self
             .project
             .to_json()
@@ -599,6 +617,7 @@ impl Editor {
                     .as_secs()
             ))
         };
+        self.finish_vector_edit();
         match neoflash_export::export_project(&self.project, &output, &Self::runtime_dir()) {
             Ok(index) => {
                 self.message(format!("HTML5 exported: {}", index.display()));
@@ -656,7 +675,12 @@ impl Editor {
             if ctx.input(|i| i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace)) {
                 self.delete_selected();
             }
-            if ctx.input(|i| i.key_pressed(Key::Enter)) {
+            if ctx.input(|i| i.key_pressed(Key::Escape)) {
+                self.cancel_vector();
+            }
+            if ctx.input(|i| i.key_pressed(Key::Enter)) && self.vector.draft.is_some() {
+                self.finish_path(false);
+            } else if ctx.input(|i| i.key_pressed(Key::Enter)) {
                 self.playing = !self.playing;
                 self.last_tick = Instant::now();
             }
@@ -665,9 +689,12 @@ impl Editor {
                 (Key::R, Tool::Rectangle),
                 (Key::O, Tool::Ellipse),
                 (Key::T, Tool::Text),
+                (Key::P, Tool::Pen),
+                (Key::Y, Tool::Pencil),
+                (Key::A, Tool::Subselect),
             ] {
                 if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, key)) {
-                    self.tool = tool;
+                    self.set_tool(tool);
                 }
             }
             if ctx.input(|i| i.key_pressed(Key::ArrowLeft)) {

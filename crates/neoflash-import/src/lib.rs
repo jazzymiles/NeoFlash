@@ -1,6 +1,9 @@
 //! Strict, read-only legacy inspection and deliberately bounded XFL conversion.
+mod legacy;
 mod source;
 mod xfl;
+
+pub use legacy::{BinaryFlaInspection, BinaryStreamInspection, BinaryStreamRole, RecordCounts};
 
 use neoflash_core::Project;
 use serde::{Deserialize, Serialize};
@@ -50,6 +53,9 @@ pub struct ImportReport {
     pub can_import: bool,
     pub statistics: Statistics,
     pub diagnostics: Vec<Diagnostic>,
+    /// Structural inspection, not an editable conversion or a completeness claim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary_fla: Option<BinaryFlaInspection>,
 }
 
 #[derive(Debug, Error)]
@@ -120,13 +126,16 @@ fn analyze(path: &Path) -> Result<(ImportReport, Option<Project>), ImportError> 
         can_import: false,
         statistics: Statistics::default(),
         diagnostics: vec![],
+        binary_fla: None,
     };
     let project = match source.format {
         ImportFormat::XflDirectory | ImportFormat::XflArchive => {
             xfl::convert(&source.files, &mut report)
         }
         ImportFormat::LegacyBinaryFla => {
-            report.error("legacy_fla_not_implemented",path.display().to_string(),"Compound binary FLA requires a dedicated legacy reader; editable import is not implemented.");
+            if let Some(binary) = source.binary {
+                legacy::report(binary, &mut report);
+            }
             None
         }
         ImportFormat::Swf => {

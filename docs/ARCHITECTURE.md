@@ -6,6 +6,8 @@
 
 The document has no GUI objects, GPU handles or machine-specific resource paths. `.nflash` is readable JSON in this initial version; future external assets will use project-relative references and migrations. Unsupported document versions and invalid geometry/references are rejected, not guessed.
 
+Vector paths use explicit line/quadratic/cubic commands and compound contours. The core owns validation, analytic bounds, bounded flattening and hit testing. Native rendering tessellates with lyon; the Canvas host constructs Path2D. Both apply nested affine transforms to fills and strokes. See [the vector decision](decisions/0002-vector-geometry.md) for gesture, interpolation and rendering limits.
+
 ## Authoring versus execution
 
 `evaluate(project, symbol, frame)` is pure. It samples authored transforms/easing, combines nested affine transforms and yields a leaf display list. Scrubbing and onion skin use it without running scripts. The editor currently paints this list through egui, including transformed text meshes.

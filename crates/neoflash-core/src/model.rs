@@ -6,6 +6,47 @@ use std::sync::{Mutex, OnceLock};
 pub type Color = [u8; 4];
 pub type Id = String;
 
+/// Compound-path filling, matching the Canvas/SVG spellings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FillRule {
+    #[default]
+    #[serde(rename = "nonzero")]
+    NonZero,
+    #[serde(rename = "evenodd")]
+    EvenOdd,
+}
+
+/// Absolute coordinates in the element's local space. Each contour begins with
+/// MoveTo; drawing after Close requires another MoveTo. Open contours are
+/// implicitly closed for filling, but remain open when stroked.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum PathCommand {
+    MoveTo {
+        x: f64,
+        y: f64,
+    },
+    LineTo {
+        x: f64,
+        y: f64,
+    },
+    QuadraticTo {
+        cx: f64,
+        cy: f64,
+        x: f64,
+        y: f64,
+    },
+    CubicTo {
+        cx1: f64,
+        cy1: f64,
+        cx2: f64,
+        cy2: f64,
+        x: f64,
+        y: f64,
+    },
+    Close,
+}
+
 /// Only used for editor-created entities; serialized identity survives round trips.
 pub fn new_id(prefix: &str) -> Id {
     static COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -149,6 +190,15 @@ pub enum ElementKind {
     Ellipse {
         width: f64,
         height: f64,
+        fill: Color,
+        stroke: Color,
+        stroke_width: f64,
+    },
+    /// Compound vector geometry. Initial stroke semantics are round caps/joins.
+    Path {
+        commands: Vec<PathCommand>,
+        #[serde(default)]
+        fill_rule: FillRule,
         fill: Color,
         stroke: Color,
         stroke_width: f64,

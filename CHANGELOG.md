@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Added shared line/quadratic/cubic vector paths, compound contours, fill rules, geometry validation, analytic bounds and bounded hit testing.
+- Added desktop pen, pencil and point editing with grouped undo, plus native fill/stroke tessellation and HTML5 Path2D rendering.
+- Added interpolation for paths with matching command topology and a shareable vector example. Arbitrary Flash shape tweening remains unsupported.
+- Added strict binary FLA container/stream inspection, save-target revision detection and bounded MFC timeline structure reading. All binary FLA editable conversions remain explicitly blocked until their contents can be preserved.
+
 ## 0.1.0 — development preview, 2026-10-26
 
 - Started the open-source Rust workspace for macOS 15+ with a classic Flash-inspired editor.

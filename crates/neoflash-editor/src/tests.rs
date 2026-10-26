@@ -545,3 +545,449 @@ fn rectangle_click_without_movement_creates_neither_shape_nor_undo_entry() {
         assert!(!editor.history.can_undo());
     }
 }
+
+fn pen_click(
+    editor: &mut Editor,
+    ctx: &egui::Context,
+    time: f64,
+    from: egui::Pos2,
+    to: egui::Pos2,
+) {
+    stage_input_frame(
+        editor,
+        ctx,
+        time,
+        vec![
+            egui::Event::PointerMoved(from),
+            primary_button(from, true),
+            egui::Event::PointerMoved(to),
+            primary_button(to, false),
+        ],
+    );
+}
+
+#[test]
+fn pen_drag_creates_cubic_closed_path_as_one_undo_step() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.tool = crate::app::Tool::Pen;
+    let before = editor.project.clone();
+    let a = page.min + egui::vec2(100., 100.);
+    let b = page.min + egui::vec2(250., 200.);
+    let c = page.min + egui::vec2(100., 300.);
+    pen_click(&mut editor, &ctx, 0.1, a, a + egui::vec2(50., 0.));
+    pen_click(&mut editor, &ctx, 0.2, b, b);
+    pen_click(&mut editor, &ctx, 0.3, c, c);
+    assert_eq!(
+        editor.project, before,
+        "unfinished path must remain a draft"
+    );
+    pen_click(&mut editor, &ctx, 0.4, a, a);
+    assert!(editor.vector.draft.is_none());
+    let ElementKind::Path { commands, fill, .. } = &editor.selected_element().unwrap().kind else {
+        panic!("expected path")
+    };
+    assert!(matches!(commands[1], PathCommand::CubicTo { .. }));
+    assert!(matches!(commands.last(), Some(PathCommand::Close)));
+    assert_eq!(*fill, editor.fill);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+    editor.redo();
+    assert!(matches!(
+        editor.symbol().timeline.layers[0]
+            .key_at(0)
+            .unwrap()
+            .elements[0]
+            .kind,
+        ElementKind::Path { .. }
+    ));
+}
+
+#[test]
+fn pencil_captures_a_batched_gesture_and_simplifies_collinear_samples() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.tool = crate::app::Tool::Pencil;
+    let a = page.min + egui::vec2(100., 100.);
+    let b = page.min + egui::vec2(180., 200.);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.1,
+        vec![
+            egui::Event::PointerMoved(a),
+            primary_button(a, true),
+            egui::Event::PointerMoved(a + egui::vec2(40., 0.)),
+            egui::Event::PointerMoved(a + egui::vec2(80., 0.)),
+            egui::Event::PointerMoved(b),
+            primary_button(b, false),
+        ],
+    );
+    let ElementKind::Path {
+        commands,
+        fill,
+        stroke_width,
+        ..
+    } = &editor.selected_element().unwrap().kind
+    else {
+        panic!("expected pencil path")
+    };
+    assert_eq!(
+        commands.len(),
+        3,
+        "collinear samples should be simplified, corner retained"
+    );
+    assert_eq!(fill[3], 0);
+    assert_eq!(*stroke_width, 2.);
+    assert!(matches!(
+        commands[2],
+        PathCommand::LineTo { x: 180., y: 200. }
+    ));
+}
+
+#[test]
+fn subselection_moves_transformed_control_in_local_space_and_undo_restores() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.add_element(
+        ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 0., y: 0. },
+                PathCommand::CubicTo {
+                    cx1: 40.,
+                    cy1: -40.,
+                    cx2: 80.,
+                    cy2: -40.,
+                    x: 120.,
+                    y: 0.,
+                },
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0, 0, 0, 0],
+            stroke: [10, 20, 30, 255],
+            stroke_width: 3.,
+        },
+        300.,
+        300.,
+    );
+    editor.selected_element_mut().unwrap().transform.scale_x = 2.;
+    editor.selected_element_mut().unwrap().transform.rotation = 90.;
+    editor.tool = crate::app::Tool::Subselect;
+    let before = editor.project.clone();
+    let matrix = transform_matrix(editor.selected_element().unwrap().transform);
+    let start = page.min + crate::stage::affine(matrix, egui::pos2(40., -40.)).to_vec2();
+    let end = page.min + crate::stage::affine(matrix, egui::pos2(55., -20.)).to_vec2();
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.1,
+        vec![
+            egui::Event::PointerMoved(start),
+            primary_button(start, true),
+        ],
+    );
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![egui::Event::PointerMoved(end), primary_button(end, false)],
+    );
+    let ElementKind::Path { commands, .. } = &editor.selected_element().unwrap().kind else {
+        panic!("expected path")
+    };
+    assert!(matches!(
+        commands[1],
+        PathCommand::CubicTo {
+            cx1: 55.,
+            cy1: -20.,
+            x: 120.,
+            ..
+        }
+    ));
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn path_tessellation_keeps_holes_and_concave_areas() {
+    let commands = vec![
+        PathCommand::MoveTo { x: 0., y: 0. },
+        PathCommand::LineTo { x: 100., y: 0. },
+        PathCommand::LineTo { x: 100., y: 100. },
+        PathCommand::LineTo { x: 0., y: 100. },
+        PathCommand::Close,
+        PathCommand::MoveTo { x: 25., y: 25. },
+        PathCommand::LineTo { x: 75., y: 25. },
+        PathCommand::LineTo { x: 75., y: 75. },
+        PathCommand::LineTo { x: 25., y: 75. },
+        PathCommand::Close,
+    ];
+    let mesh = crate::vector::tessellate(&commands, FillRule::EvenOdd, None, 0.1).unwrap();
+    let area: f32 = mesh
+        .indices
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(|i| {
+            let a = mesh.vertices[i[0] as usize];
+            let b = mesh.vertices[i[1] as usize];
+            let c = mesh.vertices[i[2] as usize];
+            ((b - a).cross(c - a)).abs() / 2.
+        })
+        .sum();
+    assert!((area - 7500.).abs() < 0.1);
+    let mesh = crate::vector::tessellate(&commands, FillRule::NonZero, None, 0.1).unwrap();
+    let area: f32 = mesh
+        .indices
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(|i| {
+            let a = mesh.vertices[i[0] as usize];
+            let b = mesh.vertices[i[1] as usize];
+            let c = mesh.vertices[i[2] as usize];
+            ((b - a).cross(c - a)).abs() / 2.
+        })
+        .sum();
+    assert!((area - 10000.).abs() < 0.1);
+}
+
+#[test]
+fn moving_a_closed_path_seam_keeps_both_endpoints_and_adjacent_controls_together() {
+    let mut commands = vec![
+        PathCommand::MoveTo { x: 0., y: 0. },
+        PathCommand::CubicTo {
+            cx1: 20.,
+            cy1: 0.,
+            cx2: 100.,
+            cy2: 80.,
+            x: 100.,
+            y: 100.,
+        },
+        PathCommand::CubicTo {
+            cx1: 80.,
+            cy1: 100.,
+            cx2: -20.,
+            cy2: 0.,
+            x: 0.,
+            y: 0.,
+        },
+        PathCommand::Close,
+    ];
+    let handle = crate::vector::handles(&commands)[0];
+    crate::vector::move_handle(&mut commands, handle, egui::pos2(10., 20.));
+    assert!(matches!(
+        commands[0],
+        PathCommand::MoveTo { x: 10., y: 20. }
+    ));
+    assert!(matches!(
+        commands[1],
+        PathCommand::CubicTo {
+            cx1: 30.,
+            cy1: 20.,
+            x: 100.,
+            y: 100.,
+            ..
+        }
+    ));
+    assert!(matches!(
+        commands[2],
+        PathCommand::CubicTo {
+            cx2: -10.,
+            cy2: 20.,
+            x: 10.,
+            y: 20.,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn cancelling_a_point_drag_restores_geometry_without_an_undo_entry() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.tool = crate::app::Tool::Pencil;
+    pen_click(
+        &mut editor,
+        &ctx,
+        0.1,
+        page.min + egui::vec2(100., 100.),
+        page.min + egui::vec2(200., 200.),
+    );
+    editor.tool = crate::app::Tool::Subselect;
+    editor.history.clear();
+    let before = editor.project.clone();
+    let start = page.min + egui::vec2(100., 100.);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![
+            egui::Event::PointerMoved(start),
+            primary_button(start, true),
+        ],
+    );
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.3,
+        vec![egui::Event::PointerMoved(start + egui::vec2(20., 40.))],
+    );
+    assert_ne!(editor.project, before);
+    editor.cancel_vector();
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+}
+
+#[test]
+fn switching_frames_during_point_drag_cancels_instead_of_overwriting_another_key() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.tool = crate::app::Tool::Pencil;
+    pen_click(
+        &mut editor,
+        &ctx,
+        0.1,
+        page.min + egui::vec2(100., 100.),
+        page.min + egui::vec2(200., 200.),
+    );
+    editor.frame = 10;
+    editor.make_key(false);
+    editor.frame = 0;
+    editor.tool = crate::app::Tool::Subselect;
+    let before = editor.project.clone();
+    let start = page.min + egui::vec2(100., 100.);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![
+            egui::Event::PointerMoved(start),
+            primary_button(start, true),
+        ],
+    );
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.3,
+        vec![egui::Event::PointerMoved(start + egui::vec2(20., 40.))],
+    );
+    editor.frame = 10;
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.4,
+        vec![
+            egui::Event::PointerMoved(start + egui::vec2(50., 60.)),
+            primary_button(start + egui::vec2(50., 60.), false),
+        ],
+    );
+    assert!(editor.vector.point_drag.is_none());
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn quadratic_shared_control_moves_once_with_closed_seam() {
+    let mut commands = vec![
+        PathCommand::MoveTo { x: 0., y: 0. },
+        PathCommand::QuadraticTo {
+            cx: 50.,
+            cy: 50.,
+            x: 0.,
+            y: 0.,
+        },
+        PathCommand::Close,
+    ];
+    let handle = crate::vector::handles(&commands)[0];
+    crate::vector::move_handle(&mut commands, handle, egui::pos2(10., 20.));
+    assert!(matches!(
+        commands[0],
+        PathCommand::MoveTo { x: 10., y: 20. }
+    ));
+    assert!(matches!(
+        commands[1],
+        PathCommand::QuadraticTo {
+            cx: 60.,
+            cy: 70.,
+            x: 10.,
+            y: 20.
+        }
+    ));
+}
+
+#[test]
+fn selecting_a_highly_scaled_tiny_curve_matches_visible_geometry() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.add_element(
+        ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 0., y: 0. },
+                PathCommand::QuadraticTo {
+                    cx: 0.05,
+                    cy: 0.1,
+                    x: 0.1,
+                    y: 0.,
+                },
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0, 0, 0, 0],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 0.005,
+        },
+        100.,
+        100.,
+    );
+    let id = editor.selected.clone();
+    editor.selected_element_mut().unwrap().transform.scale_x = 1000.;
+    editor.selected_element_mut().unwrap().transform.scale_y = 1000.;
+    editor.selected = None;
+    let point = page.min + egui::vec2(150., 150.);
+    pen_click(&mut editor, &ctx, 0.1, point, point);
+    assert_eq!(editor.selected, id);
+}
+
+#[test]
+fn saving_finishes_an_open_pen_draft_and_preserves_it_in_json() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.tool = crate::app::Tool::Pen;
+    let a = page.min + egui::vec2(100., 100.);
+    let b = page.min + egui::vec2(200., 200.);
+    pen_click(&mut editor, &ctx, 0.1, a, a);
+    pen_click(&mut editor, &ctx, 0.2, b, b);
+    assert!(editor.dirty());
+    let path = std::env::temp_dir().join(format!("neoflash-{}.nflash", new_id("pen-save-test")));
+    editor.path = Some(path.clone());
+    assert!(editor.save(false));
+    assert!(editor.vector.draft.is_none());
+    assert!(!editor.dirty());
+    let loaded = Project::from_json(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(loaded, editor.project);
+    assert!(matches!(
+        loaded.symbols[0].timeline.layers[0]
+            .key_at(0)
+            .unwrap()
+            .elements[0]
+            .kind,
+        ElementKind::Path { .. }
+    ));
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn navigating_away_finishes_a_pen_draft_in_its_original_frame() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.frame = 5;
+    editor.tool = crate::app::Tool::Pen;
+    let a = page.min + egui::vec2(100., 100.);
+    let b = page.min + egui::vec2(200., 200.);
+    pen_click(&mut editor, &ctx, 0.1, a, a);
+    pen_click(&mut editor, &ctx, 0.2, b, b);
+    editor.frame = 20;
+    stage_input_frame(&mut editor, &ctx, 0.3, vec![]);
+    assert_eq!(editor.frame, 20);
+    assert!(editor.vector.draft.is_none());
+    let keys = &editor.symbol().timeline.layers[0].keyframes;
+    assert!(
+        keys.iter()
+            .any(|k| k.frame == 5 && matches!(k.elements[0].kind, ElementKind::Path { .. }))
+    );
+    assert!(!keys.iter().any(|k| k.frame == 20));
+    editor.undo();
+    assert_eq!(editor.symbol().timeline.layers[0].keyframes.len(), 1);
+}

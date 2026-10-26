@@ -78,3 +78,22 @@ test('WASM changes instance lifetime when a placement disappears and returns', a
   assert.notEqual(player.lifetime_id('["left"]'),before);
   player.free();
 });
+test('WASM preserves curved compound paths and nested affine transforms',async()=>{
+  await ready;
+  const data=project();
+  const geometry={type:'path',commands:[
+    {op:'move_to',x:0,y:0},{op:'quadratic_to',cx:50,cy:100,x:100,y:0},{op:'close'},
+    {op:'move_to',x:30,y:10},{op:'cubic_to',cx1:40,cy1:30,cx2:60,cy2:30,x:70,y:10},{op:'close'},
+  ],fill_rule:'evenodd',fill:[255,100,50,255],stroke:[0,0,0,255],stroke_width:3};
+  data.symbols[1].timeline.layers[0].keyframes.forEach(key=>{key.elements[0].kind=geometry});
+  const right=data.symbols[0].timeline.layers[0].keyframes[0].elements[1];
+  right.transform={...right.transform,rotation:90,scale_x:2,scale_y:3};
+  const player=new wasm.WebPlayer(JSON.stringify(data));
+  const item=JSON.parse(player.scene_json()).find(item=>item.instance_path[0]==='right');
+  assert.deepEqual(item.kind,geometry);
+  assert.ok(Math.abs(item.transform[0])<1e-10);
+  assert.equal(item.transform[1],2);
+  assert.equal(item.transform[2],-3);
+  assert.equal(item.transform[4],100);
+  player.free();
+});

@@ -14,6 +14,7 @@ pub(crate) struct Source {
     pub format: ImportFormat,
     pub version: Option<String>,
     pub files: BTreeMap<String, String>,
+    pub binary: Option<crate::legacy::BinaryFlaInspection>,
 }
 
 pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
@@ -28,6 +29,7 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
             },
             version: None,
             files,
+            binary: None,
         });
     }
     let mut file = File::open(path)?;
@@ -56,20 +58,20 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
                 String::from_utf8_lossy(&header[..3])
             )),
             files,
+            binary: None,
         });
     }
     if header[..read].starts_with(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]) {
+        let binary = crate::legacy::inspect(path)?;
         return Ok(Source {
-            format: if path
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("fla"))
-            {
+            format: if binary.is_some() {
                 ImportFormat::LegacyBinaryFla
             } else {
                 ImportFormat::Unknown
             },
-            version: None,
+            version: binary.as_ref().and_then(|b| b.authoring_version.clone()),
             files,
+            binary,
         });
     }
     if header[..read].starts_with(b"PK\x03\x04") {
@@ -133,12 +135,14 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
             format,
             version: None,
             files,
+            binary: None,
         });
     }
     Ok(Source {
         format: ImportFormat::Unknown,
         version: None,
         files,
+        binary: None,
     })
 }
 

@@ -172,6 +172,24 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                         );
                     }
                     match &element.kind {
+                        ElementKind::Path {
+                            commands,
+                            stroke_width,
+                            ..
+                        } => {
+                            if let Err(error) = validate_path_commands(commands) {
+                                add(format!("{ep}.kind.commands"), error.to_string());
+                            }
+                            if !stroke_width.is_finite()
+                                || *stroke_width < 0.
+                                || *stroke_width > 1e9
+                            {
+                                add(
+                                    format!("{ep}.kind.stroke_width"),
+                                    "stroke width must be finite and in 0..=1e9".into(),
+                                );
+                            }
+                        }
                         ElementKind::Rectangle {
                             width,
                             height,
