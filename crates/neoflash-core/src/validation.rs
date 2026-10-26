@@ -156,6 +156,28 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                         );
                     }
                     let t = element.transform;
+                    if let Some(accessibility) = &element.accessibility {
+                        if accessibility.name.trim().is_empty()
+                            || accessibility.name.chars().count() > 256
+                        {
+                            add(
+                                format!("{ep}.accessibility.name"),
+                                "accessible name must contain 1..=256 characters".into(),
+                            );
+                        }
+                        if accessibility.description.chars().count() > 4096 {
+                            add(
+                                format!("{ep}.accessibility.description"),
+                                "accessible description exceeds 4096 characters".into(),
+                            );
+                        }
+                        if accessibility.tab_order > 10000 {
+                            add(
+                                format!("{ep}.accessibility.tab_order"),
+                                "focus order must be in 0..=10000".into(),
+                            );
+                        }
+                    }
                     if ![t.x, t.y, t.scale_x, t.scale_y, t.rotation, t.alpha]
                         .iter()
                         .all(|v| v.is_finite())

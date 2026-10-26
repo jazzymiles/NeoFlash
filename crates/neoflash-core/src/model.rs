@@ -152,6 +152,29 @@ pub struct Element {
     pub kind: ElementKind,
     #[serde(default)]
     pub scripts: Vec<ObjectScript>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accessibility: Option<Accessibility>,
+}
+
+/// Authored semantics are attached to a placement, including symbol instances.
+/// Hosts derive current visibility and lifetime from the shared runtime.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Accessibility {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub role: AccessibleRole,
+    #[serde(default)]
+    pub tab_order: u32,
+    #[serde(default)]
+    pub disabled: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccessibleRole {
+    Button,
+    Image,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]

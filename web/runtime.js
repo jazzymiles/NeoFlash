@@ -62,12 +62,20 @@
     const paths = new global.NeoFlashPaths.PathCache();
     const status = document.getElementById('status');
     const toggle = document.getElementById('toggle');
+    const traceElement = document.getElementById('trace');
+    const viewport = document.getElementById('viewport');
+    const semanticLayer = new global.NeoFlashAccessibility.SemanticLayer(document.getElementById('semantic-layer'), node => {
+      if (failed) return;
+      try {
+        if (player.activate_accessible(JSON.stringify(node.instance_path), node.lifetime_id)) { dispatchScripts(node.instance_path); render(); }
+      } catch (error) { fail(error); }
+    });
+    const preview = new global.NeoFlashPreview.Preview(viewport, document.getElementById('stage-space'), document.getElementById('stage-surface'), canvas, project, () => render());
     const functions = new Map();
     const proxies = new Map();
     let scene = [];
     let lastTime = null;
     let accumulated = 0;
-    let ratio = 1;
     let lastTrace = '';
     const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame'];
     for (const script of bundle.scripts) {
@@ -184,19 +192,11 @@
       }
       if (player.script_overflowed()) throw new Error('Script event limit exceeded. Check recursive timeline controls.');
     }
-    function resize() {
-      ratio = Math.min(global.devicePixelRatio || 1, 3);
-      canvas.width = Math.round(project.width * ratio);
-      canvas.height = Math.round(project.height * ratio);
-      canvas.style.aspectRatio = `${project.width} / ${project.height}`;
-      const scale = Math.max(0.01, Math.min(1, (global.innerWidth - 48) / project.width, (global.innerHeight - 110) / project.height));
-      canvas.style.width = `${project.width * scale}px`;
-      canvas.style.height = `${project.height * scale}px`;
-    }
+    function resize() { preview.resize(); }
     function font(kind) { return `${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`; }
     function render() {
       scene = JSON.parse(player.scene_json());
-      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context.setTransform(canvas.width / project.width, 0, 0, canvas.height / project.height, 0, 0);
       context.clearRect(0, 0, project.width, project.height);
       context.fillStyle = color(project.background);
       context.fillRect(0, 0, project.width, project.height);
@@ -237,7 +237,10 @@
         } else throw new Error(`Unsupported display primitive: ${kind.type}`);
         context.restore();
       }
-      status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${project.fps} fps${lastTrace ? ' · ' + lastTrace : ''}`;
+      const targetCount = semanticLayer.update(JSON.parse(player.accessibility_json()), scene, project, preview.view.scale, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
+      if (targetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
+      status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${project.fps} fps`;
+      if (traceElement.textContent !== lastTrace) traceElement.textContent = lastTrace;
       toggle.textContent = player.is_playing() ? 'Pause' : 'Play';
     }
     function hitAt(event) {
@@ -257,13 +260,13 @@
       return null;
     }
     canvas.addEventListener('click', event => {
-      if (failed) return;
+      if (failed || preview.panMode || preview.suppressClick) return;
       try {
         const target = hitAt(event);
         if (target) { player.click(JSON.stringify(target)); dispatchScripts(target); render(); }
       } catch (error) { fail(error); }
     });
-    canvas.addEventListener('pointermove', event => { canvas.style.cursor = hitAt(event) ? 'pointer' : 'default'; });
+    canvas.addEventListener('pointermove', event => { canvas.style.cursor = preview.panMode ? 'grab' : (hitAt(event) ? 'pointer' : 'default'); });
     toggle.addEventListener('click', () => {
       player.set_playing(!player.is_playing());
       lastTime = null;
@@ -278,9 +281,10 @@
     });
     global.addEventListener('resize', () => { resize(); render(); });
     document.addEventListener('visibilitychange', () => { lastTime = null; accumulated = 0; });
-    canvas.addEventListener('keydown', event => {
-      if (event.code === 'Space') { event.preventDefault(); toggle.click(); }
-    });
+    document.getElementById('zoom').addEventListener('change', event => preview.setMode(event.target.value));
+    const panButton = document.getElementById('pan');
+    panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); canvas.style.cursor = preview.panMode ? 'grab' : 'default'; });
+    new ResizeObserver(() => { resize(); render(); }).observe(viewport);
     resize();
     dispatchScripts();
     render();

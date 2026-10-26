@@ -19,6 +19,7 @@ fn tween_project(easing: Easing) -> (Project, Id) {
     let mut project = Project::blank();
     let id = new_id("object");
     let start = Element {
+        accessibility: None,
         id: id.clone(),
         name: "moving_shape".into(),
         transform: Transform::default(),
@@ -990,4 +991,70 @@ fn navigating_away_finishes_a_pen_draft_in_its_original_frame() {
     assert!(!keys.iter().any(|k| k.frame == 20));
     editor.undo();
     assert_eq!(editor.symbol().timeline.layers[0].keyframes.len(), 1);
+}
+
+fn button_metadata() -> Accessibility {
+    Accessibility {
+        name: "Open scene".into(),
+        description: "Opens the next scene".into(),
+        role: AccessibleRole::Button,
+        tab_order: 2,
+        disabled: false,
+    }
+}
+
+#[test]
+fn accessibility_edits_between_keys_preserve_the_visible_pose_and_undo() {
+    let mut editor = editor_at_middle(Easing::Linear);
+    let before = editor.project.clone();
+    let sampled = editor.selected_sampled().unwrap();
+    editor.playing = true;
+    editor.set_accessibility(Some(button_metadata()));
+    assert!(
+        !editor.playing,
+        "editing semantics must keep the playhead stable"
+    );
+    let edited = editor.selected_element().unwrap();
+    assert_eq!(edited.transform, sampled.transform);
+    assert_eq!(edited.accessibility, Some(button_metadata()));
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0],
+        before.symbols[0].timeline.layers[0].keyframes[0]
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn conversion_preserves_one_semantic_target_instead_of_duplicating_it_inside_the_symbol() {
+    let mut editor = editor_at_middle(Easing::Linear);
+    editor.set_accessibility(Some(button_metadata()));
+    let id = editor.selected.clone().unwrap();
+    editor.convert_to_symbol();
+    let instance = editor.selected_element().unwrap();
+    assert_eq!(instance.accessibility, Some(button_metadata()));
+    let ElementKind::Instance { symbol_id, .. } = &instance.kind else {
+        panic!("instance expected")
+    };
+    assert!(
+        editor.project.symbol(symbol_id).unwrap().timeline.layers[0].keyframes[0].elements[0]
+            .accessibility
+            .is_none()
+    );
+    let mut player = Player::new(&editor.project);
+    player.control(&editor.project, &[], PlaybackCommand::GotoAndStop(5));
+    let nodes = player.accessibility_nodes(&editor.project);
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].instance_path, vec![id]);
+}
+
+#[test]
+fn locked_layer_blocks_accessibility_changes() {
+    let mut editor = editor_at_middle(Easing::Linear);
+    editor.symbol_mut().timeline.layers[0].locked = true;
+    let before = editor.project.clone();
+    editor.set_accessibility(Some(button_metadata()));
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
 }

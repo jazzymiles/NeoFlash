@@ -17,6 +17,7 @@ pub enum Tool {
 pub enum BottomTab {
     Properties,
     Actions,
+    Accessibility,
     Output,
 }
 #[derive(Clone, Copy, PartialEq)]
@@ -299,6 +300,7 @@ impl Editor {
             };
             let name = format!("{name}_{}", id.rsplit('-').next().unwrap_or("1"));
             let element = Element {
+                accessibility: None,
                 id: id.clone(),
                 name,
                 transform: Transform {
@@ -374,6 +376,7 @@ impl Editor {
             content.transform = Transform::default();
             content.id = new_id("object");
             content.scripts.clear();
+            content.accessibility = None;
             s.project.symbols.push(Symbol {
                 id: id.clone(),
                 name: format!("{} symbol", element.name),

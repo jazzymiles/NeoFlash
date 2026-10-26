@@ -97,3 +97,20 @@ test('WASM preserves curved compound paths and nested affine transforms',async()
   assert.equal(item.transform[4],100);
   player.free();
 });
+test('WASM exposes independent authored targets and validates activation lifetime/disabled state',async()=>{
+ await ready;const data=project();
+ const meta=name=>({name,description:'Counter',role:'button',tab_order:0,disabled:false});
+ for(const keyframe of data.symbols[0].timeline.layers[0].keyframes){keyframe.elements[0].accessibility=meta('Left counter');keyframe.elements[1].accessibility=meta('Right counter');}
+ data.symbols[0].timeline.layers[0].keyframes.splice(1,0,key(1,[]),key(2,[{...instance('left',0),accessibility:meta('Left counter')},{...instance('right',100),accessibility:{...meta('Right counter'),disabled:true}}]));
+ const player=new wasm.WebPlayer(JSON.stringify(data));player.scripts_json();
+ let nodes=JSON.parse(player.accessibility_json());assert.deepEqual(nodes.map(n=>n.accessibility.name),['Left counter','Right counter']);
+ const old=nodes[0];assert.equal(player.activate_accessible(JSON.stringify(old.instance_path),old.lifetime_id),true);
+ assert.equal(JSON.parse(player.scripts_json()).filter(x=>x.event==='click').length,1);
+ player.tick();assert.equal(JSON.parse(player.accessibility_json()).length,0);
+ player.tick();nodes=JSON.parse(player.accessibility_json());assert.equal(nodes.length,2);
+ assert.equal(player.activate_accessible(JSON.stringify(old.instance_path),old.lifetime_id),false);
+ const replacement=nodes.find(n=>n.accessibility.name==='Left counter');assert.notEqual(replacement.lifetime_id,old.lifetime_id);
+ assert.equal(player.activate_accessible(JSON.stringify(replacement.instance_path),replacement.lifetime_id),true);
+ const disabled=nodes.find(n=>n.accessibility.disabled);assert.equal(player.activate_accessible(JSON.stringify(disabled.instance_path),disabled.lifetime_id),false);
+ player.free();
+});

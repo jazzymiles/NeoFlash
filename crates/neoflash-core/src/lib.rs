@@ -14,5 +14,5 @@ pub use geometry::{
 };
 pub use history::History;
 pub use model::*;
-pub use runtime::{PlaybackCommand, Player, ScriptDispatch, ScriptEvent};
+pub use runtime::{AccessibleNode, PlaybackCommand, Player, ScriptDispatch, ScriptEvent};
 pub use validation::{ProjectError, ValidationIssue, validate};

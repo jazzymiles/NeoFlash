@@ -326,6 +326,7 @@ fn compatible_path_topology_morphs_and_incompatible_topology_holds() {
     let symbol = &mut project.symbols[0];
     symbol.timeline.frame_count = 11;
     let from = Element {
+        accessibility: None,
         id: new_id("path"),
         name: "Contour".into(),
         transform: Transform::default(),
@@ -382,6 +383,7 @@ fn invalid_path_geometry_is_rejected_on_document_load() {
     project.symbols[0].timeline.layers[0].keyframes[0]
         .elements
         .push(Element {
+            accessibility: None,
             id: new_id("path"),
             name: "Bad".into(),
             transform: Transform::default(),

@@ -28,6 +28,21 @@ impl WebPlayer {
             .map_err(|error| JsValue::from_str(&error.to_string()))
     }
 
+    pub fn accessibility_json(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&self.player.accessibility_nodes(&self.project))
+            .map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
+    pub fn activate_accessible(
+        &mut self,
+        target: &str,
+        lifetime_id: &str,
+    ) -> Result<bool, JsValue> {
+        Ok(self
+            .player
+            .activate_accessible(&self.project, &path(target)?, lifetime_id))
+    }
+
     pub fn scripts_json(&mut self) -> Result<String, JsValue> {
         serde_json::to_string(&self.player.drain_scripts())
             .map_err(|error| JsValue::from_str(&error.to_string()))

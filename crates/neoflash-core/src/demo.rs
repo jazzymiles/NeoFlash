@@ -59,6 +59,7 @@ impl Project {
 
         let orbit_id = new_id("symbol");
         let ring = Element {
+            accessibility: None,
             id: new_id("element"),
             name: "Ring".into(),
             transform: Transform::default(),
@@ -72,6 +73,7 @@ impl Project {
             scripts: vec![],
         };
         let ring_inner = Element {
+            accessibility: None,
             id: new_id("element"),
             name: "Inner ring".into(),
             transform: Transform {
@@ -260,6 +262,7 @@ fn key(frame: u32, elements: Vec<Element>, tween: Option<Easing>) -> Keyframe {
 }
 fn rect(name: &str, x: f64, y: f64, width: f64, height: f64, fill: Color) -> Element {
     Element {
+        accessibility: None,
         id: new_id("element"),
         name: name.into(),
         transform: Transform {
@@ -291,6 +294,7 @@ fn ellipse(name: &str, x: f64, y: f64, width: f64, height: f64, fill: Color) -> 
 }
 fn text(name: &str, value: &str, x: f64, y: f64, font_size: f64, color: Color) -> Element {
     Element {
+        accessibility: None,
         id: new_id("element"),
         name: name.into(),
         transform: Transform {
@@ -309,6 +313,7 @@ fn text(name: &str, value: &str, x: f64, y: f64, font_size: f64, color: Color) -
 }
 fn instance(name: &str, symbol_id: &str, x: f64, y: f64, playback: InstancePlayback) -> Element {
     Element {
+        accessibility: None,
         id: new_id("element"),
         name: name.into(),
         transform: Transform {

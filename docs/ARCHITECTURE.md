@@ -26,6 +26,8 @@ The Rust exporter validates all data and compiles scripts before publishing. It 
 
 Canvas is the first renderer. DOM-based accessible text, forms, responsive containers and semantic web documents are planned alongside Canvas, not represented as completed by the initial exporter. Font files are not embedded yet; explicit warnings describe browser fallback.
 
+Optional placement accessibility metadata is evaluated by the same Rust runtime. A separate browser semantic layer represents named Button/Image targets and preserves their placement lifetimes; keyboard activation enters the existing Click event path. This is the first semantic layer, while rich DOM components remain planned. See [authored web semantics](decisions/0003-authored-web-semantics.md).
+
 ## Desktop
 
 `eframe/egui 0.33.3` is pinned as the initial tested UI baseline with wgpu/Metal rendering. Custom panels implement a dense classic workspace. Native dialogs use rfd; installed fonts use font-kit/CoreText. A native `.app` wrapper sets macOS 15 as the deployment target. AppKit integration (menus, document lifecycle, accessibility and richer input) needs further work.

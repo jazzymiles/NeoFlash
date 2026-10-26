@@ -2,6 +2,7 @@ use neoflash_core::*;
 
 fn shape(id: &str, x: f64) -> Element {
     Element {
+        accessibility: None,
         id: id.into(),
         name: id.into(),
         transform: Transform {

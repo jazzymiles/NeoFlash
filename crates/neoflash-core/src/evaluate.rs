@@ -27,6 +27,9 @@ pub(crate) struct Node {
     pub independent: bool,
     pub scripts: Vec<ObjectScript>,
     pub transform: Transform,
+    pub accessibility: Option<Accessibility>,
+    pub world: [f64; 6],
+    pub alpha: f64,
 }
 
 #[derive(Default)]
@@ -320,6 +323,9 @@ pub(crate) fn snapshot(
         independent: true,
         scripts: vec![],
         transform: Transform::default(),
+        accessibility: None,
+        world: IDENTITY,
+        alpha: 1.,
     });
     let mut walker = Walker {
         project,
@@ -375,6 +381,9 @@ impl Walker<'_> {
                     independent: false,
                     scripts: e.scripts.clone(),
                     transform: e.transform,
+                    accessibility: e.accessibility.clone(),
+                    world,
+                    alpha: opacity,
                 };
                 if let ElementKind::Instance {
                     symbol_id,

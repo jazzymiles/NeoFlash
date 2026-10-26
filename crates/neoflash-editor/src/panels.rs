@@ -725,12 +725,18 @@ impl Editor {
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut self.bottom, BottomTab::Properties, "Properties");
                     ui.selectable_value(&mut self.bottom, BottomTab::Actions, "Actions");
+                    ui.selectable_value(
+                        &mut self.bottom,
+                        BottomTab::Accessibility,
+                        "Accessibility",
+                    );
                     ui.selectable_value(&mut self.bottom, BottomTab::Output, "Output");
                 });
                 ui.separator();
                 match self.bottom {
                     BottomTab::Properties => self.properties(ui, ctx),
                     BottomTab::Actions => self.actions(ui),
+                    BottomTab::Accessibility => self.accessibility_panel(ui),
                     BottomTab::Output => {
                         egui::ScrollArea::vertical()
                             .stick_to_bottom(true)

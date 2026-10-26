@@ -1,0 +1,826 @@
+{
+  "format_version": 1,
+  "name": "Keyboard controls",
+  "width": 960,
+  "height": 600,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Keyboard controls",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 120,
+        "layers": [
+          {
+            "id": "Typography and details",
+            "name": "Typography and details",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "edition",
+                    "name": "edition",
+                    "transform": {
+                      "x": 60,
+                      "y": 52,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / INTERACTION STUDY 03",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 12,
+                      "color": [
+                        174,
+                        187,
+                        207,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "headline",
+                    "name": "headline",
+                    "transform": {
+                      "x": 60,
+                      "y": 89,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Built to respond.",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 50,
+                      "color": [
+                        235,
+                        242,
+                        251,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 62,
+                      "y": 160,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Two instances. One familiar workflow.",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 20,
+                      "color": [
+                        174,
+                        187,
+                        207,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "blue-caption",
+                    "name": "blue-caption",
+                    "transform": {
+                      "x": 120,
+                      "y": 420,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "01 / AN INDEPENDENT COUNTER",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 12,
+                      "color": [
+                        174,
+                        187,
+                        207,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "red-caption",
+                    "name": "red-caption",
+                    "transform": {
+                      "x": 560,
+                      "y": 420,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "02 / A SECOND INSTANCE",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 12,
+                      "color": [
+                        174,
+                        187,
+                        207,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 62,
+                      "y": 465,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Tab to a button. Enter or Space activates it once.",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 16,
+                      "color": [
+                        174,
+                        187,
+                        207,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "unavailable",
+                    "name": "unavailable",
+                    "transform": {
+                      "x": 682,
+                      "y": 457,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 180,
+                      "height": 40,
+                      "fill": [
+                        39,
+                        48,
+                        64,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "trace(\"Disabled action incorrectly fired\");"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Unavailable action",
+                      "description": "This action is currently disabled.",
+                      "role": "button",
+                      "tab_order": 30,
+                      "disabled": true
+                    }
+                  },
+                  {
+                    "id": "unavailable-label",
+                    "name": "unavailable-label",
+                    "transform": {
+                      "x": 702,
+                      "y": 469,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "UNAVAILABLE",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 11,
+                      "color": [
+                        174,
+                        187,
+                        207,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "divider",
+                    "name": "divider",
+                    "transform": {
+                      "x": 60,
+                      "y": 530,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 840,
+                      "height": 1,
+                      "fill": [
+                        45,
+                        57,
+                        75,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 62,
+                      "y": 551,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Fit for the whole stage. 100% for authored pixels. Pan to explore.",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 13,
+                      "color": [
+                        174,
+                        187,
+                        207,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "emblem",
+                    "name": "emblem",
+                    "transform": {
+                      "x": 847,
+                      "y": 52,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 30,
+                      "height": 30,
+                      "fill": [
+                        101,
+                        154,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "Keyboard study emblem",
+                      "description": "",
+                      "role": "image",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "Interactive instances",
+            "name": "Interactive instances",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "blue-group",
+                    "name": "blue-group",
+                    "transform": {
+                      "x": 100,
+                      "y": 245,
+                      "rotation": -3,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "blue-group-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "red-group",
+                    "name": "red-group",
+                    "transform": {
+                      "x": 540,
+                      "y": 245,
+                      "rotation": 3,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "red-group-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": ""
+              },
+              {
+                "frame": 60,
+                "elements": [
+                  {
+                    "id": "blue-group",
+                    "name": "blue-group",
+                    "transform": {
+                      "x": 125,
+                      "y": 245,
+                      "rotation": 2,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "blue-group-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "red-group",
+                    "name": "red-group",
+                    "transform": {
+                      "x": 515,
+                      "y": 245,
+                      "rotation": -2,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "red-group-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": ""
+              },
+              {
+                "frame": 119,
+                "elements": [
+                  {
+                    "id": "blue-group",
+                    "name": "blue-group",
+                    "transform": {
+                      "x": 100,
+                      "y": 245,
+                      "rotation": -3,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "blue-group-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "red-group",
+                    "name": "red-group",
+                    "transform": {
+                      "x": 540,
+                      "y": 245,
+                      "rotation": 3,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "red-group-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "blue-face",
+      "name": "blue-face",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "blue-face-layer",
+            "name": "blue-face-layer",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "blue-face-bg",
+                    "name": "blue-face-bg",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 260,
+                      "height": 140,
+                      "fill": [
+                        101,
+                        154,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "blue-label",
+                    "name": "blue-label",
+                    "transform": {
+                      "x": 24,
+                      "y": 24,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "BLUE",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 26,
+                      "color": [
+                        15,
+                        32,
+                        63,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "blue-instruction",
+                    "name": "blue-instruction",
+                    "transform": {
+                      "x": 24,
+                      "y": 99,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Enter / Space",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 15,
+                      "color": [
+                        20,
+                        48,
+                        92,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "red-face",
+      "name": "red-face",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "red-face-layer",
+            "name": "red-face-layer",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "red-face-bg",
+                    "name": "red-face-bg",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 260,
+                      "height": 140,
+                      "fill": [
+                        247,
+                        121,
+                        139,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "red-label",
+                    "name": "red-label",
+                    "transform": {
+                      "x": 24,
+                      "y": 24,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RED",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 26,
+                      "color": [
+                        64,
+                        20,
+                        34,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "red-instruction",
+                    "name": "red-instruction",
+                    "transform": {
+                      "x": 24,
+                      "y": 99,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Enter / Space",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 15,
+                      "color": [
+                        93,
+                        27,
+                        46,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "blue-group-symbol",
+      "name": "blue-group-symbol",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "blue-group-symbol-layer",
+            "name": "blue-group-symbol-layer",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "blue-control",
+                    "name": "blue-control",
+                    "transform": {
+                      "x": 20,
+                      "y": 10,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "blue-face",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "var count:int;\nfunction increment():int { count += 1; return count; }\ntrace(\"Blue\", increment());"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Activate blue counter",
+                      "description": "Adds one to the blue button counter.",
+                      "role": "button",
+                      "tab_order": 10,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "red-group-symbol",
+      "name": "red-group-symbol",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "red-group-symbol-layer",
+            "name": "red-group-symbol-layer",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "red-control",
+                    "name": "red-control",
+                    "transform": {
+                      "x": 20,
+                      "y": 10,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "red-face",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "var count:int;\nfunction increment():int { count += 1; return count; }\ntrace(\"Red\", increment());"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Activate red counter",
+                      "description": "Adds one to the red button counter.",
+                      "role": "button",
+                      "tab_order": 20,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ]
+}

@@ -30,6 +30,13 @@ pub enum PlaybackCommand {
     GotoAndStop(u32),
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AccessibleNode {
+    pub instance_path: Vec<Id>,
+    pub lifetime_id: String,
+    pub accessibility: Accessibility,
+}
+
 #[derive(Clone, Debug)]
 struct Clock {
     symbol_id: Id,
@@ -158,6 +165,72 @@ impl Player {
 
     pub fn evaluate(&self, project: &Project) -> Vec<DrawItem> {
         self.snapshot(project).items
+    }
+
+    /// Stable authored order breaks equal tab-order ties. A semantic target's
+    /// identity includes its placement lifetime so it cannot activate a replacement.
+    pub fn accessibility_nodes(&self, project: &Project) -> Vec<AccessibleNode> {
+        let scene = self.snapshot(project);
+        // Multiplication can introduce a nonzero rounded determinant below a
+        // truly singular ancestor. Preserve authored singularity independently.
+        let singular: HashSet<_> = scene
+            .nodes
+            .iter()
+            .filter(|node| node.transform.scale_x == 0. || node.transform.scale_y == 0.)
+            .map(|node| node.path.clone())
+            .collect();
+        let disabled: HashSet<_> = scene
+            .nodes
+            .iter()
+            .filter(|node| {
+                node.accessibility
+                    .as_ref()
+                    .is_some_and(|a| a.disabled && a.role == AccessibleRole::Button)
+            })
+            .map(|node| node.path.clone())
+            .collect();
+        let mut nodes: Vec<_> = scene
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                let mut accessibility = node.accessibility.clone()?;
+                let lifetime_id = self.lifetime_id(&node.path)?.to_string();
+                if node.alpha <= 0.
+                    || (1..=node.path.len()).any(|length| singular.contains(&node.path[..length]))
+                    || (node.world[0] * node.world[3] - node.world[1] * node.world[2]).abs() < 1e-12
+                {
+                    return None;
+                }
+                if (1..node.path.len()).any(|length| disabled.contains(&node.path[..length])) {
+                    accessibility.disabled = true;
+                }
+                Some(AccessibleNode {
+                    instance_path: node.path.clone(),
+                    lifetime_id,
+                    accessibility,
+                })
+            })
+            .collect();
+        nodes.sort_by_key(|node| node.accessibility.tab_order);
+        nodes
+    }
+
+    pub fn activate_accessible(
+        &mut self,
+        project: &Project,
+        path: &[Id],
+        lifetime_id: &str,
+    ) -> bool {
+        if !self.accessibility_nodes(project).iter().any(|node| {
+            node.instance_path == path
+                && node.lifetime_id == lifetime_id
+                && node.accessibility.role == AccessibleRole::Button
+                && !node.accessibility.disabled
+        }) {
+            return false;
+        }
+        self.dispatch_click(project, path);
+        true
     }
 
     fn stabilized(&mut self, project: &Project) -> Evaluation {
@@ -317,6 +390,15 @@ impl Player {
         self.overflowed = false;
         let scene = self.snapshot(project);
         if !scene.nodes.iter().any(|n| n.path == path) {
+            return;
+        }
+        if scene.nodes.iter().any(|node| {
+            path.starts_with(&node.path)
+                && node
+                    .accessibility
+                    .as_ref()
+                    .is_some_and(|a| a.disabled && a.role == AccessibleRole::Button)
+        }) {
             return;
         }
         for length in (1..=path.len()).rev() {

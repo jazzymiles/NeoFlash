@@ -949,6 +949,7 @@ impl Parser<'_> {
         };
         Some(Element {
             id,
+            accessibility: None,
             name,
             transform,
             kind,

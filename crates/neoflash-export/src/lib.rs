@@ -12,6 +12,8 @@ use thiserror::Error;
 
 const HOST: &str = include_str!("../../../web/runtime.js");
 const PATH_GEOMETRY: &str = include_str!("../../../web/path.js");
+const ACCESSIBILITY: &str = include_str!("../../../web/accessibility.js");
+const PREVIEW: &str = include_str!("../../../web/preview.js");
 const MARKER: &str = "neoflash-export.json";
 
 #[derive(Debug, Error)]
@@ -201,6 +203,8 @@ pub fn export_project(
         ("neoflash_web.js", bindings.as_str()),
         ("runtime.js", HOST),
         ("path.js", PATH_GEOMETRY),
+        ("accessibility.js", ACCESSIBILITY),
+        ("preview.js", PREVIEW),
         ("bundle.js", bundle_js.as_str()),
         ("README.txt", readme.as_str()),
     ] {
@@ -240,27 +244,40 @@ fn html_document(title: &str) -> String {
   <style>
     :root {{ color-scheme: dark; font: 13px system-ui, sans-serif; }}
     * {{ box-sizing: border-box; }}
-    body {{ margin: 0; background: #25272b; color: #d2d6dd; min-height: 100vh; display: flex; flex-direction: column; }}
-    main {{ flex: 1; display: grid; place-items: center; overflow: hidden; padding: 24px; min-height: 0; }}
-    canvas {{ display: block; max-width: 100%; max-height: calc(100vh - 110px); width: auto; height: auto; box-shadow: 0 12px 48px #0005; outline: none; }}
-    footer {{ min-height: 46px; display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-top: 1px solid #ffffff12; }}
-    button {{ background: #34373e; color: #f3f4f6; border: 1px solid #555a64; border-radius: 4px; font: inherit; padding: 5px 12px; cursor: pointer; }}
+    body {{ margin: 0; background: #25272b; color: #d2d6dd; height: 100vh; height: 100dvh; display: grid; grid-template-rows: minmax(0,1fr) auto; overflow: hidden; }}
+    #viewport {{ position: relative; overflow: auto; min-height: 0; min-width: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; }}
+    #stage-space {{ position: relative; }}
+    #stage-surface {{ position: absolute; box-shadow: 0 12px 48px #0005; }}
+    canvas {{ display: block; width: 100%; height: 100%; outline: none; }}
+    #semantic-layer {{ position: absolute; inset: 0; pointer-events: none; }}
+    footer {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 16px; border-top: 1px solid #ffffff12; min-width: 0; }}
+    .transport {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }}
+    button, select {{ background: #34373e; color: #f3f4f6; border: 1px solid #555a64; border-radius: 4px; font: inherit; padding: 7px 12px; cursor: pointer; min-height: 34px; }}
     button:hover {{ background: #464c58; }}
-    button:focus-visible {{ outline: 2px solid #7ba9ef; outline-offset: 2px; }}
+    button:focus-visible, select:focus-visible {{ outline: 2px solid #7ba9ef; outline-offset: 2px; }}
+    button[aria-pressed="true"] {{ background: #405779; }}
+    .semantic-target {{ position: absolute; pointer-events: none; padding: 0; margin: 0; border: 0; border-radius: 3px; background: transparent; color: transparent; min-height: 0; font-size: 0; }}
+    .semantic-target:hover, .semantic-target:disabled {{ background: transparent; }}
+    .semantic-target:focus-visible {{ outline: 3px solid #d4e9ff; outline-offset: 3px; box-shadow: 0 0 0 6px #183d71; }}
+    .pan-mode, .pan-mode canvas {{ cursor: grab; }}
+    .preview-info {{ display: flex; flex-wrap: wrap; gap: 4px 12px; min-width: 0; flex: 1; }}
     #name {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-    #status {{ margin-left: auto; font-variant-numeric: tabular-nums; color: #a5acb7; }}
+    #status {{ font-variant-numeric: tabular-nums; color: #a5acb7; white-space: nowrap; }}
+    #trace {{ flex-basis: 100%; overflow-wrap: anywhere; min-height: 1em; color: #c6d8ef; }}
     #error {{ position: fixed; inset: 24px; max-height: 60vh; overflow: auto; margin: auto; z-index: 2; padding: 24px; border: 1px solid #f19393; background: #351d22; color: #ffe0e0; white-space: pre-wrap; display: none; }}
     #loading {{ position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }}
-    @media (max-width: 600px) {{ main {{ padding: 8px; }} #name {{ display: none; }} }}
+    @media (max-width: 600px) {{ footer {{ padding: 8px; }} .transport {{ gap: 6px; }} .preview-info {{ flex-basis: 100%; }} #name {{ display: none; }} }}
   </style>
   <script defer src="neoflash_web.js"></script>
   <script defer src="bundle.js"></script>
   <script defer src="path.js"></script>
+  <script defer src="accessibility.js"></script>
+  <script defer src="preview.js"></script>
   <script defer src="runtime.js"></script>
 </head>
 <body>
-  <main><canvas id="stage" tabindex="0" aria-label="{title}"></canvas></main>
-  <footer><button id="toggle" type="button">Pause</button><button id="restart" type="button">Restart</button><span id="name">{title}</span><span id="status" role="status"></span></footer>
+  <main id="viewport" tabindex="-1" aria-label="Project preview"><div id="stage-space"><div id="stage-surface" role="group" aria-label="{title}"><canvas id="stage" aria-label="{title}"></canvas><div id="semantic-layer"></div></div></div></main>
+  <footer><div class="transport" aria-label="Preview controls"><button id="toggle" type="button">Pause</button><button id="restart" type="button">Restart</button><select id="zoom" aria-label="Preview zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" type="button" aria-pressed="false" title="Drag the stage to pan. Touch scrolling also works.">Pan</button></div><div class="preview-info"><span id="name">{title}</span><span id="status"></span><span id="trace" role="status" aria-live="polite" aria-atomic="true"></span></div></footer>
   <div id="loading" role="status">Loading project…</div><pre id="error" role="alert"></pre>
 </body>
 </html>

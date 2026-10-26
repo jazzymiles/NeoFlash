@@ -52,6 +52,10 @@ HTML5 export uses the same Rust timeline/runtime through WebAssembly and a small
 
 **Current text limitation:** the editor uses installed fonts, while HTML5 export references fonts by name. Font embedding/subsetting and consistent cross-platform text layout are not implemented yet; export reports this rather than silently promising identical typography.
 
+For interactive web content, use the **Accessibility** panel to give an object a name, description, Button/Image role and reading/focus order. Buttons use the existing Click handler for keyboard activation. See [interactive HTML5 projects](docs/WEB.md) for authoring and preview controls, and the verification record for tested boundaries.
+
+Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two independent AS3 counter instances, or [vector-paths.nflash](examples/vector-paths.nflash) for curved strokes and compound fills. HTML5 previews provide Fit, 100% and fixed zoom levels with scrolling and a Pan tool.
+
 ## Project layout
 
 ```text
@@ -76,6 +80,7 @@ There is one source tree. Version history belongs in Git, build outputs in ignor
 - [Architecture](docs/ARCHITECTURE.md) and [decisions](docs/decisions/0001-foundation.md)
 - [Roadmap](docs/ROADMAP.md) and [backlog](docs/BACKLOG.md)
 - [Language compatibility](docs/COMPATIBILITY.md) and [legacy import](docs/IMPORTS.md)
+- [Interactive HTML5 projects](docs/WEB.md)
 - [Verification record](docs/VERIFICATION.md)
 - [Changes](CHANGELOG.md) and [contributing](CONTRIBUTING.md)
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added ActionScript function declarations and expressions, lexical locals, recursion, closures and selected AS3 argument/return coercions, with explicit diagnostics for unsupported function semantics.
+- Added optional authored names, descriptions, Button/Image roles and focus order to placements, an Accessibility panel and lifetime-checked activation in the shared runtime.
+- Added semantic HTML5 controls, persistent keyboard focus, visible script trace output, and Fit/100%/zoom/pan preview controls. The original keyboard example exercises independent AS3 instance counters.
+- Added bounded preservation of binary FLA shape matrices, fills, strokes, edge deltas and auxiliary curves. Inspection still does not claim editable document conversion.
 - Added shared line/quadratic/cubic vector paths, compound contours, fill rules, geometry validation, analytic bounds and bounded hit testing.
 - Added desktop pen, pencil and point editing with grouped undo, plus native fill/stroke tessellation and HTML5 Path2D rendering.
 - Added interpolation for paths with matching command topology and a shareable vector example. Arbitrary Flash shape tweening remains unsupported.
