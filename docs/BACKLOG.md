@@ -5,7 +5,7 @@ Priority is based on the stated product goal, with explicit evidence required fo
 ## P0 — first working foundation
 
 - [x] Complete recorded desktop and browser smoke checks; fix discovered defects.
-- [ ] Publish the tested initial source tree to the authorized public GitHub repository.
+- [x] Publish the tested initial source tree to the authorized public GitHub repository.
 - [x] Inspect the user's local legacy corpus and record aggregate format/compatibility results.
 
 ## P1 — essential authoring quality
