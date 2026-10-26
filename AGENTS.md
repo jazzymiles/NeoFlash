@@ -11,3 +11,5 @@
 - Verify model/runtime behavior with meaningful tests; verify UI by running it and inspect HTML5 output in a browser. Do not claim unperformed checks.
 - Do not publish a repository, deployment or release unless requested. Local development, builds and tests are authorized.
 - With implementation changes, update affected capability IDs/status/evidence in `docs/progress/*.json`, run `python3 scripts/progress.py --write-reports`, and keep the README summary and detailed ledger consistent. Percentages describe that registry, never complete Flash compatibility.
+- Keep the progress dashboard, its capability registry and generated repository reports in English.
+- AS2/AS3 coverage must use the complete declaration catalogue and per-entry audit in `docs/progress/actionscript-*.json`. Never use the supplementary 35/36 capability groups as the language coverage denominator. Preserve separate subset/partial/missing/needs-review counts and audit provenance.

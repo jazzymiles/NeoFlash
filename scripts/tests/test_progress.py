@@ -6,11 +6,15 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "progress.py"
+sys.path.insert(0, str(MODULE_PATH.parent))
+from test_progress_catalog import write_catalog_fixture
+
 SPEC = importlib.util.spec_from_file_location("progress", MODULE_PATH)
 progress = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(progress)
@@ -63,6 +67,8 @@ class ProgressTests(unittest.TestCase):
                 data = {"schemaVersion": 1, "category": category, "features": [feature]}
             self.write_json(f"docs/progress/{name}.json", data)
         self.write_json("docs/progress/methodology.json", {"version": method})
+        if method >= 2:
+            write_catalog_fixture(self.root)
         self.write("README.md", "Before\n<!-- progress:start -->\n<!-- progress:end -->\nAfter\n")
         for name in ("index.html", "history.html", "style.css", "app.js"):
             self.write(f"web/progress/{name}", f"committed {name}\n")
@@ -162,7 +168,61 @@ class ProgressTests(unittest.TestCase):
         new = self.commit("method two", "2026-10-27T12:00:00+00:00")
         data = progress.build(self.root, self.root / "dist/site", new)
         self.assertEqual(data["methodology"]["version"], 2)
+        self.assertEqual(data["schemaVersion"], 2)
         self.assertEqual([(row["revision"], row["methodologyVersion"]) for row in data["history"]], [(old, 1), (new, 2)])
+        self.assertEqual(set(data["history"][0]["categories"]), {"product"})
+        self.assertEqual(data["history"][0]["categories"]["product"]["planned"], 1)
+        self.assertEqual(data["history"][1]["categories"]["as2"], {
+            "implemented": 1, "partial": 1, "planned": 1, "missing": 1,
+            "needs_review": 1, "total": 4, "metric": "catalogue",
+        })
+        self.assertEqual(data["history"][1]["total"]["total"], 1)
+
+    def test_family_counts_are_not_relabelled_as_declaration_history(self):
+        self.inventory(method=1)
+        for language, count in (("as2", 35), ("as3", 36)):
+            path = self.root / f"docs/progress/{language}.json"
+            inventory = json.loads(path.read_text())
+            prototype = inventory["features"][0]
+            inventory["features"] = [{**prototype, "id": f"{language}-family-{index}"} for index in range(count)]
+            self.write_json(path.relative_to(self.root), inventory)
+        original = self.commit("old family denominators", "2026-10-26T12:00:00+00:00")
+        self.inventory(method=2)
+        corrected = self.commit("declaration catalogue", "2026-10-27T12:00:00+00:00")
+        data = progress.build(self.root, self.root / "dist/site", corrected)
+        old, current = data["history"]
+        self.assertEqual(old["revision"], original)
+        self.assertNotIn("as2", old["categories"])
+        self.assertNotIn("as3", old["categories"])
+        self.assertIn("product", old["categories"])
+        self.assertEqual(current["categories"]["as2"]["total"], 4)
+        self.assertEqual(current["categories"]["as3"]["total"], 4)
+        self.assertEqual({feature["category"] for feature in data["features"]}, {"product"})
+        self.assertEqual(data["actionscript"]["counts"]["AS3"]["needs_review"], 1)
+        self.assertNotIn("entries", data["actionscript"])
+
+    def test_catalogue_build_ignores_dirty_catalogue_and_preserves_review_count(self):
+        self.inventory(method=2)
+        revision = self.commit("immutable declaration audit")
+        self.write("docs/progress/actionscript-catalog.json", "invalid uncommitted catalogue")
+        self.write("docs/progress/actionscript-audit.json", "invalid uncommitted audit")
+        data = progress.build(self.root, self.root / "dist/site", revision)
+        self.assertEqual(data["actionscript"]["counts"]["AS2"], {
+            "implemented_subset": 1, "partial": 1, "missing": 1, "needs_review": 1, "total": 4,
+        })
+        self.assertEqual(data["history"][0]["categories"]["as2"]["total"], 4)
+        self.assertEqual(data["history"][0]["categories"]["as2"]["needs_review"], 1)
+
+    def test_catalogue_reports_include_every_status_and_detect_drift(self):
+        categories, features = self.inventory(method=2)
+        progress.reports(self.root, categories, features, write=True)
+        progress.reports(self.root, categories, features)
+        readme = (self.root / "README.md").read_text()
+        self.assertIn("| AS2 | 4 | 1 | 1 | 1 | 1 |", readme)
+        self.assertIn("Needs review", readme)
+        self.write("docs/progress/ACTIONSCRIPT.md", "Outdated audit report.\n")
+        with self.assertRaisesRegex(ValueError, "stale"):
+            progress.reports(self.root, categories, features)
 
     def test_generated_report_drift_is_rejected(self):
         categories, features = self.inventory()

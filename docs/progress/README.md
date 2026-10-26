@@ -1,36 +1,52 @@
 # Progress and implementation coverage
 
-The public [coverage page](https://jazzymiles.github.io/NeoFlash/progress.html) and [daily history](https://jazzymiles.github.io/NeoFlash/history.html) answer “where are we?” without displaying a long API dump. The repository front page repeats the compact category table. The [detailed ledger](DETAILS.md) retains every scope, limitation and evidence path for local work and review.
+The [coverage page](https://jazzymiles.github.io/NeoFlash/progress.html), [daily history](https://jazzymiles.github.io/NeoFlash/history.html) and repository README provide a compact answer to “where are we?”. All public copy and generated reports use English.
 
-## Counting rules, version 1
+## ActionScript: complete declaration catalogue
 
-The source of truth is `as2.json`, `as3.json` and `product.json` in this directory. Stable feature IDs describe **reviewed capability families**, not equal-sized engineering tasks or an exhaustive list of every AS/Flash API member. AS2 and AS3 are separate language views; a shared compiler feature can appear in both. Categories must not be added together to claim a global product completion percentage.
+AS2/AS3 counts come from **46,047 documented declarations**, joined by exact catalogue ID to the existing independent implementation audit. AS2 has 2,307 entries across the language reference and two component inventories. AS3 has 43,740 entries across the selected Adobe Flash Platform reference, including AIR, Flex and components. These are methods, properties, syntax, classes, packages and other declaration kinds—not 46,047 functions or equal-sized engineering tasks.
 
-- **implemented:** the explicit bounded scope is implemented. This does not extend to everything suggested by a short feature title.
-- **partial:** part of the scope exists, or behavior still uses approximations. This contributes zero to the completed numerator; it is shown separately.
-- **planned:** the capability is missing or is only planned. An inspection API does not count as editable import, parsing does not establish runtime compatibility, and a JavaScript counterpart does not establish Flash semantics.
-- **percentage:** `implemented / (implemented + partial + planned) × 100`, displayed to one decimal place. It is neither Flash compatibility nor test line coverage. There is no 50% weight for “partial.”
+- **Implemented subset:** the exact linked rule's bounded behavior is implemented; this is not full API or language conformance.
+- **Partial:** an executable path exists with incomplete behavior or known differences.
+- **Missing:** required implementation is absent. Most entries use architectural absence inference, not an individual negative execution test.
+- **Needs review:** evidence is insufficient for an individual decision. This is neither missing nor implemented, and remains in the total.
 
-Evidence points to code, tests or the documented backlog. The generator validates paths and schema; it **does not infer semantic support from names, run conformance tests or automatically promote statuses**. The initial source review uses published implementation `cc9e7c90c2f661dc3b3d2a85ed28da7bbc753075`. Uncommitted work in other checkouts is excluded. The underlying documentation and tests describe more detail than a category percentage can.
+No overall AS compatibility percentage is displayed. Core + language + runtime subtotals (AS2: 1,238; AS3: 5,750) are separate from full-reference totals; even this narrower AS3 view includes some AIR declarations. All original catalogue entries are retained in [actionscript-catalog.json](actionscript-catalog.json), with safe rules, source hashes, input hashes and reference limitations in [actionscript-audit.json](actionscript-audit.json). See the generated [audit report](ACTIONSCRIPT.md) for scope breakdowns and evidence.
 
-## Maintaining the ledger
-
-With every implementation change, review the affected capability IDs, scopes, status, limitations and evidence in the JSON files. Keep meaningful acceptance boundaries stable: do not split completed tasks merely to increase percentages. Add missing scope openly; the denominator may grow and the displayed percentage may fall. Remove entries only when scope is deliberately retired and explain it in the changelog. A change to the counting method itself requires a new methodology version and a separately labelled series.
+The importer verifies all four original catalogue hashes and the audit evidence hash, exact one-to-one ID coverage and status totals. Normalization preserves every declaration's ID, name, owner, kind, scope, documentation URL, decision and evidence rule. It excludes raw local artifact paths and logs. It does not rediscover implementations or run conformance tests.
 
 ```sh
-python3 scripts/progress.py --write-reports  # updates README and DETAILS.md
-python3 scripts/progress.py --check         # rejects stale reports/broken evidence
-python3 -m unittest discover -s scripts/tests -p 'test_progress.py'
+python3 scripts/progress_catalog.py --summary
+python3 scripts/progress_catalog.py --language AS3 --scope runtime --query MovieClip
 ```
 
-Run the relevant model/runtime tests and browser checks when claiming new behavior. Preserve explicit limitations when those checks do not prove full Flash parity. Commit the implementation, ledger and generated reports together. `AGENTS.md` records this maintenance requirement; CI validates it structurally but cannot replace a semantic review.
+The report is a dated audit, not a fresh test run. The page compares its published implementation with the baseline source fingerprints, showing when that implementation has changed. Documentation-only differences are separate. Original Flash differential testing was not performed. Later unshipped working-tree reviews in the original audit are not counted as shipped behavior or assigned baseline test passes.
 
-## Daily history and publication
+## Product capability groups
 
-`python3 scripts/progress.py` builds **committed HEAD**, including the static UI, into ignored `dist/progress/`. It rejects shallow clones. `--revision <commit>` reproduces an earlier snapshot with immutable code links. Output includes `progress.json` and `history.json`; generated timestamps identify the source commit, not the time someone opened the page.
+`product.json` tracks bounded capabilities in editor, animation, HTML5, imports and platform. **Implemented** means the explicit scope is implemented; **partial** contributes zero to the completed numerator; **planned** remains in the denominator. Percentage = implemented / total × 100, displayed to one decimal place. This is not test line coverage or overall product completion.
 
-The builder walks first-parent Git history and selects the last commit in ancestry order on each **UTC commit date**, using committer timestamps. It reads that commit's reviewed registry. There is one point per day with commits, beginning with the first registry; earlier dates are absent, never fabricated zeroes. The current day's point is replaced as new commits arrive. Historical values retain their original registry and denominator; the dashed total line exposes scope changes. History is reconstructed from Git, without a bot committing measurements or a second source tree. Rewriting Git history may change the series.
+`as2.json` and `as3.json` remain supplementary implementation notes. Their 35/36 groups are **not** the AS coverage denominator. The [detailed notes](DETAILS.md) explain scopes and limitations without substituting those groups for the complete declaration catalogue.
 
-The `Progress Pages` workflow validates the manifests/reports and generator tests on pull requests. Each push to `main` builds and publishes the compact overview and history through GitHub Pages. Source setting: **GitHub Actions**. No site registration, external analytics, npm dependencies or separate hosting service is required.
+## Maintaining the data
 
-The format is inspired by [AnyPS5 coverage](https://boykopovar.github.io/AnyPS5/progress.html) and [history](https://boykopovar.github.io/AnyPS5/history.html). NeoFlash's metric is a reviewed capability register because symbol counts alone cannot prove AS semantics or complete authoring workflows.
+With implementation changes, review affected declaration IDs, evidence rules and source fingerprints, plus affected product capability IDs. Do not promote an AS entry because parsing succeeds or a JavaScript counterpart exists. An inspection API is not editable import. Keep scopes stable and preserve review gaps. Update the frozen source audit through its review workflow, then re-import it using:
+
+```sh
+python3 scripts/progress_catalog.py --source /path/to/docs/actionscript-reference
+python3 scripts/progress.py --write-reports
+python3 scripts/progress.py --check
+python3 -m unittest discover -s scripts/tests -p 'test_progress*.py'
+```
+
+Use the existing catalogue's real directory for `--source`; never copy a different implementation into a nested version tree. Re-importing validates the audit inputs and deterministically regenerates normalized data. The exact catalogue/audit IDs and hashes preserve provenance. Run relevant model/runtime tests and browser checks before claiming behavior. Commit the implementation, reviewed data and generated reports together. CI validates structural integrity and report consistency; it cannot replace semantic review.
+
+## History and publishing
+
+Methodology **v2** corrects the earlier AS2/AS3 denominator. The original 35/36 family percentages did not answer declaration coverage; they are excluded from AS declaration history rather than relabelled. Product history remains available. A change in counting methodology breaks chart lines.
+
+`python3 scripts/progress.py` builds committed HEAD into ignored `dist/progress/`; `--revision <commit>` selects an immutable source revision. Full Git history is required. The builder chooses the last first-parent commit per UTC committer date and reads that revision's data. There is one point per day with commits, beginning when the respective metric exists; no earlier zeroes are invented. The current day's point is replaced by later commits. Git history rewrites may change the series.
+
+Public `progress.json` contains the compact product data, AS aggregates and audit freshness; `history.json` contains daily counts. The 46,047-row list stays in the repository for detailed local work. The `Progress Pages` workflow validates on pull requests and builds/publishes on pushes to `main`. GitHub Pages uses the **GitHub Actions** source setting.
+
+The presentation is inspired by [AnyPS5 coverage](https://boykopovar.github.io/AnyPS5/progress.html) and [history](https://boykopovar.github.io/AnyPS5/history.html). NeoFlash preserves distinctions between declaration status, product capability groups and full Flash conformance.

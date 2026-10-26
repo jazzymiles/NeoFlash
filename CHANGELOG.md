@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Corrected AS2/AS3 coverage to use all 46,047 documented declarations and their per-entry audit instead of 35/36 coarse capability groups. The page now separates implemented subsets, partial implementation, missing entries and review gaps, preserves catalogue/evidence hashes, checks source freshness and excludes the obsolete AS family series.
+- Switched the progress dashboard, daily history, README summary and detailed capability registry to English, preserving all statuses and counting rules.
 - Added reviewed AS2/AS3 and product capability inventories, compact README/public coverage, detailed local evidence, and Git-backed daily progress charts published automatically to GitHub Pages. Partial support is counted separately from completed scope.
 
 - Added structured ActionScript switch/do control flow, AS3 labels, synchronous exceptions and selected typed error support, with explicit per-language boundaries and executable cleanup/scope regressions.
