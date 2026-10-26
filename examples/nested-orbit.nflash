@@ -1,0 +1,711 @@
+{
+  "format_version": 1,
+  "name": "Ideas in motion",
+  "width": 960,
+  "height": 600,
+  "fps": 24,
+  "background": [
+    19,
+    24,
+    36,
+    255
+  ],
+  "root": "symbol-1",
+  "symbols": [
+    {
+      "id": "symbol-1",
+      "name": "Scene 1",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 120,
+        "layers": [
+          {
+            "id": "layer-21",
+            "name": "Typography",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "element-15",
+                    "name": "Eyebrow",
+                    "transform": {
+                      "x": 64.0,
+                      "y": 58.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH  /  MOTION STUDY 01",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 13.0,
+                      "color": [
+                        139,
+                        154,
+                        177,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "element-16",
+                    "name": "Headline",
+                    "transform": {
+                      "x": 60.0,
+                      "y": 142.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Ideas in motion.",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 52.0,
+                      "color": [
+                        241,
+                        244,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "element-17",
+                    "name": "Description",
+                    "transform": {
+                      "x": 64.0,
+                      "y": 224.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "One symbol. Many possibilities.",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 21.0,
+                      "color": [
+                        139,
+                        154,
+                        177,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "element-18",
+                    "name": "Description 2",
+                    "transform": {
+                      "x": 64.0,
+                      "y": 258.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "A familiar timeline. A modern canvas.",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 21.0,
+                      "color": [
+                        139,
+                        154,
+                        177,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "element-19",
+                    "name": "Footer",
+                    "transform": {
+                      "x": 64.0,
+                      "y": 534.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "EDIT A SYMBOL  ·  SCRUB THE TIMELINE  ·  EXPORT HTML5",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 12.0,
+                      "color": [
+                        139,
+                        154,
+                        177,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "element-20",
+                    "name": "Interaction hint",
+                    "transform": {
+                      "x": 618.0,
+                      "y": 460.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "CLICK THE ORBIT IN WEB PREVIEW",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 11.0,
+                      "color": [
+                        139,
+                        154,
+                        177,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "layer-26",
+            "name": "Accents",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "element-22",
+                    "name": "Accent",
+                    "transform": {
+                      "x": 64.0,
+                      "y": 110.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 40.0,
+                      "height": 4.0,
+                      "fill": [
+                        255,
+                        142,
+                        79,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "element-23",
+                    "name": "Badge",
+                    "transform": {
+                      "x": 64.0,
+                      "y": 337.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220.0,
+                      "height": 48.0,
+                      "fill": [
+                        35,
+                        48,
+                        67,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "element-24",
+                    "name": "Badge label",
+                    "transform": {
+                      "x": 82.0,
+                      "y": 351.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "BUILT TO BE INTERACTIVE",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 12.0,
+                      "color": [
+                        241,
+                        244,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "element-25",
+                    "name": "Divider",
+                    "transform": {
+                      "x": 64.0,
+                      "y": 510.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 832.0,
+                      "height": 1.0,
+                      "fill": [
+                        48,
+                        60,
+                        79,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "layer-27",
+            "name": "Orbit instances",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "element-13",
+                    "name": "mainOrbit",
+                    "transform": {
+                      "x": 640.0,
+                      "y": 180.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-6",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "this.rotation += 15;\ntrace(\"Orbit rotated\");"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "element-14",
+                    "name": "smallOrbit",
+                    "transform": {
+                      "x": 520.0,
+                      "y": 390.0,
+                      "scale_x": 0.3,
+                      "scale_y": 0.3,
+                      "rotation": 0.0,
+                      "alpha": 0.7
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-6",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "java_script",
+              "source": "trace(\"NeoFlash: the stage is ready\");"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "symbol-3",
+      "name": "Spark",
+      "kind": "graphic",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "layer-5",
+            "name": "Shape",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "element-4",
+                    "name": "Spark",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 24.0,
+                      "height": 24.0,
+                      "fill": [
+                        255,
+                        142,
+                        79,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "symbol-6",
+      "name": "Orbit",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 61,
+        "layers": [
+          {
+            "id": "layer-11",
+            "name": "Guide rings",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "element-7",
+                    "name": "Ring",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 216.0,
+                      "height": 216.0,
+                      "fill": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke": [
+                        68,
+                        84,
+                        109,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "element-8",
+                    "name": "Inner ring",
+                    "transform": {
+                      "x": 42.0,
+                      "y": 42.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 132.0,
+                      "height": 132.0,
+                      "fill": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke": [
+                        45,
+                        60,
+                        82,
+                        255
+                      ],
+                      "stroke_width": 1.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "element-9",
+                    "name": "Core",
+                    "transform": {
+                      "x": 78.0,
+                      "y": 78.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 60.0,
+                      "height": 60.0,
+                      "fill": [
+                        102,
+                        160,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "layer-12",
+            "name": "Satellite",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "element-10",
+                    "name": "spark",
+                    "transform": {
+                      "x": 96.0,
+                      "y": -12.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-3",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": ""
+              },
+              {
+                "frame": 15,
+                "elements": [
+                  {
+                    "id": "element-10",
+                    "name": "spark",
+                    "transform": {
+                      "x": 204.0,
+                      "y": 96.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-3",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": ""
+              },
+              {
+                "frame": 30,
+                "elements": [
+                  {
+                    "id": "element-10",
+                    "name": "spark",
+                    "transform": {
+                      "x": 96.0,
+                      "y": 204.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-3",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": ""
+              },
+              {
+                "frame": 45,
+                "elements": [
+                  {
+                    "id": "element-10",
+                    "name": "spark",
+                    "transform": {
+                      "x": -12.0,
+                      "y": 96.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-3",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": ""
+              },
+              {
+                "frame": 60,
+                "elements": [
+                  {
+                    "id": "element-10",
+                    "name": "spark",
+                    "transform": {
+                      "x": 96.0,
+                      "y": -12.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-3",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ]
+}

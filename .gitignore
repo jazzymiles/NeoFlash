@@ -1,0 +1,7 @@
+/target/
+/dist/
+/.DS_Store
+**/.DS_Store
+*.tmp
+# User-provided legacy projects are local test inputs, not licensed public fixtures.
+/examples/old flash files/

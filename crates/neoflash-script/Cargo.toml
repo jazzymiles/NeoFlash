@@ -1,0 +1,22 @@
+[package]
+name = "neoflash-script"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+neoflash-core.workspace = true
+serde.workspace = true
+oxc_allocator = "=0.75.0"
+oxc_parser = "=0.75.0"
+oxc_span = "=0.75.0"
+oxc_diagnostics = "=0.75.0"
+oxc_semantic = "=0.75.0"
+oxc_transformer = "=0.75.0"
+oxc_codegen = "=0.75.0"
+# 2.3 changed public version component types; Oxc 0.75 requires the 2.0 API.
+oxc-browserslist = "=2.0.0"
+
+[dev-dependencies]
+serde_json.workspace = true

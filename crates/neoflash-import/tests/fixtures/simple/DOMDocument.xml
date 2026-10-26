@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Self-authored fixture; no Adobe artwork or private corpus content. -->
+<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" width="640" height="480" frameRate="24" backgroundColor="#F4F0E8" xflVersion="2.0">
+  <symbols><Include href="Badge.xml" /></symbols>
+  <timelines><DOMTimeline name="Scene 1"><layers>
+    <DOMLayer name="Foreground"><frames>
+      <DOMFrame index="0" duration="2" name="start" labelType="name">
+        <Actionscript><script><![CDATA[stop();]]></script></Actionscript>
+        <elements><DOMSymbolInstance name="badge" libraryItemName="Badge" symbolType="movie clip"><matrix><Matrix tx="40" ty="60" /></matrix></DOMSymbolInstance></elements>
+      </DOMFrame>
+      <DOMFrame index="2" duration="2"><elements><DOMSymbolInstance name="badge" libraryItemName="Badge" symbolType="movie clip"><matrix><Matrix tx="80" ty="60" /></matrix><color><Color alphaMultiplier="0.5" /></color></DOMSymbolInstance></elements></DOMFrame>
+    </frames></DOMLayer>
+    <DOMLayer name="Caption" locked="true"><frames><DOMFrame index="0" duration="4"><elements>
+      <DOMStaticText width="300" height="30"><matrix><Matrix tx="30" ty="30" /></matrix><textRuns><DOMTextRun><characters>Hello NeoFlash</characters><textAttrs><DOMTextAttrs face="Arial" size="20" fillColor="#202030" /></textAttrs></DOMTextRun></textRuns></DOMStaticText>
+    </elements></DOMFrame></frames></DOMLayer>
+  </layers></DOMTimeline></timelines>
+</DOMDocument>

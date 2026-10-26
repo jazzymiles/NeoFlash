@@ -1,0 +1,12 @@
+# NeoFlash — working agreement
+
+- Product: open-source Rust authoring environment for macOS 15+, inspired by classic Flash before Animate. HTML5 is the primary publishing target.
+- User requirements include websites/apps, games and animation; AS2/AS3 plus JavaScript/TypeScript; nested timelines, instances, frame/object scripts; system fonts; eventual FLA/XFL/SWF import.
+- Do not reduce the product goal to a video animator or silently redefine partial scripting support as full AS2/AS3 compatibility.
+- Keep one source tree. Versions belong in Git tags/history, never in nested v1/v2 copies. No asset-folder chains. Build outputs go under ignored `target/` and `dist/`.
+- `crates/` contains Rust modules, `web/` the browser host, `examples/` small source projects, `scripts/` build/check tasks, `docs/` product and engineering records.
+- Keep the serialized document independent of UI, rendering backend and filesystem paths. Keep authored evaluation side-effect free for scrubbing/onion skin.
+- Unsupported imports and script features must produce actionable diagnostics. Never silently drop content or code.
+- Maintain README, roadmap, compatibility matrix, changelog and decisions as implementation changes.
+- Verify model/runtime behavior with meaningful tests; verify UI by running it and inspect HTML5 output in a browser. Do not claim unperformed checks.
+- Do not publish a repository, deployment or release unless requested. Local development, builds and tests are authorized.

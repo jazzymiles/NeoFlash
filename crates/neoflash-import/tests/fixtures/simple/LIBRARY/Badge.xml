@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DOMSymbolItem xmlns="http://ns.adobe.com/xfl/2008/" name="Badge" symbolType="movie clip">
+  <timeline><DOMTimeline name="Badge"><layers><DOMLayer name="Shape"><frames><DOMFrame index="0" duration="4"><elements>
+    <DOMRectangleObject objectWidth="80" objectHeight="40" x="0" y="0"><fill><SolidColor color="#E8793E" /></fill></DOMRectangleObject>
+  </elements></DOMFrame></frames></DOMLayer></layers></DOMTimeline></timeline>
+</DOMSymbolItem>

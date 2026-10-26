@@ -1,0 +1,17 @@
+[package]
+name = "neoflash-editor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+neoflash-core.workspace = true
+neoflash-script.workspace = true
+neoflash-export.workspace = true
+serde_json.workspace = true
+eframe = { version = "0.33.3", default-features = false, features = ["wgpu", "default_fonts", "accesskit"] }
+rfd = "0.17.2"
+font-kit = "0.14.3"
+ab_glyph = "0.2.32"
+wgpu = { version = "27", default-features = false, features = ["metal", "wgsl"] }
+neoflash-import = { path = "../neoflash-import" }

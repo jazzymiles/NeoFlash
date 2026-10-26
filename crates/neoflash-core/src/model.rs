@@ -1,0 +1,243 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
+
+pub type Color = [u8; 4];
+pub type Id = String;
+
+/// Only used for editor-created entities; serialized identity survives round trips.
+pub fn new_id(prefix: &str) -> Id {
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    let mut used = allocated_ids().lock().unwrap_or_else(|e| e.into_inner());
+    loop {
+        let id = format!("{prefix}-{}", COUNTER.fetch_add(1, Ordering::Relaxed));
+        if used.insert(id.clone()) {
+            return id;
+        }
+    }
+}
+
+fn allocated_ids() -> &'static Mutex<HashSet<Id>> {
+    static USED: OnceLock<Mutex<HashSet<Id>>> = OnceLock::new();
+    USED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Register imported identities so future editor allocations cannot collide.
+pub(crate) fn reserve_ids(project: &Project) {
+    let mut used = allocated_ids().lock().unwrap_or_else(|e| e.into_inner());
+    for symbol in &project.symbols {
+        used.insert(symbol.id.clone());
+        for layer in &symbol.timeline.layers {
+            used.insert(layer.id.clone());
+            for key in &layer.keyframes {
+                for element in &key.elements {
+                    used.insert(element.id.clone());
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Project {
+    pub format_version: u32,
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub background: Color,
+    pub root: Id,
+    pub symbols: Vec<Symbol>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Symbol {
+    pub id: Id,
+    pub name: String,
+    pub kind: SymbolKind,
+    pub timeline: Timeline,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SymbolKind {
+    MovieClip,
+    Graphic,
+    Button,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Timeline {
+    pub frame_count: u32,
+    pub layers: Vec<Layer>,
+    #[serde(default)]
+    pub scripts: Vec<FrameScript>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Layer {
+    pub id: Id,
+    pub name: String,
+    pub visible: bool,
+    pub locked: bool,
+    pub keyframes: Vec<Keyframe>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Keyframe {
+    /// Internal frame index is zero-based. The editor and goto API display one-based frames.
+    pub frame: u32,
+    pub elements: Vec<Element>,
+    pub tween: Option<Easing>,
+    pub label: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Easing {
+    Linear,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+    CubicBezier { x1: f64, y1: f64, x2: f64, y2: f64 },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Element {
+    pub id: Id,
+    pub name: String,
+    pub transform: Transform,
+    pub kind: ElementKind,
+    #[serde(default)]
+    pub scripts: Vec<ObjectScript>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Transform {
+    pub x: f64,
+    pub y: f64,
+    pub scale_x: f64,
+    pub scale_y: f64,
+    pub rotation: f64,
+    pub alpha: f64,
+}
+
+impl Default for Transform {
+    fn default() -> Self {
+        Self {
+            x: 0.,
+            y: 0.,
+            scale_x: 1.,
+            scale_y: 1.,
+            rotation: 0.,
+            alpha: 1.,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ElementKind {
+    Rectangle {
+        width: f64,
+        height: f64,
+        fill: Color,
+        stroke: Color,
+        stroke_width: f64,
+    },
+    Ellipse {
+        width: f64,
+        height: f64,
+        fill: Color,
+        stroke: Color,
+        stroke_width: f64,
+    },
+    Text {
+        text: String,
+        font_family: String,
+        font_size: f64,
+        color: Color,
+    },
+    Instance {
+        symbol_id: Id,
+        playback: InstancePlayback,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InstancePlayback {
+    Independent,
+    Loop,
+    PlayOnce,
+    SingleFrame(u32),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScriptLanguage {
+    JavaScript,
+    TypeScript,
+    ActionScript2,
+    ActionScript3,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Script {
+    pub language: ScriptLanguage,
+    pub source: String,
+}
+
+impl Default for Script {
+    fn default() -> Self {
+        Self {
+            language: ScriptLanguage::JavaScript,
+            source: String::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FrameScript {
+    pub frame: u32,
+    pub script: Script,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ObjectEvent {
+    Load,
+    Click,
+    EnterFrame,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ObjectScript {
+    pub event: ObjectEvent,
+    pub script: Script,
+}
+
+impl Project {
+    pub fn symbol(&self, id: &str) -> Option<&Symbol> {
+        self.symbols.iter().find(|s| s.id == id)
+    }
+    pub fn symbol_mut(&mut self, id: &str) -> Option<&mut Symbol> {
+        self.symbols.iter_mut().find(|s| s.id == id)
+    }
+}
+
+impl Layer {
+    pub fn key_at(&self, frame: u32) -> Option<&Keyframe> {
+        self.keyframes
+            .iter()
+            .filter(|k| k.frame <= frame)
+            .max_by_key(|k| k.frame)
+    }
+    pub fn key_at_mut(&mut self, frame: u32) -> Option<&mut Keyframe> {
+        self.keyframes
+            .iter_mut()
+            .filter(|k| k.frame <= frame)
+            .max_by_key(|k| k.frame)
+    }
+}
