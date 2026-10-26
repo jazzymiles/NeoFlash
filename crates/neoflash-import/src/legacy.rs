@@ -3,6 +3,7 @@
 pub(crate) mod contents;
 pub(crate) mod geometry;
 mod mfc;
+pub(crate) mod timeline;
 
 use crate::{ImportError, ImportReport};
 use serde::{Deserialize, Serialize};
@@ -87,7 +88,7 @@ pub struct BinaryStreamGeometry {
 /// resolve scene/layer/library ownership. Contents is separately available through
 /// read_binary_contents; this API does not retain its private payload.
 pub fn read_binary_geometry(path: &Path) -> Result<BinaryGeometryDocument, ImportError> {
-    let document = read(path, true, false)?
+    let document = read(path, true, false, false)?
         .ok_or_else(|| container("compound document is not recognized as binary FLA"))?;
     Ok(BinaryGeometryDocument {
         inspection: document.inspection,
@@ -100,7 +101,7 @@ fn container(message: impl Into<String>) -> ImportError {
 }
 
 pub(crate) fn inspect(path: &Path) -> Result<Option<BinaryFlaInspection>, ImportError> {
-    Ok(read(path, false, false)?.map(|document| document.inspection))
+    Ok(read(path, false, false, false)?.map(|document| document.inspection))
 }
 
 /// Explicit opt-in Contents IR. Contains private names/metadata and exact unread bytes.
@@ -111,7 +112,7 @@ pub struct BinaryContentsDocument {
 }
 
 pub fn read_binary_contents(path: &Path) -> Result<BinaryContentsDocument, ImportError> {
-    let document = read(path, false, true)?
+    let document = read(path, false, true, false)?
         .ok_or_else(|| container("compound document is not recognized as binary FLA"))?;
     Ok(BinaryContentsDocument {
         inspection: document.inspection,
@@ -121,9 +122,31 @@ pub fn read_binary_contents(path: &Path) -> Result<BinaryContentsDocument, Impor
     })
 }
 
+/// Contents and timeline preservation from one immutable container snapshot.
+/// Contains private source names, scripts, raw bytes and artwork. No conversion.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BinaryTimelineDocument {
+    pub inspection: BinaryFlaInspection,
+    pub contents: contents::BinaryContentsPrefix,
+    pub streams: Vec<timeline::BinaryTimelineStream>,
+}
+
+pub fn read_binary_timeline(path: &Path) -> Result<BinaryTimelineDocument, ImportError> {
+    let document = read(path, false, true, true)?
+        .ok_or_else(|| container("compound document is not recognized as binary FLA"))?;
+    Ok(BinaryTimelineDocument {
+        inspection: document.inspection,
+        contents: document
+            .contents
+            .ok_or_else(|| container("Contents stream is absent"))?,
+        streams: document.timeline,
+    })
+}
+
 struct ReadDocument {
     inspection: BinaryFlaInspection,
     geometry: Vec<BinaryStreamGeometry>,
+    timeline: Vec<timeline::BinaryTimelineStream>,
     contents: Option<contents::BinaryContentsPrefix>,
 }
 
@@ -131,6 +154,7 @@ fn read(
     path: &Path,
     retain_geometry: bool,
     retain_contents: bool,
+    retain_timeline: bool,
 ) -> Result<Option<ReadDocument>, ImportError> {
     let file = File::open(path)?;
     if file.metadata()?.len() > MAX_CONTAINER {
@@ -236,6 +260,8 @@ fn read(
     let mut contents_prefix = None;
     let mut geometry_streams = Vec::new();
     let mut retained_items_remaining = 250_000;
+    let mut timeline_streams = Vec::new();
+    let mut timeline_items_remaining = 100_000;
     for (index, (path, byte_length, role)) in entries.into_iter().enumerate() {
         let mut data = Vec::new();
         compound
@@ -274,14 +300,22 @@ fn read(
                 }
             }
             BinaryStreamRole::Scene | BinaryStreamRole::Symbol => {
-                let shapes = mfc::inspect(
+                let decoded = mfc::inspect(
                     &data,
                     &mut stream,
                     retain_geometry,
+                    retain_timeline,
                     &mut retained_items_remaining,
+                    &mut timeline_items_remaining,
                 );
-                if !shapes.is_empty() {
-                    geometry_streams.push(BinaryStreamGeometry { index, shapes });
+                if !decoded.shapes.is_empty() {
+                    geometry_streams.push(BinaryStreamGeometry {
+                        index,
+                        shapes: decoded.shapes,
+                    });
+                }
+                if let Some(timeline) = decoded.timeline {
+                    timeline_streams.push(timeline);
                 }
             }
             BinaryStreamRole::Media => {
@@ -301,6 +335,7 @@ fn read(
     Ok(Some(ReadDocument {
         inspection: result,
         geometry: geometry_streams,
+        timeline: timeline_streams,
         contents: contents_prefix,
     }))
 }

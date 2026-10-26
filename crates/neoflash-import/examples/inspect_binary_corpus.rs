@@ -1,5 +1,7 @@
 //! Aggregate-only local audit. Never emits paths, stream names, strings or bytes.
-use neoflash_import::{ImportFormat, inspect, read_binary_contents, read_binary_geometry};
+use neoflash_import::{
+    ImportFormat, TimelineClass, TimelinePayload, inspect, read_binary_timeline,
+};
 use serde_json::json;
 use std::{
     collections::BTreeMap,
@@ -28,6 +30,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut contents_counts = BTreeMap::<&str, usize>::new();
     let mut settings_by_target = BTreeMap::<String, usize>::new();
     let mut descriptor_revisions = BTreeMap::<String, usize>::new();
+    let mut timeline_counts = BTreeMap::<&str, usize>::new();
+    let mut action_presence = BTreeMap::<String, usize>::new();
+    let mut unsupported_classes = BTreeMap::<String, usize>::new();
+    let mut complete_contents = 0usize;
     for path in &paths {
         match inspect(path) {
             Ok(report) => {
@@ -42,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .iter()
                         .map(|s| s.geometry.complete_shape_blocks)
                         .sum::<usize>();
-                    let preserved = read_binary_geometry(path)?;
+                    let preserved = read_binary_timeline(path)?;
                     let retained_shapes = preserved
                         .streams
                         .iter()
@@ -55,7 +61,88 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         );
                     }
                     preserved_shape_blocks += retained_shapes;
-                    let contents = read_binary_contents(path)?.contents;
+                    for timeline in &preserved.streams {
+                        let status = preserved
+                            .inspection
+                            .streams
+                            .iter()
+                            .find(|s| s.index == timeline.index)
+                            .ok_or("timeline inspection absent")?;
+                        if timeline.original_bytes.len() as u64 != status.byte_length
+                            || timeline.objects.len() != status.records.encountered
+                            || timeline.objects.iter().filter(|o| o.complete).count()
+                                != status.records.complete
+                        {
+                            return Err("timeline preservation count/length mismatch".into());
+                        }
+                        for (kind, count) in [
+                            ("streams", 1),
+                            ("objects", timeline.objects.len()),
+                            (
+                                "complete_objects",
+                                timeline.objects.iter().filter(|o| o.complete).count(),
+                            ),
+                            (
+                                "owned_children",
+                                timeline
+                                    .objects
+                                    .iter()
+                                    .filter(|o| o.owner.is_some())
+                                    .count(),
+                            ),
+                            ("pointer_edges", timeline.pointers.len()),
+                            (
+                                "shape_associations",
+                                timeline
+                                    .objects
+                                    .iter()
+                                    .filter(|o| o.shape_index.is_some())
+                                    .count(),
+                            ),
+                        ] {
+                            *timeline_counts.entry(kind).or_default() += count;
+                        }
+                        for object in &timeline.objects {
+                            if let Some(TimelinePayload::Frame(frame)) = &object.payload
+                                && let Some(actions) = &frame.actions
+                            {
+                                *action_presence
+                                    .entry(format!("{:?}", actions.presence))
+                                    .or_default() += 1;
+                            }
+                            if !object.complete
+                                && !matches!(
+                                    object.class,
+                                    TimelineClass::Page
+                                        | TimelineClass::Layer
+                                        | TimelineClass::Frame
+                                        | TimelineClass::Shape
+                                        | TimelineClass::Bitmap
+                                )
+                            {
+                                *unsupported_classes
+                                    .entry(format!("{:?}", object.class))
+                                    .or_default() += 1;
+                            }
+                            if let Some(index) = object.shape_index {
+                                let shape = timeline
+                                    .shapes
+                                    .get(index)
+                                    .ok_or("shape association index invalid")?;
+                                if shape.offset < object.body_offset
+                                    || shape.offset + shape.record.original_bytes.len()
+                                        > object.encoded.end
+                                {
+                                    return Err(
+                                        "shape association does not belong to its record span"
+                                            .into(),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    let contents = preserved.contents;
+                    complete_contents += usize::from(contents.stop.is_none());
                     let original_length = binary
                         .streams
                         .iter()
@@ -182,7 +269,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    let result = json!({"files":paths.len(), "recognized_binary_fla":recognized, "blocked_editable_conversion":blocked, "container_failures":invalid, "container_failure_categories":failures, "save_targets":versions, "stream_roles":roles, "complete_structure_streams":complete_streams, "complete_records":complete_records, "geometry_counts":geometry_counts, "preserved_shape_blocks":preserved_shape_blocks, "contents_counts":contents_counts, "settings_by_save_target":settings_by_target, "descriptor_revisions":descriptor_revisions, "root_classes":classes, "diagnostic_codes":codes});
+    let result = json!({"files":paths.len(), "recognized_binary_fla":recognized, "blocked_editable_conversion":blocked, "container_failures":invalid, "container_failure_categories":failures, "save_targets":versions, "stream_roles":roles, "complete_structure_streams":complete_streams, "complete_records":complete_records, "geometry_counts":geometry_counts, "preserved_shape_blocks":preserved_shape_blocks, "contents_counts":contents_counts, "complete_contents":complete_contents, "timeline_preservation":timeline_counts, "action_presence":action_presence, "unsupported_timeline_classes":unsupported_classes, "settings_by_save_target":settings_by_target, "descriptor_revisions":descriptor_revisions, "root_classes":classes, "diagnostic_codes":codes});
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)

@@ -362,8 +362,13 @@ fn fixture(v: u8, pv: u8, with_media: bool) -> (Vec<u8>, usize) {
     u16b(&mut out, 0);
     u16b(&mut out, 5);
     settings(&mut out);
+    if v == 0x14 {
+        empty_publish(&mut out);
+    }
     let end = out.len();
-    out.extend([91, 17, 231, 33]);
+    if v != 0x14 {
+        out.extend([91, 17, 231, 33]);
+    }
     (out, end)
 }
 
@@ -375,11 +380,14 @@ fn four_revision_prefixes_preserve_identity_raw_settings_and_exact_suffix() {
         let path = archive.path(&bytes, &["Page 1", "Symbol 1", "Media 1"]);
         let document = read_binary_contents(&path).unwrap();
         let prefix = document.contents;
-        assert_eq!(
-            prefix.stop.code, "fla_contents_suffix_unsupported",
-            "{:?}",
-            prefix.stop
-        );
+        if v == 0x14 {
+            assert!(prefix.stop.is_none(), "{:?}", prefix.stop);
+        } else {
+            assert_eq!(
+                prefix.stop.as_ref().unwrap().code,
+                "fla_contents_suffix_unsupported"
+            );
+        }
         assert_eq!(prefix.bytes_consumed, end);
         assert_eq!(prefix.original_bytes, bytes);
         assert_eq!(prefix.scenes, vec![2]);
@@ -416,7 +424,7 @@ fn four_revision_prefixes_preserve_identity_raw_settings_and_exact_suffix() {
             .into_iter()
             .find(|s| s.role == BinaryStreamRole::Contents)
             .unwrap();
-        assert!(!stream.structure_complete);
+        assert_eq!(stream.structure_complete, v == 0x14);
         let counts = stream.contents.unwrap();
         assert!(counts.settings_reached);
         assert_eq!(
@@ -433,11 +441,18 @@ fn four_revision_prefixes_preserve_identity_raw_settings_and_exact_suffix() {
 fn every_truncated_prefix_stops_without_settings_or_resynchronization() {
     let archive = Archive::new();
     for (v, pv) in [(0x14, 4), (0x20, 12), (0x29, 17), (0x3f, 23)] {
-        let (bytes, end) = fixture(v, pv, true);
+        let (bytes, _) = fixture(v, pv, true);
+        let end = archive
+            .read(&bytes, &["Page 1", "Symbol 1", "Media 1"])
+            .settings
+            .unwrap()
+            .encoded
+            .end;
         for n in 0..end {
             let prefix = archive.read(&bytes[..n], &["Page 1", "Symbol 1", "Media 1"]);
             assert_eq!(
-                prefix.stop.code, "fla_truncated_record",
+                prefix.stop.as_ref().unwrap().code,
+                "fla_truncated_record",
                 "v={v:x} n={n} {:?}",
                 prefix.stop
             );
@@ -462,7 +477,7 @@ fn references_require_identity_type_and_scene_membership() {
         let mut invalid = bytes.clone();
         invalid[pointer..pointer + 2].copy_from_slice(&tag.to_le_bytes());
         let p = archive.read(&invalid, &["Page 1"]);
-        assert_eq!(p.stop.code, "fla_contents_invalid_record");
+        assert_eq!(p.stop.as_ref().unwrap().code, "fla_contents_invalid_record");
         assert_eq!(p.bytes_consumed, pointer + 2);
     }
     // Extended object identity resolves to the same scene; no copied descriptor.
@@ -484,7 +499,10 @@ fn missing_wrong_role_and_duplicate_stream_targets_are_blocking() {
     let archive = Archive::new();
     let (bytes, _) = fixture(0x14, 4, false);
     let p = archive.read(&bytes, &["Page 1"]);
-    assert_eq!(p.stop.code, "fla_contents_stream_reference");
+    assert_eq!(
+        p.stop.as_ref().unwrap().code,
+        "fla_contents_stream_reference"
+    );
     assert!(p.settings.is_none());
     for target in ["Page 1", "Contents", "Symbol 1"] {
         let mut bytes = header(0x14);
@@ -493,7 +511,10 @@ fn missing_wrong_role_and_duplicate_stream_targets_are_blocking() {
         u16b(&mut bytes, 0x8001);
         page(&mut bytes, 4, target);
         let p = archive.read(&bytes, &["Page 1", "Symbol 1"]);
-        assert_eq!(p.stop.code, "fla_contents_stream_reference");
+        assert_eq!(
+            p.stop.as_ref().unwrap().code,
+            "fla_contents_stream_reference"
+        );
         assert_eq!(p.scenes.len(), 1);
         assert!(p.settings.is_none());
     }
@@ -506,7 +527,10 @@ fn unknown_records_and_budgets_stop_at_the_first_unproven_boundary() {
     let end = bytes.len();
     bytes.extend([0; 100]);
     let p = archive.read(&bytes, &["Page 1"]);
-    assert_eq!(p.stop.code, "fla_contents_record_unsupported");
+    assert_eq!(
+        p.stop.as_ref().unwrap().code,
+        "fla_contents_record_unsupported"
+    );
     assert_eq!(p.bytes_consumed, end);
     assert_eq!(p.descriptors.len(), 0);
     assert!(matches!(
@@ -518,7 +542,7 @@ fn unknown_records_and_budgets_stop_at_the_first_unproven_boundary() {
     let mut bytes = header(0x14);
     bytes[1..5].copy_from_slice(&50_001u32.to_le_bytes());
     let p = archive.read(&bytes, &["Page 1"]);
-    assert_eq!(p.stop.code, "fla_contents_budget");
+    assert_eq!(p.stop.as_ref().unwrap().code, "fla_contents_budget");
     let mut bytes = header(0x14);
     class(&mut bytes, "CDocumentPage");
     bytes.push(4);
@@ -526,7 +550,7 @@ fn unknown_records_and_budgets_stop_at_the_first_unproven_boundary() {
     bytes.extend([255, 255, 255]);
     u32b(&mut bytes, 1024 * 1024 + 1);
     let p = archive.read(&bytes, &["Page 1"]);
-    assert_eq!(p.stop.code, "fla_contents_budget");
+    assert_eq!(p.stop.as_ref().unwrap().code, "fla_contents_budget");
 }
 #[test]
 fn bounds_are_preserved_without_sorting_sentinel_or_integer_overflow() {
@@ -649,7 +673,12 @@ fn nonempty_nested_metadata_and_property_tables_are_bounded_and_retained() {
     );
     for n in 0..end {
         let p = archive.read(&bytes[..n], &["Page 1"]);
-        assert_eq!(p.stop.code, "fla_truncated_record", "n={n} {:?}", p.stop);
+        assert_eq!(
+            p.stop.as_ref().unwrap().code,
+            "fla_truncated_record",
+            "n={n} {:?}",
+            p.stop
+        );
         assert!(p.settings.is_none());
     }
     let mut huge = vec![2];
@@ -658,12 +687,15 @@ fn nonempty_nested_metadata_and_property_tables_are_bounded_and_retained() {
     page_fields(&mut body, 12, "Page 1", None, Some(&huge));
     let (bytes, _) = one_scene(0x20, &body);
     let p = archive.read(&bytes, &["Page 1"]);
-    assert_eq!(p.stop.code, "fla_contents_budget");
+    assert_eq!(p.stop.as_ref().unwrap().code, "fla_contents_budget");
     let mut body = Vec::new();
     page_fields(&mut body, 12, "Page 1", None, Some(&[3]));
     let (bytes, _) = one_scene(0x20, &body);
     let p = archive.read(&bytes, &["Page 1"]);
-    assert_eq!(p.stop.code, "fla_contents_record_unsupported");
+    assert_eq!(
+        p.stop.as_ref().unwrap().code,
+        "fla_contents_record_unsupported"
+    );
     assert!(p.descriptors.is_empty());
 }
 #[test]
@@ -722,14 +754,19 @@ fn cstring_encoding_compact_names_and_counted_ole_have_distinct_boundaries() {
     invalid[unicode + 4..unicode + 6].copy_from_slice(&0xdc00_u16.to_le_bytes());
     let (bytes, _) = one_scene(0x14, &invalid);
     let p = archive.read(&bytes, &["Page 1"]);
-    assert_eq!(p.stop.code, "fla_contents_invalid_record");
+    assert_eq!(p.stop.as_ref().unwrap().code, "fla_contents_invalid_record");
     // Repeated Unicode marker is not a second encoding header.
     let mut invalid = vec![4];
     compact(&mut invalid, "Page 1", false);
     invalid.extend([255, 254, 255, 255, 254, 255]);
     let (bytes, _) = one_scene(0x14, &invalid);
     assert_eq!(
-        archive.read(&bytes, &["Page 1"]).stop.code,
+        archive
+            .read(&bytes, &["Page 1"])
+            .stop
+            .as_ref()
+            .unwrap()
+            .code,
         "fla_contents_invalid_record"
     );
     let mut sentinel = vec![4];
@@ -755,7 +792,10 @@ fn cstring_encoding_compact_names_and_counted_ole_have_distinct_boundaries() {
     assert_eq!(p.ole_count, Some(2));
     bytes[5] = 1;
     let p = archive.read(&bytes, &["Page 1", "Symbol 1"]);
-    assert_eq!(p.stop.code, "fla_contents_record_unsupported");
+    assert_eq!(
+        p.stop.as_ref().unwrap().code,
+        "fla_contents_record_unsupported"
+    );
     assert_eq!(p.bytes_consumed, 7);
 }
 #[test]
@@ -765,7 +805,7 @@ fn shared_work_budget_stops_before_allocating_more_identity_records() {
     bytes[1..5].copy_from_slice(&50_000u32.to_le_bytes());
     bytes.splice(5..5, std::iter::repeat_n(0, 100_000));
     let p = archive.read(&bytes, &["Page 1", "Symbol 1"]);
-    assert_eq!(p.stop.code, "fla_contents_budget");
+    assert_eq!(p.stop.as_ref().unwrap().code, "fla_contents_budget");
     assert_eq!(p.references.len(), 1);
     assert!(p.descriptors.is_empty());
 }
@@ -779,7 +819,10 @@ fn document_page_revision_gates_and_unknown_schema_stop_exactly() {
         let (bytes, end) = one_scene(0x3f, &body);
         let prefix = archive.read(&bytes, &["Page 1"]);
         if revision == 9 {
-            assert_eq!(prefix.stop.code, "fla_contents_record_unsupported");
+            assert_eq!(
+                prefix.stop.as_ref().unwrap().code,
+                "fla_contents_record_unsupported"
+            );
             assert!(prefix.settings.is_none());
             assert!(prefix.descriptors.is_empty());
         } else {
@@ -798,6 +841,129 @@ fn document_page_revision_gates_and_unknown_schema_stop_exactly() {
     let end = bytes.len();
     bytes.extend([0; 100]);
     let prefix = archive.read(&bytes, &["Page 1"]);
-    assert_eq!(prefix.stop.code, "fla_contents_record_unsupported");
+    assert_eq!(
+        prefix.stop.as_ref().unwrap().code,
+        "fla_contents_record_unsupported"
+    );
     assert_eq!(prefix.bytes_consumed, end);
+}
+
+fn empty_publish(out: &mut Vec<u8>) {
+    u16b(out, 0);
+    u32b(out, 0);
+    string(out, "");
+    string(out, "");
+    u32b(out, 0);
+}
+
+#[test]
+fn f3_publish_and_empty_shared_library_tail_require_exact_end_boundaries() {
+    let archive = Archive::new();
+    let (mut bytes, _) = fixture(0x14, 4, false);
+    bytes.truncate(bytes.len() - 12);
+    let prefix_end = bytes.len();
+    // Extended MFC count, two original key/value entries; neither is executed.
+    u16b(&mut bytes, 0xffff);
+    u32b(&mut bytes, 2);
+    string(&mut bytes, "output");
+    string(&mut bytes, "synthetic.html");
+    string(&mut bytes, "example");
+    string(&mut bytes, "original fixture");
+    u32b(&mut bytes, 1);
+    string(&mut bytes, "first");
+    string(&mut bytes, "second");
+    u32b(&mut bytes, 2);
+    let publish_end = bytes.len();
+    bytes.push(0);
+    u32b(&mut bytes, 0);
+    for word in [1, 2, 3, 4] {
+        u16b(&mut bytes, word);
+    }
+    u16b(&mut bytes, 3);
+    bytes.extend([9, 8, 7]);
+    let prefix = archive.read(&bytes, &["Page 1", "Symbol 1"]);
+    assert!(prefix.stop.is_none(), "{:?}", prefix.stop);
+    assert_eq!(prefix.bytes_consumed, bytes.len());
+    assert_eq!(prefix.legacy_publish.as_ref().unwrap().entries.len(), 2);
+    assert_eq!(
+        prefix.compatibility_tail.as_ref().unwrap().writer_words,
+        [1, 2, 3, 4]
+    );
+    assert_eq!(prefix.original_bytes, bytes);
+    for n in prefix_end..bytes.len() {
+        let p = archive.read(&bytes[..n], &["Page 1", "Symbol 1"]);
+        assert!(p.settings.is_some());
+        if n == publish_end {
+            assert!(p.stop.is_none());
+        } else {
+            assert_eq!(
+                p.stop.as_ref().unwrap().code,
+                "fla_truncated_record",
+                "n={n}"
+            );
+        }
+        assert!(p.bytes_consumed <= n);
+    }
+    let mut trailing = bytes.clone();
+    trailing.push(88);
+    assert_eq!(
+        archive
+            .read(&trailing, &["Page 1", "Symbol 1"])
+            .stop
+            .unwrap()
+            .code,
+        "fla_contents_trailing_data"
+    );
+    let report = inspect(&archive.path(&bytes, &["Page 1", "Symbol 1"])).unwrap();
+    assert!(!report.can_import);
+    let json = serde_json::to_string(&report).unwrap();
+    assert!(!json.contains("synthetic.html"));
+    assert!(!json.contains("original fixture"));
+}
+#[test]
+fn f3_suffix_unknown_tail_and_work_limits_are_explicit() {
+    let archive = Archive::new();
+    let (base, _) = fixture(0x14, 4, false);
+    let mut bytes = base.clone();
+    bytes.push(1);
+    assert_eq!(
+        archive
+            .read(&bytes, &["Page 1", "Symbol 1"])
+            .stop
+            .unwrap()
+            .code,
+        "fla_contents_record_unsupported"
+    );
+    let mut bytes = base.clone();
+    bytes.push(0);
+    u32b(&mut bytes, 1);
+    bytes.push(0);
+    let p = archive.read(&bytes, &["Page 1", "Symbol 1"]);
+    assert_eq!(p.stop.unwrap().code, "fla_contents_record_unsupported");
+    assert!(p.legacy_publish.is_some());
+    let mut bytes = base.clone();
+    bytes.push(0);
+    u32b(&mut bytes, 0);
+    bytes.extend([0; 8]);
+    u16b(&mut bytes, 257);
+    assert_eq!(
+        archive
+            .read(&bytes, &["Page 1", "Symbol 1"])
+            .stop
+            .unwrap()
+            .code,
+        "fla_contents_record_unsupported"
+    );
+    let mut bytes = base;
+    bytes.truncate(bytes.len() - 12);
+    u16b(&mut bytes, 0xffff);
+    u32b(&mut bytes, 50_001);
+    assert_eq!(
+        archive
+            .read(&bytes, &["Page 1", "Symbol 1"])
+            .stop
+            .unwrap()
+            .code,
+        "fla_contents_budget"
+    );
 }

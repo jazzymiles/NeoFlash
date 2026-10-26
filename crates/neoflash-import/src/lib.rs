@@ -5,10 +5,11 @@ mod xfl;
 
 pub use legacy::contents::*;
 pub use legacy::geometry::*;
+pub use legacy::timeline::*;
 pub use legacy::{
     BinaryContentsDocument, BinaryFlaInspection, BinaryGeometryDocument, BinaryStreamGeometry,
-    BinaryStreamInspection, BinaryStreamRole, RecordCounts, read_binary_contents,
-    read_binary_geometry,
+    BinaryStreamInspection, BinaryStreamRole, BinaryTimelineDocument, RecordCounts,
+    read_binary_contents, read_binary_geometry, read_binary_timeline,
 };
 
 use neoflash_core::Project;

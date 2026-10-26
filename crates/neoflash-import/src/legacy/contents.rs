@@ -127,6 +127,28 @@ pub struct BinaryContentsStop {
     pub message: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContentsProperty {
+    pub key: ContentsString,
+    pub value: ContentsString,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContentsLegacyPublish {
+    pub encoded: ContentsByteSpan,
+    pub entries: Vec<ContentsProperty>,
+    pub first_word: u32,
+    pub first_string: ContentsString,
+    pub second_string: ContentsString,
+    pub second_word: u32,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContentsCompatibilityTail {
+    pub encoded: ContentsByteSpan,
+    /// Initial supported subset has an empty shared-library list, revision zero.
+    pub writer_words: [u16; 4],
+    pub writer_data: ContentsByteSpan,
+}
+
 /// Opt-in private preservation IR. The original stream includes its unread suffix.
 /// Only descriptors with known end boundaries enter `descriptors`; a prefix can
 /// stop earlier, with settings == None. No scene or source code is executed.
@@ -147,7 +169,11 @@ pub struct BinaryContentsPrefix {
     pub descriptors: Vec<ContentsDescriptor>,
     pub settings: Option<BinaryDocumentSettings>,
     pub bytes_consumed: usize,
-    pub stop: BinaryContentsStop,
+    pub stop: Option<BinaryContentsStop>,
+    #[serde(default)]
+    pub legacy_publish: Option<ContentsLegacyPublish>,
+    #[serde(default)]
+    pub compatibility_tail: Option<ContentsCompatibilityTail>,
     pub original_bytes: Vec<u8>,
 }
 
@@ -189,25 +215,20 @@ pub(super) fn inspect(
         descriptors: Vec::new(),
         settings: None,
         bytes_consumed: 0,
-        stop: reader.error(
-            "fla_contents_suffix_unsupported",
-            "Contents extensions and compatibility suffix are not decoded.",
-        ),
+        stop: None,
+        legacy_publish: None,
+        compatibility_tail: None,
         original_bytes: Vec::new(),
     };
     let parsed = reader.prefix(&mut out);
-    out.stop = parsed.err().unwrap_or_else(|| {
-        reader.error(
-            "fla_contents_suffix_unsupported",
-            "Contents settings prefix read; extensions and compatibility suffix are not decoded.",
-        )
-    });
+    out.stop = parsed.err();
     out.bytes_consumed = reader.at;
     reader.counts.reference_entries = reader.refs.len();
     reader.counts.settings_reached = out.settings.is_some();
     stream.bytes_consumed = out.bytes_consumed;
-    stream.stop_code = Some(out.stop.code.clone());
-    stream.stop_message = Some(out.stop.message.clone());
+    stream.structure_complete = out.stop.is_none();
+    stream.stop_code = out.stop.as_ref().map(|stop| stop.code.clone());
+    stream.stop_message = out.stop.as_ref().map(|stop| stop.message.clone());
     stream.contents = Some(reader.counts);
     out.references = reader.refs;
     out.descriptors = reader.descriptors;
@@ -369,6 +390,78 @@ impl Reader<'_> {
         self.list(BinaryStreamRole::Media, &mut out.media)?;
         out.media_counter = Some(self.u16()?);
         out.settings = Some(self.settings()?);
+        if v == 0x14 {
+            self.f3_suffix(out)
+        } else {
+            Err(self.error("fla_contents_suffix_unsupported", "Contents settings prefix read; this revision's extensions and compatibility suffix are not decoded."))
+        }
+    }
+    fn f3_suffix(&mut self, out: &mut BinaryContentsPrefix) -> Result<()> {
+        let start = self.at;
+        let short = self.u16()?;
+        let count = if short == 0xffff {
+            self.u32()? as usize
+        } else {
+            usize::from(short)
+        };
+        self.count_value(count, 2)?;
+        let mut entries = Vec::new();
+        for _ in 0..count {
+            entries.push(ContentsProperty {
+                key: self.string()?,
+                value: self.string()?,
+            });
+        }
+        let first_word = self.u32()?;
+        let first_string = self.string()?;
+        let second_string = self.string()?;
+        let second_word = self.u32()?;
+        out.legacy_publish = Some(ContentsLegacyPublish {
+            encoded: ContentsByteSpan {
+                start,
+                end: self.at,
+            },
+            entries,
+            first_word,
+            first_string,
+            second_string,
+            second_word,
+        });
+        if self.at != self.bytes.len() {
+            let start = self.at;
+            if self.u8()? != 0 {
+                return self
+                    .unsupported("Shared-library compatibility-tail revision is unsupported.");
+            }
+            let count = self.u32()? as usize;
+            self.count_value(count, 1)?;
+            if count != 0 {
+                return self
+                    .unsupported("Nonempty shared-library compatibility tail is unsupported.");
+            }
+            let writer_words = [self.u16()?, self.u16()?, self.u16()?, self.u16()?];
+            let count = usize::from(self.u16()?);
+            if count > 256 {
+                return self.unsupported(
+                    "Writer-identity count above 256 requires further compatibility validation.",
+                );
+            }
+            let writer_data = self.span(count)?;
+            out.compatibility_tail = Some(ContentsCompatibilityTail {
+                encoded: ContentsByteSpan {
+                    start,
+                    end: self.at,
+                },
+                writer_words,
+                writer_data,
+            });
+        }
+        if self.at != self.bytes.len() {
+            return Err(self.error(
+                "fla_contents_trailing_data",
+                "Trailing bytes remain after the supported Contents suffix.",
+            ));
+        }
         Ok(())
     }
     fn list(&mut self, role: BinaryStreamRole, values: &mut Vec<u32>) -> Result<()> {
