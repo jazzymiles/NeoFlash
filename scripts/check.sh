@@ -6,6 +6,7 @@ export PATH="$HOME/.cargo/bin:$PATH"
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
+cargo test --locked -p egui-winit --lib neoflash_paste_tests
 ./scripts/build-web.sh
 node --test web/tests/*.test.cjs
 node crates/neoflash-script/tests/execute.mjs

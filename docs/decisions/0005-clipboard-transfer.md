@@ -1,6 +1,6 @@
 # 0005 — clipboard data and recipient ownership
 
-Status: accepted and implemented for object transfer, 2026-10-26. Native clipboard and shortcut limitations are recorded in CLIPBOARD.md and VERIFICATION.md.
+Status: accepted and implemented for object transfer, 2026-10-26; native shortcut adapter added 2026-10-27. Live platform verification remains recorded in CLIPBOARD.md and VERIFICATION.md.
 
 The authoring clipboard belongs in the shared Rust core as a bounded versioned payload, separate from the saved Project. It contains ordered sampled placements, their complete reachable library closure, a placement anchor and a live source-document token. The payload carries scripts as data; parsing never executes scripts or resolves filesystem paths. A recognizable text prefix permits native clipboard transport without a proprietary native runtime.
 
@@ -14,4 +14,8 @@ Text and object recipients must remain distinct. The editor captures a focused t
 
 Menu Paste uses the pinned arboard 3.7.0 native text read on the UI thread; this dependency was already present through eframe. An immediate result distinguishes empty/error outcomes and avoids attaching a stale mode or target to an unrelated asynchronous paste event. Writes use egui's normal CopyText output. Tests inject the menu read function and never read or overwrite the user's system clipboard.
 
-Verification covers structure, shared runtime behavior after transfer, serialization, atomic errors, grouped history, real egui menu/input routing and live platform checks as separate evidence. Untagged native paste events cannot prove the original Shift modifier after every batched key-release order; the menu command is deterministic and a native key-press adapter remains planned.
+The pinned egui-winit 0.33.3 adapter consumes the shortcut press while emitting `Event::Paste(String)`, losing its modifiers before eframe's `App::raw_input_hook`. Final-frame modifiers and later release events cannot reconstruct the original intent. A repository-local patch preserves the existing `Event::Key` immediately before each successful nonempty paste payload. The editor recognizes only this adjacent pair, removes the key before ordinary shortcut/text routing and uses its initiating modifiers for object paste. Unpaired payloads mean ordinary Paste. No global event monitor, AppKit hook, delayed intent state or second clipboard read is introduced. Dedicated Paste and Windows Shift+Insert retain plain-paste semantics.
+
+Only egui-winit is vendored. Its version, upstream commit, archive checksum, licenses, exact patch scope and removal conditions are recorded in [NEOFLASH-PATCH.md](../../vendor/egui-winit/NEOFLASH-PATCH.md). Dependencies remain pinned by the workspace lockfile. The fork should be removed when an upstream adapter supplies equivalent event-local intent, retaining regressions for release ordering, multiple/repeated pastes, failed reads and focused text fields.
+
+Verification covers structure, shared runtime behavior after transfer, serialization, atomic errors, grouped history, adapter translation and real headless egui menu/input routing. Physical macOS keyboard and clipboard checks remain separate evidence; automated injection does not establish live OS behavior.

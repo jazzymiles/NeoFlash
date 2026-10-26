@@ -5,6 +5,31 @@ use crate::{
 use eframe::egui::{self, Event, Key};
 use neoflash_core::{ClipboardPayload, Id, ObjectEvent, evaluate, new_id};
 
+/// The pinned native adapter puts the initiating key immediately before its
+/// Paste payload. Never infer intent from final frame modifiers or a release.
+fn paste_shortcut_mode(event: &Event) -> Option<bool> {
+    match event {
+        Event::Key {
+            key: Key::V,
+            pressed: true,
+            modifiers,
+            ..
+        } if modifiers.command => Some(modifiers.shift),
+        Event::Key {
+            key: Key::Paste,
+            pressed: true,
+            ..
+        } => Some(false),
+        Event::Key {
+            key: Key::Insert,
+            pressed: true,
+            modifiers,
+            ..
+        } if cfg!(target_os = "windows") && modifiers.shift => Some(false),
+        _ => None,
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ClipboardCommand {
     Copy,
@@ -316,13 +341,8 @@ impl Editor {
         ctx.request_repaint();
     }
     pub(crate) fn clipboard_events(&mut self, ctx: &egui::Context) {
-        let (mut events, modifiers, now) = ctx.input_mut(|input| {
-            (
-                std::mem::take(&mut input.events),
-                input.modifiers,
-                input.time,
-            )
-        });
+        let (mut events, now) =
+            ctx.input_mut(|input| (std::mem::take(&mut input.events), input.time));
         let user_intervened = events.iter().any(|event| {
             matches!(
                 event,
@@ -343,6 +363,13 @@ impl Editor {
         }
         let mut retained = Vec::with_capacity(events.len());
         for (index, event) in events.iter().enumerate() {
+            if paste_shortcut_mode(event).is_some()
+                && matches!(events.get(index + 1), Some(Event::Paste(_)))
+            {
+                // Consume transport metadata before shortcut/TextEdit routing.
+                // The payload itself is still delivered exactly once below.
+                continue;
+            }
             if !matches!(event, Event::Copy | Event::Cut | Event::Paste(_)) {
                 retained.push(event.clone());
                 continue;
@@ -360,19 +387,12 @@ impl Editor {
                 Event::Copy => self.copy_selection(ctx, false),
                 Event::Cut => self.copy_selection(ctx, true),
                 Event::Paste(text) => {
-                    let in_place = events[index + 1..]
-                        .iter()
-                        .take_while(|next| !matches!(next, Event::Paste(_)))
-                        .find_map(|next| match next {
-                            Event::Key {
-                                key: Key::V,
-                                pressed: false,
-                                modifiers,
-                                ..
-                            } => Some(modifiers.shift),
-                            _ => None,
-                        })
-                        .unwrap_or(modifiers.shift);
+                    // An unpaired native/menu/accessibility payload means plain
+                    // Paste. Explicit menu Paste in Place bypasses this route.
+                    let in_place = index
+                        .checked_sub(1)
+                        .and_then(|previous| paste_shortcut_mode(&events[previous]))
+                        .unwrap_or(false);
                     self.paste_objects(ctx, text, in_place);
                 }
                 _ => unreachable!(),

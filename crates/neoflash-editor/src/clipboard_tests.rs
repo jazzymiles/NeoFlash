@@ -196,11 +196,16 @@ fn keyboard_copy_and_cut_emit_one_valid_snapshot_and_cut_is_one_undo() {
 
 #[test]
 fn native_paste_modes_and_combined_key_event_apply_exactly_once() {
-    for variant in [
-        "normal",
-        "shift-held",
-        "shift-on-v-release",
-        "key-and-paste",
+    for (variant, expected_in_place) in [
+        ("normal", false),
+        ("shift-pressed-after-paste", false),
+        ("shift-released-before-v", true),
+        ("v-released-before-shift", true),
+        ("key-and-paste", true),
+        ("unpaired-shift-held", false),
+        ("unpaired-shift-on-release", false),
+        ("dedicated-paste", false),
+        ("nonadjacent-key", false),
     ] {
         let (mut editor, ctx) = fixture();
         let text = copy_objects(&mut editor, &ctx);
@@ -208,8 +213,17 @@ fn native_paste_modes_and_combined_key_event_apply_exactly_once() {
         editor.remember_paste_view([500., 300.]);
         let mut events = vec![Event::Paste(text)];
         let modifiers = match variant {
-            "shift-held" => Modifiers::COMMAND | Modifiers::SHIFT,
-            "shift-on-v-release" => {
+            "shift-pressed-after-paste" => {
+                events.insert(0, key(Key::V, true, Modifiers::COMMAND));
+                Modifiers::COMMAND | Modifiers::SHIFT
+            }
+            "shift-released-before-v" => {
+                events.insert(0, key(Key::V, true, Modifiers::COMMAND | Modifiers::SHIFT));
+                events.push(key(Key::V, false, Modifiers::NONE));
+                Modifiers::NONE
+            }
+            "v-released-before-shift" => {
+                events.insert(0, key(Key::V, true, Modifiers::COMMAND | Modifiers::SHIFT));
                 events.push(key(Key::V, false, Modifiers::COMMAND | Modifiers::SHIFT));
                 Modifiers::NONE
             }
@@ -217,7 +231,24 @@ fn native_paste_modes_and_combined_key_event_apply_exactly_once() {
                 events.insert(0, key(Key::V, true, Modifiers::COMMAND | Modifiers::SHIFT));
                 Modifiers::COMMAND | Modifiers::SHIFT
             }
-            _ => Modifiers::COMMAND,
+            "unpaired-shift-held" => Modifiers::COMMAND | Modifiers::SHIFT,
+            "unpaired-shift-on-release" => {
+                events.push(key(Key::V, false, Modifiers::COMMAND | Modifiers::SHIFT));
+                Modifiers::NONE
+            }
+            "dedicated-paste" => {
+                events.insert(0, key(Key::Paste, true, Modifiers::SHIFT));
+                Modifiers::SHIFT
+            }
+            "nonadjacent-key" => {
+                events.insert(0, key(Key::V, true, Modifiers::COMMAND | Modifiers::SHIFT));
+                events.insert(1, Event::PointerMoved(Pos2::ZERO));
+                Modifiers::NONE
+            }
+            _ => {
+                events.insert(0, key(Key::V, true, Modifiers::COMMAND));
+                Modifiers::COMMAND
+            }
         };
         let output = frame(&mut editor, &ctx, 0.2, events, modifiers, None);
         assert!(copied(&output).is_empty());
@@ -225,10 +256,10 @@ fn native_paste_modes_and_combined_key_event_apply_exactly_once() {
         let pasted = editor.selected_element().unwrap();
         assert_ne!(pasted.id, original.id);
         assert_eq!(pasted.scripts, original.scripts);
-        let expected = if variant == "normal" {
-            (460., 280.)
-        } else {
+        let expected = if expected_in_place {
             (100., 120.)
+        } else {
+            (460., 280.)
         };
         assert_eq!(
             (pasted.transform.x, pasted.transform.y),
@@ -238,6 +269,88 @@ fn native_paste_modes_and_combined_key_event_apply_exactly_once() {
         editor.project.validate().unwrap();
         editor.undo();
         assert_eq!(count(&editor), 1);
+        assert!(!editor.history.can_undo());
+    }
+}
+
+#[test]
+fn multiple_paste_pairs_and_repeat_each_keep_their_own_mode_and_one_undo() {
+    let (mut editor, ctx) = fixture();
+    let text = copy_objects(&mut editor, &ctx);
+    editor.remember_paste_view([500., 300.]);
+    let mut repeated = key(Key::V, true, Modifiers::COMMAND);
+    if let Event::Key { repeat, .. } = &mut repeated {
+        *repeat = true;
+    }
+    frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![
+            key(Key::V, true, Modifiers::COMMAND | Modifiers::SHIFT),
+            Event::Paste(text.clone()),
+            key(Key::V, false, Modifiers::NONE),
+            repeated,
+            Event::Paste(text.clone()),
+            // A payload without its own preceding press cannot inherit the first mode.
+            Event::Paste(text),
+        ],
+        Modifiers::NONE,
+        None,
+    );
+    let elements = sample_layer(&editor.symbol().timeline.layers[0], editor.frame);
+    let positions: Vec<_> = elements
+        .iter()
+        .map(|e| (e.transform.x, e.transform.y))
+        .collect();
+    assert_eq!(
+        positions,
+        [(100., 120.), (100., 120.), (460., 280.), (460., 280.)]
+    );
+    for remaining in [3, 2, 1] {
+        editor.undo();
+        assert_eq!(count(&editor), remaining);
+    }
+    assert!(!editor.history.can_undo());
+}
+
+#[test]
+fn paired_shortcut_text_paste_inserts_once_without_object_or_tool_side_effects() {
+    for modifiers in [Modifiers::COMMAND, Modifiers::COMMAND | Modifiers::SHIFT] {
+        let (mut editor, ctx) = fixture();
+        let before = editor.project.clone();
+        let before_tool = editor.tool;
+        let mut text = "replace this".to_owned();
+        focus_and_select_text(&mut editor, &ctx, &mut text);
+        frame(
+            &mut editor,
+            &ctx,
+            0.4,
+            vec![
+                key(Key::V, true, modifiers),
+                Event::Paste("first\nλ".into()),
+                key(Key::V, false, Modifiers::NONE),
+            ],
+            Modifiers::NONE,
+            Some(&mut text),
+        );
+        assert_eq!(text, "first\nλ");
+        frame(
+            &mut editor,
+            &ctx,
+            0.5,
+            vec![
+                key(Key::V, true, modifiers),
+                Event::Paste("second".into()),
+                key(Key::V, true, modifiers),
+                Event::Paste("third".into()),
+            ],
+            Modifiers::NONE,
+            Some(&mut text),
+        );
+        assert_eq!(text, "first\nλsecondthird");
+        assert_eq!(editor.project, before);
+        assert!(editor.tool == before_tool);
         assert!(!editor.history.can_undo());
     }
 }
