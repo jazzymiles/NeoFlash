@@ -1,0 +1,582 @@
+{
+  "format_version": 1,
+  "name": "Imported XFL",
+  "width": 720,
+  "height": 420,
+  "fps": 24,
+  "background": [
+    16,
+    29,
+    43,
+    255
+  ],
+  "root": "symbol-3",
+  "symbols": [
+    {
+      "id": "symbol-3",
+      "name": "Nested playback AS2",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 48,
+        "layers": [
+          {
+            "id": "layer-6",
+            "name": "Caption",
+            "visible": true,
+            "locked": true,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-3-1-0",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 30.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NESTED TIMELINES / AS2",
+                      "font_family": "Arial",
+                      "font_size": 27.0,
+                      "color": [
+                        255,
+                        255,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-3-1-1",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 75.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "One library animation, four playback modes.",
+                      "font_family": "Arial",
+                      "font_size": 17.0,
+                      "color": [
+                        216,
+                        229,
+                        239,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-3-1-2",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 132.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Independent pair",
+                      "font_family": "Arial",
+                      "font_size": 17.0,
+                      "color": [
+                        216,
+                        229,
+                        239,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-3-1-3",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": 290.0,
+                      "y": 132.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Loop",
+                      "font_family": "Arial",
+                      "font_size": 17.0,
+                      "color": [
+                        216,
+                        229,
+                        239,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-3-1-4",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": 425.0,
+                      "y": 132.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Play once",
+                      "font_family": "Arial",
+                      "font_size": 17.0,
+                      "color": [
+                        216,
+                        229,
+                        239,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-3-1-5",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": 555.0,
+                      "y": 132.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Single frame 12",
+                      "font_family": "Arial",
+                      "font_size": 17.0,
+                      "color": [
+                        216,
+                        229,
+                        239,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-3-1-6",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 340.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Pair contains another live Orb and a translucent frozen Orb.",
+                      "font_family": "Arial",
+                      "font_size": 16.0,
+                      "color": [
+                        216,
+                        229,
+                        239,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-3-1-7",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 370.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "The AS2 frame scripts write two messages when playback starts.",
+                      "font_family": "Arial",
+                      "font_size": 16.0,
+                      "color": [
+                        216,
+                        229,
+                        239,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "layer-5",
+            "name": "Instances",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-3-0-0",
+                    "name": "pair",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 190.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-3-0-1",
+                    "name": "loop",
+                    "transform": {
+                      "x": 290.0,
+                      "y": 190.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-1",
+                      "playback": "loop"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-3-0-2",
+                    "name": "once",
+                    "transform": {
+                      "x": 425.0,
+                      "y": 190.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-1",
+                      "playback": "play_once"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-3-0-3",
+                    "name": "still",
+                    "transform": {
+                      "x": 555.0,
+                      "y": 190.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-1",
+                      "playback": {
+                        "single_frame": 12
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "start"
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "trace(\"AS2: root frame 1\");"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "symbol-1",
+      "name": "Orb",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 24,
+        "layers": [
+          {
+            "id": "layer-7",
+            "name": "Four held poses",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-0-0",
+                    "name": "orb",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 36.0,
+                      "height": 36.0,
+                      "fill": [
+                        100,
+                        223,
+                        190,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "northwest"
+              },
+              {
+                "frame": 6,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-0-0",
+                    "name": "orb",
+                    "transform": {
+                      "x": 54.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 36.0,
+                      "height": 36.0,
+                      "fill": [
+                        255,
+                        204,
+                        102,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "northeast"
+              },
+              {
+                "frame": 12,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-0-0",
+                    "name": "orb",
+                    "transform": {
+                      "x": 54.0,
+                      "y": 54.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 36.0,
+                      "height": 36.0,
+                      "fill": [
+                        255,
+                        132,
+                        103,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "southeast"
+              },
+              {
+                "frame": 18,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-0-0",
+                    "name": "orb",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 54.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 36.0,
+                      "height": 36.0,
+                      "fill": [
+                        128,
+                        174,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "southwest"
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "symbol-2",
+      "name": "Pair",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 48,
+        "layers": [
+          {
+            "id": "layer-8",
+            "name": "Nested Orb placements",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-2-0-0",
+                    "name": "liveOrb",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-1",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-2-0-1",
+                    "name": "frozenOrb",
+                    "transform": {
+                      "x": 105.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 0.55
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-1",
+                      "playback": {
+                        "single_frame": 12
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "trace(\"AS2: nested Pair frame 1\");"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

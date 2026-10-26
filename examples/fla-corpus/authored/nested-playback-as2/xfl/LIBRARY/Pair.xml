@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- NeoFlash original synthetic XFL fixture; no Adobe-authored content. -->
+<DOMSymbolItem xmlns="http://ns.adobe.com/xfl/2008/" name="Pair" symbolType="movie clip">
+<timeline><DOMTimeline name="Pair"><layers>
+<DOMLayer name="Nested Orb placements" locked="false"><frames>
+<DOMFrame index="0" duration="48"><Actionscript><script><![CDATA[trace("AS2: nested Pair frame 1");]]></script></Actionscript><elements><DOMSymbolInstance name="liveOrb" libraryItemName="Orb" symbolType="movie clip"><matrix><Matrix tx="0" ty="0" a="1" d="1"/></matrix><color><Color alphaMultiplier="1"/></color></DOMSymbolInstance><DOMSymbolInstance name="frozenOrb" libraryItemName="Orb" symbolType="graphic" loop="single frame" firstFrame="12"><matrix><Matrix tx="105" ty="0" a="1" d="1"/></matrix><color><Color alphaMultiplier="0.55"/></color></DOMSymbolInstance></elements></DOMFrame>
+</frames></DOMLayer>
+</layers></DOMTimeline></timeline>
+</DOMSymbolItem>

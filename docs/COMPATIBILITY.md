@@ -108,3 +108,7 @@ Checks: 26 Rust tests verify parser/diagnostics and lowering invariants. `node c
 - [Apache Royale compiler](https://apache.github.io/royale-docs/compiler): AS3/MXML to JavaScript; an existing compiler option, not a bundled NeoFlash dependency.
 - [Oxc parser](https://docs.rs/oxc_parser/0.75.0/oxc_parser/) and [transformer](https://docs.rs/oxc_transformer/0.75.0/oxc_transformer/): current JavaScript/TypeScript implementation dependency. Versions are pinned; Oxc is MIT licensed.
 - [Adobe HTML5 Canvas migration](https://helpx.adobe.com/ph_fil/animate/desktop/platforms/creating-publishing-html5-canvas-document.html): migration may comment out ActionScript and remove unsupported content; NeoFlash must report such gaps rather than silently lose behavior.
+
+## Public source fixtures
+
+The [FLA corpus](../examples/fla-corpus/README.md) retains upstream AS2/AS3 sources and expected reference traces for future conformance work. All 15 external FLA documents currently block editable conversion. The three original examples have separately verified imports, queued script source/language/frame identity in WASM, and observed script execution in HTML5. Import retention alone never establishes ActionScript compatibility.

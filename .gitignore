@@ -5,3 +5,7 @@
 *.tmp
 # User-provided legacy projects are local test inputs, not licensed public fixtures.
 /examples/old flash files/
+
+# Local Python interpreter caches.
+__pycache__/
+*.py[cod]

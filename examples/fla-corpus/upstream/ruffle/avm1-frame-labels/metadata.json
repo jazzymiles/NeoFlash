@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "id": "ruffle-avm1-frame-labels",
+  "purpose": "AS1/AS2-era frame labels and goto control-flow trace.",
+  "features": [
+    "avm1",
+    "frame-labels",
+    "timeline-control"
+  ],
+  "repository": "https://github.com/ruffle-rs/ruffle",
+  "commit": "fe6cfc545405b888ebb478ce1c211d63147ca49b",
+  "license": "MIT OR Apache-2.0",
+  "license_files": [
+    "../LICENSE.md"
+  ],
+  "upstream_path": "tests/tests/swfs/avm1/goto_label/test.fla",
+  "upstream_url": "https://github.com/ruffle-rs/ruffle/blob/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/goto_label/test.fla",
+  "entrypoint": "test.fla",
+  "container": "xfl_zip",
+  "files": [
+    {
+      "path": "output.txt",
+      "upstream_path": "tests/tests/swfs/avm1/goto_label/output.txt",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/goto_label/output.txt",
+      "sha256": "4b1536651dd7690a224a9e49d999d395b6e4860d8c1e01231d49082d8ddcac94",
+      "bytes": 221
+    },
+    {
+      "path": "test.fla",
+      "upstream_path": "tests/tests/swfs/avm1/goto_label/test.fla",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/goto_label/test.fla",
+      "sha256": "c54e3094eec35250f4b942f49ac6f1f755d94c4edad5384cfca4913cf6f1f779",
+      "bytes": 6025
+    },
+    {
+      "path": "test.swf",
+      "upstream_path": "tests/tests/swfs/avm1/goto_label/test.swf",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/goto_label/test.swf",
+      "sha256": "2a6204df54d96df1a83f2ada7c7722dfe5037429abb402eb1bb489b64f41e9e8",
+      "bytes": 430
+    },
+    {
+      "path": "test.toml",
+      "upstream_path": "tests/tests/swfs/avm1/goto_label/test.toml",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/goto_label/test.toml",
+      "sha256": "01e415ce9eb7288fedee9aae6df1a05f4338ae504bb74666f66a2a42320e9d9b",
+      "bytes": 15
+    }
+  ],
+  "execution_note": "Original source and reference SWF are data fixtures. No ActionScript or SWF has been executed. Expected output.txt belongs to the upstream Ruffle test, not a NeoFlash compatibility claim.",
+  "observed_import": {
+    "format": "xfl_archive",
+    "can_import": false,
+    "diagnostics": [
+      "external_script_configuration",
+      "publish_settings",
+      "script_preserved",
+      "unsupported_attribute",
+      "unsupported_element"
+    ],
+    "note": "Observation from the existing target/debug/neoflash-import binary on 2026-10-27. Diagnostic lists are informational and may evolve; importer sources were not rebuilt by this collector."
+  }
+}

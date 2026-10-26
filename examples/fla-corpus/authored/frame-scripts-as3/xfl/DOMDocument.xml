@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- NeoFlash original synthetic XFL fixture; no Adobe-authored content. -->
+<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" width="720" height="420" frameRate="24" backgroundColor="#101D2B" xflVersion="2.0">
+
+<timelines><DOMTimeline name="Frame scripts AS3"><layers>
+<DOMLayer name="Actions and poses" locked="false"><frames>
+<DOMFrame index="0" duration="12" name="start" labelType="name"><Actionscript><script><![CDATA[var stageName:String = "start";
+trace("AS3: " + stageName);]]></script></Actionscript><elements><DOMRectangleObject name="stageCard" objectWidth="140" objectHeight="115" x="45" y="160"><fill><SolidColor color="#80AEFF" alpha="1"/></fill></DOMRectangleObject></elements></DOMFrame>
+<DOMFrame index="12" duration="12" name="middle" labelType="name"><Actionscript><script><![CDATA[var amount:int = 2 + 3;
+trace("AS3: middle " + amount);]]></script></Actionscript><elements><DOMRectangleObject name="stageCard" objectWidth="140" objectHeight="115" x="290" y="160"><fill><SolidColor color="#FFCC66" alpha="1"/></fill></DOMRectangleObject></elements></DOMFrame>
+<DOMFrame index="24" duration="12" name="done" labelType="name"><Actionscript><script><![CDATA[trace("AS3: done");
+stop();]]></script></Actionscript><elements><DOMRectangleObject name="stageCard" objectWidth="140" objectHeight="115" x="535" y="160"><fill><SolidColor color="#64DFBE" alpha="1"/></fill></DOMRectangleObject></elements></DOMFrame>
+</frames></DOMLayer>
+<DOMLayer name="Caption" locked="true"><frames>
+<DOMFrame index="0" duration="36"><elements><DOMStaticText width="670" height="32"><matrix><Matrix tx="32" ty="30" a="1" d="1"/></matrix><textRuns><DOMTextRun><characters>FRAME SCRIPTS / AS3</characters><textAttrs><DOMTextAttrs face="Arial" size="27" fillColor="#FFFFFF"/></textAttrs></DOMTextRun></textRuns></DOMStaticText><DOMStaticText width="670" height="32"><matrix><Matrix tx="32" ty="75" a="1" d="1"/></matrix><textRuns><DOMTextRun><characters>Typed locals, frame labels and a final stop().</characters><textAttrs><DOMTextAttrs face="Arial" size="17" fillColor="#D8E5EF"/></textAttrs></DOMTextRun></textRuns></DOMStaticText><DOMStaticText width="670" height="32"><matrix><Matrix tx="32" ty="345" a="1" d="1"/></matrix><textRuns><DOMTextRun><characters>0: START  |  12: MIDDLE  |  24: DONE (playback stops)</characters><textAttrs><DOMTextAttrs face="Arial" size="17" fillColor="#D8E5EF"/></textAttrs></DOMTextRun></textRuns></DOMStaticText><DOMStaticText width="670" height="32"><matrix><Matrix tx="32" ty="377" a="1" d="1"/></matrix><textRuns><DOMTextRun><characters>Watch the browser console for the three trace messages.</characters><textAttrs><DOMTextAttrs face="Arial" size="16" fillColor="#D8E5EF"/></textAttrs></DOMTextRun></textRuns></DOMStaticText></elements></DOMFrame>
+</frames></DOMLayer>
+</layers></DOMTimeline></timelines>
+</DOMDocument>

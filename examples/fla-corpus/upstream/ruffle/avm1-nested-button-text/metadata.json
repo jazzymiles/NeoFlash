@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "id": "ruffle-avm1-nested-button-text",
+  "purpose": "Nested text fields inside legacy button symbols.",
+  "features": [
+    "avm1",
+    "button",
+    "text",
+    "nested-symbols"
+  ],
+  "repository": "https://github.com/ruffle-rs/ruffle",
+  "commit": "fe6cfc545405b888ebb478ce1c211d63147ca49b",
+  "license": "MIT OR Apache-2.0",
+  "license_files": [
+    "../LICENSE.md"
+  ],
+  "upstream_path": "tests/tests/swfs/avm1/nested_textfields_in_buttons/test.fla",
+  "upstream_url": "https://github.com/ruffle-rs/ruffle/blob/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/nested_textfields_in_buttons/test.fla",
+  "entrypoint": "test.fla",
+  "container": "cfb_binary",
+  "files": [
+    {
+      "path": "output.txt",
+      "upstream_path": "tests/tests/swfs/avm1/nested_textfields_in_buttons/output.txt",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/nested_textfields_in_buttons/output.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "test.fla",
+      "upstream_path": "tests/tests/swfs/avm1/nested_textfields_in_buttons/test.fla",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/nested_textfields_in_buttons/test.fla",
+      "sha256": "ce634ef8f4b46371075f15cd137f7058055cb95c7d592af45e64a0e370521231",
+      "bytes": 44032
+    },
+    {
+      "path": "test.swf",
+      "upstream_path": "tests/tests/swfs/avm1/nested_textfields_in_buttons/test.swf",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/nested_textfields_in_buttons/test.swf",
+      "sha256": "13800c5570ea336be1361a3888fb06fb008bd07e851215748b5b58672eddf7ff",
+      "bytes": 3427
+    },
+    {
+      "path": "test.toml",
+      "upstream_path": "tests/tests/swfs/avm1/nested_textfields_in_buttons/test.toml",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/nested_textfields_in_buttons/test.toml",
+      "sha256": "fe734646f8be2bbcf0b290423d22f56f5831da49c402e33fd85308432e3e9afd",
+      "bytes": 15
+    }
+  ],
+  "execution_note": "Original source and reference SWF are data fixtures. No ActionScript or SWF has been executed. Expected output.txt belongs to the upstream Ruffle test, not a NeoFlash compatibility claim.",
+  "observed_import": {
+    "format": "legacy_binary_fla",
+    "can_import": false,
+    "diagnostics": [
+      "fla_contents_suffix_unsupported",
+      "fla_mfc_class_unsupported",
+      "legacy_fla_conversion_unsupported"
+    ],
+    "binary_fla": {
+      "cfb_major_version": 3,
+      "contents_revision": 63
+    },
+    "note": "Observation from the existing target/debug/neoflash-import binary on 2026-10-27. Diagnostic lists are informational and may evolve; importer sources were not rebuilt by this collector."
+  }
+}

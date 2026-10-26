@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "id": "ruffle-mx-button",
+  "purpose": "Legacy MX button states and button records.",
+  "features": [
+    "binary-fla",
+    "button",
+    "flash-mx"
+  ],
+  "repository": "https://github.com/ruffle-rs/ruffle",
+  "commit": "fe6cfc545405b888ebb478ce1c211d63147ca49b",
+  "license": "MIT OR Apache-2.0",
+  "license_files": [
+    "../LICENSE.md",
+    "../SWF-LICENSE-MIT",
+    "../SWF-LICENSE-APACHE"
+  ],
+  "upstream_path": "swf/tests/swfs/DefineButton-MX.fla",
+  "upstream_url": "https://github.com/ruffle-rs/ruffle/blob/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/tests/swfs/DefineButton-MX.fla",
+  "entrypoint": "DefineButton-MX.fla",
+  "container": "cfb_binary",
+  "files": [
+    {
+      "path": "DefineButton-MX.fla",
+      "upstream_path": "swf/tests/swfs/DefineButton-MX.fla",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/tests/swfs/DefineButton-MX.fla",
+      "sha256": "504a8d2292c9e4aabaae3c035b698377bddf9cb6562667005de9e7efb244fc65",
+      "bytes": 15872
+    },
+    {
+      "path": "DefineButton-MX.swf",
+      "upstream_path": "swf/tests/swfs/DefineButton-MX.swf",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/tests/swfs/DefineButton-MX.swf",
+      "sha256": "cd50d6aed978b5d4a5a753d0c15413dc5134d2a2bd7f676930c78765b10fada5",
+      "bytes": 138
+    }
+  ],
+  "execution_note": "Original source and reference SWF are data fixtures. No ActionScript or SWF has been executed. Expected output.txt belongs to the upstream Ruffle test, not a NeoFlash compatibility claim.",
+  "observed_import": {
+    "format": "legacy_binary_fla",
+    "can_import": false,
+    "diagnostics": [
+      "fla_contents_suffix_unsupported",
+      "fla_mfc_class_unsupported",
+      "legacy_fla_conversion_unsupported"
+    ],
+    "binary_fla": {
+      "cfb_major_version": 3,
+      "contents_revision": 41
+    },
+    "note": "Observation from the existing target/debug/neoflash-import binary on 2026-10-27. Diagnostic lists are informational and may evolve; importer sources were not rebuilt by this collector."
+  }
+}

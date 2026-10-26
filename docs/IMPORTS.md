@@ -12,6 +12,12 @@ The product goal includes FLA, XFL and SWF import. They are **not interchangeabl
 | SWC / external AS libraries | Planned | Linkage, dependencies, bytecode/source boundary and library versioning need their own design. |
 
 
+## Public regression corpus
+
+The [public corpus](../examples/fla-corpus/README.md) contains 15 unchanged licensed FLA sources from Ruffle, Flump and flacomdoc, plus three original synthetic ZIP/XFL examples and their native projects. The 21-entry check expects 15 explicit conversion refusals and six exact successful imports (XFL and FLA versions of each original example). It verifies pinned source hashes, required diagnostic categories, no partial output on refusal, no overwrite and unchanged inputs. Three actual-WASM tests cover the imported examples; script execution was separately observed in the browser. External references and expected upstream traces are not claims of NeoFlash execution compatibility.
+
+Run `python3 scripts/check-fla-corpus.py`; it builds the current importer. The same checks are included in `scripts/check.sh`. Licenses, immutable source URLs, hash manifests and browser-check limits are kept with the corpus.
+
 ## Using the importer
 
 ```sh

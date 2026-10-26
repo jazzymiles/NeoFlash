@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/tconkling/flump",
+  "commit": "4933c6c13c3e846cb1f7cf9f03986326daf8cce3",
+  "retrieved_on": "2026-10-27",
+  "license": "MIT",
+  "license_file": "LICENSE",
+  "authors_file": "AUTHORS",
+  "license_scope": "Repository MIT license retained verbatim; selected files are original exporter test resources. No per-file license override was found for these resources.",
+  "repository_files": [
+    {
+      "path": "LICENSE",
+      "upstream_path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/tconkling/flump/4933c6c13c3e846cb1f7cf9f03986326daf8cce3/LICENSE",
+      "sha256": "c06a821cf6697fe5e14ff5ec30df897f6322f17c2f75fb5f3f5ee7d03d0c28db",
+      "bytes": 1081
+    },
+    {
+      "path": "AUTHORS",
+      "upstream_path": "AUTHORS",
+      "url": "https://raw.githubusercontent.com/tconkling/flump/4933c6c13c3e846cb1f7cf9f03986326daf8cce3/AUTHORS",
+      "sha256": "2a0f01d8c3cf56126e26ca6e70a05bc3d1ee8243bfcabc98c74ef1890651e13c",
+      "bytes": 105
+    }
+  ],
+  "container_notes": [
+    "Original FLA bytes are unchanged. These Adobe Flash CS6 ZIP/XFL files have central-directory size inconsistencies: Python zipfile rejects them and macOS unzip warns; the current NeoFlash ZIP reader inspects them successfully.",
+    "No compiled SWFs or external runtimes are included. The FLA archives include their internal XML libraries and bitmap payloads. AS3PackagePaths is the relative dot directory; no document class or embedded .as file was observed."
+  ],
+  "cases": [
+    {
+      "id": "flump-rotate-test2",
+      "purpose": "Rotating nested bitmap-backed symbol with clockwise full-turn tween and easing.",
+      "upstream_path": "exporter/src/test/resources/rotate_test2.fla",
+      "upstream_url": "https://github.com/tconkling/flump/blob/4933c6c13c3e846cb1f7cf9f03986326daf8cce3/exporter/src/test/resources/rotate_test2.fla",
+      "entrypoint": "rotate_test2/rotate_test2.fla",
+      "features": [
+        "xfl_archive",
+        "nested_symbols",
+        "bitmap_instances",
+        "rotation",
+        "classic_motion_tween",
+        "easing",
+        "as3_linkage"
+      ],
+      "files": [
+        {
+          "path": "rotate_test2/rotate_test2.fla",
+          "upstream_path": "exporter/src/test/resources/rotate_test2.fla",
+          "url": "https://raw.githubusercontent.com/tconkling/flump/4933c6c13c3e846cb1f7cf9f03986326daf8cce3/exporter/src/test/resources/rotate_test2.fla",
+          "sha256": "c91004049e3278f59c3de690c98ec5b08436e2bb07191a0074f8e9be5808e31a",
+          "bytes": 11583
+        }
+      ],
+      "observed_inspection": {
+        "format": "xfl_archive",
+        "version": "2.2",
+        "can_import": false,
+        "statistics": {
+          "symbols": 4,
+          "layers": 4,
+          "keyframes": 6,
+          "elements": 4,
+          "scripts": 0
+        },
+        "diagnostic_codes": [
+          "editor_metadata",
+          "external_script_configuration",
+          "publish_settings",
+          "transform_pivot",
+          "tween_not_supported",
+          "unsupported_assets",
+          "unsupported_attribute",
+          "unsupported_element"
+        ]
+      },
+      "expected": {
+        "format": "xfl_archive",
+        "can_import": false,
+        "required_diagnostics": [
+          "tween_not_supported",
+          "unsupported_assets"
+        ]
+      },
+      "import_refusal_verified": true
+    },
+    {
+      "id": "flump-potion-simple",
+      "purpose": "Potion animation with nested bitmap symbols and multiple tweened layers.",
+      "upstream_path": "exporter/src/test/resources/potion_simple.fla",
+      "upstream_url": "https://github.com/tconkling/flump/blob/4933c6c13c3e846cb1f7cf9f03986326daf8cce3/exporter/src/test/resources/potion_simple.fla",
+      "entrypoint": "potion_simple/potion_simple.fla",
+      "features": [
+        "xfl_archive",
+        "nested_symbols",
+        "bitmap_instances",
+        "multiple_layers",
+        "classic_motion_tween",
+        "as3_linkage"
+      ],
+      "files": [
+        {
+          "path": "potion_simple/potion_simple.fla",
+          "upstream_path": "exporter/src/test/resources/potion_simple.fla",
+          "url": "https://raw.githubusercontent.com/tconkling/flump/4933c6c13c3e846cb1f7cf9f03986326daf8cce3/exporter/src/test/resources/potion_simple.fla",
+          "sha256": "bc282a8a053907f7dcba1af065f200f47b3bab138c241552af4190c36e8aedce",
+          "bytes": 52327
+        }
+      ],
+      "observed_inspection": {
+        "format": "xfl_archive",
+        "version": "2.1",
+        "can_import": false,
+        "statistics": {
+          "symbols": 9,
+          "layers": 16,
+          "keyframes": 29,
+          "elements": 25,
+          "scripts": 0
+        },
+        "diagnostic_codes": [
+          "editor_metadata",
+          "external_script_configuration",
+          "publish_settings",
+          "tween_not_supported",
+          "unsupported_assets",
+          "unsupported_attribute",
+          "unsupported_element"
+        ]
+      },
+      "expected": {
+        "format": "xfl_archive",
+        "can_import": false,
+        "required_diagnostics": [
+          "tween_not_supported",
+          "unsupported_assets"
+        ]
+      },
+      "import_refusal_verified": true
+    },
+    {
+      "id": "flump-flump",
+      "purpose": "Larger Flump exporter animation sample with many nested symbols, keyframes and tweened transforms.",
+      "upstream_path": "exporter/src/test/resources/flump.fla",
+      "upstream_url": "https://github.com/tconkling/flump/blob/4933c6c13c3e846cb1f7cf9f03986326daf8cce3/exporter/src/test/resources/flump.fla",
+      "entrypoint": "flump/flump.fla",
+      "features": [
+        "xfl_archive",
+        "nested_symbols",
+        "bitmap_instances",
+        "multiple_layers",
+        "classic_motion_tween",
+        "skew",
+        "layer_types",
+        "as3_linkage"
+      ],
+      "files": [
+        {
+          "path": "flump/flump.fla",
+          "upstream_path": "exporter/src/test/resources/flump.fla",
+          "url": "https://raw.githubusercontent.com/tconkling/flump/4933c6c13c3e846cb1f7cf9f03986326daf8cce3/exporter/src/test/resources/flump.fla",
+          "sha256": "1c743eeb998200cb48a43bbadf9c3f9422b125e79509ea5fbe531b17eb3b5056",
+          "bytes": 373675
+        }
+      ],
+      "observed_inspection": {
+        "format": "xfl_archive",
+        "version": "2.2",
+        "can_import": false,
+        "statistics": {
+          "symbols": 27,
+          "layers": 78,
+          "keyframes": 364,
+          "elements": 353,
+          "scripts": 0
+        },
+        "diagnostic_codes": [
+          "editor_metadata",
+          "external_script_configuration",
+          "layer_type",
+          "matrix_skew",
+          "publish_settings",
+          "transform_pivot",
+          "tween_not_supported",
+          "unsupported_assets",
+          "unsupported_attribute",
+          "unsupported_element"
+        ]
+      },
+      "expected": {
+        "format": "xfl_archive",
+        "can_import": false,
+        "required_diagnostics": [
+          "tween_not_supported",
+          "unsupported_assets"
+        ]
+      },
+      "import_refusal_verified": true
+    }
+  ]
+}

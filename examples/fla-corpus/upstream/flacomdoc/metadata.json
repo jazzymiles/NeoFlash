@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/jindrapetrik/flacomdoc",
+  "commit": "0923d70870d11b236755af71337da8d0110a57aa",
+  "retrieved": "2026-10-27",
+  "license": "LGPL-2.1",
+  "license_scope": "Upstream README states this work is licensed under LGPL v2.1. Unmodified test source documents retained under that upstream license, separately from NeoFlash. No converter code included.",
+  "license_files": [
+    {
+      "path": "LICENSE.md",
+      "upstream_path": "LICENSE.md",
+      "url": "https://raw.githubusercontent.com/jindrapetrik/flacomdoc/0923d70870d11b236755af71337da8d0110a57aa/LICENSE.md",
+      "sha256": "cb4579199e2b9bf2205349618f60b9b3e0bf679c7c9879cd3ce3c0bd9acbcdbf",
+      "bytes": 26313
+    }
+  ],
+  "support_files": [
+    {
+      "path": "UPSTREAM-README.md",
+      "upstream_path": "README.md",
+      "url": "https://raw.githubusercontent.com/jindrapetrik/flacomdoc/0923d70870d11b236755af71337da8d0110a57aa/README.md",
+      "sha256": "bef25843b6e21df46cbb2c37c6df20d0dbaa53615929396d9241622cbc4aebb0",
+      "bytes": 3211
+    }
+  ],
+  "cases": [
+    {
+      "id": "flash5-shapes",
+      "purpose": "Public binary FLA regression input for vector-shapes, legacy-flash5.",
+      "upstream_path": "testdata/fla/f5/0002_shapes.fla",
+      "entrypoint": "flash5-shapes/0002_shapes.fla",
+      "features": [
+        "vector-shapes",
+        "legacy-flash5"
+      ],
+      "files": [
+        {
+          "path": "flash5-shapes/0002_shapes.fla",
+          "upstream_path": "testdata/fla/f5/0002_shapes.fla",
+          "url": "https://raw.githubusercontent.com/jindrapetrik/flacomdoc/0923d70870d11b236755af71337da8d0110a57aa/testdata/fla/f5/0002_shapes.fla",
+          "sha256": "568f8f171ec54a106b17c117cffbc4a8cc6cab053cd21fd6bbc8ec3154029a75",
+          "bytes": 14848
+        }
+      ]
+    },
+    {
+      "id": "mx-layers",
+      "purpose": "Public binary FLA regression input for nested-layers, legacy-mx.",
+      "upstream_path": "testdata/fla/mx/0008_nested_layers.fla",
+      "entrypoint": "mx-layers/0008_nested_layers.fla",
+      "features": [
+        "nested-layers",
+        "legacy-mx"
+      ],
+      "files": [
+        {
+          "path": "mx-layers/0008_nested_layers.fla",
+          "upstream_path": "testdata/fla/mx/0008_nested_layers.fla",
+          "url": "https://raw.githubusercontent.com/jindrapetrik/flacomdoc/0923d70870d11b236755af71337da8d0110a57aa/testdata/fla/mx/0008_nested_layers.fla",
+          "sha256": "f49886cc1b073182de560ab936147ac2db108250c2db563a3bd55cd63c13d0ea",
+          "bytes": 19456
+        }
+      ]
+    },
+    {
+      "id": "flash8-scripts",
+      "purpose": "Public binary FLA regression input for actionscript2, frame-scripts, legacy-flash8.",
+      "upstream_path": "testdata/fla/f8/0018_scripts_as2.fla",
+      "entrypoint": "flash8-scripts/0018_scripts_as2.fla",
+      "features": [
+        "actionscript2",
+        "frame-scripts",
+        "legacy-flash8"
+      ],
+      "files": [
+        {
+          "path": "flash8-scripts/0018_scripts_as2.fla",
+          "upstream_path": "testdata/fla/f8/0018_scripts_as2.fla",
+          "url": "https://raw.githubusercontent.com/jindrapetrik/flacomdoc/0923d70870d11b236755af71337da8d0110a57aa/testdata/fla/f8/0018_scripts_as2.fla",
+          "sha256": "38660cb756619084e75a7c4f74cde8b3cb42903d17e57405997477a5174a657a",
+          "bytes": 26624
+        }
+      ]
+    },
+    {
+      "id": "cs4-motion-tween",
+      "purpose": "Public binary FLA regression input for motion-tween, legacy-cs4.",
+      "upstream_path": "testdata/fla/cs4/0022_motiontween-cs4.fla",
+      "entrypoint": "cs4-motion-tween/0022_motiontween-cs4.fla",
+      "features": [
+        "motion-tween",
+        "legacy-cs4"
+      ],
+      "files": [
+        {
+          "path": "cs4-motion-tween/0022_motiontween-cs4.fla",
+          "upstream_path": "testdata/fla/cs4/0022_motiontween-cs4.fla",
+          "url": "https://raw.githubusercontent.com/jindrapetrik/flacomdoc/0923d70870d11b236755af71337da8d0110a57aa/testdata/fla/cs4/0022_motiontween-cs4.fla",
+          "sha256": "9e198a51f99b896574365d09f159e70d5047cb7815391b87cad80735743e2ce9",
+          "bytes": 51712
+        }
+      ]
+    }
+  ]
+}
