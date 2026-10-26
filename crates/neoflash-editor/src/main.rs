@@ -1,17 +1,27 @@
 mod accessibility;
 mod app;
 mod clipboard;
+mod detached;
 mod fonts;
+mod native_screens;
 mod panels;
 mod selection;
 mod stage;
 mod stage_primitives;
 mod stage_selection;
+mod theme;
+mod timeline_paint;
 mod transform_geometry;
+mod ui_icons;
 mod vector;
+mod workspace;
 
 #[cfg(test)]
 mod clipboard_tests;
+#[cfg(test)]
+mod detached_tests;
+#[cfg(test)]
+mod panel_tests;
 #[cfg(test)]
 mod selection_tests;
 #[cfg(test)]
@@ -20,6 +30,8 @@ mod tests;
 mod transform_gesture_tests;
 #[cfg(test)]
 mod vector_gesture_tests;
+#[cfg(test)]
+mod workspace_editor_tests;
 
 #[test]
 #[cfg(target_os = "macos")]

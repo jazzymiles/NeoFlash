@@ -79,6 +79,7 @@ struct TextTarget {
 
 #[derive(Clone)]
 pub(crate) struct ClipboardTarget {
+    viewport: egui::ViewportId,
     scope: Scope,
     text: Option<TextTarget>,
 }
@@ -111,6 +112,7 @@ struct Request {
 pub(crate) struct ClipboardState {
     pub(crate) session: String,
     pub(crate) menu_open: bool,
+    pub(crate) menu_viewport: Option<egui::ViewportId>,
     pub(crate) menu_target: Option<ClipboardTarget>,
     pending: Option<Request>,
     view: Option<(Id, [f64; 2])>,
@@ -126,6 +128,7 @@ impl Default for ClipboardState {
         Self {
             session: format!("{}-{stamp}-{}", std::process::id(), new_id("clipboard")),
             menu_open: false,
+            menu_viewport: None,
             menu_target: None,
             pending: None,
             view: None,
@@ -136,6 +139,7 @@ impl Default for ClipboardState {
 impl Editor {
     pub(crate) fn clipboard_target(&self, ctx: &egui::Context) -> ClipboardTarget {
         ClipboardTarget {
+            viewport: ctx.viewport_id(),
             scope: Scope::new(self),
             text: ctx
                 .wants_keyboard_input()
@@ -294,7 +298,9 @@ impl Editor {
         let target = self
             .clipboard
             .menu_target
-            .clone()
+            .as_ref()
+            .filter(|target| target.viewport == ctx.viewport_id())
+            .cloned()
             .unwrap_or_else(|| self.clipboard_target(ctx));
         if !target.matches(self) {
             self.message("Clipboard command canceled: the editing target changed.");
@@ -355,8 +361,15 @@ impl Editor {
         });
         if let Some(request) = self.clipboard.pending.take() {
             if request.target.matches(self) && now <= request.expires && !user_intervened {
-                request.target.restore_text_focus(ctx);
-                events.insert(0, request.event);
+                if request.target.viewport == ctx.viewport_id() {
+                    request.target.restore_text_focus(ctx);
+                    events.insert(0, request.event);
+                } else {
+                    // A parent repaint must not deliver a child's text command
+                    // into the Stage or a different editor widget.
+                    ctx.request_repaint_of(request.target.viewport);
+                    self.clipboard.pending = Some(request);
+                }
             } else {
                 self.message("Clipboard command canceled: the editing target changed.");
             }

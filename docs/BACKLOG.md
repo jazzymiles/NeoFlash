@@ -10,10 +10,13 @@ Priority is based on the stated product goal, with explicit evidence required fo
 
 ## P1 — essential authoring quality
 
+- [x] D-003–D-007 implementation: bounded tween arrows, original vector icons, Light/Dark palette, visibility/F9/reset, native Tools/Timeline/Actions windows, synchronized timeline rows and compact-panel scrolling. Automated layout/state/input tests pass; native acceptance is recorded separately in VERIFICATION.md.
+- Drag-to-dock/tab/split layouts, named workspace presets and broader VoiceOver/IME/multi-monitor acceptance.
+
 - [x] Cross-layer multi-selection, Shift/marquee/Select All, whole-selection duplicate/delete and V/Q object editing, with automated native-input regression coverage. Live native visual checks of this increment remain pending.
 - Custom registration points/pivots, skew, nonuniform multi-object transforms and groups.
-- [x] Object Copy/Cut/Paste and Paste in Place across frames/documents, including shared symbol closure, instance identity, scripts, text-focus routing and one-step Undo. Core and egui input tests pass; live OS clipboard checks remain pending.
-- [x] Preserve paste shortcut modifiers at key press in a pinned egui-winit adapter, with release-order, repeated-batch and text-recipient regressions. Physical macOS clipboard delivery remains unverified while the desktop is locked.
+- [x] Object Copy/Cut/Paste and Paste in Place across frames/documents, including shared symbol closure, instance identity, scripts, text-focus routing and one-step Undo. Core/egui tests and observed macOS copy/cut/paste, cross-document transfer, text focus, save/reopen and Test Movie checks pass.
+- [x] Preserve paste shortcut modifiers at key press in a pinned egui-winit adapter, with release-order, repeated-batch and text-recipient regressions. Physical macOS keyboard/menu delivery was observed after unlocking; an initial foreign-content event could not be reproduced after fresh copies.
 - Timeline clipboard for selected frame ranges and layer-preserving paste modes.
 - Drag/copy/reverse frame spans, keyframe movement, multi-frame edit and layer folders/reordering.
 - [x] Bezier paths, pen/pencil, direct point editing, compound fills and HTML5 geometry.
@@ -39,6 +42,8 @@ Priority is based on the stated product goal, with explicit evidence required fo
 
 ## P1 — legacy
 
+- [x] Licensed public FLA corpus with pinned hashes/provenance, specific refusal expectations, exact original XFL/FLA imports and real-WASM example checks.
+
 - Extend XFL geometry, library assets, masks, tweens, color transforms and text formatting with fixtures.
 - [x] Binary FLA CFB validation, stream inventory, save-target detection and bounded MFC structure inspection against the private corpus.
 - [x] Preserve bounded binary shape/style/edge records with exact source bytes and aggregate-only inspection; verify the private corpus without publishing artwork.
@@ -52,5 +57,5 @@ Priority is based on the stated product goal, with explicit evidence required fo
 ## P2 — product finish
 
 - Native macOS menus/document integration, shortcuts, accessibility tree, IME, trackpad conventions.
-- Localization, workspace layouts, panels/docking, performance profiling and extension API.
+- Localization, advanced workspace layouts, performance profiling and extension API.
 - Signed/notarized releases, Intel build verification, browser support matrix and updater policy.

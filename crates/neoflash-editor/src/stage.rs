@@ -1,4 +1,5 @@
 use crate::app::{Editor, Tool};
+use crate::theme::UiPalette;
 use eframe::egui::{
     self, Color32, FontFamily, FontId, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Vec2,
 };
@@ -239,15 +240,16 @@ fn draw_item(
 
 impl Editor {
     pub fn stage(&mut self, ctx: &egui::Context) {
+        let palette = UiPalette::current(ctx);
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(Color32::from_rgb(163, 167, 173)))
+            .frame(egui::Frame::NONE.fill(palette.pasteboard))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.add_space(10.);
                     ui.label(
                         egui::RichText::new(&self.project.name)
                             .strong()
-                            .color(Color32::from_gray(35)),
+                            .color(palette.stage_title),
                     );
                     if self.dirty() {
                         ui.label("•");
@@ -324,21 +326,17 @@ impl Editor {
                     (center.y - origin.y) as f64 / self.zoom as f64,
                 ]);
                 let p = ui.painter_at(rect);
-                p.rect_filled(
-                    page.translate(Vec2::new(3., 4.)),
-                    0,
-                    Color32::from_black_alpha(40),
-                );
+                p.rect_filled(page.translate(Vec2::new(3., 4.)), 0, palette.stage_shadow);
                 p.rect_filled(page, 0, color(self.project.background, 1., None));
                 let content = p.with_clip_rect(page.intersect(rect));
                 if nested {
                     content.line_segment(
                         [origin - Vec2::new(8., 0.), origin + Vec2::new(8., 0.)],
-                        Stroke::new(1.0_f32, Color32::from_gray(120)),
+                        Stroke::new(1.0_f32, palette.origin_cross),
                     );
                     content.line_segment(
                         [origin - Vec2::new(0., 8.), origin + Vec2::new(0., 8.)],
-                        Stroke::new(1.0_f32, Color32::from_gray(120)),
+                        Stroke::new(1.0_f32, palette.origin_cross),
                     );
                 }
                 let id = self.symbol_id().to_owned();
@@ -351,9 +349,9 @@ impl Editor {
                         let distance = frame.abs_diff(self.frame).max(1);
                         let opacity = self.onion_opacity as f64 / (distance as f64).sqrt();
                         let tint = if frame < self.frame {
-                            Color32::from_rgb(37, 110, 191)
+                            palette.onion_before
                         } else {
-                            Color32::from_rgb(219, 97, 66)
+                            palette.onion_after
                         };
                         for item in evaluate(&self.project, &id, frame) {
                             draw_item(
@@ -375,7 +373,7 @@ impl Editor {
                 p.rect_stroke(
                     page,
                     0,
-                    Stroke::new(1.0_f32, Color32::from_gray(114)),
+                    Stroke::new(1.0_f32, palette.stage_border),
                     StrokeKind::Outside,
                 );
                 let zoom = self.zoom;

@@ -1,6 +1,6 @@
 [workspace]
 members = ["crates/*"]
-exclude = ["vendor/egui-winit"]
+exclude = ["vendor/egui-winit", "vendor/eframe"]
 resolver = "2"
 
 [workspace.package]
@@ -23,3 +23,4 @@ strip = true
 
 [patch.crates-io]
 egui-winit = { path = "vendor/egui-winit" }
+eframe = { path = "vendor/eframe" }

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added a licensed public FLA regression corpus: 15 unchanged external source files with explicit refusal diagnostics, plus three original XFL/FLA projects with exact native imports and actual-WASM behavior checks.
+
+- Added persistent Light/Dark workspace themes, panel visibility, F9 reveal and layout reset; Tools, Timeline and Actions can detach into native windows and dock again without copying the document. Window recovery accounts for connected macOS displays.
+- Replaced missing-glyph controls with accessible vector icons, bounded tween arrowheads to their own rows, synchronized layer/frame vertical scrolling, and made compact panels scroll or wrap.
+- Kept Actions cursor state through panel relocation and bound deferred text clipboard commands to their originating viewport.
+
 - Added structured ActionScript switch/do control flow, AS3 labels, synchronous exceptions and selected typed error support, with explicit per-language boundaries and executable cleanup/scope regressions.
 - Fixed HTML5 failure reporting for arbitrary thrown values; added an editable AS2/AS3 recovery example and integration checks through the actual compiler, browser host and WASM Player.
 - Preserved initiating paste-key modifiers in a pinned egui-winit adapter, removing the Shift/V release-order ambiguity while retaining one text paste event.

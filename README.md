@@ -39,6 +39,8 @@ For object editing, **Selection (V)** moves objects; Shift-click toggles objects
 
 **⌘C / ⌘X / ⌘V** copy, cut and paste selected objects, including nested symbols, their timelines and scripts. Paste inserts into the active editable layer at the center of the visible stage; **Edit → Paste in Place (⇧⌘V)** retains the original coordinates. Pasting into another document carries the required library symbols and creates fresh identities. Text fields and Actions keep their normal text clipboard behavior. See [clipboard workflows and boundaries](docs/CLIPBOARD.md).
 
+**Window** switches Light/Dark, hides or restores panels, and detaches Tools, Timeline or Actions into separate macOS windows. **Dock** returns a panel; **Restore Workspace** restores the default layout. Appearance and layout preferences do not change your project. See [workspace controls](docs/WORKSPACE.md).
+
 Example frame script:
 
 ```js
@@ -58,6 +60,8 @@ HTML5 export uses the same Rust timeline/runtime through WebAssembly and a small
 
 For interactive web content, use the **Accessibility** panel to give an object a name, description, Button/Image role and reading/focus order. Buttons use the existing Click handler for keyboard activation. See [interactive HTML5 projects](docs/WEB.md) for authoring and preview controls, and the verification record for tested boundaries.
 
+The [public FLA corpus](examples/fla-corpus/README.md) adds 15 licensed, pinned legacy source files with explicit refusal expectations and three original XFL/FLA examples with exact editable imports. These fixtures complement the private corpus; they do not establish general FLA compatibility.
+
 Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two independent AS3 counter instances, [script-recovery.nflash](examples/script-recovery.nflash) for AS2/AS3 exceptions and cleanup on animated instances, or [vector-paths.nflash](examples/vector-paths.nflash) for curved strokes and compound fills. HTML5 previews provide Fit, 100% and fixed zoom levels with scrolling and a Pan tool.
 
 ## Project layout
@@ -74,7 +78,7 @@ web/                browser host and runtime tests
 examples/           small source examples
 scripts/            reproducible build, check and packaging commands
 docs/               requirements, architecture, decisions, roadmap, test record
-vendor/             pinned egui-winit input patch, provenance and upstream licenses
+vendor/             pinned native integration patches, provenance and licenses
 ```
 
 There is one source tree. Version history belongs in Git, build outputs in ignored `target/` and `dist/`. User-provided `examples/old flash files/` stays local and is excluded from Git.
@@ -86,10 +90,10 @@ There is one source tree. Version history belongs in Git, build outputs in ignor
 - [Roadmap](docs/ROADMAP.md) and [backlog](docs/BACKLOG.md)
 - [Language compatibility](docs/COMPATIBILITY.md) and [legacy import](docs/IMPORTS.md)
 - [Interactive HTML5 projects](docs/WEB.md)
-- [Clipboard workflows](docs/CLIPBOARD.md)
+- [Workspace controls](docs/WORKSPACE.md) and [clipboard workflows](docs/CLIPBOARD.md)
 - [Verification record](docs/VERIFICATION.md)
 - [Changes](CHANGELOG.md) and [contributing](CONTRIBUTING.md)
 
 ## License
 
-Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Contributions are accepted under the same terms. Third-party dependencies retain their respective licenses. This independent project does not include Adobe application code or branding assets.
+Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Contributions are accepted under the same terms. Third-party dependencies and public corpus fixtures retain their respective licenses; fixture provenance and notices are recorded alongside their source files. This independent project does not include Adobe application code or branding assets.

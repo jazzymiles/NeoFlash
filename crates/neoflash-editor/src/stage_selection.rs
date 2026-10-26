@@ -1,9 +1,10 @@
+use crate::theme::UiPalette;
 use crate::{
     app::{Editor, Tool},
     selection::{Selection, SelectionTarget},
     transform_geometry as geometry,
 };
-use eframe::egui::{self, Color32, Pos2, Rect, Stroke, StrokeKind, Vec2};
+use eframe::egui::{self, Pos2, Rect, Stroke, StrokeKind, Vec2};
 use neoflash_core::*;
 use std::collections::{HashMap, HashSet};
 
@@ -445,7 +446,11 @@ impl Editor {
             let corners = g.corners.map(screen);
             p.add(egui::Shape::closed_line(
                 corners.to_vec(),
-                Stroke::new(1.0_f32, Color32::from_rgb(36, 104, 190)),
+                Stroke::new(3.0_f32, UiPalette::current(p.ctx()).overlay_halo),
+            ));
+            p.add(egui::Shape::closed_line(
+                corners.to_vec(),
+                Stroke::new(1.0_f32, UiPalette::current(p.ctx()).overlay),
             ));
             if self.tool == Tool::Transform {
                 if g.resizable {
@@ -460,9 +465,20 @@ impl Editor {
                         };
                         let point = screen(point);
                         p.rect_filled(
+                            Rect::from_center_size(point, Vec2::splat(9.)),
+                            0.,
+                            UiPalette::current(p.ctx()).overlay_halo,
+                        );
+                        p.rect_filled(
                             Rect::from_center_size(point, Vec2::splat(7.)),
                             0.,
-                            Color32::from_rgb(36, 104, 190),
+                            UiPalette::current(p.ctx()).handle_fill,
+                        );
+                        p.rect_stroke(
+                            Rect::from_center_size(point, Vec2::splat(7.)),
+                            0.,
+                            Stroke::new(1.0_f32, UiPalette::current(p.ctx()).overlay),
+                            StrokeKind::Inside,
                         );
                         let kind = if let Some(local) = g.local {
                             GestureKind::Resize {
@@ -494,9 +510,14 @@ impl Editor {
                     };
                 p.line_segment(
                     [top, rotate],
-                    Stroke::new(1.0_f32, Color32::from_rgb(36, 104, 190)),
+                    Stroke::new(3.0_f32, UiPalette::current(p.ctx()).overlay_halo),
                 );
-                p.circle_filled(rotate, 4., Color32::from_rgb(36, 104, 190));
+                p.circle_filled(rotate, 5.5, UiPalette::current(p.ctx()).overlay_halo);
+                p.line_segment(
+                    [top, rotate],
+                    Stroke::new(1.0_f32, UiPalette::current(p.ctx()).overlay),
+                );
+                p.circle_filled(rotate, 4., UiPalette::current(p.ctx()).overlay);
                 handles.push((
                     rotate,
                     GestureKind::Rotate {
@@ -619,15 +640,17 @@ impl Editor {
             && g.moved
         {
             let marquee = Rect::from_two_pos(g.press, g.latest);
-            p.rect_filled(
+            p.rect_filled(marquee, 0., UiPalette::current(p.ctx()).overlay_fill);
+            p.rect_stroke(
                 marquee,
                 0.,
-                Color32::from_rgba_unmultiplied(60, 125, 210, 25),
+                Stroke::new(3.0_f32, UiPalette::current(p.ctx()).overlay_halo),
+                StrokeKind::Inside,
             );
             p.rect_stroke(
                 marquee,
                 0.,
-                Stroke::new(1.0_f32, Color32::from_rgb(36, 104, 190)),
+                Stroke::new(1.0_f32, UiPalette::current(p.ctx()).overlay),
                 StrokeKind::Inside,
             );
         }
@@ -732,7 +755,13 @@ impl Editor {
             p.rect_stroke(
                 Rect::from_two_pos(draft.start, pos),
                 0.,
-                Stroke::new(1.0_f32, Color32::from_rgb(36, 104, 190)),
+                Stroke::new(3.0_f32, UiPalette::current(p.ctx()).overlay_halo),
+                StrokeKind::Inside,
+            );
+            p.rect_stroke(
+                Rect::from_two_pos(draft.start, pos),
+                0.,
+                Stroke::new(1.0_f32, UiPalette::current(p.ctx()).overlay),
                 StrokeKind::Inside,
             );
         }

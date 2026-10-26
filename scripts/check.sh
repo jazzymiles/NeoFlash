@@ -7,7 +7,8 @@ cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
 cargo test --locked -p egui-winit --lib neoflash_paste_tests
+python3 scripts/check-fla-corpus.py
 ./scripts/build-web.sh
-node --test web/tests/*.test.cjs
+node --test web/tests/*.test.cjs scripts/check-fla-examples.cjs
 node crates/neoflash-script/tests/execute.mjs
 cargo run --locked -p neoflash-export -- --demo --output dist/demo
