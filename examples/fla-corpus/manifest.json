@@ -1,0 +1,932 @@
+{
+  "schema_version": 1,
+  "created_on": "2026-10-27",
+  "purpose": "Pinned source fixtures and explicit supported/blocked importer expectations. Upstream SWFs/output are reference data, not NeoFlash execution claims.",
+  "sources": [
+    {
+      "id": "ruffle",
+      "repository": "https://github.com/ruffle-rs/ruffle",
+      "commit": "fe6cfc545405b888ebb478ce1c211d63147ca49b",
+      "license": "MIT OR Apache-2.0",
+      "metadata": "upstream/ruffle/metadata.json"
+    },
+    {
+      "id": "flump",
+      "repository": "https://github.com/tconkling/flump",
+      "commit": "4933c6c13c3e846cb1f7cf9f03986326daf8cce3",
+      "license": "MIT",
+      "metadata": "upstream/flump/metadata.json"
+    },
+    {
+      "id": "flacomdoc",
+      "repository": "https://github.com/jindrapetrik/flacomdoc",
+      "commit": "0923d70870d11b236755af71337da8d0110a57aa",
+      "license": "LGPL-2.1",
+      "metadata": "upstream/flacomdoc/metadata.json"
+    },
+    {
+      "id": "neoflash",
+      "license": "MIT OR Apache-2.0",
+      "metadata": "authored/metadata.json",
+      "generator": "../../scripts/generate-fla-examples.py",
+      "kind": "synthetic-xfl"
+    }
+  ],
+  "files": [
+    {
+      "path": "authored/frame-scripts-as3/frame-scripts-as3.fla",
+      "sha256": "56a36b0a232d419f341f1aea48a8792d98175d3e4085fcb151c2fe7900d2bf92",
+      "bytes": 3473
+    },
+    {
+      "path": "authored/frame-scripts-as3/frame-scripts-as3.nflash",
+      "sha256": "0f495d7a95cfdf19c7f79e12c5a76c72a5d04a6defb44e01317b393dc26f6729",
+      "bytes": 8543
+    },
+    {
+      "path": "authored/frame-scripts-as3/xfl/DOMDocument.xml",
+      "sha256": "d3cc4db0ad26b401f9b9ad49dfd9fce1cceea4fa1ff4628751f80a50b19c1bad",
+      "bytes": 2892
+    },
+    {
+      "path": "authored/frame-scripts-as3/xfl/PublishSettings.xml",
+      "sha256": "935337123b3acb093333918ef18c6e0b56b2c0a79199cbf718670abc28e4d563",
+      "bytes": 212
+    },
+    {
+      "path": "authored/frame-scripts-as3/xfl/frame-scripts-as3.xfl",
+      "sha256": "29ac2e403620428ee4130686b456aefb0cc6d45e3be6e9c3191af906c1301f38",
+      "bytes": 9
+    },
+    {
+      "path": "authored/nested-playback-as2/nested-playback-as2.fla",
+      "sha256": "6462714b5478c10bd2f2b0054487ba345f79c7dc41484de55eda0c98e435f1bd",
+      "bytes": 7144
+    },
+    {
+      "path": "authored/nested-playback-as2/nested-playback-as2.nflash",
+      "sha256": "bdcf8f2891195f69de7e3b7c0af0a7b5918582e67e251426684e1471db901073",
+      "bytes": 17746
+    },
+    {
+      "path": "authored/nested-playback-as2/xfl/DOMDocument.xml",
+      "sha256": "63247057c3b4c7b33c352880aec0beead296ecf4b3cdc6fa69d4b4a2f7e8f360",
+      "bytes": 4022
+    },
+    {
+      "path": "authored/nested-playback-as2/xfl/LIBRARY/Orb.xml",
+      "sha256": "5b1db39c64ce4b7094014c5f8b67f644497c4cf19ce9c7e9dfaea90fcda32e8b",
+      "bytes": 1348
+    },
+    {
+      "path": "authored/nested-playback-as2/xfl/LIBRARY/Pair.xml",
+      "sha256": "c394e003aa02d45b44dd37235f21bd8e00f561c31310b3e00baf1007e739f203",
+      "bytes": 975
+    },
+    {
+      "path": "authored/nested-playback-as2/xfl/PublishSettings.xml",
+      "sha256": "583fabcfc273f693532ef5bb7a3c938f9756a3f078fe132af1cdf87db019ce32",
+      "bytes": 212
+    },
+    {
+      "path": "authored/nested-playback-as2/xfl/nested-playback-as2.xfl",
+      "sha256": "29ac2e403620428ee4130686b456aefb0cc6d45e3be6e9c3191af906c1301f38",
+      "bytes": 9
+    },
+    {
+      "path": "authored/primitives-and-holds/primitives-and-holds.fla",
+      "sha256": "bc2aa332704845d3725df6031e96883ab48e22a3df21e860f51a3aec3767df43",
+      "bytes": 3116
+    },
+    {
+      "path": "authored/primitives-and-holds/primitives-and-holds.nflash",
+      "sha256": "9dd3522fa48f9422ea323249893c2b874e5fd9751583cef1d536606586922b97",
+      "bytes": 10184
+    },
+    {
+      "path": "authored/primitives-and-holds/xfl/DOMDocument.xml",
+      "sha256": "2a1b6f0a37ef03d1bbb526ed237027df9a3d4166c8422348b2fec89e5cf7ae77",
+      "bytes": 2855
+    },
+    {
+      "path": "authored/primitives-and-holds/xfl/primitives-and-holds.xfl",
+      "sha256": "29ac2e403620428ee4130686b456aefb0cc6d45e3be6e9c3191af906c1301f38",
+      "bytes": 9
+    },
+    {
+      "path": "imported/ruffle-avm1-frame-labels.nflash",
+      "sha256": "33414d6ba31fb85fe52115ed831af43e8d59f24f84a08e8f5f08f4a4faa36bbb",
+      "bytes": 9456,
+      "derived_from": "upstream/ruffle/avm1-frame-labels/test.fla",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "path": "upstream/flacomdoc/LICENSE.md",
+      "upstream_path": "LICENSE.md",
+      "url": "https://raw.githubusercontent.com/jindrapetrik/flacomdoc/0923d70870d11b236755af71337da8d0110a57aa/LICENSE.md",
+      "sha256": "cb4579199e2b9bf2205349618f60b9b3e0bf679c7c9879cd3ce3c0bd9acbcdbf",
+      "bytes": 26313
+    },
+    {
+      "path": "upstream/flacomdoc/UPSTREAM-README.md",
+      "upstream_path": "README.md",
+      "url": "https://raw.githubusercontent.com/jindrapetrik/flacomdoc/0923d70870d11b236755af71337da8d0110a57aa/README.md",
+      "sha256": "bef25843b6e21df46cbb2c37c6df20d0dbaa53615929396d9241622cbc4aebb0",
+      "bytes": 3211
+    },
+    {
+      "path": "upstream/flacomdoc/cs4-motion-tween/0022_motiontween-cs4.fla",
+      "upstream_path": "testdata/fla/cs4/0022_motiontween-cs4.fla",
+      "url": "https://raw.githubusercontent.com/jindrapetrik/flacomdoc/0923d70870d11b236755af71337da8d0110a57aa/testdata/fla/cs4/0022_motiontween-cs4.fla",
+      "sha256": "9e198a51f99b896574365d09f159e70d5047cb7815391b87cad80735743e2ce9",
+      "bytes": 51712
+    },
+    {
+      "path": "upstream/flacomdoc/flash5-shapes/0002_shapes.fla",
+      "upstream_path": "testdata/fla/f5/0002_shapes.fla",
+      "url": "https://raw.githubusercontent.com/jindrapetrik/flacomdoc/0923d70870d11b236755af71337da8d0110a57aa/testdata/fla/f5/0002_shapes.fla",
+      "sha256": "568f8f171ec54a106b17c117cffbc4a8cc6cab053cd21fd6bbc8ec3154029a75",
+      "bytes": 14848
+    },
+    {
+      "path": "upstream/flacomdoc/flash8-scripts/0018_scripts_as2.fla",
+      "upstream_path": "testdata/fla/f8/0018_scripts_as2.fla",
+      "url": "https://raw.githubusercontent.com/jindrapetrik/flacomdoc/0923d70870d11b236755af71337da8d0110a57aa/testdata/fla/f8/0018_scripts_as2.fla",
+      "sha256": "38660cb756619084e75a7c4f74cde8b3cb42903d17e57405997477a5174a657a",
+      "bytes": 26624
+    },
+    {
+      "path": "upstream/flacomdoc/mx-layers/0008_nested_layers.fla",
+      "upstream_path": "testdata/fla/mx/0008_nested_layers.fla",
+      "url": "https://raw.githubusercontent.com/jindrapetrik/flacomdoc/0923d70870d11b236755af71337da8d0110a57aa/testdata/fla/mx/0008_nested_layers.fla",
+      "sha256": "f49886cc1b073182de560ab936147ac2db108250c2db563a3bd55cd63c13d0ea",
+      "bytes": 19456
+    },
+    {
+      "path": "upstream/flump/AUTHORS",
+      "upstream_path": "AUTHORS",
+      "url": "https://raw.githubusercontent.com/tconkling/flump/4933c6c13c3e846cb1f7cf9f03986326daf8cce3/AUTHORS",
+      "sha256": "2a0f01d8c3cf56126e26ca6e70a05bc3d1ee8243bfcabc98c74ef1890651e13c",
+      "bytes": 105
+    },
+    {
+      "path": "upstream/flump/LICENSE",
+      "upstream_path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/tconkling/flump/4933c6c13c3e846cb1f7cf9f03986326daf8cce3/LICENSE",
+      "sha256": "c06a821cf6697fe5e14ff5ec30df897f6322f17c2f75fb5f3f5ee7d03d0c28db",
+      "bytes": 1081
+    },
+    {
+      "path": "upstream/flump/flump/flump.fla",
+      "upstream_path": "exporter/src/test/resources/flump.fla",
+      "url": "https://raw.githubusercontent.com/tconkling/flump/4933c6c13c3e846cb1f7cf9f03986326daf8cce3/exporter/src/test/resources/flump.fla",
+      "sha256": "1c743eeb998200cb48a43bbadf9c3f9422b125e79509ea5fbe531b17eb3b5056",
+      "bytes": 373675
+    },
+    {
+      "path": "upstream/flump/potion_simple/potion_simple.fla",
+      "upstream_path": "exporter/src/test/resources/potion_simple.fla",
+      "url": "https://raw.githubusercontent.com/tconkling/flump/4933c6c13c3e846cb1f7cf9f03986326daf8cce3/exporter/src/test/resources/potion_simple.fla",
+      "sha256": "bc282a8a053907f7dcba1af065f200f47b3bab138c241552af4190c36e8aedce",
+      "bytes": 52327
+    },
+    {
+      "path": "upstream/flump/rotate_test2/rotate_test2.fla",
+      "upstream_path": "exporter/src/test/resources/rotate_test2.fla",
+      "url": "https://raw.githubusercontent.com/tconkling/flump/4933c6c13c3e846cb1f7cf9f03986326daf8cce3/exporter/src/test/resources/rotate_test2.fla",
+      "sha256": "c91004049e3278f59c3de690c98ec5b08436e2bb07191a0074f8e9be5808e31a",
+      "bytes": 11583
+    },
+    {
+      "path": "upstream/ruffle/LICENSE.md",
+      "upstream_path": "LICENSE.md",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/LICENSE.md",
+      "sha256": "e39a2fa3dfd7238f0924f568fabb659ee1a9d95ea6460dbae4bc9b67017a1c71",
+      "bytes": 108294
+    },
+    {
+      "path": "upstream/ruffle/SWF-LICENSE-APACHE",
+      "upstream_path": "swf/LICENSE-APACHE",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/LICENSE-APACHE",
+      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+      "bytes": 10847
+    },
+    {
+      "path": "upstream/ruffle/SWF-LICENSE-MIT",
+      "upstream_path": "swf/LICENSE-MIT",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/LICENSE-MIT",
+      "sha256": "0621878e61f0d0fda054bcbe02df75192c28bde1ecc8289cbd86aeba2dd72720",
+      "bytes": 1071
+    },
+    {
+      "path": "upstream/ruffle/UPSTREAM-README.md",
+      "upstream_path": "README.md",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/README.md",
+      "sha256": "d0f2dd68f65db7ea22506a758696a1b33993214b3d32dde536960e66c356fbac",
+      "bytes": 9925
+    },
+    {
+      "path": "upstream/ruffle/UPSTREAM-TESTS-README.md",
+      "upstream_path": "tests/README.md",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/README.md",
+      "sha256": "273951a4c2b10cab0378d663e8fcc6cd30772267f020578432e95c3a6f015301",
+      "bytes": 12566
+    },
+    {
+      "path": "upstream/ruffle/avm1-clip-events/output.txt",
+      "upstream_path": "tests/tests/swfs/avm1/clip_events/output.txt",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/clip_events/output.txt",
+      "sha256": "d0e4d2d95d0e0e01edbd27259004665defc0f403b6d09eba79ce5b79cad44b6a",
+      "bytes": 252
+    },
+    {
+      "path": "upstream/ruffle/avm1-clip-events/test.fla",
+      "upstream_path": "tests/tests/swfs/avm1/clip_events/test.fla",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/clip_events/test.fla",
+      "sha256": "79a41c96b8614da8bfe552b2aa8412b281c8b3bb9c62d332232636960a0232f6",
+      "bytes": 6997
+    },
+    {
+      "path": "upstream/ruffle/avm1-clip-events/test.swf",
+      "upstream_path": "tests/tests/swfs/avm1/clip_events/test.swf",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/clip_events/test.swf",
+      "sha256": "6d8cdbd9c8d8b6ebd117e7840274b317ec1f30eab1f83b92eaeca407cc34d47c",
+      "bytes": 953
+    },
+    {
+      "path": "upstream/ruffle/avm1-clip-events/test.toml",
+      "upstream_path": "tests/tests/swfs/avm1/clip_events/test.toml",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/clip_events/test.toml",
+      "sha256": "01e415ce9eb7288fedee9aae6df1a05f4338ae504bb74666f66a2a42320e9d9b",
+      "bytes": 15
+    },
+    {
+      "path": "upstream/ruffle/avm1-frame-labels/output.txt",
+      "upstream_path": "tests/tests/swfs/avm1/goto_label/output.txt",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/goto_label/output.txt",
+      "sha256": "4b1536651dd7690a224a9e49d999d395b6e4860d8c1e01231d49082d8ddcac94",
+      "bytes": 221
+    },
+    {
+      "path": "upstream/ruffle/avm1-frame-labels/test.fla",
+      "upstream_path": "tests/tests/swfs/avm1/goto_label/test.fla",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/goto_label/test.fla",
+      "sha256": "c54e3094eec35250f4b942f49ac6f1f755d94c4edad5384cfca4913cf6f1f779",
+      "bytes": 6025
+    },
+    {
+      "path": "upstream/ruffle/avm1-frame-labels/test.swf",
+      "upstream_path": "tests/tests/swfs/avm1/goto_label/test.swf",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/goto_label/test.swf",
+      "sha256": "2a6204df54d96df1a83f2ada7c7722dfe5037429abb402eb1bb489b64f41e9e8",
+      "bytes": 430
+    },
+    {
+      "path": "upstream/ruffle/avm1-frame-labels/test.toml",
+      "upstream_path": "tests/tests/swfs/avm1/goto_label/test.toml",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/goto_label/test.toml",
+      "sha256": "01e415ce9eb7288fedee9aae6df1a05f4338ae504bb74666f66a2a42320e9d9b",
+      "bytes": 15
+    },
+    {
+      "path": "upstream/ruffle/avm1-nested-button-text/output.txt",
+      "upstream_path": "tests/tests/swfs/avm1/nested_textfields_in_buttons/output.txt",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/nested_textfields_in_buttons/output.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "upstream/ruffle/avm1-nested-button-text/test.fla",
+      "upstream_path": "tests/tests/swfs/avm1/nested_textfields_in_buttons/test.fla",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/nested_textfields_in_buttons/test.fla",
+      "sha256": "ce634ef8f4b46371075f15cd137f7058055cb95c7d592af45e64a0e370521231",
+      "bytes": 44032
+    },
+    {
+      "path": "upstream/ruffle/avm1-nested-button-text/test.swf",
+      "upstream_path": "tests/tests/swfs/avm1/nested_textfields_in_buttons/test.swf",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/nested_textfields_in_buttons/test.swf",
+      "sha256": "13800c5570ea336be1361a3888fb06fb008bd07e851215748b5b58672eddf7ff",
+      "bytes": 3427
+    },
+    {
+      "path": "upstream/ruffle/avm1-nested-button-text/test.toml",
+      "upstream_path": "tests/tests/swfs/avm1/nested_textfields_in_buttons/test.toml",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/nested_textfields_in_buttons/test.toml",
+      "sha256": "fe734646f8be2bbcf0b290423d22f56f5831da49c402e33fd85308432e3e9afd",
+      "bytes": 15
+    },
+    {
+      "path": "upstream/ruffle/avm2-button-frame-scripts/ButtonHolder.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/ButtonHolder.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/ButtonHolder.as",
+      "sha256": "7d7bb02074825569e0e8b911cf39d2b70b0fca885123c74e48e152ebb2eea2eb",
+      "bytes": 247
+    },
+    {
+      "path": "upstream/ruffle/avm2-button-frame-scripts/Main.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/Main.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/Main.as",
+      "sha256": "8961844691160f97b9ba8ff3d237d3adafae48a0cfeee3ede995069935c490cd",
+      "bytes": 1081
+    },
+    {
+      "path": "upstream/ruffle/avm2-button-frame-scripts/MyButton.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/MyButton.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/MyButton.as",
+      "sha256": "a470a5be408982cb96e7493a8eaf573f32f393db77ebc3844640414a76767705",
+      "bytes": 270
+    },
+    {
+      "path": "upstream/ruffle/avm2-button-frame-scripts/MyChild.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/MyChild.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/MyChild.as",
+      "sha256": "92348ef5c6382145ee890210e1f480681605a758c7ebbe994162b4923de73586",
+      "bytes": 485
+    },
+    {
+      "path": "upstream/ruffle/avm2-button-frame-scripts/SimpleChild.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/SimpleChild.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/SimpleChild.as",
+      "sha256": "5f97729f90a205e2903c24ca9d70316e77d8cba5aaf62b202ac4af9d2c750e3c",
+      "bytes": 243
+    },
+    {
+      "path": "upstream/ruffle/avm2-button-frame-scripts/output.txt",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/output.txt",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/output.txt",
+      "sha256": "fb54d50766036cc2902d8824199deb2483662221db7a4f7926be94b8c718cbff",
+      "bytes": 2090
+    },
+    {
+      "path": "upstream/ruffle/avm2-button-frame-scripts/test.fla",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/test.fla",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/test.fla",
+      "sha256": "b1cb043c254131776a9c4cfeea514544101e31ab0eede4140759f54c5ffcd582",
+      "bytes": 8281
+    },
+    {
+      "path": "upstream/ruffle/avm2-button-frame-scripts/test.swf",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/test.swf",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/test.swf",
+      "sha256": "dc55beba413eb869f93f503a9b999493ecf9bb22fb9dabfebe23f91a1af6d751",
+      "bytes": 1851
+    },
+    {
+      "path": "upstream/ruffle/avm2-button-frame-scripts/test.toml",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/test.toml",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/test.toml",
+      "sha256": "3fe8e0b4d1028e1e7019cee4bb0563ccd125e929a931cead48044fd650cb6135",
+      "bytes": 14
+    },
+    {
+      "path": "upstream/ruffle/avm2-nested-construction/Container.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/Container.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/Container.as",
+      "sha256": "f30148f1a4f97aca8d78065fd4ef244f47363711100cbb6272e95bbb4167c9f0",
+      "bytes": 663
+    },
+    {
+      "path": "upstream/ruffle/avm2-nested-construction/ContainerSibling.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/ContainerSibling.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/ContainerSibling.as",
+      "sha256": "cf90a3789753cb5a6ff26ed0e74d8b419f916d91d035aadcbff5d1ac0f25910a",
+      "bytes": 201
+    },
+    {
+      "path": "upstream/ruffle/avm2-nested-construction/FirstChild.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/FirstChild.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/FirstChild.as",
+      "sha256": "f247f518e9cc7ae19ecddd24d104df2d89befb6988bcdc027828d257f07223a0",
+      "bytes": 1150
+    },
+    {
+      "path": "upstream/ruffle/avm2-nested-construction/FourthChild.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/FourthChild.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/FourthChild.as",
+      "sha256": "9c1dc0e263b447a72113c347e55b75a469f0ef05701a798810c436feb9fff3a6",
+      "bytes": 242
+    },
+    {
+      "path": "upstream/ruffle/avm2-nested-construction/MyButton.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/MyButton.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/MyButton.as",
+      "sha256": "fd31354c768342d5442a266484a95f027a4791481590c9d032b182ea1046e016",
+      "bytes": 237
+    },
+    {
+      "path": "upstream/ruffle/avm2-nested-construction/SecondChild.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/SecondChild.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/SecondChild.as",
+      "sha256": "03fb6dc9930b2af69359c2c2445c4a1abacda5d0ac7776849321919ac111b8c5",
+      "bytes": 172
+    },
+    {
+      "path": "upstream/ruffle/avm2-nested-construction/output.txt",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/output.txt",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/output.txt",
+      "sha256": "5b54b7ea9468cf9d748614bd71ab53da08268aaa33ac1250e15ca6f8ae371c8c",
+      "bytes": 1272
+    },
+    {
+      "path": "upstream/ruffle/avm2-nested-construction/test.fla",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/test.fla",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/test.fla",
+      "sha256": "a54aee154c8dbf0a28a815b9cdaf00907530bc2358e3bd8ca5c454b2492ac51d",
+      "bytes": 10115
+    },
+    {
+      "path": "upstream/ruffle/avm2-nested-construction/test.swf",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/test.swf",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/test.swf",
+      "sha256": "1acc1a6d5bded01635d99b488e4a86095f603edbcf202069b6cdef8de0005bfb",
+      "bytes": 7001
+    },
+    {
+      "path": "upstream/ruffle/avm2-nested-construction/test.toml",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/test.toml",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/test.toml",
+      "sha256": "bd9a47c2cc978ce5857514474220de3fa56fcb9f98f9bece1656b2ceafaee305",
+      "bytes": 14
+    },
+    {
+      "path": "upstream/ruffle/mx-button/DefineButton-MX.fla",
+      "upstream_path": "swf/tests/swfs/DefineButton-MX.fla",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/tests/swfs/DefineButton-MX.fla",
+      "sha256": "504a8d2292c9e4aabaae3c035b698377bddf9cb6562667005de9e7efb244fc65",
+      "bytes": 15872
+    },
+    {
+      "path": "upstream/ruffle/mx-button/DefineButton-MX.swf",
+      "upstream_path": "swf/tests/swfs/DefineButton-MX.swf",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/tests/swfs/DefineButton-MX.swf",
+      "sha256": "cd50d6aed978b5d4a5a753d0c15413dc5134d2a2bd7f676930c78765b10fada5",
+      "bytes": 138
+    },
+    {
+      "path": "upstream/ruffle/mx-shape-tween/DefineMorphShape-MX.fla",
+      "upstream_path": "swf/tests/swfs/DefineMorphShape-MX.fla",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/tests/swfs/DefineMorphShape-MX.fla",
+      "sha256": "4228a64ce58b62f9c0f49ea133435389c662ddbe704d28bb2e2602fb7f4ca908",
+      "bytes": 27648
+    },
+    {
+      "path": "upstream/ruffle/mx-shape-tween/DefineMorphShape-MX.swf",
+      "upstream_path": "swf/tests/swfs/DefineMorphShape-MX.swf",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/tests/swfs/DefineMorphShape-MX.swf",
+      "sha256": "0b70f20983713fd01d606882d71a4275838c3a2df85e2fab93c97073f0cfa618",
+      "bytes": 558
+    },
+    {
+      "path": "upstream/ruffle/mx-static-text/DefineText2-MX.fla",
+      "upstream_path": "swf/tests/swfs/DefineText2-MX.fla",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/tests/swfs/DefineText2-MX.fla",
+      "sha256": "4958f7cbcfbdfb3f3dbd9a5e396ed16deefba98f3c57f461e3c232beb851c76d",
+      "bytes": 12800
+    },
+    {
+      "path": "upstream/ruffle/mx-static-text/DefineText2-MX.swf",
+      "upstream_path": "swf/tests/swfs/DefineText2-MX.swf",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/tests/swfs/DefineText2-MX.swf",
+      "sha256": "b73ecba34aad826b966c5609236c7e1d259b83c3e6ca5bb0698c4317e1da7b47",
+      "bytes": 144
+    }
+  ],
+  "cases": [
+    {
+      "id": "ruffle-mx-button",
+      "source": "ruffle",
+      "path": "upstream/ruffle/mx-button/DefineButton-MX.fla",
+      "purpose": "Legacy MX button states and button records.",
+      "coverage": [
+        "binary-fla",
+        "button",
+        "flash-mx"
+      ],
+      "expected": {
+        "format": "legacy_binary_fla",
+        "can_import": false,
+        "required_diagnostics": [
+          "legacy_fla_conversion_unsupported"
+        ]
+      }
+    },
+    {
+      "id": "ruffle-mx-static-text",
+      "source": "ruffle",
+      "path": "upstream/ruffle/mx-static-text/DefineText2-MX.fla",
+      "purpose": "Legacy MX static text and font records.",
+      "coverage": [
+        "binary-fla",
+        "static-text",
+        "fonts",
+        "flash-mx"
+      ],
+      "expected": {
+        "format": "legacy_binary_fla",
+        "can_import": false,
+        "required_diagnostics": [
+          "legacy_fla_conversion_unsupported"
+        ]
+      }
+    },
+    {
+      "id": "ruffle-mx-shape-tween",
+      "source": "ruffle",
+      "path": "upstream/ruffle/mx-shape-tween/DefineMorphShape-MX.fla",
+      "purpose": "Legacy MX shape tween and vector geometry preservation.",
+      "coverage": [
+        "binary-fla",
+        "shape-tween",
+        "vector",
+        "flash-mx"
+      ],
+      "expected": {
+        "format": "legacy_binary_fla",
+        "can_import": false,
+        "required_diagnostics": [
+          "legacy_fla_conversion_unsupported"
+        ]
+      }
+    },
+    {
+      "id": "ruffle-avm1-frame-labels",
+      "source": "ruffle",
+      "path": "upstream/ruffle/avm1-frame-labels/test.fla",
+      "purpose": "AS1/AS2-era frame labels and goto control-flow trace.",
+      "coverage": [
+        "avm1",
+        "frame-labels",
+        "timeline-control"
+      ],
+      "expected": {
+        "format": "xfl_archive",
+        "can_import": true,
+        "required_diagnostics": [
+          "inactive_script_configuration",
+          "script_preserved",
+          "xfl_shape_selection"
+        ],
+        "statistics": {
+          "symbols": 2,
+          "layers": 3,
+          "keyframes": 11,
+          "elements": 3,
+          "scripts": 9
+        }
+      },
+      "native_project": "imported/ruffle-avm1-frame-labels.nflash"
+    },
+    {
+      "id": "ruffle-avm1-clip-events",
+      "source": "ruffle",
+      "path": "upstream/ruffle/avm1-clip-events/test.fla",
+      "purpose": "AS1/AS2-era MovieClip event handlers and trace order.",
+      "coverage": [
+        "avm1",
+        "clip-events",
+        "object-scripts"
+      ],
+      "expected": {
+        "format": "xfl_archive",
+        "can_import": false,
+        "required_diagnostics": [
+          "unsupported_element",
+          "script_preserved"
+        ]
+      }
+    },
+    {
+      "id": "ruffle-avm1-nested-button-text",
+      "source": "ruffle",
+      "path": "upstream/ruffle/avm1-nested-button-text/test.fla",
+      "purpose": "Nested text fields inside legacy button symbols.",
+      "coverage": [
+        "avm1",
+        "button",
+        "text",
+        "nested-symbols"
+      ],
+      "expected": {
+        "format": "legacy_binary_fla",
+        "can_import": false,
+        "required_diagnostics": [
+          "legacy_fla_conversion_unsupported"
+        ]
+      }
+    },
+    {
+      "id": "ruffle-avm2-button-frame-scripts",
+      "source": "ruffle",
+      "path": "upstream/ruffle/avm2-button-frame-scripts/test.fla",
+      "purpose": "AS3 button instances with nested frame scripts and frame jumps.",
+      "coverage": [
+        "as3",
+        "avm2",
+        "button",
+        "nested-timelines",
+        "frame-scripts"
+      ],
+      "expected": {
+        "format": "xfl_archive",
+        "can_import": false,
+        "required_diagnostics": [
+          "external_script_configuration",
+          "symbol_type"
+        ]
+      }
+    },
+    {
+      "id": "ruffle-avm2-nested-construction",
+      "source": "ruffle",
+      "path": "upstream/ruffle/avm2-nested-construction/test.fla",
+      "purpose": "AS3 nested MovieClip construction, sibling lifecycle and goto behavior.",
+      "coverage": [
+        "as3",
+        "avm2",
+        "nested-timelines",
+        "instance-lifecycle"
+      ],
+      "expected": {
+        "format": "xfl_archive",
+        "can_import": false,
+        "required_diagnostics": [
+          "external_script_configuration",
+          "symbol_type"
+        ]
+      }
+    },
+    {
+      "id": "flump-rotate-test2",
+      "source": "flump",
+      "path": "upstream/flump/rotate_test2/rotate_test2.fla",
+      "purpose": "Rotating nested bitmap-backed symbol with clockwise full-turn tween and easing.",
+      "coverage": [
+        "xfl_archive",
+        "nested_symbols",
+        "bitmap_instances",
+        "rotation",
+        "classic_motion_tween",
+        "easing",
+        "as3_linkage"
+      ],
+      "expected": {
+        "format": "xfl_archive",
+        "can_import": false,
+        "required_diagnostics": [
+          "tween_not_supported",
+          "unsupported_assets"
+        ]
+      }
+    },
+    {
+      "id": "flump-potion-simple",
+      "source": "flump",
+      "path": "upstream/flump/potion_simple/potion_simple.fla",
+      "purpose": "Potion animation with nested bitmap symbols and multiple tweened layers.",
+      "coverage": [
+        "xfl_archive",
+        "nested_symbols",
+        "bitmap_instances",
+        "multiple_layers",
+        "classic_motion_tween",
+        "as3_linkage"
+      ],
+      "expected": {
+        "format": "xfl_archive",
+        "can_import": false,
+        "required_diagnostics": [
+          "tween_not_supported",
+          "unsupported_assets"
+        ]
+      }
+    },
+    {
+      "id": "flump-flump",
+      "source": "flump",
+      "path": "upstream/flump/flump/flump.fla",
+      "purpose": "Larger Flump exporter animation sample with many nested symbols, keyframes and tweened transforms.",
+      "coverage": [
+        "xfl_archive",
+        "nested_symbols",
+        "bitmap_instances",
+        "multiple_layers",
+        "classic_motion_tween",
+        "skew",
+        "layer_types",
+        "as3_linkage"
+      ],
+      "expected": {
+        "format": "xfl_archive",
+        "can_import": false,
+        "required_diagnostics": [
+          "tween_not_supported",
+          "unsupported_assets"
+        ]
+      }
+    },
+    {
+      "id": "flacomdoc-flash5-shapes",
+      "source": "flacomdoc",
+      "path": "upstream/flacomdoc/flash5-shapes/0002_shapes.fla",
+      "purpose": "Public binary FLA regression input for vector-shapes, legacy-flash5.",
+      "coverage": [
+        "vector-shapes",
+        "legacy-flash5"
+      ],
+      "expected": {
+        "format": "legacy_binary_fla",
+        "can_import": false,
+        "required_diagnostics": [
+          "legacy_fla_conversion_unsupported"
+        ]
+      }
+    },
+    {
+      "id": "flacomdoc-mx-layers",
+      "source": "flacomdoc",
+      "path": "upstream/flacomdoc/mx-layers/0008_nested_layers.fla",
+      "purpose": "Public binary FLA regression input for nested-layers, legacy-mx.",
+      "coverage": [
+        "nested-layers",
+        "legacy-mx"
+      ],
+      "expected": {
+        "format": "legacy_binary_fla",
+        "can_import": false,
+        "required_diagnostics": [
+          "legacy_fla_conversion_unsupported"
+        ]
+      }
+    },
+    {
+      "id": "flacomdoc-flash8-scripts",
+      "source": "flacomdoc",
+      "path": "upstream/flacomdoc/flash8-scripts/0018_scripts_as2.fla",
+      "purpose": "Public binary FLA regression input for actionscript2, frame-scripts, legacy-flash8.",
+      "coverage": [
+        "actionscript2",
+        "frame-scripts",
+        "legacy-flash8"
+      ],
+      "expected": {
+        "format": "legacy_binary_fla",
+        "can_import": false,
+        "required_diagnostics": [
+          "legacy_fla_conversion_unsupported"
+        ]
+      }
+    },
+    {
+      "id": "flacomdoc-cs4-motion-tween",
+      "source": "flacomdoc",
+      "path": "upstream/flacomdoc/cs4-motion-tween/0022_motiontween-cs4.fla",
+      "purpose": "Public binary FLA regression input for motion-tween, legacy-cs4.",
+      "coverage": [
+        "motion-tween",
+        "legacy-cs4"
+      ],
+      "expected": {
+        "format": "legacy_binary_fla",
+        "can_import": false,
+        "required_diagnostics": [
+          "legacy_fla_conversion_unsupported"
+        ]
+      }
+    },
+    {
+      "id": "primitives-and-holds-fla",
+      "source": "neoflash",
+      "path": "authored/primitives-and-holds/primitives-and-holds.fla",
+      "purpose": "Solid rectangle/oval primitives, translucent fill, static text, held keyframes, explicit blank frames and frame labels.",
+      "native_project": "authored/primitives-and-holds/primitives-and-holds.nflash",
+      "expected": {
+        "format": "xfl_archive",
+        "can_import": true,
+        "required_diagnostics": [
+          "text_metrics"
+        ],
+        "statistics": {
+          "symbols": 1,
+          "layers": 2,
+          "keyframes": 5,
+          "elements": 9,
+          "scripts": 0
+        }
+      }
+    },
+    {
+      "id": "primitives-and-holds-xfl",
+      "source": "neoflash",
+      "path": "authored/primitives-and-holds/xfl",
+      "purpose": "Solid rectangle/oval primitives, translucent fill, static text, held keyframes, explicit blank frames and frame labels.",
+      "native_project": "authored/primitives-and-holds/primitives-and-holds.nflash",
+      "expected": {
+        "format": "xfl_directory",
+        "can_import": true,
+        "required_diagnostics": [
+          "text_metrics"
+        ],
+        "statistics": {
+          "symbols": 1,
+          "layers": 2,
+          "keyframes": 5,
+          "elements": 9,
+          "scripts": 0
+        }
+      }
+    },
+    {
+      "id": "nested-playback-as2-fla",
+      "source": "neoflash",
+      "path": "authored/nested-playback-as2/nested-playback-as2.fla",
+      "purpose": "Nested MovieClip instances plus Graphic loop, play-once and single-frame modes, placement alpha and preserved AS2 frame scripts.",
+      "native_project": "authored/nested-playback-as2/nested-playback-as2.nflash",
+      "expected": {
+        "format": "xfl_archive",
+        "can_import": true,
+        "required_diagnostics": [
+          "publish_settings",
+          "script_preserved",
+          "text_metrics"
+        ],
+        "statistics": {
+          "symbols": 3,
+          "layers": 4,
+          "keyframes": 7,
+          "elements": 18,
+          "scripts": 2
+        }
+      }
+    },
+    {
+      "id": "nested-playback-as2-xfl",
+      "source": "neoflash",
+      "path": "authored/nested-playback-as2/xfl",
+      "purpose": "Nested MovieClip instances plus Graphic loop, play-once and single-frame modes, placement alpha and preserved AS2 frame scripts.",
+      "native_project": "authored/nested-playback-as2/nested-playback-as2.nflash",
+      "expected": {
+        "format": "xfl_directory",
+        "can_import": true,
+        "required_diagnostics": [
+          "publish_settings",
+          "script_preserved",
+          "text_metrics"
+        ],
+        "statistics": {
+          "symbols": 3,
+          "layers": 4,
+          "keyframes": 7,
+          "elements": 18,
+          "scripts": 2
+        }
+      }
+    },
+    {
+      "id": "frame-scripts-as3-fla",
+      "source": "neoflash",
+      "path": "authored/frame-scripts-as3/frame-scripts-as3.fla",
+      "purpose": "Preserved AS3 typed local variables, arithmetic/string trace expressions, three labeled keyframes and stop() on the final pose.",
+      "native_project": "authored/frame-scripts-as3/frame-scripts-as3.nflash",
+      "expected": {
+        "format": "xfl_archive",
+        "can_import": true,
+        "required_diagnostics": [
+          "publish_settings",
+          "script_preserved",
+          "text_metrics"
+        ],
+        "statistics": {
+          "symbols": 1,
+          "layers": 2,
+          "keyframes": 4,
+          "elements": 7,
+          "scripts": 3
+        }
+      }
+    },
+    {
+      "id": "frame-scripts-as3-xfl",
+      "source": "neoflash",
+      "path": "authored/frame-scripts-as3/xfl",
+      "purpose": "Preserved AS3 typed local variables, arithmetic/string trace expressions, three labeled keyframes and stop() on the final pose.",
+      "native_project": "authored/frame-scripts-as3/frame-scripts-as3.nflash",
+      "expected": {
+        "format": "xfl_directory",
+        "can_import": true,
+        "required_diagnostics": [
+          "publish_settings",
+          "script_preserved",
+          "text_metrics"
+        ],
+        "statistics": {
+          "symbols": 1,
+          "layers": 2,
+          "keyframes": 4,
+          "elements": 7,
+          "scripts": 3
+        }
+      }
+    }
+  ]
+}

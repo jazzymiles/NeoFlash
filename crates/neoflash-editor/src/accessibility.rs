@@ -1,4 +1,5 @@
-use crate::app::{BottomTab, Editor, ScriptTarget};
+use crate::app::{Editor, ScriptTarget};
+use crate::{theme::UiPalette, workspace::PanelId};
 use eframe::egui;
 use neoflash_core::*;
 
@@ -57,18 +58,18 @@ impl Editor {
                         ui.add(egui::DragValue::new(&mut data.tab_order).range(0..=10000)).labelled_by(label.id);
                         if data.role == AccessibleRole::Button { ui.checkbox(&mut data.disabled, "Disabled"); }
                     });
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         let label = ui.label("Description");
-                        ui.add(egui::TextEdit::singleline(&mut data.description).char_limit(4096).desired_width(600.)).labelled_by(label.id);
+                        ui.add(egui::TextEdit::singleline(&mut data.description).char_limit(4096).desired_width(ui.available_width().min(600.))).labelled_by(label.id);
                     });
-                    if data.name.trim().is_empty() { ui.colored_label(egui::Color32::DARK_RED, "Enter a name before saving or publishing."); }
+                    if data.name.trim().is_empty() { ui.colored_label(UiPalette::current(ui.ctx()).error_text, "Enter a name before saving or publishing."); }
                     if data.role == AccessibleRole::Button {
                         ui.horizontal_wrapped(|ui| {
                             ui.small("Tab focuses the button; Enter or Space runs its Click action in HTML5.");
                             if ui.button("Edit Click action").clicked() {
                                 self.set_playing(false);
                                 self.select_single_id(element.id.clone());
-                                self.bottom = BottomTab::Actions;
+                                self.show_panel(PanelId::Actions);
                                 self.script_target = ScriptTarget::Object;
                                 self.script_event = ObjectEvent::Click;
                             }

@@ -32,6 +32,52 @@
     if (!Number.isInteger(value) || value < 1 || value > total) throw new Error(`Frame must be between 1 and ${total}.`);
     return value - 1;
   }
+  // AS2 label lookup is separate from the strict JavaScript/AS3 bridge.
+  function as2Frame(value, total, resolveLabel) {
+    // AVM1 parses numeric strings before consulting labels. Keep the numeric
+    // compatibility boundary explicit instead of guessing clamping/wrapping.
+    if (typeof value === 'string' && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$|^[+-]?(?:Infinity|NaN)$/.test(value)) value = Number(value);
+    if (typeof value === 'number') {
+      if (!Number.isInteger(value) || value < 1 || value > total) {
+        throw new Error(`AS2 numeric goto currently supports integer frames 1 through ${total}; legacy clamping, wrapping and other numeric coercions are not supported.`);
+      }
+      return value - 1;
+    }
+    if (typeof value === 'string') {
+      const frame = resolveLabel(value);
+      return frame >= 0 ? frame : null;
+    }
+    throw new Error('AS2 goto requires a frame label or integer frame; other argument coercions are not supported.');
+  }
+  function createAs2Methods() {
+    const variants = new WeakMap();
+    function aliasError() {
+      return new TypeError('AS2 goto method aliases need receiver semantics not supported yet. Call gotoAndPlay/gotoAndStop directly on the target timeline.');
+    }
+    return {
+      register(method, receiver, name, implementation) { variants.set(method, { receiver, name, implementation }); },
+      method(receiver, name) {
+        // Resolve the getter before arguments, then check callability after
+        // argument evaluation, preserving ordinary call evaluation order.
+        const method = receiver[name];
+        return (...args) => {
+          if (typeof method !== 'function') {
+            throw new TypeError(`AS2 timeline function '${name}' is missing or is not callable. Define it on this timeline before calling it.`);
+          }
+          const variant = variants.get(method);
+          if (variant && (variant.receiver !== receiver || variant.name !== name)) throw aliasError();
+          return Reflect.apply(variant ? variant.implementation : method, receiver, args);
+        };
+      },
+      value(method, receiver) {
+        return (...args) => {
+          if (variants.has(method)) throw aliasError();
+          if (typeof method !== 'function') throw new TypeError('AS2 function value is not callable. Assign a function before calling it.');
+          return Reflect.apply(method, receiver, args);
+        };
+      },
+    };
+  }
   function color(rgba) { return `rgba(${rgba[0]},${rgba[1]},${rgba[2]},${rgba[3] / 255})`; }
   function sourceKey(script) { return script.language + '\u0000' + script.source; }
   const as2Thrown = Symbol.for('neoflash.as2.thrown.v1');
@@ -56,7 +102,7 @@
     }
     try { return String(value); } catch (_) { return '<unprintable thrown value>'; }
   }
-  const helpers = { localPoint, hitShape, oneBasedFrame, sourceKey, describeThrown, unwrapScriptThrow };
+  const helpers = { localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow };
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
   if (typeof document === 'undefined') return;
 
@@ -99,7 +145,7 @@
     let lastTime = null;
     let accumulated = 0;
     let lastTrace = '';
-    const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame'];
+    const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value'];
     for (const script of bundle.scripts) {
       try {
         functions.set(sourceKey(script), {
@@ -114,6 +160,7 @@
       x: 'x', y: 'y', rotation: 'rotation', alpha: 'alpha', scaleX: 'scale_x', scaleY: 'scale_y',
       _x: 'x', _y: 'y', _rotation: 'rotation', _alpha: 'alpha', _xscale: 'scale_x', _yscale: 'scale_y',
     };
+    const as2 = createAs2Methods();
     const percentage = new Set(['_alpha', '_xscale', '_yscale']);
     function proxyFor(path) {
       const key = JSON.stringify(path);
@@ -138,11 +185,14 @@
         prevFrame: () => goto('goto_and_stop', Math.max(player.clip_frame(key), 1)),
         trace: (...values) => trace(...values),
       };
-      function goto(command, value) {
+      function goto(command, value, legacy = false) {
         assertAlive();
         const total = player.clip_frame_count(key);
         if (!total) throw new Error('Timeline controls apply to symbols and the root scene.');
-        const frame = oneBasedFrame(value, total, label => player.resolve_frame(key, label));
+        const frame = legacy
+          ? as2Frame(value, total, label => player.resolve_frame_as2(key, label))
+          : oneBasedFrame(value, total, label => player.resolve_frame(key, label));
+        if (frame === null) return; // An unknown AS2 label changes neither frame nor play state.
         if (!player.control(key, command, frame)) throw new Error(`Cannot control timeline at ${key}.`);
       }
       const proxy = new Proxy(target, {
@@ -180,6 +230,8 @@
           return true;
         },
       });
+      as2.register(methods.gotoAndPlay, proxy, 'gotoAndPlay', value => goto('goto_and_play', value, true));
+      as2.register(methods.gotoAndStop, proxy, 'gotoAndStop', value => goto('goto_and_stop', value, true));
       proxies.set(key, { lifetime, proxy });
       return proxy;
     }
@@ -206,7 +258,7 @@
           });
           try {
             compiled.fn.call(scope, event, proxyFor([]), scope.parent, trace,
-              scope.play, scope.stop, scope.gotoAndPlay, scope.gotoAndStop, scope.nextFrame, scope.prevFrame);
+              scope.play, scope.stop, scope.gotoAndPlay, scope.gotoAndStop, scope.nextFrame, scope.prevFrame, as2.method, as2.value);
           } catch (error) {
             const cause = unwrapScriptThrow(error);
             throw new Error(`${compiled.location}: ${describeThrown(cause)}`, { cause });

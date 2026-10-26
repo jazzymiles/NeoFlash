@@ -1,0 +1,338 @@
+{
+  "format_version": 1,
+  "name": "Imported XFL",
+  "width": 720,
+  "height": 420,
+  "fps": 24,
+  "background": [
+    16,
+    29,
+    43,
+    255
+  ],
+  "root": "symbol-1",
+  "symbols": [
+    {
+      "id": "symbol-1",
+      "name": "Primitives and holds",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 72,
+        "layers": [
+          {
+            "id": "layer-4",
+            "name": "Caption",
+            "visible": true,
+            "locked": true,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-1-0",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 30.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "PRIMITIVES / HELD FRAMES",
+                      "font_family": "Arial",
+                      "font_size": 27.0,
+                      "color": [
+                        255,
+                        255,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-1-1-1",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 75.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Two held poses, a blank interval, then return. No tweens.",
+                      "font_family": "Arial",
+                      "font_size": 17.0,
+                      "color": [
+                        216,
+                        229,
+                        239,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-1-1-2",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 365.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "0-23: left  |  24-47: right  |  48-59: blank  |  60-71: return",
+                      "font_family": "Arial",
+                      "font_size": 16.0,
+                      "color": [
+                        216,
+                        229,
+                        239,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "layer-3",
+            "name": "Animated primitives",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-0-0",
+                    "name": "coralSquare",
+                    "transform": {
+                      "x": 70.0,
+                      "y": 155.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 110.0,
+                      "height": 110.0,
+                      "fill": [
+                        255,
+                        132,
+                        103,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-1-0-1",
+                    "name": "mintCircle",
+                    "transform": {
+                      "x": 210.0,
+                      "y": 165.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 90.0,
+                      "height": 90.0,
+                      "fill": [
+                        100,
+                        223,
+                        190,
+                        204
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "left"
+              },
+              {
+                "frame": 24,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-0-0",
+                    "name": "coralSquare",
+                    "transform": {
+                      "x": 370.0,
+                      "y": 155.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 110.0,
+                      "height": 110.0,
+                      "fill": [
+                        255,
+                        132,
+                        103,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-1-0-1",
+                    "name": "mintCircle",
+                    "transform": {
+                      "x": 510.0,
+                      "y": 165.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 90.0,
+                      "height": 90.0,
+                      "fill": [
+                        100,
+                        223,
+                        190,
+                        204
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "right"
+              },
+              {
+                "frame": 48,
+                "elements": [],
+                "tween": null,
+                "label": "blank"
+              },
+              {
+                "frame": 60,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-0-0",
+                    "name": "coralSquare",
+                    "transform": {
+                      "x": 70.0,
+                      "y": 155.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 110.0,
+                      "height": 110.0,
+                      "fill": [
+                        255,
+                        132,
+                        103,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-1-0-1",
+                    "name": "mintCircle",
+                    "transform": {
+                      "x": 210.0,
+                      "y": 165.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 90.0,
+                      "height": 90.0,
+                      "fill": [
+                        100,
+                        223,
+                        190,
+                        204
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "return"
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ]
+}

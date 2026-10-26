@@ -752,3 +752,61 @@ fn empty_or_unavailable_menu_clipboard_leaves_no_later_paste_mode() {
         assert_eq!(count(&editor), 2);
     }
 }
+
+#[test]
+fn detached_text_command_waits_for_its_own_viewport_and_never_reaches_stage() {
+    let (mut editor, ctx) = fixture();
+    let before = editor.project.clone();
+    let child = egui::ViewportId::from_hash_of("clipboard-detached-actions-test");
+    let mut text = String::new();
+    for pass in 0..6 {
+        let id = if pass == 2 || pass == 4 {
+            egui::ViewportId::ROOT
+        } else {
+            child
+        };
+        let mut input = egui::RawInput {
+            viewport_id: id,
+            time: Some(0.1 + f64::from(pass) * 0.1),
+            ..Default::default()
+        };
+        input.viewports.insert(
+            child,
+            egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                ..Default::default()
+            },
+        );
+        let _ = ctx.run(input, |ctx| {
+            editor.clipboard_events(ctx);
+            if id == child {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let response = ui.add(egui::TextEdit::multiline(&mut text).id(field_id()));
+                    if pass == 0 {
+                        response.request_focus();
+                    }
+                });
+                if pass == 1 {
+                    assert!(ctx.wants_keyboard_input());
+                    editor.request_clipboard_with(ctx, ClipboardCommand::Paste, || {
+                        Ok("only in Actions".into())
+                    });
+                    ctx.memory_mut(|memory| memory.surrender_focus(field_id()));
+                }
+            } else {
+                assert!(!ctx.input(|i| {
+                    i.events
+                        .iter()
+                        .any(|event| matches!(event, Event::Paste(_)))
+                }));
+                editor.stage(ctx);
+            }
+        });
+        if pass < 3 {
+            assert!(text.is_empty());
+        } else {
+            assert_eq!(text, "only in Actions");
+        }
+        assert_eq!(editor.project, before);
+    }
+}

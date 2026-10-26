@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "id": "ruffle-avm1-clip-events",
+  "purpose": "AS1/AS2-era MovieClip event handlers and trace order.",
+  "features": [
+    "avm1",
+    "clip-events",
+    "object-scripts"
+  ],
+  "repository": "https://github.com/ruffle-rs/ruffle",
+  "commit": "fe6cfc545405b888ebb478ce1c211d63147ca49b",
+  "license": "MIT OR Apache-2.0",
+  "license_files": [
+    "../LICENSE.md"
+  ],
+  "upstream_path": "tests/tests/swfs/avm1/clip_events/test.fla",
+  "upstream_url": "https://github.com/ruffle-rs/ruffle/blob/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/clip_events/test.fla",
+  "entrypoint": "test.fla",
+  "container": "xfl_zip",
+  "files": [
+    {
+      "path": "output.txt",
+      "upstream_path": "tests/tests/swfs/avm1/clip_events/output.txt",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/clip_events/output.txt",
+      "sha256": "d0e4d2d95d0e0e01edbd27259004665defc0f403b6d09eba79ce5b79cad44b6a",
+      "bytes": 252
+    },
+    {
+      "path": "test.fla",
+      "upstream_path": "tests/tests/swfs/avm1/clip_events/test.fla",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/clip_events/test.fla",
+      "sha256": "79a41c96b8614da8bfe552b2aa8412b281c8b3bb9c62d332232636960a0232f6",
+      "bytes": 6997
+    },
+    {
+      "path": "test.swf",
+      "upstream_path": "tests/tests/swfs/avm1/clip_events/test.swf",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/clip_events/test.swf",
+      "sha256": "6d8cdbd9c8d8b6ebd117e7840274b317ec1f30eab1f83b92eaeca407cc34d47c",
+      "bytes": 953
+    },
+    {
+      "path": "test.toml",
+      "upstream_path": "tests/tests/swfs/avm1/clip_events/test.toml",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm1/clip_events/test.toml",
+      "sha256": "01e415ce9eb7288fedee9aae6df1a05f4338ae504bb74666f66a2a42320e9d9b",
+      "bytes": 15
+    }
+  ],
+  "execution_note": "Original source and reference SWF are data fixtures. No ActionScript or SWF has been executed. Expected output.txt belongs to the upstream Ruffle test, not a NeoFlash compatibility claim.",
+  "observed_import": {
+    "format": "xfl_archive",
+    "can_import": false,
+    "diagnostics": [
+      "external_script_configuration",
+      "publish_settings",
+      "script_preserved",
+      "transform_pivot",
+      "unsupported_attribute",
+      "unsupported_element"
+    ],
+    "note": "Observation from the existing target/debug/neoflash-import binary on 2026-10-27. Diagnostic lists are informational and may evolve; importer sources were not rebuilt by this collector."
+  }
+}

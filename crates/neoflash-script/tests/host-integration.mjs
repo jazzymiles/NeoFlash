@@ -10,21 +10,21 @@ const require = createRequire(import.meta.url);
 export function createRuntimeHost(root, player, compiledScripts) {
   const path = resolve(root, 'web/runtime.js');
   const runtime = readFileSync(path, 'utf8');
-  const { sourceKey, oneBasedFrame, describeThrown, unwrapScriptThrow } = require(path);
+  const { sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow } = require(path);
   const start = runtime.indexOf('    const propertyMap =');
   const end = runtime.indexOf('    function resize()', start);
   assert.ok(start >= 0 && end > start, 'host implementation boundaries changed');
   const scriptConsole = [], hostConsole = [], traceCalls = [];
-  const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame'];
+  const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value'];
   const functions = new Map(compiledScripts.map(({ script, code, location }) => {
     const fn = new Function('console', `return function(${bindings.join(',')}) { "use strict"; return (function(){\n${code}\n}).call(this); }`)({ log: (...args) => scriptConsole.push(args) });
     return [sourceKey(script), { fn, location }];
   }));
-  const host = new Function('player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'describeThrown', 'unwrapScriptThrow', 'traceSpy',
+  const host = new Function('player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'traceSpy',
     'const proxies = new Map(); let lastTrace = "";\n' + runtime.slice(start, end) +
     '\nconst originalTrace = trace; trace = (...args) => { traceSpy(...args); return originalTrace(...args); };\n' +
     'return { proxyFor, dispatchScripts, lastTrace: () => lastTrace };'
-  )(player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args));
+  )(player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args));
   return { host, traceCalls, hostConsole, scriptConsole };
 }
 

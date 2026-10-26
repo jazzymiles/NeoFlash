@@ -131,6 +131,13 @@ impl WebPlayer {
             .map_or(-1, |frame| frame as i32))
     }
 
+    pub fn resolve_frame_as2(&self, target: &str, label: &str) -> Result<i32, JsValue> {
+        Ok(self
+            .player
+            .resolve_frame_as2(&self.project, &path(target)?, label)
+            .map_or(-1, |frame| frame as i32))
+    }
+
     pub fn child_path(&self, parent: &str, name: &str) -> Result<String, JsValue> {
         serde_json::to_string(&self.player.child_path(&self.project, &path(parent)?, name))
             .map_err(|error| JsValue::from_str(&error.to_string()))

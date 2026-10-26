@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "id": "ruffle-avm2-nested-construction",
+  "purpose": "AS3 nested MovieClip construction, sibling lifecycle and goto behavior.",
+  "features": [
+    "as3",
+    "avm2",
+    "nested-timelines",
+    "instance-lifecycle"
+  ],
+  "repository": "https://github.com/ruffle-rs/ruffle",
+  "commit": "fe6cfc545405b888ebb478ce1c211d63147ca49b",
+  "license": "MIT OR Apache-2.0",
+  "license_files": [
+    "../LICENSE.md"
+  ],
+  "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/test.fla",
+  "upstream_url": "https://github.com/ruffle-rs/ruffle/blob/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/test.fla",
+  "entrypoint": "test.fla",
+  "container": "xfl_zip",
+  "files": [
+    {
+      "path": "Container.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/Container.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/Container.as",
+      "sha256": "f30148f1a4f97aca8d78065fd4ef244f47363711100cbb6272e95bbb4167c9f0",
+      "bytes": 663
+    },
+    {
+      "path": "ContainerSibling.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/ContainerSibling.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/ContainerSibling.as",
+      "sha256": "cf90a3789753cb5a6ff26ed0e74d8b419f916d91d035aadcbff5d1ac0f25910a",
+      "bytes": 201
+    },
+    {
+      "path": "FirstChild.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/FirstChild.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/FirstChild.as",
+      "sha256": "f247f518e9cc7ae19ecddd24d104df2d89befb6988bcdc027828d257f07223a0",
+      "bytes": 1150
+    },
+    {
+      "path": "FourthChild.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/FourthChild.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/FourthChild.as",
+      "sha256": "9c1dc0e263b447a72113c347e55b75a469f0ef05701a798810c436feb9fff3a6",
+      "bytes": 242
+    },
+    {
+      "path": "MyButton.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/MyButton.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/MyButton.as",
+      "sha256": "fd31354c768342d5442a266484a95f027a4791481590c9d032b182ea1046e016",
+      "bytes": 237
+    },
+    {
+      "path": "SecondChild.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/SecondChild.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/SecondChild.as",
+      "sha256": "03fb6dc9930b2af69359c2c2445c4a1abacda5d0ac7776849321919ac111b8c5",
+      "bytes": 172
+    },
+    {
+      "path": "output.txt",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/output.txt",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/output.txt",
+      "sha256": "5b54b7ea9468cf9d748614bd71ab53da08268aaa33ac1250e15ca6f8ae371c8c",
+      "bytes": 1272
+    },
+    {
+      "path": "test.fla",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/test.fla",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/test.fla",
+      "sha256": "a54aee154c8dbf0a28a815b9cdaf00907530bc2358e3bd8ca5c454b2492ac51d",
+      "bytes": 10115
+    },
+    {
+      "path": "test.swf",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/test.swf",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/test.swf",
+      "sha256": "1acc1a6d5bded01635d99b488e4a86095f603edbcf202069b6cdef8de0005bfb",
+      "bytes": 7001
+    },
+    {
+      "path": "test.toml",
+      "upstream_path": "tests/tests/swfs/avm2/goto_nested_construct_sibling/test.toml",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_nested_construct_sibling/test.toml",
+      "sha256": "bd9a47c2cc978ce5857514474220de3fa56fcb9f98f9bece1656b2ceafaee305",
+      "bytes": 14
+    }
+  ],
+  "execution_note": "Original source and reference SWF are data fixtures. No ActionScript or SWF has been executed. Expected output.txt belongs to the upstream Ruffle test, not a NeoFlash compatibility claim.",
+  "observed_import": {
+    "format": "xfl_archive",
+    "can_import": false,
+    "diagnostics": [
+      "external_script_configuration",
+      "instance_type",
+      "publish_settings",
+      "symbol_type",
+      "text_metrics",
+      "transform_pivot",
+      "unsupported_attribute",
+      "unsupported_element"
+    ],
+    "note": "Observation from the existing target/debug/neoflash-import binary on 2026-10-27. Diagnostic lists are informational and may evolve; importer sources were not rebuilt by this collector."
+  }
+}

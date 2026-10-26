@@ -1,0 +1,286 @@
+{
+  "format_version": 1,
+  "name": "Imported XFL",
+  "width": 720,
+  "height": 420,
+  "fps": 24,
+  "background": [
+    16,
+    29,
+    43,
+    255
+  ],
+  "root": "symbol-1",
+  "symbols": [
+    {
+      "id": "symbol-1",
+      "name": "Frame scripts AS3",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 36,
+        "layers": [
+          {
+            "id": "layer-4",
+            "name": "Caption",
+            "visible": true,
+            "locked": true,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-1-0",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 30.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "FRAME SCRIPTS / AS3",
+                      "font_family": "Arial",
+                      "font_size": 27.0,
+                      "color": [
+                        255,
+                        255,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-1-1-1",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 75.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Typed locals, frame labels and a final stop().",
+                      "font_family": "Arial",
+                      "font_size": 17.0,
+                      "color": [
+                        216,
+                        229,
+                        239,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-1-1-2",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 345.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "0: START  |  12: MIDDLE  |  24: DONE (playback stops)",
+                      "font_family": "Arial",
+                      "font_size": 17.0,
+                      "color": [
+                        216,
+                        229,
+                        239,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-1-1-3",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 377.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Watch the browser console for the three trace messages.",
+                      "font_family": "Arial",
+                      "font_size": 16.0,
+                      "color": [
+                        216,
+                        229,
+                        239,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "layer-3",
+            "name": "Actions and poses",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-0-0",
+                    "name": "stageCard",
+                    "transform": {
+                      "x": 45.0,
+                      "y": 160.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140.0,
+                      "height": 115.0,
+                      "fill": [
+                        128,
+                        174,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "start"
+              },
+              {
+                "frame": 12,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-0-0",
+                    "name": "stageCard",
+                    "transform": {
+                      "x": 290.0,
+                      "y": 160.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140.0,
+                      "height": 115.0,
+                      "fill": [
+                        255,
+                        204,
+                        102,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "middle"
+              },
+              {
+                "frame": 24,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-0-0",
+                    "name": "stageCard",
+                    "transform": {
+                      "x": 535.0,
+                      "y": 160.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140.0,
+                      "height": 115.0,
+                      "fill": [
+                        100,
+                        223,
+                        190,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "done"
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script3",
+              "source": "var stageName:String = \"start\";\ntrace(\"AS3: \" + stageName);"
+            }
+          },
+          {
+            "frame": 12,
+            "script": {
+              "language": "action_script3",
+              "source": "var amount:int = 2 + 3;\ntrace(\"AS3: middle \" + amount);"
+            }
+          },
+          {
+            "frame": 24,
+            "script": {
+              "language": "action_script3",
+              "source": "trace(\"AS3: done\");\nstop();"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

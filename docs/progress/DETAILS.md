@@ -92,11 +92,11 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 `as2-functions` · **Partial**
 
-**Scope:** Function declarations and expressions, recursion, mutual recursion, return, callbacks and immediately invoked function expressions.
+**Scope:** Function declarations and expressions, recursion, mutual recursion, return, callbacks and immediately invoked function expressions. Bounded runtime lookup of user-defined timeline callbacks and capture of the timeline where the function was defined.
 
-**Limitations:** Declarations must be directly inside a function or handler body; general dynamic method lookup and cross-script symbol resolution are absent.
+**Limitations:** Declarations must be directly inside a function or handler body; there is no general project resolver. Missing or non-callable functions and unsupported native goto aliases produce diagnostics; complete AVM1 lookup and ordering are not reproduced.
 
-**Evidence:** [crates/neoflash-script/src/actionscript/scope.rs](../../crates/neoflash-script/src/actionscript/scope.rs), [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs)
+**Evidence:** [crates/neoflash-script/src/actionscript/scope.rs](../../crates/neoflash-script/src/actionscript/scope.rs), [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [crates/neoflash-script/tests/as2_dynamic.rs](../../crates/neoflash-script/tests/as2_dynamic.rs), [web/tests/as2-timeline.test.cjs](../../web/tests/as2-timeline.test.cjs)
 
 ### Closures and variable capture
 
@@ -252,11 +252,11 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 `as2-timeline` · **Partial**
 
-**Scope:** play/stop, gotoAndPlay/gotoAndStop, nextFrame/prevFrame, current/total frames, named children and independent nested clocks.
+**Scope:** play/stop, gotoAndPlay/gotoAndStop, nextFrame/prevFrame, current/total frames, named children and independent nested clocks. AS2 labels use ASCII case folding, resolve duplicate labels to the first occurrence, and do nothing for unknown labels; numeric strings within a bounded range take precedence.
 
-**Limitations:** This is a limited MovieClip facade; complete construction/re-entry, scenes, dynamic display lists and the Flash lifecycle are not implemented.
+**Limitations:** This is a limited MovieClip facade; complete construction/re-entry, scenes, dynamic display lists and the Flash lifecycle are not implemented. Native goto aliases and complete historical numeric and lookup rules are unsupported.
 
-**Evidence:** [web/runtime.js](../../web/runtime.js), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [web/tests/runtime.test.cjs](../../web/tests/runtime.test.cjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md)
+**Evidence:** [web/runtime.js](../../web/runtime.js), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [web/tests/runtime.test.cjs](../../web/tests/runtime.test.cjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-core/tests/frame_labels.rs](../../crates/neoflash-core/tests/frame_labels.rs), [web/tests/real-fla-frame-labels.test.cjs](../../web/tests/real-fla-frame-labels.test.cjs)
 
 ### Display properties
 
@@ -740,11 +740,11 @@ Authoring tools: stage, vectors, text, selection and library.
 
 `editor-workspace` · **Partial**
 
-**Scope:** Stage, tools, timeline, library, Properties and Actions are available in one window.
+**Scope:** Stage, tools, timeline, library, Properties and Actions; Light/Dark themes, saved panel visibility and sizes, and detached native Tools/Timeline/Actions windows with Dock and F9 controls.
 
-**Limitations:** Saved layouts, docking and detachable panels are absent from this published version.
+**Limitations:** Drag-to-dock, tabs/splits and named presets are still missing; VoiceOver/IME and multiple monitors have not completed full native acceptance testing.
 
-**Evidence:** [crates/neoflash-editor/src/panels.rs](../../crates/neoflash-editor/src/panels.rs), [docs/BACKLOG.md](../../docs/BACKLOG.md)
+**Evidence:** [crates/neoflash-editor/src/panels.rs](../../crates/neoflash-editor/src/panels.rs), [crates/neoflash-editor/src/detached.rs](../../crates/neoflash-editor/src/detached.rs), [crates/neoflash-editor/src/workspace.rs](../../crates/neoflash-editor/src/workspace.rs), [crates/neoflash-editor/src/panel_tests.rs](../../crates/neoflash-editor/src/panel_tests.rs), [docs/WORKSPACE.md](../../docs/WORKSPACE.md), [docs/VERIFICATION.md](../../docs/VERIFICATION.md)
 
 ### Rectangle and oval
 
@@ -1092,21 +1092,21 @@ Structural inspection and conversion to an editable project are tracked separate
 
 `imports-xfl` · **Partial**
 
-**Scope:** One scene, library, layers, held keys, labels, nested instances, TRS/alpha, rectangle/oval primitives and simple static text.
+**Scope:** One scene, library, held keys, labels, nested instances, TRS/alpha, primitives, simple static text and a bounded subset of convex straight DOMShape geometry with solid fills and round strokes.
 
-**Limitations:** General DOMShape geometry, strokes, masks/media, rich text, skew and many other XFL constructs block conversion.
+**Limitations:** One unchanged CS6 FLA has been checked through HTML5; general DOMShape geometry, masks, media, rich text and skew are unsupported. Hidden-layer publish policy and placement continuity remain P0 issues.
 
-**Evidence:** [crates/neoflash-import/src/xfl.rs](../../crates/neoflash-import/src/xfl.rs), [crates/neoflash-import/tests/import.rs](../../crates/neoflash-import/tests/import.rs), [docs/IMPORTS.md](../../docs/IMPORTS.md)
+**Evidence:** [crates/neoflash-import/src/xfl.rs](../../crates/neoflash-import/src/xfl.rs), [crates/neoflash-import/src/xfl/shape.rs](../../crates/neoflash-import/src/xfl/shape.rs), [crates/neoflash-import/tests/public_fla.rs](../../crates/neoflash-import/tests/public_fla.rs), [crates/neoflash-import/tests/xfl_semantic_guards.rs](../../crates/neoflash-import/tests/xfl_semantic_guards.rs), [docs/IMPORTS.md](../../docs/IMPORTS.md)
 
 ### Imported source preservation
 
 `imports-script-retention` · **Partial**
 
-**Scope:** Supported XFL preserves frame ActionScript source and an unambiguously identified AS2/AS3 language.
+**Scope:** Supported XFL preserves frame source and language, including text/CDATA fragments; nine original AS2 scripts from one CS6 FLA were checked against an exact 17-line HTML5 trace.
 
-**Limitations:** Document class/linkage and external script configuration block import; retaining source does not prove execution.
+**Limitations:** Document class/linkage and active external script configuration block import; retaining arbitrary source does not prove execution.
 
-**Evidence:** [crates/neoflash-import/src/xfl.rs](../../crates/neoflash-import/src/xfl.rs), [docs/IMPORTS.md](../../docs/IMPORTS.md)
+**Evidence:** [crates/neoflash-import/src/xfl.rs](../../crates/neoflash-import/src/xfl.rs), [crates/neoflash-import/tests/xfl_semantic_guards.rs](../../crates/neoflash-import/tests/xfl_semantic_guards.rs), [web/tests/real-fla-frame-labels.test.cjs](../../web/tests/real-fla-frame-labels.test.cjs), [docs/IMPORTS.md](../../docs/IMPORTS.md)
 
 ### Container reading and limits
 
@@ -1182,11 +1182,11 @@ Structural inspection and conversion to an editable project are tracked separate
 
 `imports-corpus` · **Partial**
 
-**Scope:** Original synthetic fixtures cover containers, Contents, timelines and geometry; a local private corpus supplies aggregates and refusal reasons.
+**Scope:** Synthetic fixtures and the private corpus are supplemented by 15 unchanged, licensed FLA files: one exported to HTML5 with an exact reference trace and 14 explicit refusals; 21 input cases are checked reproducibly.
 
-**Limitations:** Complete reproducible per-file visual/behavioral comparisons across Flash generations are missing. Private artwork is not published.
+**Limitations:** Complete per-file visual/behavioral comparison across Flash generations is missing. One real example does not establish general import support; private artwork is not published.
 
-**Evidence:** [crates/neoflash-import/tests/binary_geometry.rs](../../crates/neoflash-import/tests/binary_geometry.rs), [crates/neoflash-import/tests/binary_contents.rs](../../crates/neoflash-import/tests/binary_contents.rs), [docs/IMPORTS.md](../../docs/IMPORTS.md), [docs/BACKLOG.md](../../docs/BACKLOG.md)
+**Evidence:** [examples/fla-corpus/manifest.json](../../examples/fla-corpus/manifest.json), [examples/fla-corpus/VERIFICATION.md](../../examples/fla-corpus/VERIFICATION.md), [scripts/check-fla-corpus.py](../../scripts/check-fla-corpus.py), [web/tests/real-fla-frame-labels.test.cjs](../../web/tests/real-fla-frame-labels.test.cjs), [docs/IMPORTS.md](../../docs/IMPORTS.md)
 
 ## Platform and quality
 

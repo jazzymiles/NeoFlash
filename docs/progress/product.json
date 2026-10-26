@@ -33,11 +33,15 @@
       "category": "editor",
       "title": "Classic workspace",
       "status": "partial",
-      "scope": "Stage, tools, timeline, library, Properties and Actions are available in one window.",
-      "limitations": "Saved layouts, docking and detachable panels are absent from this published version.",
+      "scope": "Stage, tools, timeline, library, Properties and Actions; Light/Dark themes, saved panel visibility and sizes, and detached native Tools/Timeline/Actions windows with Dock and F9 controls.",
+      "limitations": "Drag-to-dock, tabs/splits and named presets are still missing; VoiceOver/IME and multiple monitors have not completed full native acceptance testing.",
       "evidence": [
         "crates/neoflash-editor/src/panels.rs",
-        "docs/BACKLOG.md"
+        "crates/neoflash-editor/src/detached.rs",
+        "crates/neoflash-editor/src/workspace.rs",
+        "crates/neoflash-editor/src/panel_tests.rs",
+        "docs/WORKSPACE.md",
+        "docs/VERIFICATION.md"
       ]
     },
     {
@@ -465,11 +469,13 @@
       "category": "imports",
       "title": "XFL and ZIP-FLA to project",
       "status": "partial",
-      "scope": "One scene, library, layers, held keys, labels, nested instances, TRS/alpha, rectangle/oval primitives and simple static text.",
-      "limitations": "General DOMShape geometry, strokes, masks/media, rich text, skew and many other XFL constructs block conversion.",
+      "scope": "One scene, library, held keys, labels, nested instances, TRS/alpha, primitives, simple static text and a bounded subset of convex straight DOMShape geometry with solid fills and round strokes.",
+      "limitations": "One unchanged CS6 FLA has been checked through HTML5; general DOMShape geometry, masks, media, rich text and skew are unsupported. Hidden-layer publish policy and placement continuity remain P0 issues.",
       "evidence": [
         "crates/neoflash-import/src/xfl.rs",
-        "crates/neoflash-import/tests/import.rs",
+        "crates/neoflash-import/src/xfl/shape.rs",
+        "crates/neoflash-import/tests/public_fla.rs",
+        "crates/neoflash-import/tests/xfl_semantic_guards.rs",
         "docs/IMPORTS.md"
       ]
     },
@@ -478,10 +484,12 @@
       "category": "imports",
       "title": "Imported source preservation",
       "status": "partial",
-      "scope": "Supported XFL preserves frame ActionScript source and an unambiguously identified AS2/AS3 language.",
-      "limitations": "Document class/linkage and external script configuration block import; retaining source does not prove execution.",
+      "scope": "Supported XFL preserves frame source and language, including text/CDATA fragments; nine original AS2 scripts from one CS6 FLA were checked against an exact 17-line HTML5 trace.",
+      "limitations": "Document class/linkage and active external script configuration block import; retaining arbitrary source does not prove execution.",
       "evidence": [
         "crates/neoflash-import/src/xfl.rs",
+        "crates/neoflash-import/tests/xfl_semantic_guards.rs",
+        "web/tests/real-fla-frame-labels.test.cjs",
         "docs/IMPORTS.md"
       ]
     },
@@ -580,13 +588,14 @@
       "category": "imports",
       "title": "Compatibility corpus and fidelity",
       "status": "partial",
-      "scope": "Original synthetic fixtures cover containers, Contents, timelines and geometry; a local private corpus supplies aggregates and refusal reasons.",
-      "limitations": "Complete reproducible per-file visual/behavioral comparisons across Flash generations are missing. Private artwork is not published.",
+      "scope": "Synthetic fixtures and the private corpus are supplemented by 15 unchanged, licensed FLA files: one exported to HTML5 with an exact reference trace and 14 explicit refusals; 21 input cases are checked reproducibly.",
+      "limitations": "Complete per-file visual/behavioral comparison across Flash generations is missing. One real example does not establish general import support; private artwork is not published.",
       "evidence": [
-        "crates/neoflash-import/tests/binary_geometry.rs",
-        "crates/neoflash-import/tests/binary_contents.rs",
-        "docs/IMPORTS.md",
-        "docs/BACKLOG.md"
+        "examples/fla-corpus/manifest.json",
+        "examples/fla-corpus/VERIFICATION.md",
+        "scripts/check-fla-corpus.py",
+        "web/tests/real-fla-frame-labels.test.cjs",
+        "docs/IMPORTS.md"
       ]
     },
     {

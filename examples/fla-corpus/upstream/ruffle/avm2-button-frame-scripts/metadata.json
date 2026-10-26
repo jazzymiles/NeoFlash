@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "id": "ruffle-avm2-button-frame-scripts",
+  "purpose": "AS3 button instances with nested frame scripts and frame jumps.",
+  "features": [
+    "as3",
+    "avm2",
+    "button",
+    "nested-timelines",
+    "frame-scripts"
+  ],
+  "repository": "https://github.com/ruffle-rs/ruffle",
+  "commit": "fe6cfc545405b888ebb478ce1c211d63147ca49b",
+  "license": "MIT OR Apache-2.0",
+  "license_files": [
+    "../LICENSE.md"
+  ],
+  "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/test.fla",
+  "upstream_url": "https://github.com/ruffle-rs/ruffle/blob/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/test.fla",
+  "entrypoint": "test.fla",
+  "container": "xfl_zip",
+  "files": [
+    {
+      "path": "ButtonHolder.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/ButtonHolder.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/ButtonHolder.as",
+      "sha256": "7d7bb02074825569e0e8b911cf39d2b70b0fca885123c74e48e152ebb2eea2eb",
+      "bytes": 247
+    },
+    {
+      "path": "Main.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/Main.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/Main.as",
+      "sha256": "8961844691160f97b9ba8ff3d237d3adafae48a0cfeee3ede995069935c490cd",
+      "bytes": 1081
+    },
+    {
+      "path": "MyButton.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/MyButton.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/MyButton.as",
+      "sha256": "a470a5be408982cb96e7493a8eaf573f32f393db77ebc3844640414a76767705",
+      "bytes": 270
+    },
+    {
+      "path": "MyChild.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/MyChild.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/MyChild.as",
+      "sha256": "92348ef5c6382145ee890210e1f480681605a758c7ebbe994162b4923de73586",
+      "bytes": 485
+    },
+    {
+      "path": "SimpleChild.as",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/SimpleChild.as",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/SimpleChild.as",
+      "sha256": "5f97729f90a205e2903c24ca9d70316e77d8cba5aaf62b202ac4af9d2c750e3c",
+      "bytes": 243
+    },
+    {
+      "path": "output.txt",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/output.txt",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/output.txt",
+      "sha256": "fb54d50766036cc2902d8824199deb2483662221db7a4f7926be94b8c718cbff",
+      "bytes": 2090
+    },
+    {
+      "path": "test.fla",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/test.fla",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/test.fla",
+      "sha256": "b1cb043c254131776a9c4cfeea514544101e31ab0eede4140759f54c5ffcd582",
+      "bytes": 8281
+    },
+    {
+      "path": "test.swf",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/test.swf",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/test.swf",
+      "sha256": "dc55beba413eb869f93f503a9b999493ecf9bb22fb9dabfebe23f91a1af6d751",
+      "bytes": 1851
+    },
+    {
+      "path": "test.toml",
+      "upstream_path": "tests/tests/swfs/avm2/goto_button_nested_framescript/test.toml",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/tests/swfs/avm2/goto_button_nested_framescript/test.toml",
+      "sha256": "3fe8e0b4d1028e1e7019cee4bb0563ccd125e929a931cead48044fd650cb6135",
+      "bytes": 14
+    }
+  ],
+  "execution_note": "Original source and reference SWF are data fixtures. No ActionScript or SWF has been executed. Expected output.txt belongs to the upstream Ruffle test, not a NeoFlash compatibility claim.",
+  "observed_import": {
+    "format": "xfl_archive",
+    "can_import": false,
+    "diagnostics": [
+      "external_script_configuration",
+      "instance_type",
+      "publish_settings",
+      "symbol_type",
+      "transform_pivot",
+      "unsupported_attribute",
+      "unsupported_element"
+    ],
+    "note": "Observation from the existing target/debug/neoflash-import binary on 2026-10-27. Diagnostic lists are informational and may evolve; importer sources were not rebuilt by this collector."
+  }
+}

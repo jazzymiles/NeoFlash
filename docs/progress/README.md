@@ -28,6 +28,8 @@ The report is a dated audit, not a fresh test run. The page compares its publish
 
 `as2.json` and `as3.json` remain supplementary implementation notes. Their 35/36 groups are **not** the AS coverage denominator. The [detailed notes](DETAILS.md) explain scopes and limitations without substituting those groups for the complete declaration catalogue.
 
+The product notes and supplementary AS descriptions include the workspace and real-FLA increments reviewed in `d6a41a1` and `ac19fb7`. Those descriptive updates do not automatically change the frozen declaration audit; its source freshness remains separate.
+
 ## Maintaining the data
 
 With implementation changes, review affected declaration IDs, evidence rules and source fingerprints, plus affected product capability IDs. Do not promote an AS entry because parsing succeeds or a JavaScript counterpart exists. An inspection API is not editable import. Keep scopes stable and preserve review gaps. Update the frozen source audit through its review workflow, then re-import it using:

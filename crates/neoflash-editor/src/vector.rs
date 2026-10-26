@@ -1,5 +1,6 @@
 //! Vector geometry rendering and direct authoring. Draft gestures are not document state.
 use crate::app::{Editor, Tool};
+use crate::theme::UiPalette;
 use eframe::egui::{self, Color32, Pos2, Rect, Shape, Stroke, Vec2};
 use lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, StrokeOptions, StrokeTessellator,
@@ -115,7 +116,7 @@ pub(crate) fn paint_path(
                     egui::Align2::LEFT_TOP,
                     message,
                     egui::FontId::monospace(12.),
-                    Color32::DARK_RED,
+                    UiPalette::current(p.ctx()).error_text,
                 );
             }
         }
@@ -663,7 +664,8 @@ impl Editor {
             self.edit_path_points(ui, p, origin, response);
         }
         if let Some(draft) = &self.vector.draft {
-            let blue = Color32::from_rgb(27, 105, 200);
+            let blue = UiPalette::current(p.ctx()).overlay;
+            let halo = UiPalette::current(p.ctx()).overlay_halo;
             paint_path(
                 p,
                 &draft.commands(false),
@@ -678,9 +680,12 @@ impl Editor {
             );
             for anchor in &draft.anchors {
                 let at = screen(anchor.point);
+                p.rect_filled(Rect::from_center_size(at, Vec2::splat(8.)), 0., halo);
                 p.rect_filled(Rect::from_center_size(at, Vec2::splat(6.)), 0., blue);
                 if anchor.tangent.length_sq() > 0.1 {
                     for handle in [anchor.point + anchor.tangent, anchor.point - anchor.tangent] {
+                        p.line_segment([at, screen(handle)], Stroke::new(3.0_f32, halo));
+                        p.circle_filled(screen(handle), 4.5, halo);
                         p.line_segment([at, screen(handle)], Stroke::new(1.0_f32, blue));
                         p.circle_filled(screen(handle), 3., blue);
                     }
@@ -714,7 +719,7 @@ impl Editor {
         let zoom = self.zoom;
         let screen = |pos: Pos2| origin + crate::stage::affine(matrix, pos).to_vec2() * zoom;
         let handles = handles(commands);
-        let blue = Color32::from_rgb(27, 105, 200);
+        let blue = UiPalette::current(p.ctx()).overlay;
         let mut previous = Pos2::ZERO;
         for command in commands {
             match *command {
@@ -756,11 +761,21 @@ impl Editor {
         for handle in &handles {
             if handle.role == PointRole::Anchor {
                 p.rect_filled(
+                    Rect::from_center_size(screen(handle.point), Vec2::splat(9.)),
+                    0.,
+                    UiPalette::current(p.ctx()).overlay_halo,
+                );
+                p.rect_filled(
                     Rect::from_center_size(screen(handle.point), Vec2::splat(7.)),
                     0.,
                     blue,
                 );
             } else {
+                p.circle_filled(
+                    screen(handle.point),
+                    5.,
+                    UiPalette::current(p.ctx()).overlay_halo,
+                );
                 p.circle_filled(screen(handle.point), 3.5, blue);
             }
         }

@@ -3,6 +3,8 @@ use neoflash_core::*;
 use roxmltree::{Document, Node, ParsingOptions};
 use std::collections::{BTreeMap, HashMap};
 
+mod shape;
+
 pub(crate) fn convert(
     files: &BTreeMap<String, String>,
     report: &mut ImportReport,
@@ -22,28 +24,8 @@ pub(crate) fn convert(
     let language = files
         .get("PublishSettings.xml")
         .and_then(|text| parse(text, "PublishSettings.xml", report))
-        .and_then(|doc| {
-            report.warning("publish_settings", "PublishSettings.xml", "Only ActionScriptVersion is read; Flash publishing options are not carried into HTML5 export.");
-            for node in doc.descendants().filter(|n|n.is_element()) {
-                if matches!(node.tag_name().name(), "DocumentClass"|"AS3DocumentClass"|"AS3PackagePaths"|"PackagePaths"|"AS3LibraryPaths"|"AS3ExternalLibraryPaths"|"AS3ConfigConst") && node.text().is_some_and(|value|!value.trim().is_empty()) {
-                    report.error("external_script_configuration", "PublishSettings.xml", format!("Nonempty {} cannot be preserved by this importer yet.", node.tag_name().name()));
-                }
-            }
-            let versions: std::collections::HashSet<_> = doc
-                .descendants()
-                .filter(|n| n.has_tag_name("ActionScriptVersion"))
-                .filter_map(|n| n.text())
-                .map(str::trim)
-                .collect();
-            if versions.len() != 1 {
-                return None;
-            }
-            match versions.into_iter().next()? {
-                "2" => Some(ScriptLanguage::ActionScript2),
-                "3" => Some(ScriptLanguage::ActionScript3),
-                _ => None,
-            }
-        });
+        .and_then(|doc| publish_language(&doc, report));
+
     let mut parser = Parser {
         report,
         symbols: HashMap::new(),
@@ -61,6 +43,7 @@ pub(crate) fn convert(
             "xflVersion",
             "creatorInfo",
             "platformVersion",
+            "platform",
             "versionInfo",
             "majorVersion",
             "minorVersion",
@@ -79,8 +62,46 @@ pub(crate) fn convert(
             "swatches",
             "media",
             "fonts",
+            "PrinterSettings",
+            "publishHistory",
         ],
     );
+    if root.attribute("platform").is_some() {
+        parser.report.warning("editor_metadata", "DOMDocument.xml", "Authoring platform metadata is not retained; source artwork and scripts are unaffected.");
+    }
+    if let Some(printer) = child(root, "PrinterSettings") {
+        // Only an empty marker is proven harmless. Actual printer settings remain unsupported.
+        parser.audit(printer, "DOMDocument.xml", &[], &[]);
+        parser.report.warning(
+            "editor_metadata",
+            "DOMDocument.xml/PrinterSettings",
+            "Empty printer-settings marker is not retained.",
+        );
+    }
+    if let Some(history) = child(root, "publishHistory") {
+        parser.audit(history, "DOMDocument.xml", &[], &["PublishItem"]);
+        for item in elements(history).filter(|n| n.has_tag_name("PublishItem")) {
+            parser.audit(
+                item,
+                "DOMDocument.xml",
+                &["publishSize", "publishTime"],
+                &[],
+            );
+            for attribute in ["publishSize", "publishTime"] {
+                if item
+                    .attribute(attribute)
+                    .is_some_and(|value| value.parse::<u64>().is_err())
+                {
+                    parser.report.error(
+                        "invalid_publish_history",
+                        parser.location(item, "DOMDocument.xml"),
+                        format!("{attribute} must be an unsigned integer."),
+                    );
+                }
+            }
+        }
+        parser.report.warning("editor_metadata", "DOMDocument.xml/publishHistory", "Previous Flash publish timestamps and output sizes are not retained; authored content is unchanged.");
+    }
     for tag in ["media", "fonts"] {
         if child(root, tag).is_some_and(|n| n.children().any(|c| c.is_element())) {
             parser.report.error(
@@ -91,12 +112,21 @@ pub(crate) fn convert(
         }
     }
     for tag in ["folders", "swatchLists", "swatches"] {
-        if child(root, tag).is_some() {
-            parser.report.warning(
-                "editor_metadata",
-                format!("DOMDocument.xml/{tag}"),
-                "Library folder/swatch organization is not retained; original source is unchanged.",
-            );
+        if let Some(metadata) = child(root, tag) {
+            // Empty authoring markers are harmless. Do not treat an entire
+            // unaudited subtree as metadata: it may contain unsupported content.
+            let first_diagnostic = parser.report.diagnostics.len();
+            parser.audit(metadata, "DOMDocument.xml", &[], &[]);
+            if !parser.report.diagnostics[first_diagnostic..]
+                .iter()
+                .any(|d| d.severity == crate::Severity::Error)
+            {
+                parser.report.warning(
+                    "editor_metadata",
+                    format!("DOMDocument.xml/{tag}"),
+                    "Empty library folder/swatch marker is not retained; nonempty organization requires a dedicated importer.",
+                );
+            }
         }
     }
     let mut libraries = vec![];
@@ -106,9 +136,18 @@ pub(crate) fn convert(
             parser.audit(
                 include,
                 "DOMDocument.xml",
-                &["href", "loadImmediate", "itemIcon", "lastModified"],
+                &[
+                    "href",
+                    "loadImmediate",
+                    "itemIcon",
+                    "lastModified",
+                    "itemID",
+                ],
                 &[],
             );
+            if include.attribute("itemID").is_some() {
+                parser.report.warning("editor_metadata", parser.location(include, "DOMDocument.xml"), "Flash library itemID is not retained; symbol references resolve by the original library item name.");
+            }
             let href = include.attribute("href").unwrap_or("");
             if let Err(error) = source::safe_name(href) {
                 parser
@@ -280,6 +319,95 @@ pub(crate) fn convert(
     Some(p)
 }
 
+fn publish_value(node: Node<'_, '_>, report: &mut ImportReport) -> Option<String> {
+    let location = format!(
+        "PublishSettings.xml:{} <{}>",
+        node.document().text_pos_at(node.range().start).row,
+        node.tag_name().name()
+    );
+    if node.tag_name().namespace().is_some()
+        || node.attributes().len() != 0
+        || elements(node).next().is_some()
+    {
+        report.error("invalid_script_configuration", location, "Language and script configuration fields must be unnamespaced plain text without attributes; nested content is not ignored.");
+        return None;
+    }
+    // Comments can split a value into several text nodes. Never inspect just the
+    // first fragment and mistake an active/ambiguous setting for an AS2 default.
+    Some(
+        node.children()
+            .filter(Node::is_text)
+            .filter_map(|n| n.text())
+            .collect::<String>()
+            .trim()
+            .to_owned(),
+    )
+}
+
+fn publish_language(doc: &Document<'_>, report: &mut ImportReport) -> Option<ScriptLanguage> {
+    report.warning("publish_settings", "PublishSettings.xml", "Only ActionScriptVersion is read; Flash publishing options are not carried into HTML5 export.");
+    let mut versions = std::collections::BTreeSet::new();
+    let mut valid = true;
+    for node in doc
+        .descendants()
+        .filter(|n| n.is_element() && n.tag_name().name() == "ActionScriptVersion")
+    {
+        match publish_value(node, report) {
+            Some(value) => {
+                versions.insert(value);
+            }
+            None => valid = false,
+        }
+    }
+    let language = if valid && versions.len() == 1 {
+        match versions.iter().next().map(String::as_str) {
+            Some("2") => Some(ScriptLanguage::ActionScript2),
+            Some("3") => Some(ScriptLanguage::ActionScript3),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if language.is_none() {
+        report.error(
+            "script_language",
+            "PublishSettings.xml",
+            "Publish settings must identify one unambiguous ActionScriptVersion, 2 or 3.",
+        );
+    }
+    for node in doc.descendants().filter(|n| n.is_element()) {
+        let name = node.tag_name().name();
+        if !matches!(
+            name,
+            "DocumentClass"
+                | "AS3DocumentClass"
+                | "AS3PackagePaths"
+                | "PackagePaths"
+                | "AS3LibraryPaths"
+                | "AS3ExternalLibraryPaths"
+                | "AS3ConfigConst"
+        ) {
+            continue;
+        }
+        let Some(value) = publish_value(node, report) else {
+            continue;
+        };
+        if value.is_empty() {
+            continue;
+        }
+        if language == Some(ScriptLanguage::ActionScript2) && name.starts_with("AS3") {
+            report.warning("inactive_script_configuration", "PublishSettings.xml", format!("{name} is inactive because ActionScriptVersion is 2; the AS2 frame source is retained and the original publish settings are unchanged."));
+        } else {
+            report.error(
+                "external_script_configuration",
+                "PublishSettings.xml",
+                format!("Nonempty {name} cannot be preserved by this importer yet."),
+            );
+        }
+    }
+    language
+}
+
 fn parse<'a>(xml: &'a str, path: &str, report: &mut ImportReport) -> Option<Document<'a>> {
     match Document::parse_with_options(
         xml,
@@ -302,6 +430,16 @@ fn elements<'a, 'b>(node: Node<'a, 'b>) -> impl Iterator<Item = Node<'a, 'b>> {
 }
 fn child<'a, 'b>(node: Node<'a, 'b>, tag: &str) -> Option<Node<'a, 'b>> {
     elements(node).find(|n| n.tag_name().name() == tag)
+}
+
+fn immediate_text(node: Node<'_, '_>) -> String {
+    // XML comments and processing instructions can divide a logical text value.
+    // Include all immediate text/CDATA fragments; nested elements are rejected
+    // independently by audit and must not be flattened into authored content.
+    node.children()
+        .filter(Node::is_text)
+        .filter_map(|n| n.text())
+        .collect()
 }
 
 struct Parser<'a> {
@@ -331,6 +469,17 @@ impl Parser<'_> {
                 .error("unknown_namespace", &location, "Unknown XML namespace.");
         }
         for attr in node.attributes() {
+            if let Some(namespace) = attr.namespace() {
+                self.report.error(
+                    "unsupported_attribute_namespace",
+                    &location,
+                    format!(
+                        "Namespaced attribute {{{namespace}}}{} is unsupported; XFL attributes must have no namespace.",
+                        attr.name()
+                    ),
+                );
+                continue;
+            }
             if !attrs.contains(&attr.name()) {
                 self.report.error(
                     "unsupported_attribute",
@@ -374,7 +523,12 @@ impl Parser<'_> {
                     | "DOMStaticText"
                     | "DOMRectangleObject"
                     | "DOMOvalObject"
+                    | "DOMShape"
                     | "DOMTextRun"
+                    | "Edge"
+                    | "FillStyle"
+                    | "StrokeStyle"
+                    | "PublishItem"
             ) && elements(node)
                 .filter(|n| n.tag_name().name() == *tag)
                 .count()
@@ -581,6 +735,7 @@ impl Parser<'_> {
                                 "DOMStaticText",
                                 "DOMRectangleObject",
                                 "DOMOvalObject",
+                                "DOMShape",
                             ],
                         );
                         for (ei, element_node) in elements(container).enumerate() {
@@ -594,7 +749,7 @@ impl Parser<'_> {
                         self.audit(actions, file, &[], &["script"]);
                         if let Some(script) = child(actions, "script") {
                             self.audit(script, file, &[], &[]);
-                            let source = script.text().unwrap_or("").to_string();
+                            let source = immediate_text(script);
                             if !source.trim().is_empty() {
                                 if let Some(language) = self.language {
                                     timeline.scripts.push(FrameScript {
@@ -650,6 +805,9 @@ impl Parser<'_> {
 
     fn element(&mut self, node: Node<'_, '_>, id: Id, file: &str) -> Option<Element> {
         let tag = node.tag_name().name();
+        if tag == "DOMShape" {
+            return self.shape(node, id, file);
+        }
         let location = self.location(node, file);
         let mut transform = self.transform(node, file);
         let name = node.attribute("name").unwrap_or(tag).into();
@@ -666,9 +824,18 @@ impl Parser<'_> {
                         "loop",
                         "selected",
                         "referenceID",
+                        "centerPoint3DX",
+                        "centerPoint3DY",
                     ],
                     &["matrix", "transformationPoint", "color"],
                 );
+                if node.attribute("centerPoint3DX").is_some()
+                    || node.attribute("centerPoint3DY").is_some()
+                {
+                    self.number(node, "centerPoint3DX", 0., file);
+                    self.number(node, "centerPoint3DY", 0., file);
+                    self.report.warning("transform_pivot", &location, "Placement matrix retained; Flash's 2D authoring centerPoint3DX/Y pivot is not retained. Actual 3D transforms remain unsupported.");
+                }
                 let target = node.attribute("libraryItemName").unwrap_or("");
                 let Some(symbol_id) = self.symbols.get(target).cloned() else {
                     self.report.error(
@@ -776,7 +943,7 @@ impl Parser<'_> {
                     return None;
                 };
                 self.audit(characters, file, &[], &[]);
-                let text = characters.text().unwrap_or("").to_string();
+                let text = immediate_text(characters);
                 if text.contains(['\n', '\r']) {
                     self.report.error(
                         "multiline_text",

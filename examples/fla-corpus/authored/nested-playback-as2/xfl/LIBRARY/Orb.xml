@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- NeoFlash original synthetic XFL fixture; no Adobe-authored content. -->
+<DOMSymbolItem xmlns="http://ns.adobe.com/xfl/2008/" name="Orb" symbolType="movie clip">
+<timeline><DOMTimeline name="Orb"><layers>
+<DOMLayer name="Four held poses" locked="false"><frames>
+<DOMFrame index="0" duration="6" name="northwest" labelType="name"><elements><DOMOvalObject name="orb" objectWidth="36" objectHeight="36" x="0" y="0"><fill><SolidColor color="#64DFBE" alpha="1"/></fill></DOMOvalObject></elements></DOMFrame>
+<DOMFrame index="6" duration="6" name="northeast" labelType="name"><elements><DOMOvalObject name="orb" objectWidth="36" objectHeight="36" x="54" y="0"><fill><SolidColor color="#FFCC66" alpha="1"/></fill></DOMOvalObject></elements></DOMFrame>
+<DOMFrame index="12" duration="6" name="southeast" labelType="name"><elements><DOMOvalObject name="orb" objectWidth="36" objectHeight="36" x="54" y="54"><fill><SolidColor color="#FF8467" alpha="1"/></fill></DOMOvalObject></elements></DOMFrame>
+<DOMFrame index="18" duration="6" name="southwest" labelType="name"><elements><DOMOvalObject name="orb" objectWidth="36" objectHeight="36" x="0" y="54"><fill><SolidColor color="#80AEFF" alpha="1"/></fill></DOMOvalObject></elements></DOMFrame>
+</frames></DOMLayer>
+</layers></DOMTimeline></timeline>
+</DOMSymbolItem>

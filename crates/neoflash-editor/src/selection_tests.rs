@@ -637,7 +637,8 @@ fn timeline_key_drop_uses_final_release_column_and_keeps_the_captured_layer() {
         .iter()
         .filter_map(|shape| match &shape.shape {
             egui::Shape::Circle(circle)
-                if circle.radius == 3. && circle.fill == egui::Color32::from_gray(50) =>
+                if circle.radius == 3.
+                    && circle.fill == crate::theme::UiPalette::current(&ctx).timeline_key =>
             {
                 Some(circle.center)
             }

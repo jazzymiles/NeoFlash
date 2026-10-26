@@ -1,4 +1,4 @@
-# 0007 — Reviewed capability coverage and Git-backed daily history
+# 0009 — Reviewed capability coverage and Git-backed daily history
 
 Status: accepted, 2026-10-27.
 

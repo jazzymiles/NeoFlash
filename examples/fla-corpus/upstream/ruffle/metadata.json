@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/ruffle-rs/ruffle",
+  "commit": "fe6cfc545405b888ebb478ce1c211d63147ca49b",
+  "retrieved_on": "2026-10-27",
+  "license": "MIT OR Apache-2.0",
+  "license_basis": "Pinned upstream README.md and LICENSE.md state repository licensing and submitted-contribution terms. Selected tests are original avm1/avm2 and swf fixtures; from_* imported suites were excluded. swf-specific license notices are retained.",
+  "files": [
+    {
+      "path": "LICENSE.md",
+      "upstream_path": "LICENSE.md",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/LICENSE.md",
+      "sha256": "e39a2fa3dfd7238f0924f568fabb659ee1a9d95ea6460dbae4bc9b67017a1c71",
+      "bytes": 108294
+    },
+    {
+      "path": "SWF-LICENSE-MIT",
+      "upstream_path": "swf/LICENSE-MIT",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/LICENSE-MIT",
+      "sha256": "0621878e61f0d0fda054bcbe02df75192c28bde1ecc8289cbd86aeba2dd72720",
+      "bytes": 1071
+    },
+    {
+      "path": "SWF-LICENSE-APACHE",
+      "upstream_path": "swf/LICENSE-APACHE",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/LICENSE-APACHE",
+      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+      "bytes": 10847
+    },
+    {
+      "path": "UPSTREAM-README.md",
+      "upstream_path": "README.md",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/README.md",
+      "sha256": "d0f2dd68f65db7ea22506a758696a1b33993214b3d32dde536960e66c356fbac",
+      "bytes": 9925
+    },
+    {
+      "path": "UPSTREAM-TESTS-README.md",
+      "upstream_path": "tests/README.md",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/tests/README.md",
+      "sha256": "273951a4c2b10cab0378d663e8fcc6cd30772267f020578432e95c3a6f015301",
+      "bytes": 12566
+    }
+  ],
+  "cases": [
+    "mx-button",
+    "mx-static-text",
+    "mx-shape-tween",
+    "avm1-frame-labels",
+    "avm1-clip-events",
+    "avm1-nested-button-text",
+    "avm2-button-frame-scripts",
+    "avm2-nested-construction"
+  ]
+}

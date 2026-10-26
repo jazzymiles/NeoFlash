@@ -9,7 +9,8 @@ neoflash-core.workspace = true
 neoflash-script.workspace = true
 neoflash-export.workspace = true
 serde_json.workspace = true
-eframe = { version = "0.33.3", default-features = false, features = ["wgpu", "default_fonts", "accesskit"] }
+serde.workspace = true
+eframe = { version = "0.33.3", default-features = false, features = ["wgpu", "default_fonts", "accesskit", "persistence"] }
 rfd = "0.17.2"
 font-kit = "0.14.3"
 ab_glyph = "0.2.32"
@@ -17,3 +18,7 @@ arboard = { version = "=3.7.0", default-features = false }
 wgpu = { version = "27", default-features = false, features = ["metal", "wgsl"] }
 neoflash-import = { path = "../neoflash-import" }
 lyon_tessellation = "1.0.20"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.3"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSScreen"] }

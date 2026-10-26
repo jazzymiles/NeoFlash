@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "id": "ruffle-mx-shape-tween",
+  "purpose": "Legacy MX shape tween and vector geometry preservation.",
+  "features": [
+    "binary-fla",
+    "shape-tween",
+    "vector",
+    "flash-mx"
+  ],
+  "repository": "https://github.com/ruffle-rs/ruffle",
+  "commit": "fe6cfc545405b888ebb478ce1c211d63147ca49b",
+  "license": "MIT OR Apache-2.0",
+  "license_files": [
+    "../LICENSE.md",
+    "../SWF-LICENSE-MIT",
+    "../SWF-LICENSE-APACHE"
+  ],
+  "upstream_path": "swf/tests/swfs/DefineMorphShape-MX.fla",
+  "upstream_url": "https://github.com/ruffle-rs/ruffle/blob/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/tests/swfs/DefineMorphShape-MX.fla",
+  "entrypoint": "DefineMorphShape-MX.fla",
+  "container": "cfb_binary",
+  "files": [
+    {
+      "path": "DefineMorphShape-MX.fla",
+      "upstream_path": "swf/tests/swfs/DefineMorphShape-MX.fla",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/tests/swfs/DefineMorphShape-MX.fla",
+      "sha256": "4228a64ce58b62f9c0f49ea133435389c662ddbe704d28bb2e2602fb7f4ca908",
+      "bytes": 27648
+    },
+    {
+      "path": "DefineMorphShape-MX.swf",
+      "upstream_path": "swf/tests/swfs/DefineMorphShape-MX.swf",
+      "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/tests/swfs/DefineMorphShape-MX.swf",
+      "sha256": "0b70f20983713fd01d606882d71a4275838c3a2df85e2fab93c97073f0cfa618",
+      "bytes": 558
+    }
+  ],
+  "execution_note": "Original source and reference SWF are data fixtures. No ActionScript or SWF has been executed. Expected output.txt belongs to the upstream Ruffle test, not a NeoFlash compatibility claim.",
+  "observed_import": {
+    "format": "legacy_binary_fla",
+    "can_import": false,
+    "diagnostics": [
+      "fla_contents_suffix_unsupported",
+      "fla_mfc_class_unsupported",
+      "legacy_fla_conversion_unsupported"
+    ],
+    "binary_fla": {
+      "cfb_major_version": 3,
+      "contents_revision": 41
+    },
+    "note": "Observation from the existing target/debug/neoflash-import binary on 2026-10-27. Diagnostic lists are informational and may evolve; importer sources were not rebuilt by this collector."
+  }
+}

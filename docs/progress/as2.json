@@ -92,12 +92,14 @@
       "id": "as2-functions",
       "title": "Function declarations and calls",
       "status": "partial",
-      "scope": "Function declarations and expressions, recursion, mutual recursion, return, callbacks and immediately invoked function expressions.",
-      "limitations": "Declarations must be directly inside a function or handler body; general dynamic method lookup and cross-script symbol resolution are absent.",
+      "scope": "Function declarations and expressions, recursion, mutual recursion, return, callbacks and immediately invoked function expressions. Bounded runtime lookup of user-defined timeline callbacks and capture of the timeline where the function was defined.",
+      "limitations": "Declarations must be directly inside a function or handler body; there is no general project resolver. Missing or non-callable functions and unsupported native goto aliases produce diagnostics; complete AVM1 lookup and ordering are not reproduced.",
       "evidence": [
         "crates/neoflash-script/src/actionscript/scope.rs",
         "crates/neoflash-script/src/actionscript.rs",
-        "crates/neoflash-script/tests/execute.mjs"
+        "crates/neoflash-script/tests/execute.mjs",
+        "crates/neoflash-script/tests/as2_dynamic.rs",
+        "web/tests/as2-timeline.test.cjs"
       ]
     },
     {
@@ -283,13 +285,15 @@
       "id": "as2-timeline",
       "title": "MovieClip and timelines",
       "status": "partial",
-      "scope": "play/stop, gotoAndPlay/gotoAndStop, nextFrame/prevFrame, current/total frames, named children and independent nested clocks.",
-      "limitations": "This is a limited MovieClip facade; complete construction/re-entry, scenes, dynamic display lists and the Flash lifecycle are not implemented.",
+      "scope": "play/stop, gotoAndPlay/gotoAndStop, nextFrame/prevFrame, current/total frames, named children and independent nested clocks. AS2 labels use ASCII case folding, resolve duplicate labels to the first occurrence, and do nothing for unknown labels; numeric strings within a bounded range take precedence.",
+      "limitations": "This is a limited MovieClip facade; complete construction/re-entry, scenes, dynamic display lists and the Flash lifecycle are not implemented. Native goto aliases and complete historical numeric and lookup rules are unsupported.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
         "web/tests/runtime.test.cjs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-core/tests/frame_labels.rs",
+        "web/tests/real-fla-frame-labels.test.cjs"
       ]
     },
     {

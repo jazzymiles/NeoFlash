@@ -7,9 +7,10 @@ Date: 2026-10-27. This record covers the development preview, vector/object tool
 `./scripts/check.sh` passes on Apple Silicon, macOS 15.8, Rust 1.99.1:
 
 - Formatting and Clippy (`--workspace --all-targets -- -D warnings`).
-- 220 workspace Rust tests: 42 core, 90 editor, 26 script, 58 importer and 4 exporter; four additional tests exercise the pinned egui-winit paste adapter.
-- 32 browser-host/actual-WASM/cache tests in Node, including semantic bounds, DOM identity, focus restoration, pan/zoom, lifetime-checked activation, recovery and failure reporting.
+- 279 workspace Rust tests: 46 core, 121 editor, 28 script, 80 importer and 4 exporter; four additional tests exercise the pinned egui-winit paste adapter.
+- 41 browser-host/actual-WASM/cache and public-example tests in Node, including semantic bounds, DOM identity, focus restoration, pan/zoom, lifetime-checked activation, recovery and failure reporting.
 - 62 execution fixtures using JavaScript emitted by the script compiler, plus an integration check using the actual host proxy/dispatch code with a lifecycle stub.
+- 21 public-corpus CLI cases: seven successful imports and 14 explicit refusals, with source integrity and no-overwrite checks.
 - Release WebAssembly build and standalone demo export.
 
 Important regressions include independent nested clocks while a parent is stopped; affine nesting; dispatch order/stale-instance protection; JSON validation and graph cycles; grouped undo; key insertion at an interpolated pose; midpoint duplicate/delete; symbol conversion and recursive-placement rejection; key move/copy/collision behavior; fast and normal pointer gestures; macOS collection-font loading; and the Metal backend being enabled in the actual desktop build.
@@ -83,7 +84,27 @@ The local aggregate candidate audit examined 136 nonempty shape records in six a
 
 Four adapter tests and twelve editor clipboard tests cover initiating-key metadata, either release order, later Shift changes, repeated/mixed batches, text delivery once and menu routing. After the Mac was unlocked, the old process was closed and the new bundle opened the recovery example through the native Open dialog. Keyboard/menu Paste in Place retained X=60 and X=123, verified from saved JSON. Copying two selected instances, creating a new document and pressing Paste produced two placements sharing one newly identified library symbol, retaining AS2 and AS3 handlers. The first automated key sequence received foreign clipboard text; isolated subsequent Copy and menu/keyboard Paste checks succeeded. Its cause was not established, so exhaustive timing/platform clipboard conformance is not claimed.
 
+A subsequent native Actions check confirmed keyboard Copy/Paste and actual Edit-menu Copy/Paste with distinct text markers; Cut cleared selected text while retaining artwork. Save and native Open round-tripped the QA copy. Recursive JSON comparison against the cross-document fixture found only the added root-frame script; all artwork and identities were unchanged. Test Movie opened the local export directly in Safari, where the expected trace, independent AS2/AS3 recovery handlers and Restart worked. The initial foreign clipboard text was not reproducible after fresh Copy cycles. This is a specific local Safari acceptance, not a general browser conformance claim.
+
 The optimized bundle passed `codesign --verify --deep --strict` with minimum macOS 15.0. Executable SHA-256: `6cd7ae793200a3153eba0391be855bb119a1616c60b0827e348f26789e487129`; packaged WASM: `9b564330387b99c739fb4326d9567c882f9234c06ebb048b2566a0c5cec2085d`. Test/build logs and original UI fixtures remain under ignored `target/verification/`. Screenshots include `html5-script-recovery.png` and `html5-binary-contours.png`.
+
+## Native workspace increment — 27 October
+
+The workspace-only release was rebuilt after the clean full suite and passed strict ad-hoc signature verification. Executable SHA-256: `f52b1598601c4fa8b24de1ac70984c3e5034aea049b30d7f7ea534f800f82274`; packaged WASM: `9b564330387b99c739fb4326d9567c882f9234c06ebb048b2566a0c5cec2085d`. These fingerprints identify this UI acceptance build, before the subsequent real-FLA runtime increment.
+
+Actual macOS checks observed:
+
+- A saved detached Actions window and Dark theme survived restart. Its editor, language selector and Check Script button appeared in the native accessibility tree; activating Check Script produced the accepted-syntax status in the root window. Closing the child and pressing F9 reopened and focused it; Dock returned it to the shared editor.
+- Light theme rendered readable headings, controls and selection states. Earlier native inspection found an inverted strong-text color in both themes; semantic palette and contrast regressions now cover that defect.
+- A native Timeline restored its 750×380 content size. At 320×180, its footer scrolled to the opacity control and a real click changed opacity from 0.30 to approximately 0.565. Restoring 750×380 showed the complete footer.
+- An original 501-frame, 50-layer, 100-symbol fixture opened through the native Open dialog. Five- and sixty-frame tween arrowheads retained the same bounded size. Scrolling to layers 43–50 kept row labels aligned with keys and the ruler fixed. Library scrolling exposed later symbols. The fixture remained clean.
+- Before the accessibility patch, Tools detached as a real window and choosing Pencil there remained selected after Dock. Actions text selection and native Copy/Delete/Paste also survived docking in that build. Those earlier observations establish shared state behavior, not child accessibility delivery.
+
+Headless regressions additionally cover geometry recovery across display layouts, corrupt/future preferences, panel visibility and F9 during text editing, unchanged document/history/drafts, both theme contrast palettes, tool toggles and keyboard focus, stable Actions editor IDs, clipboard delivery to its originating viewport, compact footer reachability, and stable root layout over repeated frames. Eframe feature probes compile both with and without AccessKit.
+
+The first patched native startup panicked because AccessKit requires initialization before a window is first shown. A first-panic backtrace identified this precondition; children now start hidden, receive the adapter, and then use their requested visibility. The subsequent launch and child actions above passed without clearing saved preferences. No panic suppression is installed.
+
+Actual window relocation across monitors, display disconnect/recovery, VoiceOver speech, IME and the full browser/desktop accessibility matrix remain unverified. Drag-to-dock/tab/split layouts and named presets remain future work. Evidence stays in ignored `target/verification/`, including `workspace-timeline-scroll.png` and the clean suite/package logs.
 
 ## Observed HTML5 checks
 
@@ -95,7 +116,7 @@ A real Chrome tab loaded the generated export through a temporary server bound o
 - Restart resumed playback after a pause.
 - No application errors appeared in the console; the expected font-fallback warning was present.
 
-The browser tool rejects direct `file://` navigation, so direct-file behavior is not claimed as visually verified. The exporter embeds WASM bytes and all local scripts to support an autonomous folder; this packaging is covered by tests. Safari and clean-machine typography still need explicit verification.
+In the initial Chrome/browser-tool check, direct `file://` navigation was unavailable. A later native Test Movie check opened and exercised a local export in Safari, as recorded above. The exporter embeds WASM bytes and all local scripts to support an autonomous folder; this packaging is covered by tests. Safari and clean-machine typography still need explicit verification.
 
 ### Vector path increment
 
@@ -129,6 +150,18 @@ Automated regressions additionally cover affine miter bounds, offstage descendan
 
 Screenshots: `target/verification/html5-keyboard.jpg`, `html5-keyboard-390-fit.jpg`, and `html5-keyboard-390-pan.jpg`. Browser viewport overrides were restored, and test tabs/servers closed. Actual VoiceOver speech, Safari, physical touch input and direct `file://` navigation remain unverified. Narrow-screen Fit intentionally scales a fixed authored stage; responsive text/layout authoring remains separate work.
 
+## Real FLA to HTML5 — 27 October
+
+The unchanged Adobe CS6 archive `examples/fla-corpus/upstream/ruffle/avm1-frame-labels/test.fla` imports to `examples/fla-corpus/imported/ruffle-avm1-frame-labels.nflash`. An independent review compared all nine original script strings, both solid contours and 1px strokes, labels, translation and the blank key against the source ZIP. All upstream payload hashes remain unchanged.
+
+The ordinary exporter published that native document. Actual in-app browser inspection observed the red square with black outline, root frame 3/7, and all 17 trace lines exactly matching the pinned upstream `output.txt`. Restart produced exactly a second 17-line block, with no console errors or warnings. The original SWF was not executed during this check; its pinned companion trace is the independent reference. The real-WASM/actual-host regression also checks extra stable ticks and reset.
+
+Independent review found and fixed three XML acceptance holes: fragmented script/static text must retain every immediate text/CDATA node; namespaced attributes cannot shadow an unqualified XFL attribute; unchecked nonempty folder/swatch metadata must block import. Eight regressions cover these guards. The final importer suite has 80 tests, and the complete integrated suite above passed after these fixes. See the corpus VERIFICATION.md and IMPORTS.md for exact source provenance and geometry/metadata limits. Tests and browser evidence remain under ignored `target/real-fla/`.
+
+The integrated optimized macOS bundle also built successfully: executable SHA-256 `d2614307f6539ef4c82e9a4bf422c8cf2a860f3ec2820c65dda6dd43941597c3`, packaged WASM `6888aff20b6ab0e4b73d3f953e45592907754609a4ae4fd0e1aeb4e22b657d2d`. The detailed workspace acceptance above identifies its earlier UI-only binary separately.
+
+This proves one real FLA workflow. General AS2/AS3 semantics, binary FLA conversion, broader geometry and the newly prioritized hidden-layer/placement/API correctness cases remain open.
+
 ## Legacy corpus
 
 Initial signature inspection recognized 42 local FLA/SWF files: 20 compound binary FLA; 22 SWF (20 FWS + 2 CWS, versions 3–8). The new strict CFB reader accepted 19 binary containers and rejected one for adjacent red directory nodes; this requires writer-compatibility investigation and does not establish that the original application cannot open it. Accepted save targets: Flash 3 × 6, Flash 5 × 10, Flash MX × 2 and Flash 8 × 1. These identify the saved format, not the last editing application.
@@ -137,7 +170,7 @@ The reader indexes 20 scene streams, 246 symbol streams and 23 media streams. It
 
 Typed preservation retains 1,343 object identities, 2,802 pointer edges, 1,064 owned children and 426 shape associations. The shape bodies include 526 fills, 212 strokes, 2,971 straight edges, 4,322 quadratic edges and 706 auxiliary curves. Complete descendants may belong to an incomplete ancestor, so these counts do not prove a complete editable graph. Remaining timeline stops include 155 unsupported class payloads, two shared/cyclic child references, one nonempty historical action list and one nonempty compiled list. Inspection emits only aggregate counts; exact geometry, descriptors, settings and typed fields are opt-in private preservation APIs. Every editable binary conversion remains blocked. See IMPORTS.md for exact boundaries. No private source/content/derived artwork was uploaded. Projector EXEs and the legacy HTML file were not executed.
 
-Per-file reports, screenshots, logs and temporary test projects remain in ignored `target/verification/`. Only original synthetic fixtures and NeoFlash examples are public.
+Per-file reports, screenshots, logs and temporary test projects remain in ignored `target/verification/`. Original examples and explicitly licensed upstream fixtures are public; the user-provided corpus stays private.
 
 ## Artifacts
 

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- NeoFlash original synthetic XFL fixture; no Adobe-authored content. -->
+<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" width="720" height="420" frameRate="24" backgroundColor="#101D2B" xflVersion="2.0">
+
+<timelines><DOMTimeline name="Primitives and holds"><layers>
+<DOMLayer name="Animated primitives" locked="false"><frames>
+<DOMFrame index="0" duration="24" name="left" labelType="name"><elements><DOMRectangleObject name="coralSquare" objectWidth="110" objectHeight="110" x="70" y="155"><fill><SolidColor color="#FF8467" alpha="1"/></fill></DOMRectangleObject><DOMOvalObject name="mintCircle" objectWidth="90" objectHeight="90" x="210" y="165"><fill><SolidColor color="#64DFBE" alpha="0.8"/></fill></DOMOvalObject></elements></DOMFrame>
+<DOMFrame index="24" duration="24" name="right" labelType="name"><elements><DOMRectangleObject name="coralSquare" objectWidth="110" objectHeight="110" x="370" y="155"><fill><SolidColor color="#FF8467" alpha="1"/></fill></DOMRectangleObject><DOMOvalObject name="mintCircle" objectWidth="90" objectHeight="90" x="510" y="165"><fill><SolidColor color="#64DFBE" alpha="0.8"/></fill></DOMOvalObject></elements></DOMFrame>
+<DOMFrame index="48" duration="12" name="blank" labelType="name"><elements></elements></DOMFrame>
+<DOMFrame index="60" duration="12" name="return" labelType="name"><elements><DOMRectangleObject name="coralSquare" objectWidth="110" objectHeight="110" x="70" y="155"><fill><SolidColor color="#FF8467" alpha="1"/></fill></DOMRectangleObject><DOMOvalObject name="mintCircle" objectWidth="90" objectHeight="90" x="210" y="165"><fill><SolidColor color="#64DFBE" alpha="0.8"/></fill></DOMOvalObject></elements></DOMFrame>
+</frames></DOMLayer>
+<DOMLayer name="Caption" locked="true"><frames>
+<DOMFrame index="0" duration="72"><elements><DOMStaticText width="670" height="32"><matrix><Matrix tx="32" ty="30" a="1" d="1"/></matrix><textRuns><DOMTextRun><characters>PRIMITIVES / HELD FRAMES</characters><textAttrs><DOMTextAttrs face="Arial" size="27" fillColor="#FFFFFF"/></textAttrs></DOMTextRun></textRuns></DOMStaticText><DOMStaticText width="670" height="32"><matrix><Matrix tx="32" ty="75" a="1" d="1"/></matrix><textRuns><DOMTextRun><characters>Two held poses, a blank interval, then return. No tweens.</characters><textAttrs><DOMTextAttrs face="Arial" size="17" fillColor="#D8E5EF"/></textAttrs></DOMTextRun></textRuns></DOMStaticText><DOMStaticText width="670" height="32"><matrix><Matrix tx="32" ty="365" a="1" d="1"/></matrix><textRuns><DOMTextRun><characters>0-23: left  |  24-47: right  |  48-59: blank  |  60-71: return</characters><textAttrs><DOMTextAttrs face="Arial" size="16" fillColor="#D8E5EF"/></textAttrs></DOMTextRun></textRuns></DOMStaticText></elements></DOMFrame>
+</frames></DOMLayer>
+</layers></DOMTimeline></timelines>
+</DOMDocument>

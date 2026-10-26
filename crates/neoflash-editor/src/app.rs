@@ -1,5 +1,7 @@
 use crate::fonts::Fonts;
-use eframe::egui::{self, Color32, Key, Modifiers, Vec2};
+use crate::theme::ThemeMode;
+use crate::workspace::{PanelId, WorkspacePrefs};
+use eframe::egui::{self, Key, Modifiers, Vec2};
 use neoflash_core::*;
 use std::{path::PathBuf, time::Instant};
 
@@ -14,7 +16,7 @@ pub enum Tool {
     Pencil,
     Subselect,
 }
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BottomTab {
     Properties,
     Actions,
@@ -67,6 +69,8 @@ pub struct Editor {
     pub library_selected: Option<String>,
     pub vector: crate::vector::VectorState,
     pub clipboard: crate::clipboard::ClipboardState,
+    pub workspace: WorkspacePrefs,
+    pub detached: crate::detached::DetachedState,
 }
 
 #[derive(Clone, Copy)]
@@ -80,26 +84,17 @@ pub enum Pending {
 
 impl Editor {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let mut style = (*cc.egui_ctx.style()).clone();
-        style.visuals = egui::Visuals::light();
-        style.visuals.panel_fill = Color32::from_rgb(229, 231, 234);
-        style.visuals.window_fill = Color32::from_rgb(240, 241, 243);
-        style.visuals.extreme_bg_color = Color32::from_rgb(252, 252, 252);
-        style.visuals.selection.bg_fill = Color32::from_rgb(183, 210, 238);
-        style.visuals.selection.stroke.color = Color32::from_rgb(25, 63, 97);
-        style.spacing.item_spacing = Vec2::new(6., 5.);
-        style.spacing.button_padding = Vec2::new(7., 4.);
-        style.visuals.widgets.inactive.corner_radius = 2.into();
-        style.visuals.widgets.hovered.corner_radius = 2.into();
-        style.visuals.widgets.active.corner_radius = 2.into();
-        cc.egui_ctx.set_style(style);
         let mut s = Self::from_project(&cc.egui_ctx, Project::demo());
+        s.workspace = WorkspacePrefs::load(cc.storage);
+        s.workspace.theme.apply(&cc.egui_ctx);
+        s.bottom = s.workspace.active_bottom;
         if let Some(path) = std::env::args().nth(1) {
             s.open_path(PathBuf::from(path), &cc.egui_ctx);
         }
         s
     }
     pub(crate) fn from_project(ctx: &egui::Context, project: Project) -> Self {
+        WorkspacePrefs::default().theme.apply(ctx);
         let saved_json = serde_json::to_string(&project).unwrap_or_default();
         let root = project.root.clone();
         let mut s = Self {
@@ -117,10 +112,41 @@ impl Editor {
             timeline_cell: 13., timeline_key_drag: None, library_selected: None,
             vector: crate::vector::VectorState::default(),
             clipboard: crate::clipboard::ClipboardState::default(),
+            workspace: WorkspacePrefs::default(),
+            detached: crate::detached::DetachedState::default(),
         };
         s.load_project_fonts(ctx);
         s.normalize_selection();
         s
+    }
+    pub(crate) fn set_theme(&mut self, ctx: &egui::Context, theme: ThemeMode) {
+        self.workspace.theme = theme;
+        theme.apply(ctx);
+    }
+    pub(crate) fn show_panel(&mut self, panel: PanelId) {
+        self.workspace.show_panel(panel);
+        self.bottom = self.workspace.active_bottom;
+        if panel.detachable() && !self.workspace.is_panel_docked(panel) {
+            self.detached.focus = Some(panel);
+        }
+    }
+    pub(crate) fn set_panel_visible(&mut self, panel: PanelId, visible: bool) {
+        self.workspace.active_bottom = self.bottom;
+        self.workspace.set_panel_visible(panel, visible);
+        self.bottom = self.workspace.active_bottom;
+    }
+    pub(crate) fn restore_workspace(&mut self, ctx: &egui::Context) {
+        self.workspace.restore_layout();
+        self.detached = crate::detached::DetachedState::default();
+        self.bottom = self.workspace.active_bottom;
+        // Reset only the panel geometry that we own. Editor drafts, focus and
+        // unrelated egui memory are not a workspace layout preference.
+        ctx.data_mut(|data| {
+            for id in ["timeline", "tools", "library", "properties"] {
+                data.remove::<egui::containers::panel::PanelState>(egui::Id::new(id));
+            }
+        });
+        ctx.request_repaint();
     }
     pub fn symbol_id(&self) -> &str {
         self.editing
@@ -462,7 +488,7 @@ impl Editor {
             }
             Err(e) => self.message(format!("Import failed: {e}")),
         }
-        self.bottom = BottomTab::Output;
+        self.show_panel(PanelId::Output);
     }
 
     pub fn save(&mut self, save_as: bool) -> bool {
@@ -548,7 +574,7 @@ impl Editor {
             }
             Err(e) => {
                 self.message(format!("Export failed: {e}"));
-                self.bottom = BottomTab::Output;
+                self.show_panel(PanelId::Output);
             }
         }
     }
@@ -566,6 +592,9 @@ impl Editor {
         }
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Enter)) {
             self.export(true);
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F9)) {
+            self.show_panel(PanelId::Actions);
         }
         if !typing {
             if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)) {
@@ -590,9 +619,6 @@ impl Editor {
             }
             if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F8)) {
                 self.convert_to_symbol();
-            }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F9)) {
-                self.bottom = BottomTab::Actions;
             }
             if ctx.input(|i| i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace)) {
                 self.delete_selected();
@@ -735,6 +761,15 @@ impl Editor {
 }
 
 impl eframe::App for Editor {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.workspace.active_bottom = self.bottom;
+        self.workspace.save(storage);
+    }
+
+    fn persist_egui_memory(&self) -> bool {
+        false
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
             self.finish_edits();
@@ -760,9 +795,11 @@ impl eframe::App for Editor {
         self.timeline(ctx);
         self.tools(ctx);
         self.library(ctx);
+        self.prepare_docked_panel_focus(ctx);
         self.bottom_panel(ctx);
         self.stage(ctx);
         self.draw_dialogs(ctx);
+        self.detached_panels(ctx);
         let name = self
             .path
             .as_ref()

@@ -1393,14 +1393,53 @@ impl Emitter<'_> {
                 self.expression(yes),
                 self.expression(no)
             ),
-            Expr::Call(callee, args, _) => format!(
-                "{}({})",
-                self.expression(callee),
-                args.iter()
-                    .map(|v| self.expression(v))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+            Expr::Call(callee, args, _) => {
+                let as2_method = if self.as3 {
+                    None
+                } else {
+                    match callee.as_ref() {
+                        Expr::Name(name)
+                            if self.analysis.resolve(self.scope, name).is_none()
+                                && (!is_global(name)
+                                    || matches!(name.as_str(), "gotoAndPlay" | "gotoAndStop")) =>
+                        {
+                            Some((
+                                if self.scope == 0 {
+                                    "this".into()
+                                } else {
+                                    "__nfFrame".into()
+                                },
+                                name,
+                            ))
+                        }
+                        Expr::Member(base, name) => Some((self.expression(base), name)),
+                        _ => None,
+                    }
+                };
+                let callable = as2_method.map_or_else(
+                    || {
+                        if !self.as3
+                            && let Expr::Name(name) = callee.as_ref()
+                            && let Some((owner, _)) = self.analysis.resolve(self.scope, name)
+                        {
+                            return format!(
+                                "__nfAs2Value({}, {})",
+                                self.expression(callee),
+                                if owner == 0 { "__nfFrame" } else { "undefined" }
+                            );
+                        }
+                        self.expression(callee)
+                    },
+                    |(receiver, name)| format!("__nfAs2Method({receiver}, {name:?})"),
+                );
+                format!(
+                    "{callable}({})",
+                    args.iter()
+                        .map(|v| self.expression(v))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
         }
     }
     fn statement(&self, stmt: &Stmt) -> String {

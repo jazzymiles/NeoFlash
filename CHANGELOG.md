@@ -4,6 +4,14 @@
 
 - Corrected AS2/AS3 coverage to use all 46,047 documented declarations and their per-entry audit instead of 35/36 coarse capability groups. The page now separates implemented subsets, partial implementation, missing entries and review gaps, preserves catalogue/evidence hashes, checks source freshness and excludes the obsolete AS family series.
 - Switched the progress dashboard, daily history, README summary and detailed capability registry to English, preserving all statuses and counting rules.
+- Added a licensed public FLA regression corpus: 15 unchanged external source files with pinned provenance, plus three original XFL/FLA projects with exact native imports and actual-WASM behavior checks.
+- Imported one real Adobe CS6 FLA from the pinned Ruffle corpus and verified its original 17-line AS2 trace in published HTML5, including Restart. Added bounded convex straight-edge DOMShape conversion, source-script retention and audited metadata handling; 14 external cases still refuse unsupported content.
+- Added bounded AS2 label resolution and dynamically assigned timeline callbacks, with explicit native goto-alias diagnostics and independent strict AS3/JS behavior. Preserved split XML text/CDATA fragments and rejected namespaced attributes and unchecked metadata subtrees.
+
+- Added persistent Light/Dark workspace themes, panel visibility, F9 reveal and layout reset; Tools, Timeline and Actions can detach into native windows and dock again without copying the document. Window recovery accounts for connected macOS displays.
+- Replaced missing-glyph controls with accessible vector icons, bounded tween arrowheads to their own rows, synchronized layer/frame vertical scrolling, and made compact panels scroll or wrap.
+- Kept Actions cursor state through panel relocation and bound deferred text clipboard commands to their originating viewport.
+
 - Added reviewed AS2/AS3 and product capability inventories, compact README/public coverage, detailed local evidence, and Git-backed daily progress charts published automatically to GitHub Pages. Partial support is counted separately from completed scope.
 
 - Added structured ActionScript switch/do control flow, AS3 labels, synchronous exceptions and selected typed error support, with explicit per-language boundaries and executable cleanup/scope regressions.
