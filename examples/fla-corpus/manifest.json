@@ -114,6 +114,13 @@
       "bytes": 9
     },
     {
+      "path": "imported/ruffle-avm1-frame-labels.nflash",
+      "sha256": "33414d6ba31fb85fe52115ed831af43e8d59f24f84a08e8f5f08f4a4faa36bbb",
+      "bytes": 9456,
+      "derived_from": "upstream/ruffle/avm1-frame-labels/test.fla",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
       "path": "upstream/flacomdoc/LICENSE.md",
       "upstream_path": "LICENSE.md",
       "url": "https://raw.githubusercontent.com/jindrapetrik/flacomdoc/0923d70870d11b236755af71337da8d0110a57aa/LICENSE.md",
@@ -554,12 +561,21 @@
       ],
       "expected": {
         "format": "xfl_archive",
-        "can_import": false,
+        "can_import": true,
         "required_diagnostics": [
-          "external_script_configuration",
-          "script_preserved"
-        ]
-      }
+          "inactive_script_configuration",
+          "script_preserved",
+          "xfl_shape_selection"
+        ],
+        "statistics": {
+          "symbols": 2,
+          "layers": 3,
+          "keyframes": 11,
+          "elements": 3,
+          "scripts": 9
+        }
+      },
+      "native_project": "imported/ruffle-avm1-frame-labels.nflash"
     },
     {
       "id": "ruffle-avm1-clip-events",
@@ -575,7 +591,7 @@
         "format": "xfl_archive",
         "can_import": false,
         "required_diagnostics": [
-          "external_script_configuration",
+          "unsupported_element",
           "script_preserved"
         ]
       }

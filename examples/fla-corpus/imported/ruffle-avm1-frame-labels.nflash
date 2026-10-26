@@ -1,0 +1,324 @@
+{
+  "format_version": 1,
+  "name": "Imported XFL",
+  "width": 550,
+  "height": 400,
+  "fps": 24,
+  "background": [
+    255,
+    255,
+    255,
+    255
+  ],
+  "root": "symbol-2",
+  "symbols": [
+    {
+      "id": "symbol-2",
+      "name": "Scene 1",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 7,
+        "layers": [
+          {
+            "id": "layer-5",
+            "name": "Layer 2",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-2-1-0",
+                    "name": "clip",
+                    "transform": {
+                      "x": 21.25,
+                      "y": 21.25,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-1",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 5,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "layer-4",
+            "name": "Layer 1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 1,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 2,
+                "elements": [],
+                "tween": null,
+                "label": "SomeFrame"
+              },
+              {
+                "frame": 3,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 4,
+                "elements": [],
+                "tween": null,
+                "label": "end"
+              },
+              {
+                "frame": 5,
+                "elements": [],
+                "tween": null,
+                "label": "SomeFrame"
+              },
+              {
+                "frame": 6,
+                "elements": [],
+                "tween": null,
+                "label": "BADà"
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "trace(\"// frame 1\");\n\n// Doesn't stop (frame doesn't exist);\ntrace(\"// gotoAndStop('INVALID')\");\ngotoAndStop(\"INVALID\");\ntrace(_currentframe);\n"
+            }
+          },
+          {
+            "frame": 1,
+            "script": {
+              "language": "action_script2",
+              "source": "trace(\"// frame 2\");\n\ntrace(\"// gotoAndPlay('SomeFrame')\");\ngotoAndPlay(\"SomeFrame\");\ntrace(_currentframe);\n"
+            }
+          },
+          {
+            "frame": 2,
+            "script": {
+              "language": "action_script2",
+              "source": "trace(\"// frame 3\");\n"
+            }
+          },
+          {
+            "frame": 3,
+            "script": {
+              "language": "action_script2",
+              "source": "trace(\"// frame 4\");\nstop();\n\ntrace(\"// clip.run()\");\nclip.run = function() {\n\t// Ensure target clip is remembered in function closure.\n\ttrace(\"   // gotoAndStop('END')\");\n\t// Frame is case insensitive.\n\tgotoAndStop(\"END\");\n\ttrace(_currentframe);\n}\nclip.play();"
+            }
+          },
+          {
+            "frame": 4,
+            "script": {
+              "language": "action_script2",
+              "source": "trace(\"// frame 5\");\n\nplay();\n\n// Case insensitive, but only for ASCII!\ntrace(\"// gotoAndStop('BADÀ')\");\ngotoAndStop(\"BADÀ\");\ntrace(_currentframe);\n\n// Finds the first frame label\ntrace(\"// gotoAndStop('SomeFrame')\");\ngotoAndStop(\"SomeFrame\");\ntrace(_currentframe);"
+            }
+          },
+          {
+            "frame": 5,
+            "script": {
+              "language": "action_script2",
+              "source": "trace(\"// frame 6\");\n"
+            }
+          },
+          {
+            "frame": 6,
+            "script": {
+              "language": "action_script2",
+              "source": "trace(\"// frame 7\");\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "symbol-1",
+      "name": "Symbol 1",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 2,
+        "layers": [
+          {
+            "id": "layer-6",
+            "name": "Layer 1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-0-0",
+                    "name": "DOMShape",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 21.25,
+                          "y": -21.25
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 21.25,
+                          "y": 21.25
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -21.25,
+                          "y": 21.25
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -21.25,
+                          "y": -21.25
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        255,
+                        0,
+                        0,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        255
+                      ],
+                      "stroke_width": 1.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 1,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-0-0",
+                    "name": "DOMShape",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 21.25,
+                          "y": 21.25
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -21.25,
+                          "y": 21.25
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -21.25,
+                          "y": -21.25
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 21.25,
+                          "y": -21.25
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        255,
+                        0,
+                        0,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        255
+                      ],
+                      "stroke_width": 1.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop();"
+            }
+          },
+          {
+            "frame": 1,
+            "script": {
+              "language": "action_script2",
+              "source": "run();"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

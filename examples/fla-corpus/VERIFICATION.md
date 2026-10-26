@@ -1,5 +1,52 @@
 # FLA corpus verification — 2026-10-27
 
+## Real downloaded FLA: import through HTML5
+
+The unchanged Adobe Flash CS6
+[Ruffle frame-labels source](upstream/ruffle/avm1-frame-labels/test.fla) now imports
+to [this native project](imported/ruffle-avm1-frame-labels.nflash). The exact FLA
+bytes remain pinned by the manifest. This is a real upstream source file, not a
+synthetic or stripped replacement.
+
+| Current check | Result |
+| --- | --- |
+| Importer suite | 80 Rust tests passed, including the unchanged public FLA, metadata rejection, bounded geometry and eight semantic-preservation tests; importer Clippy with all targets passed. |
+| Imported content | 550 × 400, 24 fps; 2 symbols, 3 layers, 11 keys, 3 authored elements, all 9 AS2 frame scripts retained verbatim. |
+| Source geometry | Local square bounds ±21.25 px, opaque red fill, 1 px opaque black round stroke; dimensions/styles independently checked against the original SWF data. |
+| Corpus | 21/21 cases passed: 7 successful imports and 14 explicit refusals. 70 hashed files, 951,014 bytes, including the new native project. |
+| Real WASM and host | `web/tests/real-fla-frame-labels.test.cjs` imports the original FLA, compiles all nine scripts, compares all 17 trace lines with upstream `output.txt`, checks eight more stable ticks and repeats after reset. Passed. |
+| Actual HTML5 | Current exporter generated `dist/fla-corpus/ruffle-avm1-frame-labels/`; opened in the in-app browser. The original red square and black stroke rendered. |
+| Browser trace | Exactly 17 upstream trace lines on initial playback; Restart produced the same 17 again (34 total). No console errors. Root remained on UI frame 3 / 7. |
+
+The original source uses missing-label no-ops, ASCII-only case-insensitive labels,
+the earliest duplicate label and a root-captured function called by the child.
+Those behaviors are tested separately from the strict JavaScript/AS3 controls.
+Native goto function aliases and unsupported numeric frame ranges remain explicit
+diagnostic boundaries; this is not a general AS2 compatibility claim.
+
+Only the bounded ordinary-shape subset is added: a single strictly convex closed
+straight polygon with integer twip coordinates, one solid fill and an optional
+uniform normal round stroke. Curves, holes, concave/self-intersecting paths,
+multiple paints and ambiguous stroke coverage still block conversion. Inactive
+AS3 publish fields are warned about only for unambiguous AS2; active, malformed,
+nested and namespaced script settings remain blocked. Unknown semantic XML is
+not silently discarded. Script/static text includes every immediate XML text or
+CDATA fragment, even after comments. Namespaced attributes cannot shadow plain
+XFL attributes. Folder/swatch containers accept only audited empty markers;
+nonempty contents produce blocking diagnostics.
+
+New evidence is in ignored `target/real-fla/browser/`: first/restart console JSON,
+exact comparison result and screenshots. Original SWF bytecode was not executed;
+its retained trace is the independent upstream oracle. The actual browser runs
+the imported AS2 source after NeoFlash compilation. The native editor bundle was
+left to the main chat's separate UI verification.
+
+## Initial authored-example verification
+
+The following records the earlier collection pass, before the real FLA support
+above. Its original 15-refusal boundary and 69-file count are historical; the
+current corpus counts and compatibility are given above.
+
 Checked locally in the NeoFlash working tree. Importer/exporter and the shared
 browser WASM runtime were rebuilt from the working tree; this is a development
 verification record, not an Adobe interoperability certification.
@@ -48,14 +95,16 @@ used to verify the timeline stop.
 - Browser screenshots and console evidence: `target/fla-corpus/screenshots/`.
 - HTML5 output: `dist/fla-corpus/<example>/index.html`.
 
-Those paths are ignored build/check outputs. Source fixtures are kept in this
+At that initial collection pass, those paths were ignored build/check outputs.
+Source fixtures are kept in this
 folder; no private user FLA was copied into this public corpus. External FLA/SWF
-scripts were not executed. The upstream reference outputs are not NeoFlash
+scripts were not executed during that initial pass. The upstream reference outputs are not NeoFlash
 results. Full Flash compatibility, visual comparison against Adobe playback,
 desktop-editor interaction and the full workspace test suite were not checked
 as part of this fixture-only change. The three authored examples exercise the
 listed supported subset; they do not convert or substitute for the 15 external
-projects that remain blocked.
+projects that were blocked at that time. The real FLA verification above
+supersedes that historical boundary for one of those projects.
 
 The main development chat was given the corpus paths, commands, current blockers
 and verification results for integration with the shared development records.

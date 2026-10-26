@@ -7,9 +7,10 @@ Date: 2026-10-27. This record covers the development preview, vector/object tool
 `./scripts/check.sh` passes on Apple Silicon, macOS 15.8, Rust 1.99.1:
 
 - Formatting and Clippy (`--workspace --all-targets -- -D warnings`).
-- 251 workspace Rust tests: 42 core, 121 editor, 26 script, 58 importer and 4 exporter; four additional tests exercise the pinned egui-winit paste adapter.
-- 35 browser-host/actual-WASM/cache and public-example tests in Node, including semantic bounds, DOM identity, focus restoration, pan/zoom, lifetime-checked activation, recovery and failure reporting.
+- 279 workspace Rust tests: 46 core, 121 editor, 28 script, 80 importer and 4 exporter; four additional tests exercise the pinned egui-winit paste adapter.
+- 41 browser-host/actual-WASM/cache and public-example tests in Node, including semantic bounds, DOM identity, focus restoration, pan/zoom, lifetime-checked activation, recovery and failure reporting.
 - 62 execution fixtures using JavaScript emitted by the script compiler, plus an integration check using the actual host proxy/dispatch code with a lifecycle stub.
+- 21 public-corpus CLI cases: seven successful imports and 14 explicit refusals, with source integrity and no-overwrite checks.
 - Release WebAssembly build and standalone demo export.
 
 Important regressions include independent nested clocks while a parent is stopped; affine nesting; dispatch order/stale-instance protection; JSON validation and graph cycles; grouped undo; key insertion at an interpolated pose; midpoint duplicate/delete; symbol conversion and recursive-placement rejection; key move/copy/collision behavior; fast and normal pointer gestures; macOS collection-font loading; and the Metal backend being enabled in the actual desktop build.
@@ -149,6 +150,18 @@ Automated regressions additionally cover affine miter bounds, offstage descendan
 
 Screenshots: `target/verification/html5-keyboard.jpg`, `html5-keyboard-390-fit.jpg`, and `html5-keyboard-390-pan.jpg`. Browser viewport overrides were restored, and test tabs/servers closed. Actual VoiceOver speech, Safari, physical touch input and direct `file://` navigation remain unverified. Narrow-screen Fit intentionally scales a fixed authored stage; responsive text/layout authoring remains separate work.
 
+## Real FLA to HTML5 — 27 October
+
+The unchanged Adobe CS6 archive `examples/fla-corpus/upstream/ruffle/avm1-frame-labels/test.fla` imports to `examples/fla-corpus/imported/ruffle-avm1-frame-labels.nflash`. An independent review compared all nine original script strings, both solid contours and 1px strokes, labels, translation and the blank key against the source ZIP. All upstream payload hashes remain unchanged.
+
+The ordinary exporter published that native document. Actual in-app browser inspection observed the red square with black outline, root frame 3/7, and all 17 trace lines exactly matching the pinned upstream `output.txt`. Restart produced exactly a second 17-line block, with no console errors or warnings. The original SWF was not executed during this check; its pinned companion trace is the independent reference. The real-WASM/actual-host regression also checks extra stable ticks and reset.
+
+Independent review found and fixed three XML acceptance holes: fragmented script/static text must retain every immediate text/CDATA node; namespaced attributes cannot shadow an unqualified XFL attribute; unchecked nonempty folder/swatch metadata must block import. Eight regressions cover these guards. The final importer suite has 80 tests, and the complete integrated suite above passed after these fixes. See the corpus VERIFICATION.md and IMPORTS.md for exact source provenance and geometry/metadata limits. Tests and browser evidence remain under ignored `target/real-fla/`.
+
+The integrated optimized macOS bundle also built successfully: executable SHA-256 `d2614307f6539ef4c82e9a4bf422c8cf2a860f3ec2820c65dda6dd43941597c3`, packaged WASM `6888aff20b6ab0e4b73d3f953e45592907754609a4ae4fd0e1aeb4e22b657d2d`. The detailed workspace acceptance above identifies its earlier UI-only binary separately.
+
+This proves one real FLA workflow. General AS2/AS3 semantics, binary FLA conversion, broader geometry and the newly prioritized hidden-layer/placement/API correctness cases remain open.
+
 ## Legacy corpus
 
 Initial signature inspection recognized 42 local FLA/SWF files: 20 compound binary FLA; 22 SWF (20 FWS + 2 CWS, versions 3–8). The new strict CFB reader accepted 19 binary containers and rejected one for adjacent red directory nodes; this requires writer-compatibility investigation and does not establish that the original application cannot open it. Accepted save targets: Flash 3 × 6, Flash 5 × 10, Flash MX × 2 and Flash 8 × 1. These identify the saved format, not the last editing application.
@@ -157,7 +170,7 @@ The reader indexes 20 scene streams, 246 symbol streams and 23 media streams. It
 
 Typed preservation retains 1,343 object identities, 2,802 pointer edges, 1,064 owned children and 426 shape associations. The shape bodies include 526 fills, 212 strokes, 2,971 straight edges, 4,322 quadratic edges and 706 auxiliary curves. Complete descendants may belong to an incomplete ancestor, so these counts do not prove a complete editable graph. Remaining timeline stops include 155 unsupported class payloads, two shared/cyclic child references, one nonempty historical action list and one nonempty compiled list. Inspection emits only aggregate counts; exact geometry, descriptors, settings and typed fields are opt-in private preservation APIs. Every editable binary conversion remains blocked. See IMPORTS.md for exact boundaries. No private source/content/derived artwork was uploaded. Projector EXEs and the legacy HTML file were not executed.
 
-Per-file reports, screenshots, logs and temporary test projects remain in ignored `target/verification/`. Only original synthetic fixtures and NeoFlash examples are public.
+Per-file reports, screenshots, logs and temporary test projects remain in ignored `target/verification/`. Original examples and explicitly licensed upstream fixtures are public; the user-provided corpus stays private.
 
 ## Artifacts
 

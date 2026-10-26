@@ -528,6 +528,28 @@ impl Player {
             .map(|k| k.frame)
     }
 
+    /// AS2 labels fold ASCII case only and resolve duplicate names to the
+    /// earliest frame, regardless of the authored layer order.
+    ///
+    /// Resolution is read-only: a missing label must not change playback state.
+    /// Hosts opt into this behavior for AS2; the strict resolver above remains
+    /// the JS/AS3 boundary.
+    pub fn resolve_frame_as2(&self, project: &Project, path: &[Id], label: &str) -> Option<u32> {
+        if label.is_empty() {
+            return None;
+        }
+        let id = self.previous.get(path)?.symbol_id.as_ref()?;
+        project
+            .symbol(id)?
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|layer| &layer.keyframes)
+            .filter(|key| key.label.eq_ignore_ascii_case(label))
+            .map(|key| key.frame)
+            .min()
+    }
+
     pub fn child_path(&self, project: &Project, parent: &[Id], name: &str) -> Option<Vec<Id>> {
         self.snapshot(project)
             .nodes

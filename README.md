@@ -60,7 +60,7 @@ HTML5 export uses the same Rust timeline/runtime through WebAssembly and a small
 
 For interactive web content, use the **Accessibility** panel to give an object a name, description, Button/Image role and reading/focus order. Buttons use the existing Click handler for keyboard activation. See [interactive HTML5 projects](docs/WEB.md) for authoring and preview controls, and the verification record for tested boundaries.
 
-The [public FLA corpus](examples/fla-corpus/README.md) adds 15 licensed, pinned legacy source files with explicit refusal expectations and three original XFL/FLA examples with exact editable imports. These fixtures complement the private corpus; they do not establish general FLA compatibility.
+The [public FLA corpus](examples/fla-corpus/README.md) contains 15 licensed, pinned legacy source files and three original XFL/FLA examples. One unchanged Adobe CS6 FLA now imports as an editable project and publishes to HTML5 with its original 17-line reference trace; 14 other external files retain explicit refusal expectations. Try the [imported frame-label example](examples/fla-corpus/imported/ruffle-avm1-frame-labels.nflash). This verifies one bounded case, not general FLA compatibility.
 
 Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two independent AS3 counter instances, [script-recovery.nflash](examples/script-recovery.nflash) for AS2/AS3 exceptions and cleanup on animated instances, or [vector-paths.nflash](examples/vector-paths.nflash) for curved strokes and compound fills. HTML5 previews provide Fit, 100% and fixed zoom levels with scrolling and a Pan tool.
 

@@ -2,7 +2,14 @@
 
 Priority is based on the stated product goal, with explicit evidence required for completion.
 
-## P0 — first working foundation
+## P0 — HTML5 correctness
+
+- Known built-in properties must implement their contract or diagnose unsupported behavior: visibility must agree across pixels, scene, hit testing and semantic targets; text, dimensions and callback assignments must not become silent custom fields. Preserve genuine user fields and callbacks.
+- Preserve XFL Include Hidden Layers policy for root/nested timelines and distinguish placement lifetime from XML slot order. Check reordering, replacement, blank gaps, load events, clocks and overrides; reject ambiguous transfers.
+- Separate AS2/AS3 value profiles: parseInt radix behavior, Number.toFixed limits, typed slot writes/defaults through every access path, rotation normalization and public void return values.
+- For each fix, retain a minimal source project, ordinary HTML5 publish, actual browser trace/scene/image or input result, build/runtime hashes and a regression test. Mark documented expectations separately from original Flash measurements; record tested browser engines explicitly.
+
+## Completed foundation
 
 - [x] Complete recorded desktop and browser smoke checks; fix discovered defects.
 - [x] Publish the tested initial source tree to the authorized public GitHub repository.
@@ -12,6 +19,7 @@ Priority is based on the stated product goal, with explicit evidence required fo
 
 - [x] D-003–D-007 implementation: bounded tween arrows, original vector icons, Light/Dark palette, visibility/F9/reset, native Tools/Timeline/Actions windows, synchronized timeline rows and compact-panel scrolling. Automated layout/state/input tests pass; native acceptance is recorded separately in VERIFICATION.md.
 - Drag-to-dock/tab/split layouts, named workspace presets and broader VoiceOver/IME/multi-monitor acceptance.
+- After HTML5 P0: contextual Document/Tool/Shape/Instance/Frame/Tween Properties, frame-state distinctions beyond color, restored breadcrumb context, library type/preview and explicit pivots. These are workflow refinements from the classic Flash reference review, not claimed completed features.
 
 - [x] Cross-layer multi-selection, Shift/marquee/Select All, whole-selection duplicate/delete and V/Q object editing, with automated native-input regression coverage. Live native visual checks of this increment remain pending.
 - Custom registration points/pivots, skew, nonuniform multi-object transforms and groups.
@@ -44,6 +52,7 @@ Priority is based on the stated product goal, with explicit evidence required fo
 
 - [x] Licensed public FLA corpus with pinned hashes/provenance, specific refusal expectations, exact original XFL/FLA imports and real-WASM example checks.
 
+- [x] One real, unchanged CS6 FLA imports and publishes with the original 17-line trace, stable stopped root and repeatable Restart in actual HTML5; bounded convex solid geometry, AS2 callback/label support and strict XML guards have regressions.
 - Extend XFL geometry, library assets, masks, tweens, color transforms and text formatting with fixtures.
 - [x] Binary FLA CFB validation, stream inventory, save-target detection and bounded MFC structure inspection against the private corpus.
 - [x] Preserve bounded binary shape/style/edge records with exact source bytes and aggregate-only inspection; verify the private corpus without publishing artwork.

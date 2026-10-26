@@ -343,6 +343,30 @@ impl<'a> Analysis<'a> {
         }
     }
     fn expression(&mut self, scope: usize, expr: &Expr) -> Result<(), Diagnostic> {
+        self.expression_context(scope, expr, false)
+    }
+    fn expression_context(
+        &mut self,
+        scope: usize,
+        expr: &Expr,
+        direct_callee: bool,
+    ) -> Result<(), Diagnostic> {
+        if self.script.language == ScriptLanguage::ActionScript2 && !direct_callee {
+            let timeline_alias = match expr {
+                Expr::Name(name) => {
+                    matches!(name.as_str(), "gotoAndPlay" | "gotoAndStop")
+                        && self.resolve(scope, name).is_none()
+                }
+                Expr::Member(_, name) => {
+                    matches!(name.as_str(), "gotoAndPlay" | "gotoAndStop")
+                        && !self.known_member(scope, expr)
+                }
+                _ => false,
+            };
+            if timeline_alias {
+                return Err(self.error(self.scopes[&scope].offset, "AS2 goto method values and aliases need receiver semantics not supported yet. Call gotoAndPlay/gotoAndStop directly on the target timeline."));
+            }
+        }
         match expr {
             Expr::Name(name) if is_error_type(name) && self.resolve(scope, name).is_none() => return Err(self.error(self.scopes[&scope].offset, "Core Error class values and constructor aliases are not supported; use an explicit new Error-family constructor.")),
             Expr::NewError(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Error constructor cannot be resolved as a core type; arbitrary constructor calls are unsupported.")),
@@ -358,7 +382,12 @@ impl<'a> Analysis<'a> {
                 let user_binding=binding.is_some_and(|(_,b)| self.script.language==ScriptLanguage::ActionScript2 || !b.ty.as_deref().is_some_and(|t|matches!(t,"Number"|"String"|"Boolean"|"int"|"uint")));
                 let shadowed_math=matches!(callee.as_ref(),Expr::Member(base,_) if matches!(base.as_ref(),Expr::Name(name) if name=="Math" && self.resolve(scope,name).is_some()));
                 let builtin=binding.is_none() && !shadowed_math && Frontend::builtin_call(callee);
-                if !builtin && !user_binding && !matches!(callee.as_ref(),Expr::Function(_)) && !self.known_member(scope,callee) {
+                // AS2 permits a later frame or a parent script to install a
+                // function on this timeline. The host checks the actual value
+                // when the call executes; arbitrary member APIs stay blocked.
+                let dynamic_timeline = self.script.language == ScriptLanguage::ActionScript2
+                    && binding.is_none() && matches!(callee.as_ref(), Expr::Name(name) if !is_global(name));
+                if !builtin && !user_binding && !dynamic_timeline && !matches!(callee.as_ref(),Expr::Function(_)) && !self.known_member(scope,callee) {
                     return Err(self.error(*offset,"This ActionScript call is not a supported API or a declared user function/value. Unknown member APIs and dynamic computed calls remain unsupported; source is not discarded."));
                 }
             }
@@ -368,8 +397,15 @@ impl<'a> Analysis<'a> {
             }
             _=>{}
         }
-        for child in children(expr) {
-            self.expression(scope, child)?;
+        if let Expr::Call(callee, arguments, _) = expr {
+            self.expression_context(scope, callee, true)?;
+            for argument in arguments {
+                self.expression(scope, argument)?;
+            }
+        } else {
+            for child in children(expr) {
+                self.expression(scope, child)?;
+            }
         }
         Ok(())
     }

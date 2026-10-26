@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- Added a licensed public FLA regression corpus: 15 unchanged external source files with explicit refusal diagnostics, plus three original XFL/FLA projects with exact native imports and actual-WASM behavior checks.
+- Added a licensed public FLA regression corpus: 15 unchanged external source files with pinned provenance, plus three original XFL/FLA projects with exact native imports and actual-WASM behavior checks.
+- Imported one real Adobe CS6 FLA from the pinned Ruffle corpus and verified its original 17-line AS2 trace in published HTML5, including Restart. Added bounded convex straight-edge DOMShape conversion, source-script retention and audited metadata handling; 14 external cases still refuse unsupported content.
+- Added bounded AS2 label resolution and dynamically assigned timeline callbacks, with explicit native goto-alias diagnostics and independent strict AS3/JS behavior. Preserved split XML text/CDATA fragments and rejected namespaced attributes and unchecked metadata subtrees.
 
 - Added persistent Light/Dark workspace themes, panel visibility, F9 reveal and layout reset; Tools, Timeline and Actions can detach into native windows and dock again without copying the document. Window recovery accounts for connected macOS displays.
 - Replaced missing-glyph controls with accessible vector icons, bounded tween arrowheads to their own rows, synchronized layer/frame vertical scrolling, and made compact panels scroll or wrap.

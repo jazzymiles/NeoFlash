@@ -101,7 +101,7 @@ fn unsupported_geometry_and_unknown_semantics_block_import() {
         report
             .diagnostics
             .iter()
-            .any(|d| d.severity == Severity::Error && d.code == "unsupported_element")
+            .any(|d| d.severity == Severity::Error && d.code == "xfl_shape_fill")
     );
     assert!(import_project(&temp.0).is_err());
     write_source(

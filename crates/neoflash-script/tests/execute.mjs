@@ -6,10 +6,13 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { verifyHostIntegration } from './host-integration.mjs';
 import { controlFlowFixtures } from './control-flow-fixtures.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const { createAs2Methods } = createRequire(import.meta.url)(resolve(root, 'web/runtime.js'));
+const as2Bridge = createAs2Methods();
 const localCargo = resolve(homedir(), '.cargo/bin/cargo');
 const cargo = process.env.CARGO || (existsSync(localCargo) ? localCargo : 'cargo');
 const fixtures = [
@@ -217,12 +220,12 @@ for (const [index, fixture] of fixtures.entries()) {
   assert.ok(outputs[index].Ok, JSON.stringify(outputs[index]));
   const logs = [];
   const consoleLogs = [];
-  const run = new Function('console', 'trace', 'stop', '"use strict"; return (function(){\n' + outputs[index].Ok + '\n}).call(this)');
+  const run = new Function('console', 'trace', 'stop', '__nfAs2Method', '__nfAs2Value', '"use strict"; return (function(){\n' + outputs[index].Ok + '\n}).call(this)');
   for (let i = 0; i < (fixture.repeat || 1); i++) {
     if (fixture.verifyThrown) {
-      assert.throws(() => run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args)), error => { fixture.verifyThrown(error); return true; });
+      assert.throws(() => run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args), undefined, as2Bridge.method, as2Bridge.value), error => { fixture.verifyThrown(error); return true; });
     } else {
-      run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args), () => { throw new Error('wrong binding'); });
+      run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args), () => { throw new Error('wrong binding'); }, as2Bridge.method, as2Bridge.value);
     }
   }
   fixture.verify(fixture.context, logs);
