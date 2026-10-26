@@ -7,11 +7,13 @@ import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyHostIntegration } from './host-integration.mjs';
+import { controlFlowFixtures } from './control-flow-fixtures.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const localCargo = resolve(homedir(), '.cargo/bin/cargo');
 const cargo = process.env.CARGO || (existsSync(localCargo) ? localCargo : 'cargo');
 const fixtures = [
+  ...controlFlowFixtures,
   {
     language: 'action_script3',
     source: 'var count:int; function increment():int { count += 1; return count; } trace("Blue", increment());',
@@ -217,7 +219,11 @@ for (const [index, fixture] of fixtures.entries()) {
   const consoleLogs = [];
   const run = new Function('console', 'trace', 'stop', '"use strict"; return (function(){\n' + outputs[index].Ok + '\n}).call(this)');
   for (let i = 0; i < (fixture.repeat || 1); i++) {
-    run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args), () => { throw new Error('wrong binding'); });
+    if (fixture.verifyThrown) {
+      assert.throws(() => run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args)), error => { fixture.verifyThrown(error); return true; });
+    } else {
+      run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args), () => { throw new Error('wrong binding'); });
+    }
   }
   fixture.verify(fixture.context, logs);
   if (fixture.language.startsWith('action_script')) assert.deepEqual(consoleLogs, [], 'AS trace must use the host trace binding, never bypass it through console');

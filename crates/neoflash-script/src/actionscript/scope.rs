@@ -9,6 +9,7 @@ pub(super) enum BindingKind {
     Parameter,
     Declaration,
     SelfName,
+    Catch,
 }
 pub(super) struct Binding {
     pub ty: Option<String>,
@@ -20,17 +21,20 @@ pub(super) struct Scope {
     pub returns: Option<String>,
     pub allow_this: bool,
     pub offset: usize,
+    pub function: usize,
     members: HashSet<Vec<String>>,
 }
 pub(super) struct Analysis<'a> {
     pub scopes: HashMap<usize, Scope>,
     script: &'a Script,
+    as2_catch_names: HashMap<String, usize>,
 }
 impl<'a> Analysis<'a> {
     pub fn new(script: &'a Script, body: &[Stmt]) -> Result<Self, Diagnostic> {
         let mut result = Self {
             scopes: HashMap::new(),
             script,
+            as2_catch_names: HashMap::new(),
         };
         result.scopes.insert(
             0,
@@ -40,11 +44,40 @@ impl<'a> Analysis<'a> {
                 returns: None,
                 allow_this: true,
                 offset: 0,
+                function: 0,
                 members: HashSet::new(),
             },
         );
+        result.collect_catch_names(body);
         result.body(0, body)?;
         Ok(result)
+    }
+    fn collect_catch_names(&mut self, body: &[Stmt]) {
+        for stmt in body {
+            if let Stmt::Try(_, catches, _) = stmt {
+                for catch in catches {
+                    self.as2_catch_names
+                        .insert(catch.name.clone(), catch.offset);
+                }
+            }
+            for child in statements(stmt) {
+                self.collect_catch_names(std::slice::from_ref(child));
+            }
+            if let Stmt::Function(f) = stmt {
+                self.collect_catch_names(&f.body);
+            }
+            for expr in expressions(stmt) {
+                self.collect_expr_catches(expr);
+            }
+        }
+    }
+    fn collect_expr_catches(&mut self, expr: &Expr) {
+        if let Expr::Function(f) = expr {
+            self.collect_catch_names(&f.body);
+        }
+        for child in children(expr) {
+            self.collect_expr_catches(child);
+        }
     }
     pub fn resolve(&self, mut scope: usize, name: &str) -> Option<(usize, &Binding)> {
         loop {
@@ -112,6 +145,25 @@ impl<'a> Analysis<'a> {
                 self.declarations(scope, init, false)?;
                 self.declarations(scope, body, false)?;
             }
+            Stmt::DoWhile(body, _) | Stmt::Label(_, body) => {
+                self.declarations(scope, body, false)?
+            }
+            Stmt::Switch(_, cases) => {
+                for case in cases {
+                    for stmt in &case.body {
+                        self.declarations(scope, stmt, false)?;
+                    }
+                }
+            }
+            Stmt::Try(body, catches, finally) => {
+                for stmt in body
+                    .iter()
+                    .chain(catches.iter().flat_map(|c| &c.body))
+                    .chain(finally.iter().flatten())
+                {
+                    self.declarations(scope, stmt, false)?;
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -129,6 +181,11 @@ impl<'a> Analysis<'a> {
         Ok(())
     }
     fn function(&mut self, parent: usize, f: &Function) -> Result<(), Diagnostic> {
+        if self.script.language == ScriptLanguage::ActionScript2
+            && self.scopes[&parent].function != parent
+        {
+            return Err(self.error(f.offset, "AS2 functions inside catch require verified catch-register closure semantics and are not supported yet."));
+        }
         let allow_this =
             f.declaration && parent == 0 && self.script.language == ScriptLanguage::ActionScript3;
         self.scopes.insert(
@@ -139,6 +196,7 @@ impl<'a> Analysis<'a> {
                 returns: f.returns.clone(),
                 allow_this,
                 offset: f.offset,
+                function: f.id,
                 members: HashSet::new(),
             },
         );
@@ -155,9 +213,9 @@ impl<'a> Analysis<'a> {
             && f.returns
                 .as_deref()
                 .is_some_and(|ty| !matches!(ty, "*" | "void"))
-            && !definitely_returns(&f.body)
+            && !completion::never_falls_through(&f.body)
         {
-            return Err(self.error(f.offset,"An explicitly typed AS3 function must return a value on every path. This subset proves sequential returns and both branches of if/else; unproven fallthrough is rejected."));
+            return Err(self.error(f.offset,"An explicitly typed AS3 function must return a value or throw on every path. Unproven normal fallthrough is rejected."));
         }
         Ok(())
     }
@@ -191,7 +249,8 @@ impl<'a> Analysis<'a> {
         if matches!(value, Expr::Function(_))
             && let Some(path) = self.path(scope, target)
         {
-            self.scopes.get_mut(&scope).unwrap().members.insert(path);
+            let function = self.scopes[&scope].function;
+            self.scopes.get_mut(&function).unwrap().members.insert(path);
         }
         if let Expr::Object(members) = value {
             for (name, value) in members {
@@ -214,6 +273,37 @@ impl<'a> Analysis<'a> {
         }
     }
     fn definitions(&mut self, scope: usize, stmt: &Stmt) {
+        if let Stmt::Try(body, catches, finally) = stmt {
+            for child in body.iter().chain(finally.iter().flatten()) {
+                self.definitions(scope, child);
+            }
+            for catch in catches {
+                let enclosing = &self.scopes[&scope];
+                self.scopes.insert(
+                    catch.id,
+                    Scope {
+                        parent: Some(scope),
+                        bindings: [(
+                            catch.name.clone(),
+                            Binding {
+                                ty: catch.ty.clone(),
+                                kind: BindingKind::Catch,
+                            },
+                        )]
+                        .into(),
+                        returns: enclosing.returns.clone(),
+                        allow_this: enclosing.allow_this,
+                        offset: catch.offset,
+                        function: enclosing.function,
+                        members: HashSet::new(),
+                    },
+                );
+                for child in &catch.body {
+                    self.definitions(catch.id, child);
+                }
+            }
+            return;
+        }
         if let Stmt::Var(vars) = stmt {
             for (name, _, value) in vars {
                 if let Some(value) = value {
@@ -254,6 +344,9 @@ impl<'a> Analysis<'a> {
     }
     fn expression(&mut self, scope: usize, expr: &Expr) -> Result<(), Diagnostic> {
         match expr {
+            Expr::Name(name) if is_error_type(name) && self.resolve(scope, name).is_none() => return Err(self.error(self.scopes[&scope].offset, "Core Error class values and constructor aliases are not supported; use an explicit new Error-family constructor.")),
+            Expr::NewError(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Error constructor cannot be resolved as a core type; arbitrary constructor calls are unsupported.")),
+            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && self.resolve(scope, name).is_none() && self.as2_catch_names.contains_key(name) && !is_global(name) => return Err(self.error(self.as2_catch_names[name], "AS2 catch parameters used outside their catch need verified variable/register scope semantics; this form is unsupported.")),
             Expr::Function(f) => {self.function(scope,f)?; return Ok(());},
             Expr::Name(name) if name=="this" && !self.scopes[&scope].allow_this => return Err(self.error(self.scopes[&scope].offset,"Explicit this in an AS2 or nested/expression function needs receiver/global semantics not implemented yet. Use lexical locals or bare timeline fields; AS3 top-level declared methods support bound this.")),
             Expr::Call(callee,_,offset) => {
@@ -281,6 +374,27 @@ impl<'a> Analysis<'a> {
         Ok(())
     }
     fn statement(&mut self, scope: usize, stmt: &Stmt) -> Result<(), Diagnostic> {
+        if let Stmt::Try(body, catches, finally) = stmt {
+            for stmt in body {
+                self.statement(scope, stmt)?;
+            }
+            for catch in catches {
+                if self.script.language == ScriptLanguage::ActionScript2
+                    && (self.resolve(scope, &catch.name).is_some() || is_global(&catch.name))
+                {
+                    return Err(self.error(catch.offset, "AS2 catch parameter shadowing needs verified variable/register scope semantics; choose a distinct catch name."));
+                }
+                for stmt in &catch.body {
+                    self.statement(catch.id, stmt)?;
+                }
+            }
+            if let Some(finally) = finally {
+                for stmt in finally {
+                    self.statement(scope, stmt)?;
+                }
+            }
+            return Ok(());
+        }
         if let Stmt::Function(f) = stmt {
             return self.function(scope, f);
         }
@@ -308,17 +422,6 @@ impl<'a> Analysis<'a> {
         Ok(())
     }
 }
-fn definitely_returns(body: &[Stmt]) -> bool {
-    body.iter().any(|s| match s {
-        Stmt::Return(Some(_), _) => true,
-        Stmt::Block(b) => definitely_returns(b),
-        Stmt::If(_, yes, Some(no)) => {
-            definitely_returns(std::slice::from_ref(yes.as_ref()))
-                && definitely_returns(std::slice::from_ref(no.as_ref()))
-        }
-        _ => false,
-    })
-}
 fn expressions(stmt: &Stmt) -> Vec<&Expr> {
     match stmt {
         Stmt::Expr(e) => vec![e],
@@ -326,6 +429,10 @@ fn expressions(stmt: &Stmt) -> Vec<&Expr> {
         Stmt::If(e, _, _) | Stmt::While(e, _) => vec![e],
         Stmt::For(_, c, u, _) => c.iter().chain(u.iter()).collect(),
         Stmt::Return(e, _) => e.iter().collect(),
+        Stmt::Throw(e) | Stmt::DoWhile(_, e) => vec![e],
+        Stmt::Switch(e, cases) => std::iter::once(e)
+            .chain(cases.iter().filter_map(|c| c.test.as_ref()))
+            .collect(),
         _ => vec![],
     }
 }
@@ -337,6 +444,13 @@ fn statements(stmt: &Stmt) -> Vec<&Stmt> {
             .collect(),
         Stmt::While(_, b) => vec![b],
         Stmt::For(i, _, _, b) => vec![i, b],
+        Stmt::DoWhile(b, _) | Stmt::Label(_, b) => vec![b],
+        Stmt::Switch(_, cases) => cases.iter().flat_map(|c| &c.body).collect(),
+        Stmt::Try(b, catches, finally) => b
+            .iter()
+            .chain(catches.iter().flat_map(|c| &c.body))
+            .chain(finally.iter().flatten())
+            .collect(),
         _ => vec![],
     }
 }
@@ -348,6 +462,7 @@ fn children(expr: &Expr) -> Vec<&Expr> {
         Expr::Object(v) => v.iter().map(|(_, e)| e).collect(),
         Expr::Conditional(a, b, c) => vec![a, b, c],
         Expr::Call(c, a, _) => std::iter::once(c.as_ref()).chain(a.iter()).collect(),
+        Expr::NewError(_, args, _) => args.iter().collect(),
         _ => vec![],
     }
 }

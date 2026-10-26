@@ -7,13 +7,28 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 const require = createRequire(import.meta.url);
 
-export function verifyHostIntegration(root, { language, source }, code) {
+export function createRuntimeHost(root, player, compiledScripts) {
   const path = resolve(root, 'web/runtime.js');
   const runtime = readFileSync(path, 'utf8');
-  const { sourceKey, oneBasedFrame } = require(path);
+  const { sourceKey, oneBasedFrame, describeThrown, unwrapScriptThrow } = require(path);
   const start = runtime.indexOf('    const propertyMap =');
   const end = runtime.indexOf('    function resize()', start);
   assert.ok(start >= 0 && end > start, 'host implementation boundaries changed');
+  const scriptConsole = [], hostConsole = [], traceCalls = [];
+  const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame'];
+  const functions = new Map(compiledScripts.map(({ script, code, location }) => {
+    const fn = new Function('console', `return function(${bindings.join(',')}) { "use strict"; return (function(){\n${code}\n}).call(this); }`)({ log: (...args) => scriptConsole.push(args) });
+    return [sourceKey(script), { fn, location }];
+  }));
+  const host = new Function('player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'describeThrown', 'unwrapScriptThrow', 'traceSpy',
+    'const proxies = new Map(); let lastTrace = "";\n' + runtime.slice(start, end) +
+    '\nconst originalTrace = trace; trace = (...args) => { traceSpy(...args); return originalTrace(...args); };\n' +
+    'return { proxyFor, dispatchScripts, lastTrace: () => lastTrace };'
+  )(player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args));
+  return { host, traceCalls, hostConsole, scriptConsole };
+}
+
+function createHostHarness(root, { language, source }, code) {
   const script = { language, source };
   const lifetimes = new Map([['[]', 1], ['["blue"]', 2], ['["red"]', 3]]);
   let queue = [];
@@ -26,19 +41,17 @@ export function verifyHostIntegration(root, { language, source }, code) {
     is_dispatch_current: raw => { const item = JSON.parse(raw); return lifetimes.get(JSON.stringify(item.target_path)) === item.target_lifetime; },
     script_overflowed: () => false,
   };
-  const scriptConsole = [], hostConsole = [], traceCalls = [];
-  const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame'];
-  const fn = new Function('console', `return function(${bindings.join(',')}) { "use strict"; return (function(){\n${code}\n}).call(this); }`)({ log: (...args) => scriptConsole.push(args) });
-  const functions = new Map([[sourceKey(script), { fn, location: 'AS3 keyboard integration' }]]);
-  const host = new Function('player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'traceSpy',
-    'const proxies = new Map(); let lastTrace = "";\n' + runtime.slice(start, end) +
-    '\nconst originalTrace = trace; trace = (...args) => { traceSpy(...args); return originalTrace(...args); };\n' +
-    'return { proxyFor, dispatchScripts, lastTrace: () => lastTrace };'
-  )(player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, (...args) => traceCalls.push(args));
+  const result = createRuntimeHost(root, player, [{ script, code, location: 'AS3 keyboard integration' }]);
+  const { host } = result;
   function click(name) {
     queue.push({ target_path: [name], target_lifetime: lifetimes.get(JSON.stringify([name])), event: 'click', script });
     host.dispatchScripts([name]);
   }
+  return { ...result, click, lifetimes, enqueue: item => queue.push(item), script };
+}
+
+export function verifyHostIntegration(root, scriptFixture, code) {
+  const { host, click, lifetimes, enqueue, script, traceCalls, hostConsole, scriptConsole } = createHostHarness(root, scriptFixture, code);
   click('blue');
   const blue = host.proxyFor(['blue']), savedIncrement = blue.increment;
   assert.equal(host.lastTrace(), 'Blue 1');
@@ -52,7 +65,7 @@ export function verifyHostIntegration(root, { language, source }, code) {
   const replacement = host.proxyFor(['blue']);
   assert.notEqual(blue, replacement); assert.equal(replacement.count, undefined);
   click('blue'); assert.equal(replacement.count, 1);
-  queue.push({ target_path: ['blue'], target_lifetime: 2, event: 'click', script });
+  enqueue({ target_path: ['blue'], target_lifetime: 2, event: 'click', script });
   host.dispatchScripts(['blue']); assert.equal(replacement.count, 1);
   assert.equal(savedIncrement(), 4); assert.equal(replacement.count, 1);
   assert.throws(() => blue.x, /removed or replaced/);
@@ -60,4 +73,29 @@ export function verifyHostIntegration(root, { language, source }, code) {
   assert.deepEqual(hostConsole, traceCalls.map(args => ['[NeoFlash]', ...args]));
   assert.deepEqual(scriptConsole, [], 'AS must not call console directly');
   assert.equal(host.lastTrace(), 'Blue 1');
+}
+
+export function verifyHostFailureFormatting(root) {
+  const hostile = Object.defineProperty({ toString() { throw new Error('secondary conversion failure'); } }, 'message', {
+    get() { throw new Error('secondary getter failure'); },
+  });
+  const revoked = Proxy.revocable({}, {}); revoked.revoke();
+  const fixtures = [
+    ['reason', 'reason'], [17, '17'], [null, 'null'], [undefined, 'undefined'],
+    [false, 'false'], ['', ''], [Symbol('reason'), 'Symbol(reason)'], [3n, '3'],
+    [{ detail: 1 }, '[object Object]'], [new Error('original error'), 'original error'],
+    [hostile, '<unprintable thrown value>'], [revoked.proxy, '<unprintable thrown value>'],
+    [Object.create(null), '<unprintable thrown value>'],
+  ];
+  for (const [value, description] of fixtures) for (const branded of [false, true]) {
+    const { host, click, traceCalls } = createHostHarness(root,
+      { language: 'java_script', source: 'throw this.payload;' }, 'throw this.payload;');
+    host.proxyFor(['blue']).payload = branded ? { [Symbol.for('neoflash.as2.thrown.v1')]: true, value } : value;
+    assert.throws(() => click('blue'), error => {
+      assert.equal(error.message, `AS3 keyboard integration: ${description}`);
+      assert.equal(error.cause, value, 'diagnostics must retain the exact thrown value');
+      return true;
+    });
+    assert.deepEqual(traceCalls, [], 'failed dispatch must not invent a trace');
+  }
 }

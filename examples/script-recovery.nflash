@@ -1,0 +1,672 @@
+{
+  "format_version": 1,
+  "name": "Recover and continue",
+  "width": 960,
+  "height": 600,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Recovery lab",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 120,
+        "layers": [
+          {
+            "id": "Typography",
+            "name": "Typography",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "edition",
+                    "name": "edition",
+                    "transform": {
+                      "x": 60.0,
+                      "y": 48.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / ACTIONSCRIPT STUDY 04",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 12.0,
+                      "color": [
+                        174,
+                        187,
+                        207,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 60.0,
+                      "y": 90.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Recover and continue.",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 46.0,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 62.0,
+                      "y": 157.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Exceptions stay local. Each instance keeps its own state.",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 19.0,
+                      "color": [
+                        174,
+                        187,
+                        207,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-label",
+                    "name": "as3-label",
+                    "transform": {
+                      "x": 92.0,
+                      "y": 189.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 20.0,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-detail",
+                    "name": "as3-detail",
+                    "transform": {
+                      "x": 92.0,
+                      "y": 414.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Typed RangeError catch",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 14.0,
+                      "color": [
+                        174,
+                        187,
+                        207,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2-label",
+                    "name": "as2-label",
+                    "transform": {
+                      "x": 532.0,
+                      "y": 189.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 20.0,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2-detail",
+                    "name": "as2-detail",
+                    "transform": {
+                      "x": 532.0,
+                      "y": 414.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Explicit thrown-value catch",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 14.0,
+                      "color": [
+                        174,
+                        187,
+                        207,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 62.0,
+                      "y": 441.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Click a card, or use Tab and Enter / Space. Read the result below.",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 16.0,
+                      "color": [
+                        174,
+                        187,
+                        207,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "sequence",
+                    "name": "sequence",
+                    "transform": {
+                      "x": 62.0,
+                      "y": 478.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Try again  \u2192  Accepted  \u2192  Ready     /     Cleanup runs every time.",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 16.0,
+                      "color": [
+                        174,
+                        187,
+                        207,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "divider",
+                    "name": "divider",
+                    "transform": {
+                      "x": 60.0,
+                      "y": 530.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 840.0,
+                      "height": 1.0,
+                      "fill": [
+                        45,
+                        57,
+                        75,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 62.0,
+                      "y": 550.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "The scene is stopped. Both nested timelines keep moving.",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 14.0,
+                      "color": [
+                        174,
+                        187,
+                        207,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "Recovery buttons",
+            "name": "Recovery buttons",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "as3-card",
+                    "name": "as3-card",
+                    "transform": {
+                      "x": 60.0,
+                      "y": 220.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "card",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "var attempts:int;\nvar cleanups:int;\nfunction outcome(step:int):String {\n  switch (step % 3) {\n    case 1: throw new RangeError(\"Try again\", 17);\n    case 2: return \"Accepted\";\n    default: return \"Ready\";\n  }\n}\nattempts++;\nvar result:String;\ntry {\n  result = outcome(attempts);\n} catch (problem:RangeError) {\n  result = problem.message;\n} finally {\n  cleanups++;\n}\ntrace(\"AS3\", result, \"cleanup\", cleanups);"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "AS3 recovery",
+                      "description": "Cycles through Try again, Accepted and Ready. Cleanup runs after each activation.",
+                      "role": "button",
+                      "tab_order": 10,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "as2-card",
+                    "name": "as2-card",
+                    "transform": {
+                      "x": 500.0,
+                      "y": 220.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "card",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "var attempts;\nvar cleanups;\nif (attempts == undefined) attempts = 0;\nif (cleanups == undefined) cleanups = 0;\nfunction outcome(step:Number):String {\n  switch (step % 3) {\n    case 1: throw \"Try again\";\n    case 2: return \"Accepted\";\n    default: return \"Ready\";\n  }\n}\nattempts++;\nvar result;\ntry {\n  result = outcome(attempts);\n} catch (problem) {\n  result = problem;\n} finally {\n  cleanups++;\n}\ntrace(\"AS2\", result, \"cleanup\", cleanups);"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "AS2 recovery",
+                      "description": "Cycles through Try again, Accepted and Ready. Cleanup runs after each activation.",
+                      "role": "button",
+                      "tab_order": 20,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script3",
+              "source": "stop(); trace(\"Choose AS3 or AS2. Each card starts at Try again.\");"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "card",
+      "name": "Shared animated card",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 120,
+        "layers": [
+          {
+            "id": "Card face",
+            "name": "Card face",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "surface",
+                    "name": "surface",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 400.0,
+                      "height": 176.0,
+                      "fill": [
+                        30,
+                        43,
+                        62,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "track",
+                    "name": "track",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 138.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 336.0,
+                      "height": 2.0,
+                      "fill": [
+                        66,
+                        85,
+                        112,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "activate",
+                    "name": "activate",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 30.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RUN HANDLER",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 25.0,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "cleanup",
+                    "name": "cleanup",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 76.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Catch + finally",
+                      "font_family": "Helvetica Neue",
+                      "font_size": 16.0,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "Independent pulse",
+            "name": "Independent pulse",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "pulse",
+                    "name": "pulse",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 133.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 12.0,
+                      "height": 12.0,
+                      "fill": [
+                        101,
+                        179,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": ""
+              },
+              {
+                "frame": 60,
+                "elements": [
+                  {
+                    "id": "pulse",
+                    "name": "pulse",
+                    "transform": {
+                      "x": 356.0,
+                      "y": 133.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 12.0,
+                      "height": 12.0,
+                      "fill": [
+                        101,
+                        179,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": ""
+              },
+              {
+                "frame": 119,
+                "elements": [
+                  {
+                    "id": "pulse",
+                    "name": "pulse",
+                    "transform": {
+                      "x": 32.0,
+                      "y": 133.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 12.0,
+                      "height": 12.0,
+                      "fill": [
+                        101,
+                        179,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ]
+}

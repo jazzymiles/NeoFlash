@@ -34,7 +34,29 @@
   }
   function color(rgba) { return `rgba(${rgba[0]},${rgba[1]},${rgba[2]},${rgba[3] / 255})`; }
   function sourceKey(script) { return script.language + '\u0000' + script.source; }
-  const helpers = { localPoint, hitShape, oneBasedFrame, sourceKey };
+  const as2Thrown = Symbol.for('neoflash.as2.thrown.v1');
+  function unwrapScriptThrow(value) {
+    // Only compiler transport envelopes have these own data properties. Do not
+    // invoke arbitrary accessors while trying to report an author's exception.
+    try {
+      if (value !== null && (typeof value === 'object' || typeof value === 'function')) {
+        const brand = Object.getOwnPropertyDescriptor(value, as2Thrown);
+        const payload = Object.getOwnPropertyDescriptor(value, 'value');
+        if (brand && brand.value === true && payload && Object.hasOwn(payload, 'value')) return payload.value;
+      }
+    } catch (_) { /* A revoked or hostile Proxy is still the original failure. */ }
+    return value;
+  }
+  function describeThrown(value, includeStack = false) {
+    if (value !== null && value !== undefined) {
+      if (includeStack) {
+        try { const stack = value.stack; if (typeof stack === 'string' && stack) return stack; } catch (_) {}
+      }
+      try { const message = value.message; if (typeof message === 'string') return message; } catch (_) {}
+    }
+    try { return String(value); } catch (_) { return '<unprintable thrown value>'; }
+  }
+  const helpers = { localPoint, hitShape, oneBasedFrame, sourceKey, describeThrown, unwrapScriptThrow };
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
   if (typeof document === 'undefined') return;
 
@@ -44,7 +66,7 @@
     failed = true;
     document.getElementById('loading').style.display = 'none';
     errorElement.style.display = 'block';
-    errorElement.textContent = 'NeoFlash could not run this project.\n\n' + (error && error.stack || String(error));
+    errorElement.textContent = 'NeoFlash could not run this project.\n\n' + describeThrown(error, true);
     console.error(error);
   }
 
@@ -84,7 +106,7 @@
           fn: new Function(...bindings, '"use strict";\nreturn (function () {\n' + script.code + '\n}).call(this);\n//# sourceURL=neoflash-user-script.js'),
           location: script.location,
         });
-      } catch (error) { throw new Error(`Script syntax error in ${script.location}: ${error.message}`); }
+      } catch (error) { throw new Error(`Script syntax error in ${script.location}: ${describeThrown(error)}`, { cause: error }); }
     }
     for (const warning of bundle.warnings) console.warn('NeoFlash:', warning);
 
@@ -186,7 +208,8 @@
             compiled.fn.call(scope, event, proxyFor([]), scope.parent, trace,
               scope.play, scope.stop, scope.gotoAndPlay, scope.gotoAndStop, scope.nextFrame, scope.prevFrame);
           } catch (error) {
-            throw new Error(`${compiled.location}: ${error.message}`, { cause: error });
+            const cause = unwrapScriptThrow(error);
+            throw new Error(`${compiled.location}: ${describeThrown(cause)}`, { cause });
           }
         }
       }
@@ -286,8 +309,9 @@
     panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); canvas.style.cursor = preview.panMode ? 'grab' : 'default'; });
     new ResizeObserver(() => { resize(); render(); }).observe(viewport);
     resize();
-    dispatchScripts();
-    render();
+    // Startup script failures use the same stopped-but-restartable policy as
+    // later events. Keep installing the animation loop after reporting them.
+    try { dispatchScripts(); render(); } catch (error) { fail(error); }
     document.getElementById('loading').style.display = 'none';
     function animate(now) {
       if (!failed && !document.hidden) {

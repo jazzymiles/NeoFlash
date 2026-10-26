@@ -3,6 +3,9 @@
 use crate::Diagnostic;
 use neoflash_core::{Script, ScriptLanguage};
 use std::collections::HashMap;
+mod completion;
+#[cfg(test)]
+mod control_tests;
 mod scope;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,7 +48,11 @@ impl<'a> Lexer<'a> {
                 continue;
             }
             if self.rest().starts_with("//") {
-                while self.bump().is_some_and(|c| c != '\n') {}
+                while self
+                    .bump()
+                    .is_some_and(|c| !matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}'))
+                {
+                }
                 continue;
             }
             if self.rest().starts_with("/*") {
@@ -124,7 +131,7 @@ impl<'a> Lexer<'a> {
                         closed = true;
                         break;
                     }
-                    if next == '\n' || next == '\r' {
+                    if matches!(next, '\n' | '\r' | '\u{2028}' | '\u{2029}') {
                         return Err(self.error(start, "Unterminated string literal."));
                     }
                     if next == '\\' && self.bump().is_none() {
@@ -186,6 +193,7 @@ enum Expr {
     Conditional(Box<Expr>, Box<Expr>, Box<Expr>),
     Call(Box<Expr>, Vec<Expr>, usize),
     Function(Function),
+    NewError(String, Vec<Expr>, usize),
 }
 
 #[derive(Clone, Debug)]
@@ -207,6 +215,28 @@ struct Function {
     declaration: bool,
 }
 
+#[derive(Clone, Debug)]
+struct CatchClause {
+    id: usize,
+    offset: usize,
+    name: String,
+    ty: Option<String>,
+    body: Vec<Stmt>,
+}
+
+#[derive(Clone, Debug)]
+struct Case {
+    test: Option<Expr>,
+    body: Vec<Stmt>,
+}
+
+#[derive(Clone, Debug)]
+struct ControlTarget {
+    label: Option<String>,
+    iteration: bool,
+    breakable: bool,
+}
+
 impl Expr {
     fn depth(&self) -> usize {
         1 + match self {
@@ -221,6 +251,7 @@ impl Expr {
             Self::Call(c, args, _) => c
                 .depth()
                 .max(args.iter().map(Self::depth).max().unwrap_or(0)),
+            Self::NewError(_, args, _) => args.iter().map(Self::depth).max().unwrap_or(0),
         }
     }
     fn assignable(&self) -> bool {
@@ -242,8 +273,13 @@ enum Stmt {
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),
     For(Box<Stmt>, Option<Expr>, Option<Expr>, Box<Stmt>),
-    Break,
-    Continue,
+    DoWhile(Box<Stmt>, Expr),
+    Switch(Expr, Vec<Case>),
+    Label(String, Box<Stmt>),
+    Break(Option<String>),
+    Continue(Option<String>),
+    Throw(Expr),
+    Try(Vec<Stmt>, Vec<CatchClause>, Option<Vec<Stmt>>),
     Function(Function),
     Return(Option<Expr>, usize),
 }
@@ -253,7 +289,7 @@ struct Frontend<'a> {
     tokens: Vec<Token>,
     pos: usize,
     depth: usize,
-    loop_depth: usize,
+    controls: Vec<ControlTarget>,
     function_depth: usize,
     next_function: usize,
 }
@@ -298,8 +334,8 @@ impl<'a> Frontend<'a> {
     }
     fn enter(&mut self) -> Result<(), Diagnostic> {
         self.depth += 1;
-        if self.depth > 128 {
-            return Err(self.error("ActionScript nesting exceeds 128 levels."));
+        if self.depth > 48 {
+            return Err(self.error("ActionScript nesting exceeds 48 levels."));
         }
         Ok(())
     }
@@ -334,6 +370,178 @@ impl<'a> Frontend<'a> {
         Ok(statement)
     }
     fn statement_inner(&mut self) -> Result<Stmt, Diagnostic> {
+        if matches!(self.token().kind, Kind::Ident(_))
+            && self
+                .tokens
+                .get(self.pos + 1)
+                .is_some_and(|t| t.kind == Kind::Punct(":"))
+        {
+            if self.script.language != ScriptLanguage::ActionScript3 {
+                return Err(self.error(
+                    "Labels require ActionScript 3; AS2 label semantics are not implemented.",
+                ));
+            }
+            let name = self.ident()?;
+            if invalid_binding(&name, true)
+                || self
+                    .controls
+                    .iter()
+                    .any(|c| c.label.as_ref() == Some(&name))
+            {
+                return Err(self.error("Invalid or duplicate active label."));
+            }
+            self.expect(":")?;
+            let mut at = self.pos;
+            while matches!(self.tokens.get(at).map(|t| &t.kind), Some(Kind::Ident(_)))
+                && self
+                    .tokens
+                    .get(at + 1)
+                    .is_some_and(|t| t.kind == Kind::Punct(":"))
+            {
+                at += 2;
+            }
+            let iteration = matches!(self.tokens.get(at).map(|t| &t.kind), Some(Kind::Ident(s)) if matches!(s.as_str(), "for" | "while" | "do"));
+            self.controls.push(ControlTarget {
+                label: Some(name.clone()),
+                iteration,
+                breakable: false,
+            });
+            let body = self.statement()?;
+            self.controls.pop();
+            return Ok(Stmt::Label(name, Box::new(body)));
+        }
+        if self.eat("throw") {
+            if self.line_break_before_token()
+                || self.is(";")
+                || self.is("}")
+                || self.token().kind == Kind::End
+            {
+                return Err(self.error("throw requires an expression on the same line."));
+            }
+            let value = self.expression(0)?;
+            self.semicolon()?;
+            return Ok(Stmt::Throw(value));
+        }
+        if self.eat("try") {
+            self.expect("{")?;
+            let body = self.statements(true)?;
+            let mut catches = Vec::new();
+            let mut catch_all = false;
+            while self.eat("catch") {
+                let offset = self.token().offset;
+                if catch_all {
+                    return Err(self.error("A catch-all clause must be last."));
+                }
+                self.expect("(")?;
+                let name = self.ident()?;
+                if invalid_binding(&name, true) {
+                    return Err(self.error("Invalid catch parameter name."));
+                }
+                let ty = if self.eat(":") {
+                    let ty = if self.eat("*") {
+                        "*".into()
+                    } else {
+                        self.ident()?
+                    };
+                    let supported = if self.script.language == ScriptLanguage::ActionScript3 {
+                        is_error_type(&ty)
+                            || matches!(
+                                ty.as_str(),
+                                "*" | "Object"
+                                    | "Number"
+                                    | "String"
+                                    | "Boolean"
+                                    | "Function"
+                                    | "int"
+                                    | "uint"
+                            )
+                    } else {
+                        ty == "Error"
+                    };
+                    if !supported {
+                        return Err(self.error("Unsupported catch type. AS2 currently accepts Error or an untyped catch; AS3 accepts core error and primitive types, Object, Function or *. Custom classes require project type resolution."));
+                    }
+                    Some(ty)
+                } else {
+                    None
+                };
+                catch_all = ty.as_deref().is_none_or(|t| t == "*");
+                self.expect(")")?;
+                self.expect("{")?;
+                let id = self.next_function;
+                self.next_function += 1;
+                catches.push(CatchClause {
+                    id,
+                    offset,
+                    name,
+                    ty,
+                    body: self.statements(true)?,
+                });
+            }
+            let finally = if self.eat("finally") {
+                self.expect("{")?;
+                Some(self.statements(true)?)
+            } else {
+                None
+            };
+            if catches.is_empty() && finally.is_none() {
+                return Err(self.error("try requires catch or finally."));
+            }
+            return Ok(Stmt::Try(body, catches, finally));
+        }
+        if self.eat("switch") {
+            self.expect("(")?;
+            let value = self.expression(0)?;
+            self.expect(")")?;
+            self.expect("{")?;
+            self.controls.push(ControlTarget {
+                label: None,
+                iteration: false,
+                breakable: true,
+            });
+            let mut cases = Vec::new();
+            let mut default = false;
+            while !self.eat("}") {
+                let test = if self.eat("case") {
+                    Some(self.expression(0)?)
+                } else if self.eat("default") {
+                    if default {
+                        return Err(self.error("A switch cannot have multiple default clauses."));
+                    }
+                    default = true;
+                    None
+                } else {
+                    return Err(self.error("Expected case or default in switch."));
+                };
+                self.expect(":")?;
+                let mut body = Vec::new();
+                while !self.is("case")
+                    && !self.is("default")
+                    && !self.is("}")
+                    && self.token().kind != Kind::End
+                {
+                    body.push(self.statement()?);
+                }
+                cases.push(Case { test, body });
+            }
+            self.controls.pop();
+            return Ok(Stmt::Switch(value, cases));
+        }
+        if self.eat("do") {
+            self.controls.push(ControlTarget {
+                label: None,
+                iteration: true,
+                breakable: true,
+            });
+            let body = self.statement()?;
+            self.controls.pop();
+            self.expect("while")?;
+            self.expect("(")?;
+            let test = self.expression(0)?;
+            self.expect(")")?;
+            self.eat(";");
+            return Ok(Stmt::DoWhile(Box::new(body), test));
+        }
         if self.is("function") {
             return Ok(Stmt::Function(self.function(true)?));
         }
@@ -346,7 +554,8 @@ impl<'a> Frontend<'a> {
             let value = if self.is(";")
                 || self.is("}")
                 || self.token().kind == Kind::End
-                || self.script.source[offset..self.token().offset].contains(['\n', '\r'])
+                || self.script.source[offset..self.token().offset]
+                    .contains(['\n', '\r', '\u{2028}', '\u{2029}'])
             {
                 None
             } else {
@@ -382,9 +591,13 @@ impl<'a> Frontend<'a> {
             self.expect("(")?;
             let condition = self.expression(0)?;
             self.expect(")")?;
-            self.loop_depth += 1;
+            self.controls.push(ControlTarget {
+                label: None,
+                iteration: true,
+                breakable: true,
+            });
             let body = self.statement()?;
-            self.loop_depth -= 1;
+            self.controls.pop();
             return Ok(Stmt::While(condition, Box::new(body)));
         }
         if self.eat("for") {
@@ -409,24 +622,46 @@ impl<'a> Frontend<'a> {
                 Some(self.expression(0)?)
             };
             self.expect(")")?;
-            self.loop_depth += 1;
+            self.controls.push(ControlTarget {
+                label: None,
+                iteration: true,
+                breakable: true,
+            });
             let body = self.statement()?;
-            self.loop_depth -= 1;
+            self.controls.pop();
             return Ok(Stmt::For(Box::new(init), condition, update, Box::new(body)));
         }
         if self.is("break") || self.is("continue") {
-            if self.loop_depth == 0 {
-                return Err(self.error("break/continue must be inside a loop."));
-            }
             let is_break = self.eat("break");
             if !is_break {
                 self.expect("continue")?;
             }
+            let label =
+                if !self.line_break_before_token() && matches!(self.token().kind, Kind::Ident(_)) {
+                    Some(self.ident()?)
+                } else {
+                    None
+                };
+            if label.is_some() && self.script.language != ScriptLanguage::ActionScript3 {
+                return Err(self.error("Labelled jumps require ActionScript 3."));
+            }
+            if !self.controls.iter().rev().any(|target| match &label {
+                Some(name) => target.label.as_ref() == Some(name) && (is_break || target.iteration),
+                None => {
+                    if is_break {
+                        target.breakable
+                    } else {
+                        target.iteration && target.label.is_none()
+                    }
+                }
+            }) {
+                return Err(self.error("Jump has no valid enclosing loop, switch or label target."));
+            }
             self.semicolon()?;
             return Ok(if is_break {
-                Stmt::Break
+                Stmt::Break(label)
             } else {
-                Stmt::Continue
+                Stmt::Continue(label)
             });
         }
         if let Kind::Ident(word) = &self.token().kind
@@ -475,6 +710,7 @@ impl<'a> Frontend<'a> {
         let as3 = self.script.language == ScriptLanguage::ActionScript3;
         let supported = matches!(name.as_str(), "Number" | "String" | "Boolean" | "Function")
             || (as3 && matches!(name.as_str(), "int" | "uint" | "*"))
+            || (is_error_type(&name) && (as3 || name == "Error"))
             || (returns && name == if as3 { "void" } else { "Void" });
         if !supported {
             return Err(self.error(format!("Type '{name}' is not supported in this ActionScript annotation. Supported types are primitive types and Function; void/Void is return-only.")));
@@ -519,11 +755,11 @@ impl<'a> Frontend<'a> {
         self.expect("{")?;
         let id = self.next_function;
         self.next_function += 1;
-        let outer_loop = std::mem::replace(&mut self.loop_depth, 0);
+        let outer_controls = std::mem::take(&mut self.controls);
         self.function_depth += 1;
         let body = self.statements(true)?;
         self.function_depth -= 1;
-        self.loop_depth = outer_loop;
+        self.controls = outer_controls;
         Ok(Function {
             id,
             offset,
@@ -646,6 +882,37 @@ impl<'a> Frontend<'a> {
         }
     }
     fn primary(&mut self) -> Result<Expr, Diagnostic> {
+        if self.eat("new") {
+            let offset = self.token().offset;
+            let name = self.ident()?;
+            if !is_error_type(&name)
+                || (self.script.language == ScriptLanguage::ActionScript2 && name != "Error")
+            {
+                return Err(self.error("Only core Error constructors are supported here; arbitrary new and user classes require project type resolution."));
+            }
+            self.expect("(")?;
+            let mut args = Vec::new();
+            if !self.is(")") {
+                loop {
+                    args.push(self.expression(0)?);
+                    if !self.eat(",") {
+                        break;
+                    }
+                }
+            }
+            self.expect(")")?;
+            let maximum = if self.script.language == ScriptLanguage::ActionScript3 {
+                2
+            } else {
+                1
+            };
+            if args.len() > maximum {
+                return Err(
+                    self.error("Error constructor has too many arguments for this language.")
+                );
+            }
+            return Ok(Expr::NewError(name, args, offset));
+        }
         if self.is("function") {
             return Ok(Expr::Function(self.function(false)?));
         }
@@ -792,6 +1059,20 @@ fn is_global(name: &str) -> bool {
             | "null"
             | "trace"
     ) || is_timeline_method(name)
+        || is_error_type(name)
+}
+fn is_error_type(name: &str) -> bool {
+    matches!(
+        name,
+        "Error"
+            | "TypeError"
+            | "RangeError"
+            | "ReferenceError"
+            | "SyntaxError"
+            | "EvalError"
+            | "URIError"
+            | "ArgumentError"
+    )
 }
 fn is_unsupported_keyword(name: &str) -> bool {
     matches!(
@@ -915,15 +1196,17 @@ impl Emitter<'_> {
             Some("Function") => format!(
                 "((__nfValue) => {{ if (__nfValue == null) return null; if (typeof __nfValue !== 'function') throw new __nfTypeError('AS3 Function value required'); return __nfValue; }})({value})"
             ),
+            Some("Object") => {
+                format!("((__nfValue) => __nfValue == null ? null : __nfValue)({value})")
+            }
+            Some(ty) if is_error_type(ty) => format!(
+                "((__nfValue) => {{ if (__nfValue == null) return null; if (__nfCatchType(__nfValue, {ty:?})) return __nfValue; throw new __nfTypeError('AS3 {ty} value required'); }})({value})"
+            ),
             _ => value,
         }
     }
     fn intrinsic(&self, name: &str) -> String {
-        if self.scope == 0 {
-            name.into()
-        } else {
-            format!("__nf{name}")
-        }
+        format!("__nf{name}")
     }
     fn typed(&self, name: &str) -> bool {
         self.analysis
@@ -957,6 +1240,7 @@ impl Emitter<'_> {
             Some("Number") => "NaN",
             Some("Boolean") => "false",
             Some("String" | "Function") => "null",
+            Some(ty) if is_error_type(ty) => "null",
             Some("int" | "uint") => "0",
             _ => "undefined",
         }
@@ -1023,6 +1307,14 @@ impl Emitter<'_> {
             Expr::Literal(value) => value.clone(),
             Expr::Name(name) => self.name(name),
             Expr::Function(f) => format!("({})", self.function(f)),
+            Expr::NewError(name, args, _) => format!(
+                "__nfMakeError({name:?}, {}, [{}])",
+                self.as3,
+                args.iter()
+                    .map(|a| self.expression(a))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Expr::Member(base, name) => format!("({}).{name}", self.expression(base)),
             Expr::Index(base, index) => {
                 format!("({})[{}]", self.expression(base), self.expression(index))
@@ -1121,7 +1413,7 @@ impl Emitter<'_> {
                     .iter()
                     .map(|(name, ty, value)| {
                         let target = self.name(name);
-                        if self.scope != 0 && value.is_none() {
+                        if self.analysis.scopes[&self.scope].function != 0 && value.is_none() {
                             return "undefined".into();
                         }
                         let initialized = value.is_some();
@@ -1168,8 +1460,85 @@ impl Emitter<'_> {
                     .unwrap_or_default(),
                 self.statement(body)
             ),
-            Stmt::Break => "break;".into(),
-            Stmt::Continue => "continue;".into(),
+            Stmt::Break(label) => format!(
+                "break{};",
+                label.as_ref().map_or(String::new(), |l| format!(" {l}"))
+            ),
+            Stmt::Continue(label) => format!(
+                "continue{};",
+                label.as_ref().map_or(String::new(), |l| format!(" {l}"))
+            ),
+            Stmt::Label(name, body) => format!("{name}: {}", self.statement(body)),
+            Stmt::DoWhile(body, test) => format!(
+                "do {{\n{}\n}} while ({});",
+                self.statement(body),
+                self.expression(test)
+            ),
+            Stmt::Switch(value, cases) => format!(
+                "switch ({}) {{\n{}\n}}",
+                self.expression(value),
+                cases
+                    .iter()
+                    .map(|c| format!(
+                        "{}:\n{}",
+                        c.test.as_ref().map_or_else(
+                            || "default".into(),
+                            |e| format!("case {}", self.expression(e))
+                        ),
+                        self.statements(&c.body)
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
+            Stmt::Throw(value) => {
+                if self.as3 {
+                    format!("throw {};", self.expression(value))
+                } else {
+                    format!(
+                        "throw {{ [__nfThrownBrand]: true, value: {} }};",
+                        self.expression(value)
+                    )
+                }
+            }
+            Stmt::Try(body, catches, finally) => {
+                let mut out = format!("try {{\n{}\n}}", self.statements(body));
+                if !catches.is_empty() {
+                    // Each nested catch owns its generated temporaries and lexical binding.
+                    let id = catches[0].id;
+                    let caught = format!("__nfCaught{id}");
+                    let value = format!("__nfValue{id}");
+                    out.push_str(&format!(" catch ({caught}) {{\n"));
+                    if !self.as3 {
+                        out.push_str(&format!("if (!__nfIsThrown({caught})) throw {caught};\n"));
+                    }
+                    out.push_str(&format!(
+                        "const {value} = {caught}{};\n",
+                        if self.as3 { "" } else { ".value" }
+                    ));
+                    for (index, catch) in catches.iter().enumerate() {
+                        let inner = Emitter {
+                            as3: self.as3,
+                            analysis: self.analysis,
+                            scope: catch.id,
+                        };
+                        let condition = catch.ty.as_deref().filter(|t| *t != "*").map_or_else(
+                            || "true".into(),
+                            |ty| format!("__nfCatchType({value}, {ty:?})"),
+                        );
+                        out.push_str(&format!(
+                            "{}if ({condition}) {{ let {} = {value};\n{}\n}} ",
+                            if index == 0 { "" } else { "else " },
+                            catch.name,
+                            inner.statements(&catch.body)
+                        ));
+                    }
+                    out.push_str(&format!("else {{ throw {caught}; }}\n}}"));
+                }
+                if let Some(finally) = finally {
+                    out.push_str(&format!(" finally {{\n{}\n}}", self.statements(finally)));
+                }
+                out
+            }
             Stmt::Function(_) => String::new(),
             Stmt::Return(value, _) => value.as_ref().map_or_else(
                 || "return;".into(),
@@ -1201,7 +1570,7 @@ pub(crate) fn compile(script: &Script) -> Result<String, Diagnostic> {
         tokens,
         pos: 0,
         depth: 0,
-        loop_depth: 0,
+        controls: Vec::new(),
         function_depth: 0,
         next_function: 1,
     };
@@ -1214,7 +1583,8 @@ pub(crate) fn compile(script: &Script) -> Result<String, Diagnostic> {
     }
     .body(&statements);
     let output = format!(
-        "const __nfFrame = this, __nfNumber = Number, __nfString = String, __nfBoolean = Boolean, __nfTypeError = TypeError;\nconst __nfTrace = trace;\n{body}"
+        "const __nfFrame = this, __nfNumber = Number, __nfString = String, __nfBoolean = Boolean, __nfTypeError = TypeError;\nconst __nfTrace = trace;\n{}\n{body}",
+        include_str!("actionscript/exceptions.js")
     );
     // Validate literal spelling and the generated function body with an independent parser.
     let generated = Script {
@@ -1275,7 +1645,7 @@ mod tests {
             "var speed:Number = 2; if (_x < 10) { _x += speed; } else { gotoAndStop(1); }",
         )
         .unwrap();
-        assert!(output.contains("this.speed = Number(2)"));
+        assert!(output.contains("this.speed = __nfNumber(2)"));
         assert!(output.contains("this._x += this.speed"));
         assert!(output.contains("this.gotoAndStop(1)"));
     }
