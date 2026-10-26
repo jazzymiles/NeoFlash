@@ -3,10 +3,12 @@ mod legacy;
 mod source;
 mod xfl;
 
+pub use legacy::contents::*;
 pub use legacy::geometry::*;
 pub use legacy::{
-    BinaryFlaInspection, BinaryGeometryDocument, BinaryStreamGeometry, BinaryStreamInspection,
-    BinaryStreamRole, RecordCounts, read_binary_geometry,
+    BinaryContentsDocument, BinaryFlaInspection, BinaryGeometryDocument, BinaryStreamGeometry,
+    BinaryStreamInspection, BinaryStreamRole, RecordCounts, read_binary_contents,
+    read_binary_geometry,
 };
 
 use neoflash_core::Project;

@@ -1,5 +1,6 @@
 //! Bounded, read-only CFB and binary FLA structure inspection.
 //! No byte-pattern recovery: unknown records stop the current stream.
+pub(crate) mod contents;
 pub(crate) mod geometry;
 mod mfc;
 
@@ -49,6 +50,8 @@ pub struct BinaryStreamInspection {
     pub records: RecordCounts,
     #[serde(default)]
     pub geometry: geometry::GeometryCounts,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contents: Option<contents::ContentsCounts>,
     pub stop_code: Option<String>,
     pub stop_message: Option<String>,
 }
@@ -80,10 +83,16 @@ pub struct BinaryStreamGeometry {
 }
 
 /// Read complete shape blocks as preservation IR without making a Project.
-/// Unknown records stop their stream. This does not assemble contour topology,
-/// resolve scene/layer/library ownership, or decode document-level Contents.
+/// Unknown records stop their stream. This does not assemble contour topology or
+/// resolve scene/layer/library ownership. Contents is separately available through
+/// read_binary_contents; this API does not retain its private payload.
 pub fn read_binary_geometry(path: &Path) -> Result<BinaryGeometryDocument, ImportError> {
-    read(path, true)?.ok_or_else(|| container("compound document is not recognized as binary FLA"))
+    let document = read(path, true, false)?
+        .ok_or_else(|| container("compound document is not recognized as binary FLA"))?;
+    Ok(BinaryGeometryDocument {
+        inspection: document.inspection,
+        streams: document.geometry,
+    })
 }
 
 fn container(message: impl Into<String>) -> ImportError {
@@ -91,10 +100,38 @@ fn container(message: impl Into<String>) -> ImportError {
 }
 
 pub(crate) fn inspect(path: &Path) -> Result<Option<BinaryFlaInspection>, ImportError> {
-    Ok(read(path, false)?.map(|document| document.inspection))
+    Ok(read(path, false, false)?.map(|document| document.inspection))
 }
 
-fn read(path: &Path, retain_geometry: bool) -> Result<Option<BinaryGeometryDocument>, ImportError> {
+/// Explicit opt-in Contents IR. Contains private names/metadata and exact unread bytes.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BinaryContentsDocument {
+    pub inspection: BinaryFlaInspection,
+    pub contents: contents::BinaryContentsPrefix,
+}
+
+pub fn read_binary_contents(path: &Path) -> Result<BinaryContentsDocument, ImportError> {
+    let document = read(path, false, true)?
+        .ok_or_else(|| container("compound document is not recognized as binary FLA"))?;
+    Ok(BinaryContentsDocument {
+        inspection: document.inspection,
+        contents: document
+            .contents
+            .ok_or_else(|| container("Contents stream is absent"))?,
+    })
+}
+
+struct ReadDocument {
+    inspection: BinaryFlaInspection,
+    geometry: Vec<BinaryStreamGeometry>,
+    contents: Option<contents::BinaryContentsPrefix>,
+}
+
+fn read(
+    path: &Path,
+    retain_geometry: bool,
+    retain_contents: bool,
+) -> Result<Option<ReadDocument>, ImportError> {
     let file = File::open(path)?;
     if file.metadata()?.len() > MAX_CONTAINER {
         return Err(container("CFB exceeds 64 MiB"));
@@ -182,6 +219,21 @@ fn read(path: &Path, retain_geometry: bool) -> Result<Option<BinaryGeometryDocum
         logical_bytes,
         streams: vec![],
     };
+    let inventory: contents::Inventory = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, (path, _, _))| path.parent() == Some(Path::new("/")))
+        .map(|(index, (path, _, role))| {
+            (
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_ascii_uppercase(),
+                contents::InventoryEntry { index, role: *role },
+            )
+        })
+        .collect();
+    let mut contents_prefix = None;
     let mut geometry_streams = Vec::new();
     let mut retained_items_remaining = 250_000;
     for (index, (path, byte_length, role)) in entries.into_iter().enumerate() {
@@ -205,27 +257,20 @@ fn read(path: &Path, retain_geometry: bool) -> Result<Option<BinaryGeometryDocum
             root_schema: None,
             records: RecordCounts::default(),
             geometry: geometry::GeometryCounts::default(),
+            contents: None,
             stop_code: None,
             stop_message: None,
         };
         match role {
             BinaryStreamRole::Contents => {
-                if let Some(&revision) = data.first() {
-                    result.contents_revision = Some(revision);
-                    result.authoring_version = version(revision).map(str::to_owned);
-                    stream.bytes_consumed = 1;
-                    stream.stop_code = Some(
-                        if result.authoring_version.is_some() {
-                            "fla_contents_payload_unsupported"
-                        } else {
-                            "fla_revision_unsupported"
-                        }
-                        .into(),
-                    );
-                    stream.stop_message = Some("Contents revision read; scene/library descriptors, document settings and publish/linkage data require further decoding.".into());
-                } else {
-                    stream.stop_code = Some("fla_truncated_record".into());
-                    stream.stop_message = Some("Contents stream has no revision byte.".into());
+                result.contents_revision = data.first().copied();
+                result.authoring_version = result
+                    .contents_revision
+                    .and_then(version)
+                    .map(str::to_owned);
+                let prefix = contents::inspect(&data, &mut stream, &inventory, retain_contents);
+                if retain_contents {
+                    contents_prefix = Some(prefix);
                 }
             }
             BinaryStreamRole::Scene | BinaryStreamRole::Symbol => {
@@ -253,9 +298,10 @@ fn read(path: &Path, retain_geometry: bool) -> Result<Option<BinaryGeometryDocum
         }
         result.streams.push(stream);
     }
-    Ok(Some(BinaryGeometryDocument {
+    Ok(Some(ReadDocument {
         inspection: result,
-        streams: geometry_streams,
+        geometry: geometry_streams,
+        contents: contents_prefix,
     }))
 }
 

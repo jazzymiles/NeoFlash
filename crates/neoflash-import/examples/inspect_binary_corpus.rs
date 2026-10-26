@@ -1,5 +1,5 @@
 //! Aggregate-only local audit. Never emits paths, stream names, strings or bytes.
-use neoflash_import::{ImportFormat, inspect, read_binary_geometry};
+use neoflash_import::{ImportFormat, inspect, read_binary_contents, read_binary_geometry};
 use serde_json::json;
 use std::{
     collections::BTreeMap,
@@ -25,6 +25,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut complete_records = BTreeMap::<&str, usize>::new();
     let mut geometry_counts = BTreeMap::<&str, usize>::new();
     let mut preserved_shape_blocks = 0;
+    let mut contents_counts = BTreeMap::<&str, usize>::new();
+    let mut settings_by_target = BTreeMap::<String, usize>::new();
+    let mut descriptor_revisions = BTreeMap::<String, usize>::new();
     for path in &paths {
         match inspect(path) {
             Ok(report) => {
@@ -52,6 +55,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         );
                     }
                     preserved_shape_blocks += retained_shapes;
+                    let contents = read_binary_contents(path)?.contents;
+                    let original_length = binary
+                        .streams
+                        .iter()
+                        .find(|stream| stream.role == neoflash_import::BinaryStreamRole::Contents)
+                        .ok_or("Contents stream absent")?
+                        .byte_length;
+                    if contents.original_bytes.len() as u64 != original_length {
+                        return Err(
+                            "Contents preservation length mismatch or source changed during audit"
+                                .into(),
+                        );
+                    }
+                    if contents.settings.is_some() {
+                        *settings_by_target
+                            .entry(
+                                binary
+                                    .authoring_version
+                                    .clone()
+                                    .unwrap_or_else(|| "unknown".into()),
+                            )
+                            .or_default() += 1;
+                    }
+                    for descriptor in &contents.descriptors {
+                        *descriptor_revisions
+                            .entry(format!(
+                                "{:?}/base-{}/sub-{:?}",
+                                descriptor.class, descriptor.revision, descriptor.subtype_revision
+                            ))
+                            .or_default() += 1;
+                    }
+                    let inspected = binary
+                        .streams
+                        .iter()
+                        .find_map(|stream| stream.contents.as_ref())
+                        .ok_or("Contents counts absent")?;
+                    if inspected.descriptors_complete != contents.descriptors.len()
+                        || inspected.settings_reached != contents.settings.is_some()
+                    {
+                        return Err("Contents inspection/preservation mismatch or source changed during audit".into());
+                    }
+                    for (kind, count) in [
+                        ("descriptors_encountered", inspected.descriptors_encountered),
+                        ("descriptors_complete", inspected.descriptors_complete),
+                        ("scene_entries", inspected.scene_entries),
+                        ("library_entries", inspected.library_entries),
+                        ("media_entries", inspected.media_entries),
+                        ("resolved_streams", inspected.resolved_streams),
+                        ("settings_reached", usize::from(inspected.settings_reached)),
+                    ] {
+                        *contents_counts.entry(kind).or_default() += count;
+                    }
                     for stream in binary.streams {
                         *roles.entry(format!("{:?}", stream.role)).or_default() += 1;
                         complete_streams += usize::from(stream.structure_complete);
@@ -127,7 +182,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    let result = json!({"files":paths.len(), "recognized_binary_fla":recognized, "blocked_editable_conversion":blocked, "container_failures":invalid, "container_failure_categories":failures, "save_targets":versions, "stream_roles":roles, "complete_structure_streams":complete_streams, "complete_records":complete_records, "geometry_counts":geometry_counts, "preserved_shape_blocks":preserved_shape_blocks, "root_classes":classes, "diagnostic_codes":codes});
+    let result = json!({"files":paths.len(), "recognized_binary_fla":recognized, "blocked_editable_conversion":blocked, "container_failures":invalid, "container_failure_categories":failures, "save_targets":versions, "stream_roles":roles, "complete_structure_streams":complete_streams, "complete_records":complete_records, "geometry_counts":geometry_counts, "preserved_shape_blocks":preserved_shape_blocks, "contents_counts":contents_counts, "settings_by_save_target":settings_by_target, "descriptor_revisions":descriptor_revisions, "root_classes":classes, "diagnostic_codes":codes});
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)

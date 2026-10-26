@@ -305,7 +305,8 @@ fn regular_sector_streams_are_read_and_mfc_depth_is_bounded() {
         .find(|s| s.role == BinaryStreamRole::Contents)
         .unwrap();
     assert_eq!(stream.byte_length, 8192);
-    assert_eq!(stream.bytes_consumed, 1);
+    assert_eq!(stream.bytes_consumed, 102); // Empty descriptor lists and raw settings prefix.
+    assert!(stream.contents.as_ref().unwrap().settings_reached);
     assert!(!stream.structure_complete);
     let mut nested = vec![1];
     for _ in 0..35 {
