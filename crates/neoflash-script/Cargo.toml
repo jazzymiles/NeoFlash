@@ -9,6 +9,7 @@ rust-version.workspace = true
 neoflash-core.workspace = true
 serde.workspace = true
 oxc_allocator = "=0.75.0"
+oxc_ast = "=0.75.0"
 oxc_parser = "=0.75.0"
 oxc_span = "=0.75.0"
 oxc_diagnostics = "=0.75.0"

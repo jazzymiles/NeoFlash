@@ -3,6 +3,7 @@
 use crate::Diagnostic;
 use neoflash_core::{Script, ScriptLanguage};
 use std::collections::HashMap;
+mod scope;
 
 #[derive(Clone, Debug, PartialEq)]
 enum Kind {
@@ -177,19 +178,39 @@ enum Expr {
     Member(Box<Expr>, String),
     Index(Box<Expr>, Box<Expr>),
     Array(Vec<Expr>),
-    Object(Vec<(String, Expr)>),
+    Object(Vec<(PropertyKey, Expr)>),
     Unary(String, Box<Expr>),
     Binary(String, Box<Expr>, Box<Expr>),
     Assign(String, Box<Expr>, Box<Expr>),
     Update(String, Box<Expr>, bool),
     Conditional(Box<Expr>, Box<Expr>, Box<Expr>),
-    Call(Box<Expr>, Vec<Expr>),
+    Call(Box<Expr>, Vec<Expr>, usize),
+    Function(Function),
+}
+
+#[derive(Clone, Debug)]
+struct PropertyKey {
+    /// Preserve the original quoting/escaping when emitting JavaScript.
+    source: String,
+    /// Match member access using the decoded property name.
+    name: String,
+}
+
+#[derive(Clone, Debug)]
+struct Function {
+    id: usize,
+    offset: usize,
+    name: Option<String>,
+    params: Vec<(String, Option<String>)>,
+    returns: Option<String>,
+    body: Vec<Stmt>,
+    declaration: bool,
 }
 
 impl Expr {
     fn depth(&self) -> usize {
         1 + match self {
-            Self::Literal(_) | Self::Name(_) => 0,
+            Self::Literal(_) | Self::Name(_) | Self::Function(_) => 0,
             Self::Member(v, _) | Self::Unary(_, v) | Self::Update(_, v, _) => v.depth(),
             Self::Index(a, b) | Self::Binary(_, a, b) | Self::Assign(_, a, b) => {
                 a.depth().max(b.depth())
@@ -197,14 +218,15 @@ impl Expr {
             Self::Array(v) => v.iter().map(Self::depth).max().unwrap_or(0),
             Self::Object(v) => v.iter().map(|(_, e)| e.depth()).max().unwrap_or(0),
             Self::Conditional(a, b, c) => a.depth().max(b.depth()).max(c.depth()),
-            Self::Call(c, args) => c
+            Self::Call(c, args, _) => c
                 .depth()
                 .max(args.iter().map(Self::depth).max().unwrap_or(0)),
         }
     }
     fn assignable(&self) -> bool {
         match self {
-            Self::Name(name) => !is_global(name) && name != "this",
+            // Writes to globals are checked after lexical scope resolution.
+            Self::Name(name) => name != "this",
             Self::Member(_, _) | Self::Index(_, _) => true,
             _ => false,
         }
@@ -222,6 +244,8 @@ enum Stmt {
     For(Box<Stmt>, Option<Expr>, Option<Expr>, Box<Stmt>),
     Break,
     Continue,
+    Function(Function),
+    Return(Option<Expr>, usize),
 }
 
 struct Frontend<'a> {
@@ -230,7 +254,8 @@ struct Frontend<'a> {
     pos: usize,
     depth: usize,
     loop_depth: usize,
-    types: HashMap<String, String>,
+    function_depth: usize,
+    next_function: usize,
 }
 
 impl<'a> Frontend<'a> {
@@ -282,14 +307,15 @@ impl<'a> Frontend<'a> {
         if self.eat(";") || self.is("}") || self.token().kind == Kind::End {
             return Ok(());
         }
-        if self.pos > 0 {
-            let from = self.tokens[self.pos - 1].offset;
-            let to = self.token().offset;
-            if self.script.source[from..to].contains('\n') {
-                return Ok(());
-            }
+        if self.line_break_before_token() {
+            return Ok(());
         }
         Err(self.error("Expected ';' or a line break after the statement."))
+    }
+    fn line_break_before_token(&self) -> bool {
+        self.pos > 0
+            && self.script.source[self.tokens[self.pos - 1].offset..self.token().offset]
+                .contains(['\n', '\r', '\u{2028}', '\u{2029}'])
     }
     fn statements(&mut self, block: bool) -> Result<Vec<Stmt>, Diagnostic> {
         let mut statements = Vec::new();
@@ -308,6 +334,27 @@ impl<'a> Frontend<'a> {
         Ok(statement)
     }
     fn statement_inner(&mut self) -> Result<Stmt, Diagnostic> {
+        if self.is("function") {
+            return Ok(Stmt::Function(self.function(true)?));
+        }
+        if self.is("return") {
+            let offset = self.token().offset;
+            if self.function_depth == 0 {
+                return Err(self.error("ActionScript return requires a function body."));
+            }
+            self.pos += 1;
+            let value = if self.is(";")
+                || self.is("}")
+                || self.token().kind == Kind::End
+                || self.script.source[offset..self.token().offset].contains(['\n', '\r'])
+            {
+                None
+            } else {
+                Some(self.expression(0)?)
+            };
+            self.semicolon()?;
+            return Ok(Stmt::Return(value, offset));
+        }
         if self.eat(";") {
             return Ok(Stmt::Empty);
         }
@@ -396,43 +443,14 @@ impl<'a> Frontend<'a> {
         loop {
             let offset = self.token().offset;
             let name = self.ident()?;
-            if is_global(&name)
-                || is_unsupported_keyword(&name)
-                || name == "this"
-                || name.starts_with("__nf")
-            {
+            if invalid_binding(&name, self.function_depth > 0) {
                 return Err(Diagnostic::at(
                     self.script,
                     offset,
                     format!("'{name}' cannot be declared in the current ActionScript subset."),
                 ));
             }
-            let annotation = if self.eat(":") {
-                let name = if self.eat("*") {
-                    "*".into()
-                } else {
-                    self.ident()?
-                };
-                if !matches!(
-                    name.as_str(),
-                    "*" | "Number" | "String" | "Boolean" | "int" | "uint"
-                ) {
-                    return Err(self.error(format!("Type '{name}' is not supported yet. Primitive variable annotations are supported; classes require the future AS type system.")));
-                }
-                if self.script.language == ScriptLanguage::ActionScript2
-                    && matches!(name.as_str(), "int" | "uint" | "*")
-                {
-                    return Err(
-                        self.error(format!("'{name}' is an AS3 type, not an AS2 annotation."))
-                    );
-                }
-                Some(name)
-            } else {
-                None
-            };
-            if let Some(annotation) = &annotation {
-                self.types.insert(name.clone(), annotation.clone());
-            }
+            let annotation = self.annotation(false)?;
             let value = if self.eat("=") {
                 Some(self.expression(0)?)
             } else {
@@ -444,6 +462,77 @@ impl<'a> Frontend<'a> {
             }
         }
         Ok(Stmt::Var(variables))
+    }
+    fn annotation(&mut self, returns: bool) -> Result<Option<String>, Diagnostic> {
+        if !self.eat(":") {
+            return Ok(None);
+        }
+        let name = if self.eat("*") {
+            "*".into()
+        } else {
+            self.ident()?
+        };
+        let as3 = self.script.language == ScriptLanguage::ActionScript3;
+        let supported = matches!(name.as_str(), "Number" | "String" | "Boolean" | "Function")
+            || (as3 && matches!(name.as_str(), "int" | "uint" | "*"))
+            || (returns && name == if as3 { "void" } else { "Void" });
+        if !supported {
+            return Err(self.error(format!("Type '{name}' is not supported in this ActionScript annotation. Supported types are primitive types and Function; void/Void is return-only.")));
+        }
+        Ok(Some(name))
+    }
+    fn function(&mut self, declaration: bool) -> Result<Function, Diagnostic> {
+        let offset = self.token().offset;
+        self.expect("function")?;
+        let name = if declaration || !self.is("(") {
+            let name = self.ident()?;
+            if invalid_binding(&name, !declaration || self.function_depth > 0) {
+                return Err(self.error("Invalid or reserved function name."));
+            }
+            Some(name)
+        } else {
+            None
+        };
+        self.expect("(")?;
+        let mut params = Vec::new();
+        if !self.is(")") {
+            loop {
+                if self.is("..") {
+                    return Err(self.error("Rest parameters are not implemented yet."));
+                }
+                let name = self.ident()?;
+                if invalid_binding(&name, true) {
+                    return Err(self.error("Invalid or reserved parameter name."));
+                }
+                let ty = self.annotation(false)?;
+                if self.is("=") {
+                    return Err(self.error("Default parameters are not implemented yet."));
+                }
+                params.push((name, ty));
+                if !self.eat(",") {
+                    break;
+                }
+            }
+        }
+        self.expect(")")?;
+        let returns = self.annotation(true)?;
+        self.expect("{")?;
+        let id = self.next_function;
+        self.next_function += 1;
+        let outer_loop = std::mem::replace(&mut self.loop_depth, 0);
+        self.function_depth += 1;
+        let body = self.statements(true)?;
+        self.function_depth -= 1;
+        self.loop_depth = outer_loop;
+        Ok(Function {
+            id,
+            offset,
+            name,
+            params,
+            returns,
+            body,
+            declaration,
+        })
     }
     fn expression(&mut self, min_bp: u8) -> Result<Expr, Diagnostic> {
         self.enter()?;
@@ -485,7 +574,7 @@ impl<'a> Frontend<'a> {
                 continue;
             }
             if min_bp <= 30 && self.is("(") {
-                self.validate_call(&lhs)?;
+                let offset = self.token().offset;
                 self.pos += 1;
                 let mut args = Vec::new();
                 if !self.is(")") {
@@ -497,10 +586,15 @@ impl<'a> Frontend<'a> {
                     }
                 }
                 self.expect(")")?;
-                lhs = Expr::Call(Box::new(lhs), args);
+                lhs = Expr::Call(Box::new(lhs), args, offset);
                 continue;
             }
             if min_bp <= 27 && (self.is("++") || self.is("--")) {
+                // Postfix operators have a restricted production: a line
+                // terminator starts a separate prefix-expression statement.
+                if self.line_break_before_token() {
+                    break;
+                }
                 if !lhs.assignable() {
                     return Err(self.error("Increment/decrement requires a variable or property."));
                 }
@@ -512,7 +606,7 @@ impl<'a> Frontend<'a> {
             if min_bp <= 2 && self.eat("?") {
                 let yes = self.expression(0)?;
                 self.expect(":")?;
-                let no = self.expression(2)?;
+                let no = self.expression(1)?;
                 lhs = Expr::Conditional(Box::new(lhs), Box::new(yes), Box::new(no));
                 continue;
             }
@@ -552,11 +646,14 @@ impl<'a> Frontend<'a> {
         }
     }
     fn primary(&mut self) -> Result<Expr, Diagnostic> {
+        if self.is("function") {
+            return Ok(Expr::Function(self.function(false)?));
+        }
         let token = self.token().clone();
         match token.kind {
             Kind::Number(value) | Kind::String(value) => { self.pos += 1; Ok(Expr::Literal(value)) }
             Kind::Ident(name) => {
-                if is_unsupported_keyword(&name) || matches!(name.as_str(), "if" | "else" | "while" | "for" | "var" | "break" | "continue") {
+                if is_unsupported_keyword(&name) || matches!(name.as_str(), "if" | "else" | "while" | "for" | "var" | "break" | "continue" | "return") {
                     return Err(self.error(format!("ActionScript construct '{name}' is not supported in this expression.")));
                 }
                 self.pos += 1;
@@ -574,7 +671,8 @@ impl<'a> Frontend<'a> {
                 self.pos += 1; let mut values = Vec::new();
                 if !self.is("}") { loop {
                     let key = match self.token().kind.clone() {
-                        Kind::Ident(s) | Kind::String(s) | Kind::Number(s) => s,
+                        Kind::Ident(s) | Kind::Number(s) => PropertyKey { source:s.clone(), name:s },
+                        Kind::String(s) => self.string_key(s)?,
                         _ => return Err(self.error("Expected a property name in object literal.")),
                     };
                     self.pos += 1; self.expect(":")?; values.push((key, self.expression(0)?));
@@ -587,8 +685,25 @@ impl<'a> Frontend<'a> {
             _ => Err(self.error("Expected an expression.")),
         }
     }
-    fn validate_call(&self, callee: &Expr) -> Result<(), Diagnostic> {
-        let supported = match callee {
+    fn string_key(&self, source: String) -> Result<PropertyKey, Diagnostic> {
+        // Use the same real parser as output validation, including escaped
+        // quotes, hexadecimal and Unicode escapes. Never strip quotes by hand.
+        let allocator = oxc_allocator::Allocator::default();
+        let value = oxc_parser::Parser::new(&allocator, &source, oxc_span::SourceType::cjs())
+            .parse_expression()
+            .map_err(|_| self.error("Invalid escaped string property name."))?;
+        let oxc_ast::ast::Expression::StringLiteral(literal) = value else {
+            return Err(self.error("Expected a string property name."));
+        };
+        if literal.lone_surrogates {
+            return Err(self
+                .error("Property names containing lone UTF-16 surrogates are not supported yet."));
+        }
+        let name = literal.value.to_string();
+        Ok(PropertyKey { source, name })
+    }
+    fn builtin_call(callee: &Expr) -> bool {
+        match callee {
             Expr::Name(name) => {
                 matches!(
                     name.as_str(),
@@ -648,11 +763,6 @@ impl<'a> Frontend<'a> {
                     )
             }
             _ => false,
-        };
-        if supported {
-            Ok(())
-        } else {
-            Err(self.error("This ActionScript function/API is not implemented. Use the supported timeline methods or a JavaScript/TypeScript handler; the source has not been discarded."))
         }
     }
 }
@@ -706,7 +816,6 @@ fn is_unsupported_keyword(name: &str) -> bool {
             | "switch"
             | "case"
             | "default"
-            | "function"
             | "new"
             | "delete"
             | "void"
@@ -719,12 +828,40 @@ fn is_unsupported_keyword(name: &str) -> bool {
             | "onClipEvent"
             | "const"
             | "let"
-            | "return"
             | "do"
             | "super"
             | "get"
             | "set"
+            | "arguments"
     )
+}
+
+fn invalid_binding(name: &str, allow_globals: bool) -> bool {
+    (is_global(name)
+        && (!allow_globals
+            || matches!(
+                name,
+                "NaN" | "Infinity" | "undefined" | "true" | "false" | "null"
+            )))
+        || is_unsupported_keyword(name)
+        || name.starts_with("__nf")
+        || matches!(
+            name,
+            "this"
+                | "function"
+                | "return"
+                | "var"
+                | "if"
+                | "else"
+                | "while"
+                | "for"
+                | "break"
+                | "continue"
+                | "arguments"
+                | "eval"
+                | "await"
+                | "yield"
+        )
 }
 
 fn binding_power(operator: &str) -> Option<(u8, u8, bool)> {
@@ -747,39 +884,145 @@ fn binding_power(operator: &str) -> Option<(u8, u8, bool)> {
 
 struct Emitter<'a> {
     as3: bool,
-    types: &'a HashMap<String, String>,
+    analysis: &'a scope::Analysis<'a>,
+    scope: usize,
 }
 
 impl Emitter<'_> {
     fn coerce(&self, name: &str, value: String) -> String {
+        self.coerce_type(
+            self.analysis
+                .resolve(self.scope, name)
+                .and_then(|(_, b)| b.ty.as_deref()),
+            value,
+        )
+    }
+    fn coerce_type(&self, ty: Option<&str>, value: String) -> String {
         if !self.as3 {
             return value;
         }
-        match self.types.get(name).map(String::as_str) {
-            Some("Number") => format!("Number({value})"),
-            Some("Boolean") => format!("Boolean({value})"),
-            Some("int") => format!("(Number({value}) | 0)"),
-            Some("uint") => format!("(Number({value}) >>> 0)"),
+        let number = self.intrinsic("Number");
+        let boolean = self.intrinsic("Boolean");
+        let string = self.intrinsic("String");
+        match ty {
+            Some("Number") => format!("{number}({value})"),
+            Some("Boolean") => format!("{boolean}({value})"),
+            Some("int") => format!("({number}({value}) | 0)"),
+            Some("uint") => format!("({number}({value}) >>> 0)"),
             Some("String") => {
-                format!("((__nfValue) => __nfValue == null ? null : String(__nfValue))({value})")
+                format!("((__nfValue) => __nfValue == null ? null : {string}(__nfValue))({value})")
             }
+            Some("Function") => format!(
+                "((__nfValue) => {{ if (__nfValue == null) return null; if (typeof __nfValue !== 'function') throw new __nfTypeError('AS3 Function value required'); return __nfValue; }})({value})"
+            ),
             _ => value,
         }
+    }
+    fn intrinsic(&self, name: &str) -> String {
+        if self.scope == 0 {
+            name.into()
+        } else {
+            format!("__nf{name}")
+        }
+    }
+    fn typed(&self, name: &str) -> bool {
+        self.analysis
+            .resolve(self.scope, name)
+            .is_some_and(|(_, b)| b.ty.is_some())
+    }
+    fn name(&self, name: &str) -> String {
+        if self
+            .analysis
+            .resolve(self.scope, name)
+            .is_some_and(|(id, _)| id != 0)
+        {
+            return name.into();
+        }
+        if name == "this" || (is_global(name) && !is_timeline_method(name) && name != "trace") {
+            name.into()
+        } else if name == "trace" {
+            "__nfTrace".into()
+        } else {
+            format!(
+                "{}.{name}",
+                if self.scope == 0 { "this" } else { "__nfFrame" }
+            )
+        }
+    }
+    fn default_value(&self, ty: Option<&str>) -> &'static str {
+        if !self.as3 {
+            return "undefined";
+        }
+        match ty {
+            Some("Number") => "NaN",
+            Some("Boolean") => "false",
+            Some("String" | "Function") => "null",
+            Some("int" | "uint") => "0",
+            _ => "undefined",
+        }
+    }
+    fn function(&self, f: &Function) -> String {
+        let inner = Emitter {
+            as3: self.as3,
+            analysis: self.analysis,
+            scope: f.id,
+        };
+        let mut prologue = String::new();
+        if self.as3 {
+            prologue.push_str(&format!("if (arguments.length !== {}) throw new __nfTypeError('AS3 function expects {} arguments');\n",f.params.len(),f.params.len()));
+        }
+        for (name, ty) in &f.params {
+            if self.as3 && ty.is_some() {
+                prologue.push_str(&format!("{name} = {};\n", inner.coerce(name, name.clone())));
+            }
+        }
+        for (name, binding) in &self.analysis.scopes[&f.id].bindings {
+            if binding.kind == scope::BindingKind::Variable {
+                prologue.push_str(&format!(
+                    "var {name} = {};\n",
+                    inner.default_value(binding.ty.as_deref())
+                ));
+            }
+        }
+        let name = if f.declaration && self.scope == 0 {
+            ""
+        } else {
+            f.name.as_deref().unwrap_or("")
+        };
+        format!(
+            "function {name}({}) {{\n{prologue}{}\n}}",
+            f.params
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+            inner.body(&f.body)
+        )
+    }
+    fn body(&self, body: &[Stmt]) -> String {
+        let mut output = String::new();
+        for statement in body {
+            if let Stmt::Function(f) = statement {
+                let code = self.function(f);
+                if self.scope == 0 {
+                    output.push_str(&format!(
+                        "this.{} = ({code}){};\n",
+                        f.name.as_deref().unwrap(),
+                        if self.as3 { ".bind(__nfFrame)" } else { "" }
+                    ));
+                } else {
+                    output.push_str(&format!("{code}\n"));
+                }
+            }
+        }
+        output.push_str(&self.statements(body));
+        output
     }
     fn expression(&self, expr: &Expr) -> String {
         match expr {
             Expr::Literal(value) => value.clone(),
-            Expr::Name(name) => {
-                if name == "this"
-                    || (is_global(name) && !is_timeline_method(name) && name != "trace")
-                {
-                    name.clone()
-                } else if name == "trace" {
-                    "console.log".into()
-                } else {
-                    format!("this.{name}")
-                }
-            }
+            Expr::Name(name) => self.name(name),
+            Expr::Function(f) => format!("({})", self.function(f)),
             Expr::Member(base, name) => format!("({}).{name}", self.expression(base)),
             Expr::Index(base, index) => {
                 format!("({})[{}]", self.expression(base), self.expression(index))
@@ -796,7 +1039,7 @@ impl Emitter<'_> {
                 "({{{}}})",
                 values
                     .iter()
-                    .map(|(k, v)| format!("{k}: {}", self.expression(v)))
+                    .map(|(k, v)| format!("{}: {}", k.source, self.expression(v)))
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
@@ -811,7 +1054,7 @@ impl Emitter<'_> {
                 let value = self.expression(right);
                 if let Expr::Name(name) = left.as_ref()
                     && self.as3
-                    && self.types.contains_key(name)
+                    && self.typed(name)
                 {
                     if op == "&&=" || op == "||=" {
                         return format!(
@@ -833,15 +1076,17 @@ impl Emitter<'_> {
                 let target = self.expression(value);
                 if let Expr::Name(name) = value.as_ref()
                     && self.as3
-                    && self.types.contains_key(name)
+                    && self.typed(name)
                 {
                     let sign = if op == "++" { "+" } else { "-" };
-                    let converted = self.coerce(name, format!("(Number({target}) {sign} 1)"));
+                    let number = self.intrinsic("Number");
                     if *prefix {
+                        let converted = self.coerce(name, format!("({number}({target}) {sign} 1)"));
                         return format!("({target} = {converted})");
                     }
+                    let converted = self.coerce(name, format!("(__nfOld {sign} 1)"));
                     return format!(
-                        "((__nfOld) => ({target} = {converted}, __nfOld))(Number({target}))"
+                        "((__nfOld) => ({target} = {converted}, __nfOld))({number}({target}))"
                     );
                 }
                 if *prefix {
@@ -856,7 +1101,7 @@ impl Emitter<'_> {
                 self.expression(yes),
                 self.expression(no)
             ),
-            Expr::Call(callee, args) => format!(
+            Expr::Call(callee, args, _) => format!(
                 "{}({})",
                 self.expression(callee),
                 args.iter()
@@ -875,28 +1120,19 @@ impl Emitter<'_> {
                 variables
                     .iter()
                     .map(|(name, ty, value)| {
+                        let target = self.name(name);
+                        if self.scope != 0 && value.is_none() {
+                            return "undefined".into();
+                        }
                         let initialized = value.is_some();
                         let value = value
                             .as_ref()
                             .map(|v| self.coerce(name, self.expression(v)))
-                            .unwrap_or_else(|| {
-                                if !self.as3 {
-                                    "undefined".into()
-                                } else {
-                                    match ty.as_deref() {
-                                        Some("Number") => "NaN",
-                                        Some("Boolean") => "false",
-                                        Some("String") => "null",
-                                        Some("int" | "uint") => "0",
-                                        _ => "undefined",
-                                    }
-                                    .into()
-                                }
-                            });
+                            .unwrap_or_else(|| self.default_value(ty.as_deref()).into());
                         if initialized {
-                            format!("this.{name} = {value}")
+                            format!("{target} = {value}")
                         } else {
-                            format!("(this.{name} === undefined ? (this.{name} = {value}) : this.{name})")
+                            format!("({target} === undefined ? ({target} = {value}) : {target})")
                         }
                     })
                     .collect::<Vec<_>>()
@@ -934,6 +1170,19 @@ impl Emitter<'_> {
             ),
             Stmt::Break => "break;".into(),
             Stmt::Continue => "continue;".into(),
+            Stmt::Function(_) => String::new(),
+            Stmt::Return(value, _) => value.as_ref().map_or_else(
+                || "return;".into(),
+                |value| {
+                    format!(
+                        "return {};",
+                        self.coerce_type(
+                            self.analysis.scopes[&self.scope].returns.as_deref(),
+                            self.expression(value)
+                        )
+                    )
+                },
+            ),
         }
     }
     fn statements(&self, statements: &[Stmt]) -> String {
@@ -953,14 +1202,20 @@ pub(crate) fn compile(script: &Script) -> Result<String, Diagnostic> {
         pos: 0,
         depth: 0,
         loop_depth: 0,
-        types: HashMap::new(),
+        function_depth: 0,
+        next_function: 1,
     };
     let statements = parser.statements(false)?;
-    let output = Emitter {
+    let analysis = scope::Analysis::new(script, &statements)?;
+    let body = Emitter {
         as3: script.language == ScriptLanguage::ActionScript3,
-        types: &parser.types,
+        analysis: &analysis,
+        scope: 0,
     }
-    .statements(&statements);
+    .body(&statements);
+    let output = format!(
+        "const __nfFrame = this, __nfNumber = Number, __nfString = String, __nfBoolean = Boolean, __nfTypeError = TypeError;\nconst __nfTrace = trace;\n{body}"
+    );
     // Validate literal spelling and the generated function body with an independent parser.
     let generated = Script {
         language: ScriptLanguage::JavaScript,
@@ -993,7 +1248,9 @@ mod tests {
     fn timeline_methods_and_strings_are_distinct_tokens() {
         let output =
             compile_as("// stop();\ntrace('stop() _x'); child.gotoAndPlay(2); stop();").unwrap();
-        assert!(output.contains("console.log('stop() _x')"));
+        assert!(output.contains("__nfTrace('stop() _x')"));
+        assert!(output.contains("const __nfTrace = trace;"));
+        assert!(!output.contains("console.log"));
         assert!(output.contains("(this.child).gotoAndPlay(2)"));
         assert!(output.contains("this.stop()"));
     }
@@ -1078,5 +1335,85 @@ mod tests {
         let source = format!("x = {};", vec!["1"; 1000].join(" + "));
         let error = compile_as(&source).unwrap_err();
         assert!(error.message.contains("128 nested operations"));
+    }
+
+    #[test]
+    fn functions_are_resolved_after_declarations_and_locals_are_lexical() {
+        let code=compile_as("result = twice(4); function twice(value:int):int { var local:int = value * 2; return local; }").unwrap();
+        assert!(code.contains("var local = 0"));
+        assert!(!code.contains("this.local"));
+        assert!(code.find("this.twice =").unwrap() < code.find("this.result =").unwrap());
+        assert!(compile_as("function make(x:int):Function { return function(y:int):int { return x + y; }; } var f:Function = make(2); answer = f(3);").is_ok());
+    }
+
+    #[test]
+    fn function_semantics_outside_the_supported_boundary_are_diagnostics() {
+        for source in [
+            "return 1;",
+            "function f(a:int = 2):int { return a; }",
+            "function f(...args) {}",
+            "function f(a, a) {}",
+            "function f():void { return 1; }",
+            "function f():int { return; }",
+            "function f(x:int):int { if (x > 0) return x; }",
+            "function f(){ return this.x; } var callback = function(){ return this; };",
+            "while (true) { var f = function(){ break; }; }",
+            "if (true) { function f() {} }",
+            "var f = function named(){ named = 2; };",
+            "function f(){ return arguments[0]; }",
+            "function f(){ var fn:Number = 2; fn(); }",
+            "var n:Number = function() {}; n();",
+            "function f(){ return 1; } child.f();",
+            "var obj = {}; obj.unavailable();",
+            "var f = function() {}; f.call(this);",
+            "function f(trace:Number) { trace(); }",
+            "function f(Math) { Math.sin(1); }",
+            "function __nfFrame() {}",
+            "function f(__nfNumber) {}",
+            "function f(){ var __nfValue; }",
+            "Number = 3;",
+            "trace++;",
+        ] {
+            assert!(compile_as(source).is_err(), "must reject {source}");
+        }
+        let error = compile_as("function ok() {}\nmissing();").unwrap_err();
+        assert_eq!(error.line, 2);
+    }
+
+    #[test]
+    fn explicit_user_function_members_do_not_unlock_unrelated_apis() {
+        assert!(
+            compile_as("this.custom = function(x:int):int { return x; }; this.custom(2);").is_ok()
+        );
+        assert!(compile_as("var tools = { go: function() {} }; tools.go();").is_ok());
+        assert!(compile_as("var tools = { go: function() {} }; other.go();").is_err());
+        assert!(compile_as(r#"var tools = {"r\u0075n": function() {} }; tools.run();"#).is_ok());
+        assert!(compile_as(r#"var tools = {"\uZZZZ": function() {} };"#).is_err());
+        assert!(
+            compile_as(
+                "function a() { var tools = { go: function() {} }; } function b() { tools.go(); }"
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn as2_function_types_erase_but_as3_primitive_returns_require_values() {
+        assert!(
+            compile(&Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "function f(x:Number):Number { return; } f();".into()
+            })
+            .is_ok()
+        );
+        assert!(
+            compile(&Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "function f():Void { return; }".into()
+            })
+            .is_ok()
+        );
+        assert!(compile_as("function f():int { return; }").is_err());
+        assert!(compile_as("function f():int { if (true) return 1; else return 2; }").is_ok());
     }
 }

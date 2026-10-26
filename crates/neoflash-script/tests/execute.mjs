@@ -6,11 +6,150 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { verifyHostIntegration } from './host-integration.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const localCargo = resolve(homedir(), '.cargo/bin/cargo');
 const cargo = process.env.CARGO || (existsSync(localCargo) ? localCargo : 'cargo');
 const fixtures = [
+  {
+    language: 'action_script3',
+    source: 'var count:int; function increment():int { count += 1; return count; } trace("Blue", increment());',
+    context: {}, repeat: 2, hostIntegration: true,
+    verify(c, logs) { assert.equal(c.count, 2); assert.deepEqual(logs, [['Blue', 1], ['Blue', 2]]); },
+  },
+  {
+    language: 'action_script3',
+    source: 'function f():int { var a:int=1; var b:int=2; a\n++\nb; return a*10+b; } result=f(); function comment():int { var a:int=1; var b:int=2; a /* next\n line */ ++b; return a*10+b; } other=comment();',
+    context: {},
+    verify(c) { assert.equal(c.result, 13); assert.equal(c.other, 13); },
+  },
+  {
+    language: 'action_script3',
+    source: 'function choose(flag:Boolean):int { var x:int=0; var answer:int=flag ? x=1 : x=2; return answer*10+x; } yes=choose(true); no=choose(false);',
+    context: {},
+    verify(c) { assert.equal(c.yes, 11); assert.equal(c.no, 22); },
+  },
+  {
+    language: 'action_script3',
+    source: 'var reads:int = 0; var value:int = 1; this.value = {valueOf:function():Number { reads++; return reads; }}; var before:Number = value++; var downReads:int = 0; var down:int = 1; this.down = {valueOf:function():Number { downReads++; return 5; }}; var beforeDown:Number = down--;',
+    context: {},
+    verify(c) { assert.equal(c.reads, 1); assert.equal(c.value, 2); assert.equal(c.before, 1); assert.equal(c.downReads, 1); assert.equal(c.down, 4); assert.equal(c.beforeDown, 5); },
+  },
+  {
+    language: 'action_script3',
+    source: String.raw`var quoted = {"run":function():int { return 7; }}; first = quoted.run(); var escaped = {'ru\u006e':function():int { return 8; }}; second = escaped.run(); var hex = {"r\x75n":function():int { return 9; }}; third = hex.run(); var unicode = {"\u03c0":function():int { return 10; }}; fourth = unicode.π(); var quote = {"say\"hi":function():int { return 11; }};`,
+    context: {},
+    verify(c) { assert.equal(c.first, 7); assert.equal(c.second, 8); assert.equal(c.third, 9); assert.equal(c.fourth, 10); assert.equal(c.quote['say"hi'](), 11); },
+  },
+  {
+    language: 'action_script2',
+    source: 'function make() { return function(step) { _x += step; return _x; }; } var callback:Function = make();',
+    context: { _x: 1 },
+    verify(c) { const other = { _x: 100 }; assert.equal(c.callback.call(other, 3), 4); assert.equal(c._x, 4); assert.equal(other._x, 100); },
+  },
+  {
+    language: 'action_script3',
+    source: 'function shadow(Number:int, play:int):int { Number++; play += 2; return Number + play; } result = shadow(4, 6); function builtinShadow():int { var Math = { custom: function():int { return 11; } }; return Math.custom(); } custom = builtinShadow();',
+    context: {},
+    verify(c) { assert.equal(c.result, 13); assert.equal(c.custom, 11); },
+  },
+  {
+    language: 'action_script3',
+    source: 'function operate(Number:Function, trace:Function):int { var n:int = 4294967295; n++; trace(n); return Number(n); } answer = operate(function(x:int):int { return x + 7; }, function(x:int):void { captured = x; }); function nested():int { function trace(x:int):int { return x * 3; } return trace(4); } other = nested();',
+    context: {},
+    verify(c) { assert.equal(c.answer, 7); assert.equal(c.captured, 0); assert.equal(c.other, 12); },
+  },
+  {
+    language: 'action_script2',
+    source: 'function local(Number, trace) { return trace(Number(2)); } result = local(function(x) { return x + 1; }, function(x) { return x * 4; });',
+    context: {},
+    verify(c) { assert.equal(c.result, 12); },
+  },
+  {
+    language: 'action_script3',
+    source: 'function log():void { var console = 2; trace("safe trace"); } log();',
+    context: {},
+    verify(c, logs) { assert.deepEqual(logs, [['safe trace']]); },
+  },
+  {
+    language: 'action_script3',
+    source: 'answer = sum(2, 3); function sum(left:int, right:int):int { return left + right; }',
+    context: {},
+    verify(c) { assert.equal(c.answer, 5); assert.equal(typeof c.sum, 'function'); assert.ok(!Object.hasOwn(c, 'left')); },
+  },
+  {
+    language: 'action_script2',
+    source: 'answer = advance(4); function advance(step:Number):Number { var temporary = step + 1; _x += temporary; stop(); return _x; }',
+    context: { _x: 10, stop() { this.stopped = true; } },
+    verify(c) { assert.equal(c.answer, 15); assert.equal(c.stopped, true); assert.ok(!Object.hasOwn(c, 'temporary')); },
+  },
+  {
+    language: 'action_script3',
+    source: 'function makeCounter(seed:int):Function { var count:int = seed; return function(step:int):int { count += step; return count; }; } var counter:Function = makeCounter(10); first = counter(2); second = counter(3);',
+    context: {},
+    verify(c) { assert.equal(c.first, 12); assert.equal(c.second, 15); assert.equal(c.counter(1), 16); assert.ok(!Object.hasOwn(c, 'count')); },
+  },
+  {
+    language: 'action_script3',
+    source: 'var factorial:Function = function recur(n:int):int { if (n <= 1) return 1; return n * recur(n - 1); }; answer = factorial(6); leaked = typeof recur;',
+    context: {},
+    verify(c) { assert.equal(c.answer, 720); assert.equal(c.leaked, 'undefined'); },
+  },
+  {
+    language: 'action_script3',
+    source: 'function parity(n:int):Boolean { return even(n); function even(x:int):Boolean { if (x == 0) return true; return odd(x - 1); } function odd(x:int):Boolean { if (x == 0) return false; return even(x - 1); } } answer = parity(8); other = parity(7);',
+    context: {},
+    verify(c) { assert.equal(c.answer, true); assert.equal(c.other, false); assert.ok(!Object.hasOwn(c, 'even')); },
+  },
+  {
+    language: 'action_script3',
+    source: 'var x:int = 100; function shadow(x:int):int { var before:int = local; local = 7; { var local:int; } return before + local + x; } result = shadow(2);',
+    context: {},
+    verify(c) { assert.equal(c.x, 100); assert.equal(c.result, 9); assert.ok(!Object.hasOwn(c, 'local')); },
+  },
+  {
+    language: 'action_script3',
+    source: 'var n:int = 10; function local() { var n; n = "12"; return n + 1; } result = local();',
+    context: {},
+    verify(c) { assert.equal(c.n, 10); assert.equal(c.result, '121'); },
+  },
+  {
+    language: 'action_script3',
+    source: 'function make(start:uint):Function { var n:uint = start; return function():uint { return ++n; }; } var increment:Function = make(4294967295); first = increment(); second = increment();',
+    context: {},
+    verify(c) { assert.equal(c.first, 0); assert.equal(c.second, 1); },
+  },
+  {
+    language: 'action_script3',
+    source: 'function first(x:int):int { if (x < 0) return -1; return x + 1; } negative = first(-9); positive = first(4); function wrap(x:Number):int { return x; } wrapped = wrap(4294967295); function text(x:String):String { return x; } label = text(12); empty = text(null);',
+    context: {},
+    verify(c) { assert.equal(c.negative, -1); assert.equal(c.positive, 5); assert.equal(c.wrapped, -1); assert.equal(c.label, '12'); assert.equal(c.empty, null); },
+  },
+  {
+    language: 'action_script2',
+    source: 'function echo(value:Number):Number { return value; } result = echo("uncoerced"); missing = echo(); function newline() { return\n 23; } early = newline();',
+    context: {},
+    verify(c) { assert.equal(c.result, 'uncoerced'); assert.equal(c.missing, undefined); assert.equal(c.early, undefined); },
+  },
+  {
+    language: 'action_script3',
+    source: 'var tools = { twice: function(value:int):int { return value * 2; } }; first = tools.twice(3); this.custom = function(value:int):int { return value + 1; }; second = this.custom(9);',
+    context: {},
+    verify(c) { assert.equal(c.first, 6); assert.equal(c.second, 10); },
+  },
+  {
+    language: 'action_script3',
+    source: 'function method():int { return this.x; } var detached:Function = method; result = detached(); function invoke(callback:Function):int { return callback(); } passed = invoke(function():int { return 7; }); iife = (function(x:int):int { return x * 2; })(4);',
+    context: { x: 3 },
+    verify(c) { assert.equal(c.result, 3); assert.equal(c.method.call({x: 9}), 3); assert.equal(c.passed, 7); assert.equal(c.iife, 8); },
+  },
+  {
+    language: 'action_script3',
+    source: 'function expects(value:int):int { return value; }',
+    context: {},
+    verify(c) { assert.throws(() => c.expects(), /expects 1 arguments/); assert.throws(() => c.expects(1,2), /expects 1 arguments/); assert.equal(c.expects('12.8'), 12); },
+  },
   {
     language: 'action_script2',
     source: 'var step:Number = 4; _x += step; if (_x >= 8) stop(); trace("stop() _x");',
@@ -75,10 +214,13 @@ const outputs = JSON.parse(result.stdout);
 for (const [index, fixture] of fixtures.entries()) {
   assert.ok(outputs[index].Ok, JSON.stringify(outputs[index]));
   const logs = [];
-  const run = new Function('console', 'stop', '"use strict"; return (function(){\n' + outputs[index].Ok + '\n}).call(this)');
+  const consoleLogs = [];
+  const run = new Function('console', 'trace', 'stop', '"use strict"; return (function(){\n' + outputs[index].Ok + '\n}).call(this)');
   for (let i = 0; i < (fixture.repeat || 1); i++) {
-    run.call(fixture.context, { log: (...args) => logs.push(args) }, () => { throw new Error('wrong binding'); });
+    run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args), () => { throw new Error('wrong binding'); });
   }
   fixture.verify(fixture.context, logs);
+  if (fixture.language.startsWith('action_script')) assert.deepEqual(consoleLogs, [], 'AS trace must use the host trace binding, never bypass it through console');
+  if (fixture.hostIntegration) verifyHostIntegration(root, fixture, outputs[index].Ok);
 }
-console.log(`Script execution: ${fixtures.length} behavior fixtures passed.`);
+console.log(`Script execution: ${fixtures.length} behavior fixtures and actual-host integration passed.`);
