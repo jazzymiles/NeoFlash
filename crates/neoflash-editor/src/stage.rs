@@ -313,6 +313,16 @@ impl Editor {
                 let nested = self.editing.len() > 1;
                 let page = Rect::from_center_size(rect.center() + self.pan, size * self.zoom);
                 let origin = if nested { page.center() } else { page.min };
+                let visible_page = page.intersect(rect);
+                let center = if visible_page.is_positive() {
+                    visible_page.center()
+                } else {
+                    page.center()
+                };
+                self.remember_paste_view([
+                    (center.x - origin.x) as f64 / self.zoom as f64,
+                    (center.y - origin.y) as f64 / self.zoom as f64,
+                ]);
                 let p = ui.painter_at(rect);
                 p.rect_filled(
                     page.translate(Vec2::new(3., 4.)),

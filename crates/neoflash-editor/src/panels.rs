@@ -4,6 +4,8 @@ use neoflash_core::*;
 
 impl Editor {
     pub fn menu(&mut self, ctx: &egui::Context) {
+        let clipboard_target = self.clipboard_target(ctx);
+        let mut edit_open = false;
         egui::TopBottomPanel::top("menu")
             .exact_height(32.)
             .show(ctx, |ui| {
@@ -42,6 +44,10 @@ impl Editor {
                         }
                     });
                     ui.menu_button("Edit", |ui| {
+                        edit_open = true;
+                        if !self.clipboard.menu_open {
+                            self.clipboard.menu_target = Some(clipboard_target.clone());
+                        }
                         if ui
                             .add_enabled(
                                 self.history.can_undo() || self.vector.draft.is_some(),
@@ -58,6 +64,41 @@ impl Editor {
                         {
                             self.redo();
                             ui.close();
+                        }
+                        ui.separator();
+                        let text_target = self
+                            .clipboard
+                            .menu_target
+                            .as_ref()
+                            .is_some_and(|target| target.is_text());
+                        let can_copy = text_target || !self.selection.is_empty();
+                        let can_paste = text_target || self.layer_editable();
+                        for (label, command, enabled) in [
+                            (
+                                "Cut       ⌘X",
+                                crate::clipboard::ClipboardCommand::Cut,
+                                can_copy,
+                            ),
+                            (
+                                "Copy      ⌘C",
+                                crate::clipboard::ClipboardCommand::Copy,
+                                can_copy,
+                            ),
+                            (
+                                "Paste     ⌘V",
+                                crate::clipboard::ClipboardCommand::Paste,
+                                can_paste,
+                            ),
+                            (
+                                "Paste in Place     ⇧⌘V",
+                                crate::clipboard::ClipboardCommand::PasteInPlace,
+                                !text_target && self.layer_editable(),
+                            ),
+                        ] {
+                            if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+                                self.request_clipboard(ctx, command);
+                                ui.close();
+                            }
                         }
                         ui.separator();
                         if ui.button("Select All     ⌘A").clicked() {
@@ -168,6 +209,10 @@ impl Editor {
                     });
                 });
             });
+        self.clipboard.menu_open = edit_open;
+        if !edit_open {
+            self.clipboard.menu_target = None;
+        }
     }
     pub fn timeline(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("timeline")

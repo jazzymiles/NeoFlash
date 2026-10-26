@@ -36,9 +36,13 @@ Commands currently group snapshot history around edits. Drag gestures are groupe
 
 Selection is editor state scoped to a symbol and stable layer/element IDs. Gestures capture the authored frame, view transform and original sampled poses, then apply changes from that snapshot. Keys and history begin only with an effective edit; cancellation and a return to the original pose leave neither behind. V selects/moves and Q exposes object transform handles. Multiple selections support rotation and uniform scaling; the TRS document model does not silently approximate skew. See [selection and gestures](decisions/0004-selection-and-gestures.md).
 
+The core clipboard model captures ordered sampled placements and their reachable symbol definitions in bounded, versioned text. It prepares a complete validated destination before the editor commits one history transaction. A live document-session identity permits reuse of current library definitions; another document receives consistently remapped symbol/layer/placement IDs. The editor routes text and object commands separately, preserving the text recipient across menu focus changes. See [clipboard transfer](decisions/0005-clipboard-transfer.md).
+
 ## Imports and compatibility
 
 The importer is independent of native GUI and publishing. It inspects container signatures and supports only a documented XFL subset. Unsupported content blocks import, with a source location, rather than disappearing. Binary FLA, SWF bytecode/runtime and restoration of an editable source project are different compatibility tracks. See IMPORTS.md.
+
+Opt-in binary preservation reads Contents, archive object/reference tables and typed timeline fields from one immutable container snapshot. Partial ancestors, source-action presence and original byte spans remain explicit. Archive identity and byte consumption do not establish cross-frame placement identity or an editable document; conversion remains a separate validated adapter.
 
 ## Verification boundaries
 

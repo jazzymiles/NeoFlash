@@ -1,13 +1,13 @@
 # Verification record
 
-Date: 2026-10-26. This record covers the development preview, vector and object tools, authored web semantics, ActionScript functions and binary geometry/Contents preservation, not complete Flash compatibility.
+Date: 2026-10-26. This record covers the development preview, vector/object tools and clipboard, authored web semantics, ActionScript functions and binary geometry/Contents/timeline preservation, not complete Flash compatibility.
 
 ## Automated checks
 
 `./scripts/check.sh` passes on Apple Silicon, macOS 15.8, Rust 1.99.1:
 
 - Formatting and Clippy (`--workspace --all-targets -- -D warnings`).
-- 169 Rust tests: 30 core, 78 editor, 20 script, 37 importer and 4 exporter.
+- 202 Rust tests: 42 core, 88 editor, 20 script, 48 importer and 4 exporter.
 - 27 browser-host/actual-WASM/cache tests in Node, including semantic bounds, DOM identity, focus restoration, pan/zoom and lifetime-checked keyboard activation.
 - 30 execution fixtures using JavaScript emitted by the script compiler, plus an integration check using the actual host proxy/dispatch code with a lifecycle stub.
 - Release WebAssembly build and standalone demo export.
@@ -51,7 +51,23 @@ ActionScript execution checks cover function hoisting, recursion, lexical closur
 
 Binary geometry tests exercise every truncated prefix of original fixtures, exact source-byte retention, invalid style references, optional fields, coordinate wrapping and shared allocation budgets. A separate local deterministic malformed-input probe ran 20,000 inputs through the public shape decoder without panic or out-of-range diagnostic offsets. This probe complements the committed fixtures; it does not prove safety for all inputs or visual fidelity.
 
-Eleven Contents tests cover versioned prefixes, truncated input, descriptor/class/object identities, selected-scene references, missing/duplicate/wrong-role streams, Unicode and compact string boundaries, nested metadata and collection budgets. Raw settings retain fractional FPS and color words; unread suffix bytes remain exact. Passing these tests establishes preservation within the documented boundary, not complete document conversion.
+Thirteen Contents tests cover versioned prefixes, truncated input, descriptor/class/object identities, selected-scene references, missing/duplicate/wrong-role streams, Unicode and compact string boundaries, nested metadata and collection budgets. Flash 3 tests distinguish exact EOF, supported publish/tail records, unknown/nonempty shared-library data and trailing bytes. Raw settings retain fractional FPS and color words; unread suffix bytes remain exact.
+
+Nine typed timeline tests cover ordered ownership, class/object/related references, partial ancestors, every truncated prefix, invalid/shared/cyclic child edges, frame durations, labels, source-action spans, action-presence boundaries and exact shape associations. Shared document retention limits preserve consistent partial graphs. An independent source review checked reference reservation, ownership, budgets, source-presence semantics and F3 EOF against the pinned primary implementation. These checks establish preservation within the documented boundary, not complete document conversion.
+
+## Clipboard increment
+
+Twelve core clipboard tests cover reachable symbol closure, painter order, repeated placement identities across keys, cross-document collisions, live same-document symbol edits, missing-definition recovery, sampled destination keys and atomic validation failure. Unknown/duplicate fields, unsupported versions, cycles, locked/hidden layers, invalid transforms, byte and item budgets are checked. Names, script source, labels, tween/playback data and accessibility metadata are retained.
+
+The runtime regression uses the actual shared `Player` on a transferred nested project. It verifies separate instance lifetimes/clocks, sibling independence under stop/goto/property overrides, source/language/context of frame and object dispatch, click bubbling, reset, and the same transcript and scene after serialization/reopening. Scripts are dispatched as data by this core test; execution remains covered separately by the compiler/browser-host suite.
+
+Ten editor clipboard tests use real egui events and menu clicks with an injected clipboard reader, never the user's OS clipboard. They cover one output per Copy/Cut, Cut and Paste history, centered/in-place modes, text-field ownership even for a valid object payload, deferred text delivery/cancellation, menu focus restoration, playback stopping before text delivery, empty/unavailable clipboard, malformed input, and no duplicate paste from a combined key/paste input batch. Review found the playback tick ordering issue and the tests now guard against it.
+
+The native paste event does not carry key-press modifiers. The tested V-release fallback handles the usual Shift chord, but cannot recover Shift if it was released before V in the same batch. The explicit Paste in Place menu action has no such ambiguity. Native modifier capture remains planned. Live OS clipboard exchange and the new menu's visual checks remain pending the Mac being unlocked.
+
+The rebuilt bundle passed `codesign --verify --deep --strict` and retains deployment minimum macOS 15.0. Executable SHA-256: `c0ef61a7ac73089704684d4acf48a5a97140cb3b6b708ecd6b01837756dcd871`; packaged WASM: `9b564330387b99c739fb4326d9567c882f9234c06ebb048b2566a0c5cec2085d`.
+
+The regenerated demo was served only from `dist/demo` over loopback and checked in the in-app browser. Animation advanced; Pause held frame 41; a click emitted `Orbit rotated`; Restart resumed near frame 3; a subsequent Pause held frame 70 and its object handler still worked. Captured console errors were empty, with the known nonembedded-font warning. An independent frozen-export review at 1280×720 also passed animation, pause, click and restart checks and verified the embedded WASM fingerprint. This is a runtime regression smoke check, not a live clipboard or transferred-project acceptance test. Screenshot: `target/verification/html5-clipboard-runtime.png`. Temporary tabs and the test server were closed.
 
 ## Observed HTML5 checks
 
@@ -101,7 +117,9 @@ Screenshots: `target/verification/html5-keyboard.jpg`, `html5-keyboard-390-fit.j
 
 Initial signature inspection recognized 42 local FLA/SWF files: 20 compound binary FLA; 22 SWF (20 FWS + 2 CWS, versions 3–8). The new strict CFB reader accepted 19 binary containers and rejected one for adjacent red directory nodes; this requires writer-compatibility investigation and does not establish that the original application cannot open it. Accepted save targets: Flash 3 × 6, Flash 5 × 10, Flash MX × 2 and Flash 8 × 1. These identify the saved format, not the last editing application.
 
-The reader indexed 20 scene streams, 246 symbol streams and 23 media streams. The later geometry-preservation increment increased fully consumed timeline streams from seven to 75 and retained 394 complete shape bodies, including geometry inherited by enclosing records that may later stop. These contain 501 fills, 208 strokes, 2,916 straight edges, 4,180 quadratic edges and 706 auxiliary curves. The Contents increment resolves 289 descriptors and reaches raw document settings in all 19 accepted containers. Every file stops explicitly at the unread Contents suffix; unsupported scene/object/media/action payloads also remain. Inspection emits only aggregate counts; exact geometry, descriptor bytes and settings are available only through opt-in preservation APIs. Every editable binary conversion remains blocked. See IMPORTS.md for exact boundaries. No private source/content/derived artwork was uploaded. Projector EXEs and the legacy HTML file were not executed.
+The reader indexes 20 scene streams, 246 symbol streams and 23 media streams. It now consumes 107 timeline streams and all six Flash 3 Contents streams completely. The other 13 Contents streams stop at their unsupported suffix. All 289 descriptors resolve and raw settings are reached in the 19 accepted containers.
+
+Typed preservation retains 1,343 object identities, 2,802 pointer edges, 1,064 owned children and 426 shape associations. The shape bodies include 526 fills, 212 strokes, 2,971 straight edges, 4,322 quadratic edges and 706 auxiliary curves. Complete descendants may belong to an incomplete ancestor, so these counts do not prove a complete editable graph. Remaining timeline stops include 155 unsupported class payloads, two shared/cyclic child references, one nonempty historical action list and one nonempty compiled list. Inspection emits only aggregate counts; exact geometry, descriptors, settings and typed fields are opt-in private preservation APIs. Every editable binary conversion remains blocked. See IMPORTS.md for exact boundaries. No private source/content/derived artwork was uploaded. Projector EXEs and the legacy HTML file were not executed.
 
 Per-file reports, screenshots, logs and temporary test projects remain in ignored `target/verification/`. Only original synthetic fixtures and NeoFlash examples are public.
 

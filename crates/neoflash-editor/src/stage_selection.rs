@@ -123,6 +123,14 @@ fn transformed_rect(rect: Rect, m: [f64; 6]) -> Rect {
 }
 
 impl Editor {
+    pub(crate) fn selection_bounds(
+        &self,
+        scene: &[DrawItem],
+        painter: &egui::Painter,
+    ) -> Option<Rect> {
+        self.selection_geometry(scene, painter)
+            .map(|geometry| geometry.world)
+    }
     pub(crate) fn finish_selection_gesture(&mut self) {
         if let Some(gesture) = self.object_gesture.take()
             && gesture.began

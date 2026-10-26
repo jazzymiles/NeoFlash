@@ -1,5 +1,6 @@
 mod accessibility;
 mod app;
+mod clipboard;
 mod fonts;
 mod panels;
 mod selection;
@@ -9,6 +10,8 @@ mod stage_selection;
 mod transform_geometry;
 mod vector;
 
+#[cfg(test)]
+mod clipboard_tests;
 #[cfg(test)]
 mod selection_tests;
 #[cfg(test)]

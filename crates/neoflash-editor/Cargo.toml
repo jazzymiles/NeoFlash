@@ -13,6 +13,7 @@ eframe = { version = "0.33.3", default-features = false, features = ["wgpu", "de
 rfd = "0.17.2"
 font-kit = "0.14.3"
 ab_glyph = "0.2.32"
+arboard = { version = "=3.7.0", default-features = false }
 wgpu = { version = "27", default-features = false, features = ["metal", "wgsl"] }
 neoflash-import = { path = "../neoflash-import" }
 lyon_tessellation = "1.0.20"

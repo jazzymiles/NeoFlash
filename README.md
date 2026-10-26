@@ -35,7 +35,9 @@ The local bundle is ad-hoc signed, not a notarized distribution release. Apple S
 
 For vector drawing, choose **Pen (P)**: click for corners, drag for Bézier handles, click the first anchor to close, or press Enter to finish an open path. Escape cancels the draft. **Pencil (Y)** records a freehand line and simplifies redundant samples. **Subselection (A)** edits anchors and control handles; moving an anchor carries adjacent handles. Fill, stroke and nonzero/even–odd rules are editable in Properties. Compound contours, curve bounds, transformed strokes and paths inside nested symbols share the HTML5 geometry model. General shape morphing, brush pressure, gradients and masks remain pending.
 
-For object editing, **Selection (V)** moves objects; Shift-click toggles objects and dragging an empty area selects enclosed objects across visible, unlocked layers. Shift adds a marquee to the selection, **⌘A** selects all editable objects in the current frame, and Escape cancels a gesture or clears the selection. Duplicate, Delete and Undo work on the whole selection. **Free Transform (Q)** exposes resize and rotation handles: Shift preserves proportions when resizing or snaps rotation to 15°; Option resizes around the center. Multiple objects can be uniformly scaled or rotated together. Custom pivots, skew, nonuniform multi-object scaling and clipboard workflows remain planned.
+For object editing, **Selection (V)** moves objects; Shift-click toggles objects and dragging an empty area selects enclosed objects across visible, unlocked layers. Shift adds a marquee to the selection, **⌘A** selects all editable objects in the current frame, and Escape cancels a gesture or clears the selection. Duplicate, Delete and Undo work on the whole selection. **Free Transform (Q)** exposes resize and rotation handles: Shift preserves proportions when resizing or snaps rotation to 15°; Option resizes around the center. Multiple objects can be uniformly scaled or rotated together. Custom pivots, skew and nonuniform multi-object scaling remain planned.
+
+**⌘C / ⌘X / ⌘V** copy, cut and paste selected objects, including nested symbols, their timelines and scripts. Paste inserts into the active editable layer at the center of the visible stage; **Edit → Paste in Place (⇧⌘V)** retains the original coordinates. Pasting into another document carries the required library symbols and creates fresh identities. Text fields and Actions keep their normal text clipboard behavior. See [clipboard workflows and boundaries](docs/CLIPBOARD.md).
 
 Example frame script:
 
@@ -83,6 +85,7 @@ There is one source tree. Version history belongs in Git, build outputs in ignor
 - [Roadmap](docs/ROADMAP.md) and [backlog](docs/BACKLOG.md)
 - [Language compatibility](docs/COMPATIBILITY.md) and [legacy import](docs/IMPORTS.md)
 - [Interactive HTML5 projects](docs/WEB.md)
+- [Clipboard workflows](docs/CLIPBOARD.md)
 - [Verification record](docs/VERIFICATION.md)
 - [Changes](CHANGELOG.md) and [contributing](CONTRIBUTING.md)
 

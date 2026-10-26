@@ -1,4 +1,5 @@
 //! Document model and deterministic authoring/runtime evaluation shared by desktop and web.
+mod clipboard;
 mod demo;
 mod evaluate;
 mod geometry;
@@ -7,6 +8,9 @@ pub mod model;
 mod runtime;
 mod validation;
 
+pub use clipboard::{
+    CLIPBOARD_PREFIX, ClipboardError, ClipboardPayload, MAX_CLIPBOARD_BYTES, PasteResult,
+};
 pub use evaluate::{DrawItem, affine_multiply, easing, evaluate, sample_layer, transform_matrix};
 pub use geometry::{
     FlattenOptions, FlattenedContour, GeometryError, MAX_PATH_COMMANDS, PathBounds, flatten_path,

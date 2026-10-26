@@ -66,6 +66,7 @@ pub struct Editor {
     pub timeline_key_drag: Option<(String, String, u32)>,
     pub library_selected: Option<String>,
     pub vector: crate::vector::VectorState,
+    pub clipboard: crate::clipboard::ClipboardState,
 }
 
 #[derive(Clone, Copy)]
@@ -115,6 +116,7 @@ impl Editor {
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
             timeline_cell: 13., timeline_key_drag: None, library_selected: None,
             vector: crate::vector::VectorState::default(),
+            clipboard: crate::clipboard::ClipboardState::default(),
         };
         s.load_project_fonts(ctx);
         s.normalize_selection();
@@ -365,6 +367,7 @@ impl Editor {
                 } else {
                     Project::demo()
                 };
+                self.clipboard = Default::default();
                 self.editing = vec![self.project.root.clone()];
                 self.frame = 0;
                 self.layer = 0;
@@ -405,6 +408,7 @@ impl Editor {
         {
             Ok(project) => {
                 self.project = project;
+                self.clipboard = Default::default();
                 self.editing = vec![self.project.root.clone()];
                 self.frame = 0;
                 self.layer = 0;
@@ -436,6 +440,7 @@ impl Editor {
                     match neoflash_import::import_project(&path) {
                         Ok(project) => {
                             self.project = project;
+                            self.clipboard = Default::default();
                             self.editing = vec![self.project.root.clone()];
                             self.frame = 0;
                             self.layer = 0;
@@ -548,6 +553,7 @@ impl Editor {
         }
     }
     pub(crate) fn shortcuts(&mut self, ctx: &egui::Context) {
+        self.clipboard_events(ctx);
         let typing = ctx.wants_keyboard_input();
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S)) {
             self.save(false);

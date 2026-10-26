@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added object Copy/Cut/Paste and Paste in Place across frames/documents, preserving sampled placements, shared nested symbols, timeline scripts and accessibility metadata. Complete candidate validation precedes each paste; text-focused commands retain their recipient and pause playback.
+- Added opt-in typed binary FLA timelines with archive identity, explicit child ownership, partial record fields and shape associations. Added bounded Flash 3 publish/compatibility suffix reading to exact EOF and proven empty historical-action envelopes. Editable binary conversion remains blocked.
 - Added cross-layer multi-selection, Shift selection, marquee, Select All, duplicate/delete and grouped Undo; V remains the selection tool and Q provides Free Transform.
 - Added rotated/reflected resize handles, center/proportional resizing, continuous rotation and uniform multi-object transforms. Gestures preserve sampled keyframe poses and avoid creating keys or Undo entries for unchanged results.
 - Fixed final-release keyframe movement, fast pointer batches, selection/drawing lifecycle across frame/tool/view changes, Undo menu availability for pending Pen paths, and native rectangle/ellipse strokes under nested transforms.

@@ -11,7 +11,9 @@ Priority is based on the stated product goal, with explicit evidence required fo
 ## P1 — essential authoring quality
 
 - [x] Cross-layer multi-selection, Shift/marquee/Select All, whole-selection duplicate/delete and V/Q object editing, with automated native-input regression coverage. Live native visual checks of this increment remain pending.
-- Custom registration points/pivots, skew, nonuniform multi-object transforms, groups and cut/copy/paste across frames and documents.
+- Custom registration points/pivots, skew, nonuniform multi-object transforms and groups.
+- [x] Object Copy/Cut/Paste and Paste in Place across frames/documents, including shared symbol closure, instance identity, scripts, text-focus routing and one-step Undo. Core and egui input tests pass; live OS clipboard checks remain pending.
+- Timeline clipboard for selected frame ranges, layer-preserving paste modes and a native paste adapter that retains modifiers at key press even when Shift is released before V within one input batch.
 - Drag/copy/reverse frame spans, keyframe movement, multi-frame edit and layer folders/reordering.
 - [x] Bezier paths, pen/pencil, direct point editing, compound fills and HTML5 geometry.
 - Brush/pressure, spline fitting, point insertion/deletion, tangent constraints, shape splitting/merging, gradients, masks and guides.
@@ -39,6 +41,7 @@ Priority is based on the stated product goal, with explicit evidence required fo
 - [x] Binary FLA CFB validation, stream inventory, save-target detection and bounded MFC structure inspection against the private corpus.
 - [x] Preserve bounded binary shape/style/edge records with exact source bytes and aggregate-only inspection; verify the private corpus without publishing artwork.
 - [x] Preserve bounded Contents prefixes, scene/library/media descriptors, MFC identities and raw settings; resolve all 289 descriptors in the 19 accepted local containers while retaining unread suffix bytes.
+- [x] Preserve typed timeline identity/ownership/partial fields and shape associations from one container snapshot; read the supported Flash 3 Contents suffix to exact EOF. Synthetic fixtures and aggregate corpus verification establish the documented reader boundary.
 - Binary FLA lossless document conversion: Contents extensions/suffix, interpreted linkage, contour assembly, object/media payloads and historical actions. Investigate one corpus container rejected by strict directory validation.
 - Evaluate Ruffle as optional SWF playback/compatibility module. Keep new HTML5 publication independent of mandatory SWF.
 - Reproducible private-corpus tests: per-file diagnostics, rendered frames, input scenarios, comparison provenance.
