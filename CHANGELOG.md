@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added cross-layer multi-selection, Shift selection, marquee, Select All, duplicate/delete and grouped Undo; V remains the selection tool and Q provides Free Transform.
+- Added rotated/reflected resize handles, center/proportional resizing, continuous rotation and uniform multi-object transforms. Gestures preserve sampled keyframe poses and avoid creating keys or Undo entries for unchanged results.
+- Fixed final-release keyframe movement, fast pointer batches, selection/drawing lifecycle across frame/tool/view changes, Undo menu availability for pending Pen paths, and native rectangle/ellipse strokes under nested transforms.
+- Added bounded binary FLA Contents descriptors, shared MFC identities and raw document settings, preserving unread bytes through an opt-in API. The private corpus reaches settings in all 19 accepted containers; editable binary conversion remains blocked.
 - Added ActionScript function declarations and expressions, lexical locals, recursion, closures and selected AS3 argument/return coercions, with explicit diagnostics for unsupported function semantics.
 - Added optional authored names, descriptions, Button/Image roles and focus order to placements, an Accessibility panel and lifetime-checked activation in the shared runtime.
 - Added semantic HTML5 controls, persistent keyboard focus, visible script trace output, and Fit/100%/zoom/pan preview controls. The original keyboard example exercises independent AS3 instance counters.

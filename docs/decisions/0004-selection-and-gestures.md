@@ -1,0 +1,17 @@
+# 0004 — selection and gesture transactions
+
+Status: accepted and implemented for the initial object tools, 2026-10-26. Live native visual checks remain pending as recorded in VERIFICATION.md.
+
+Classic editing needs a distinction between selecting/moving artwork and changing its transform. V remains Selection; Q exposes Free Transform handles; A edits vector anchors and control points. Selection supports Shift toggling, an additive marquee and Select All across the current symbol's visible, unlocked layers. A nested leaf selects its outer placement in the current editing scope. Selection is editor state, not serialized document data.
+
+Each selected target uses stable layer and element IDs, scoped to the active symbol. The active insertion layer does not redefine which object is selected. Properties and object Actions require exactly one selected target; a multi-selection must not silently edit an arbitrary member. Duplicate and Delete act on the whole selection and preserve painter order and unrelated sampled objects.
+
+A gesture captures its symbol, frame, view origin/zoom, selected targets and original sampled transforms. Every update is calculated from that snapshot. Moving past the input threshold does not by itself create a key or history entry: an effective document change must occur. On the first change the editor materializes sampled keys for the affected layers and starts one snapshot transaction. Returning to the original pose cancels this materialization. Escape restores the document and prior selection; a completed changed gesture contributes one Undo step.
+
+Raw pointer events are processed in order, including complete press/move/release batches delivered in one repaint and release outside the stage. The position of the release is authoritative. Tool/frame/document commands finish valid edits before changing their scope. Unexpected stale IDs or gesture scope cancel safely. View changes end the active drawing phase: Pen retains its existing anchors and tangent, while Pencil completes the accumulated stroke; neither interprets later motion using a new coordinate system until another press.
+
+Single-object resizing uses local bounds and axes, including rotation and reflection, with the opposite handle fixed by default. Option fixes the center and Shift preserves proportions. Rotation accumulates successive pointer angles to support multiple turns; Shift snaps the final single-object angle to 15°. Multiple objects rotate about their shared bounds center or scale uniformly about the opposite group corner (Option uses the center). Relative transforms are retained. Custom pivots, skew and nonuniform group scaling need explicit document and interaction design; the current TRS representation must not approximate a shear without telling the author.
+
+Primitive fills and strokes are tessellated in local coordinates before the complete affine transform is applied. Ellipse tessellation adapts to physical display scale within a fixed segment cap. Selection handles and onion outlines remain screen-sized editor affordances. This keeps authored stroke geometry consistent with the Canvas convention while leaving UI handles usable at different zoom levels.
+
+Verification includes pure geometry tests and headless egui event sequences, with separate observed native checks for appearance, pointer ergonomics and macOS integration. Passing synthetic input tests does not close live UX, accessibility, clipboard or performance work.

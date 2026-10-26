@@ -2,11 +2,21 @@ mod accessibility;
 mod app;
 mod fonts;
 mod panels;
+mod selection;
 mod stage;
+mod stage_primitives;
+mod stage_selection;
+mod transform_geometry;
 mod vector;
 
 #[cfg(test)]
+mod selection_tests;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transform_gesture_tests;
+#[cfg(test)]
+mod vector_gesture_tests;
 
 #[test]
 #[cfg(target_os = "macos")]

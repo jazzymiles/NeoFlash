@@ -10,11 +10,12 @@ Priority is based on the stated product goal, with explicit evidence required fo
 
 ## P1 — essential authoring quality
 
-- Multi-selection, marquee, transform handles and registration points; cut/copy/paste across frames and documents.
+- [x] Cross-layer multi-selection, Shift/marquee/Select All, whole-selection duplicate/delete and V/Q object editing, with automated native-input regression coverage. Live native visual checks of this increment remain pending.
+- Custom registration points/pivots, skew, nonuniform multi-object transforms, groups and cut/copy/paste across frames and documents.
 - Drag/copy/reverse frame spans, keyframe movement, multi-frame edit and layer folders/reordering.
 - [x] Bezier paths, pen/pencil, direct point editing, compound fills and HTML5 geometry.
 - Brush/pressure, spline fitting, point insertion/deletion, tangent constraints, shape splitting/merging, gradients, masks and guides.
-- Match native rectangle/ellipse stroke geometry to Canvas under scaled and nested transforms; current primitive outlines use a screen-space width, unlike transformed path meshes.
+- [x] Tessellate native rectangle/ellipse fills and strokes before applying their full affine transforms, matching the Canvas geometry convention. Tests cover scaled, reflected and nested transforms; live native visual comparison remains pending.
 - Autosave/recovery, file-change detection, unsaved project protection and multiple documents.
 - Display and edit custom easing curves visually, including overshoot; property-level motion curves.
 - Timeline virtualization and resource-aware undo for large documents.
@@ -37,7 +38,8 @@ Priority is based on the stated product goal, with explicit evidence required fo
 - Extend XFL geometry, library assets, masks, tweens, color transforms and text formatting with fixtures.
 - [x] Binary FLA CFB validation, stream inventory, save-target detection and bounded MFC structure inspection against the private corpus.
 - [x] Preserve bounded binary shape/style/edge records with exact source bytes and aggregate-only inspection; verify the private corpus without publishing artwork.
-- Binary FLA lossless document conversion: Contents/settings/linkage, shape styles/edges, object payloads and historical actions. Investigate one corpus container rejected by strict directory validation.
+- [x] Preserve bounded Contents prefixes, scene/library/media descriptors, MFC identities and raw settings; resolve all 289 descriptors in the 19 accepted local containers while retaining unread suffix bytes.
+- Binary FLA lossless document conversion: Contents extensions/suffix, interpreted linkage, contour assembly, object/media payloads and historical actions. Investigate one corpus container rejected by strict directory validation.
 - Evaluate Ruffle as optional SWF playback/compatibility module. Keep new HTML5 publication independent of mandatory SWF.
 - Reproducible private-corpus tests: per-file diagnostics, rendered frames, input scenarios, comparison provenance.
 

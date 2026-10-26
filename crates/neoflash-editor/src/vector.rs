@@ -138,6 +138,10 @@ pub(crate) struct PathDraft {
     pub frame: u32,
     pub layer: usize,
     pub layer_id: String,
+    /// View captured for the current press/drag phase. Pen anchors may span
+    /// several phases and views; an individual pointer drag may not.
+    pub pointer_origin: Pos2,
+    pub pointer_zoom: f32,
 }
 impl PathDraft {
     pub fn commands(&self, closed: bool) -> Vec<PathCommand> {
@@ -200,7 +204,12 @@ pub(crate) struct PointDrag {
     pub inverse: [f64; 6],
     pub symbol: String,
     pub frame: u32,
-    pub layer: usize,
+    pub layer: String,
+    pub origin: Pos2,
+    pub zoom: f32,
+    pub press: Pos2,
+    pub began: bool,
+    pub changed: bool,
     pub element: String,
 }
 #[derive(Default)]
@@ -371,28 +380,68 @@ fn simplify(points: &[Anchor], tolerance: f32) -> Vec<Anchor> {
 }
 
 impl Editor {
-    pub(crate) fn finish_vector_edit(&mut self) {
+    /// End only the active pointer phase before changing the viewport. Pen
+    /// keeps its existing anchors/controls for the next press; Pencil commits
+    /// samples already collected in the old view. A later move/release cannot
+    /// append geometry until a new primary press starts another phase.
+    pub(crate) fn end_vector_pointer_phase(&mut self) {
+        let finish_pencil = self.vector.draft.as_mut().is_some_and(|draft| {
+            let active = draft.dragging || draft.closing;
+            draft.dragging = false;
+            draft.closing = false;
+            draft.pencil && active
+        });
+        if finish_pencil {
+            self.finish_path(false);
+        }
+    }
+
+    pub(crate) fn finish_point_drag(&mut self) {
+        if let Some(drag) = self.vector.point_drag.take()
+            && drag.began
+        {
+            if drag.changed {
+                self.history.commit(&self.project);
+            } else {
+                self.history.cancel(&mut self.project);
+            }
+        }
+    }
+    pub(crate) fn finish_edits(&mut self) {
+        self.finish_selection_gesture();
+        self.shape_draft = None;
+        self.finish_point_drag();
         if self.vector.draft.is_some() {
             self.finish_path(false);
         }
-        if self.vector.point_drag.take().is_some() {
-            self.history.commit(&self.project);
-        }
     }
     pub(crate) fn cancel_vector(&mut self) {
-        if self.vector.point_drag.is_some() {
+        if self
+            .vector
+            .point_drag
+            .as_ref()
+            .is_some_and(|drag| drag.began)
+        {
             self.history.cancel(&mut self.project);
         }
         self.vector = Default::default();
     }
+    pub(crate) fn cancel_edits(&mut self) {
+        self.cancel_selection_gesture();
+        self.cancel_vector();
+        self.shape_draft = None;
+        self.timeline_key_drag = None;
+    }
+    pub(crate) fn set_playing(&mut self, playing: bool) {
+        self.finish_edits();
+        self.timeline_key_drag = None;
+        self.playing = playing;
+        self.last_tick = std::time::Instant::now();
+    }
     pub(crate) fn set_tool(&mut self, tool: Tool) {
         if tool != self.tool {
-            if self.vector.draft.is_some() {
-                self.finish_path(false);
-            }
-            if self.vector.point_drag.is_some() {
-                self.history.commit(&self.project);
-            }
+            self.finish_edits();
+            self.timeline_key_drag = None;
             self.vector = Default::default();
         }
         self.tool = tool;
@@ -406,7 +455,7 @@ impl Editor {
             return;
         }
         if draft.pencil {
-            draft.anchors = simplify(&draft.anchors, 0.8 / self.zoom);
+            draft.anchors = simplify(&draft.anchors, 0.8 / draft.pointer_zoom);
         }
         if draft.anchors.len() < 2 {
             return;
@@ -432,7 +481,7 @@ impl Editor {
                     self.editing.clone(),
                     self.frame,
                     self.layer,
-                    self.selected.clone(),
+                    self.selection.clone(),
                 )
             });
         if restore.is_some() {
@@ -458,7 +507,7 @@ impl Editor {
             self.editing = editing;
             self.frame = frame;
             self.layer = layer;
-            self.selected = selected;
+            self.selection = selected;
         }
         self.message(if closed {
             "Closed vector path created."
@@ -478,13 +527,16 @@ impl Editor {
         let zoom = self.zoom;
         let local = |pos: Pos2| Pos2::ZERO + (pos - origin) / zoom;
         let screen = |pos: Pos2| origin + pos.to_vec2() * zoom;
-        if self
-            .vector
-            .point_drag
-            .as_ref()
-            .is_some_and(|d| !self.point_drag_matches(d))
-        {
+        if self.vector.point_drag.as_ref().is_some_and(|d| {
+            !self.point_drag_matches(d) || d.origin != origin || d.zoom != self.zoom
+        }) {
             self.cancel_vector();
+        }
+        if self.vector.draft.as_ref().is_some_and(|draft| {
+            (draft.dragging || draft.closing)
+                && (draft.pointer_origin != origin || draft.pointer_zoom != zoom)
+        }) {
+            self.end_vector_pointer_phase();
         }
         if self.vector.draft.as_ref().is_some_and(|d| {
             d.symbol != self.symbol_id()
@@ -505,7 +557,13 @@ impl Editor {
                         button: egui::PointerButton::Primary,
                         pressed: true,
                         ..
-                    } if page.contains(pos) && response.contains_pointer() => {
+                    } if page.contains(pos)
+                        && response.rect.contains(pos)
+                        && ui
+                            .ctx()
+                            .layer_id_at(pos)
+                            .is_none_or(|layer| layer == response.layer_id) =>
+                    {
                         self.playing = false;
                         let position = local(pos);
                         let symbol = self.symbol_id().to_owned();
@@ -520,7 +578,11 @@ impl Editor {
                             frame: self.frame,
                             layer: self.layer,
                             layer_id,
+                            pointer_origin: origin,
+                            pointer_zoom: zoom,
                         });
+                        draft.pointer_origin = origin;
+                        draft.pointer_zoom = zoom;
                         if !draft.pencil
                             && draft.anchors.len() >= 2
                             && screen(draft.anchors[0].point).distance(pos) < 8.
@@ -580,6 +642,12 @@ impl Editor {
                                     });
                                 }
                                 finish = Some(false);
+                            } else if draft.dragging
+                                && let Some(anchor) = draft.anchors.last_mut()
+                            {
+                                // Release position is authoritative even if no
+                                // separate PointerMoved event was delivered.
+                                anchor.tangent = local(pos) - anchor.point;
                             }
                             draft.dragging = false;
                         }
@@ -704,7 +772,13 @@ impl Editor {
                     button: egui::PointerButton::Primary,
                     pressed: true,
                     ..
-                } if response.contains_pointer() && self.layer_editable() => {
+                } if response.rect.contains(pos)
+                    && self.selected_editable()
+                    && ui
+                        .ctx()
+                        .layer_id_at(pos)
+                        .is_none_or(|layer| layer == response.layer_id) =>
+                {
                     if let Some(handle) = handles
                         .iter()
                         .rev()
@@ -716,16 +790,20 @@ impl Editor {
                         })
                         .copied()
                     {
+                        self.finish_edits();
                         self.playing = false;
-                        self.history.begin(&self.project);
-                        self.ensure_key(false);
                         self.vector.point_drag = Some(PointDrag {
                             handle,
                             original: commands.clone(),
                             inverse: matrix,
                             symbol: self.symbol_id().to_owned(),
                             frame: self.frame,
-                            layer: self.layer,
+                            layer: self.selection.single().unwrap().layer.clone(),
+                            origin,
+                            zoom,
+                            press: pos,
+                            began: false,
+                            changed: false,
                             element: element.id.clone(),
                         });
                     }
@@ -738,42 +816,67 @@ impl Editor {
                     ..
                 } => {
                     self.update_path_drag(pos, origin);
-                    if self.vector.point_drag.take().is_some() {
-                        self.history.commit(&self.project);
-                    }
+                    self.finish_point_drag();
                 }
                 _ => {}
             }
         }
     }
     fn update_path_drag(&mut self, pos: Pos2, origin: Pos2) {
-        let Some(drag) = self.vector.point_drag.clone() else {
+        let Some(mut drag) = self.vector.point_drag.take() else {
             return;
         };
-        if !self.point_drag_matches(&drag) {
-            self.cancel_vector();
+        if !self.point_drag_matches(&drag) || drag.origin != origin || drag.zoom != self.zoom {
+            if drag.began {
+                self.history.cancel(&mut self.project);
+            }
             return;
         }
-        let Some(local) =
-            crate::stage::inverse(drag.inverse, Pos2::ZERO + (pos - origin) / self.zoom)
-        else {
+        if !drag.began && pos.distance(drag.press) < 3. {
+            self.vector.point_drag = Some(drag);
+            return;
+        }
+        let local = |point| {
+            crate::stage::inverse(drag.inverse, Pos2::ZERO + (point - drag.origin) / drag.zoom)
+        };
+        let (Some(current), Some(press)) = (local(pos), local(drag.press)) else {
+            self.vector.point_drag = Some(drag);
             return;
         };
-        if let Some(Element {
-            kind: ElementKind::Path { commands, .. },
-            ..
-        }) = self.selected_element_mut()
+        let mut commands = drag.original.clone();
+        move_handle(
+            &mut commands,
+            drag.handle,
+            drag.handle.point + (current - press),
+        );
+        drag.changed = commands != drag.original;
+        if drag.changed && !drag.began {
+            self.history.begin(&self.project);
+            self.ensure_selected_key();
+            drag.began = true;
+        }
+        if drag.began
+            && let Some(Element {
+                kind:
+                    ElementKind::Path {
+                        commands: destination,
+                        ..
+                    },
+                ..
+            }) = self.selected_element_mut()
         {
-            *commands = drag.original;
-            move_handle(commands, drag.handle, local);
+            *destination = commands;
         }
+        self.vector.point_drag = Some(drag);
     }
     fn point_drag_matches(&self, drag: &PointDrag) -> bool {
         self.tool == Tool::Subselect
             && self.symbol_id() == drag.symbol
             && self.frame == drag.frame
-            && self.layer == drag.layer
-            && self.selected.as_deref() == Some(drag.element.as_str())
-            && self.layer_editable()
+            && self
+                .selection
+                .single()
+                .is_some_and(|target| target.layer == drag.layer && target.element == drag.element)
+            && self.selected_editable()
     }
 }

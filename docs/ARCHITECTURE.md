@@ -34,6 +34,8 @@ Optional placement accessibility metadata is evaluated by the same Rust runtime.
 
 Commands currently group snapshot history around edits. Drag gestures are grouped; history is bounded. Larger documents will require a measured transition to delta commands and resource-aware history. Autosave/recovery and multi-document editing are not implemented yet.
 
+Selection is editor state scoped to a symbol and stable layer/element IDs. Gestures capture the authored frame, view transform and original sampled poses, then apply changes from that snapshot. Keys and history begin only with an effective edit; cancellation and a return to the original pose leave neither behind. V selects/moves and Q exposes object transform handles. Multiple selections support rotation and uniform scaling; the TRS document model does not silently approximate skew. See [selection and gestures](decisions/0004-selection-and-gestures.md).
+
 ## Imports and compatibility
 
 The importer is independent of native GUI and publishing. It inspects container signatures and supports only a documented XFL subset. Unsupported content blocks import, with a source location, rather than disappearing. Binary FLA, SWF bytecode/runtime and restoration of an editable source project are different compatibility tracks. See IMPORTS.md.

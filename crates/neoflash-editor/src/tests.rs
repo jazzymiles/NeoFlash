@@ -63,7 +63,7 @@ fn editor_at_middle(easing: Easing) -> Editor {
     let (project, id) = tween_project(easing);
     let mut editor = Editor::from_project(&egui::Context::default(), project);
     editor.frame = 5;
-    editor.selected = Some(id);
+    editor.select_single_id(id);
     editor
 }
 
@@ -132,7 +132,7 @@ fn duplicating_between_keys_uses_visible_pose_without_rewriting_previous_key() {
     editor.undo();
     assert_eq!(editor.project, before);
     assert!(
-        editor.selected.is_none(),
+        editor.selection.is_empty(),
         "undo must clear the now-absent duplicate selection"
     );
 }
@@ -151,7 +151,7 @@ fn deleting_between_keys_creates_blank_current_key_and_preserves_authored_endpoi
     assert_eq!(keys[1].frame, 5);
     assert!(keys[1].elements.is_empty());
     assert!(evaluate(&editor.project, editor.symbol_id(), 5).is_empty());
-    assert!(editor.selected.is_none());
+    assert!(editor.selection.is_empty());
     editor.project.validate().unwrap();
 
     editor.undo();
@@ -247,7 +247,7 @@ fn conversion_preserves_appearance_identity_and_scripts_on_the_new_instance() {
     editor.undo();
     assert_eq!(editor.project, before);
     assert_eq!(editor.symbol_id(), editor.project.root);
-    assert!(editor.selected.is_none());
+    assert!(editor.selection.is_empty());
 }
 
 #[test]
@@ -292,7 +292,7 @@ fn playhead_normalization_drops_selection_when_object_disappears() {
     let mut editor = editor_at_middle(Easing::Linear);
     editor.make_key(true);
     editor.frame = 0;
-    editor.selected = Some(
+    editor.select_single_id(
         editor.symbol().timeline.layers[0].keyframes[0].elements[0]
             .id
             .clone(),
@@ -302,7 +302,7 @@ fn playhead_normalization_drops_selection_when_object_disappears() {
 
     editor.normalize_selection();
 
-    assert!(editor.selected.is_none());
+    assert!(editor.selection.is_empty());
     assert!(editor.selected_element().is_none());
 }
 
@@ -336,7 +336,7 @@ fn moving_key_preserves_instance_identity_tween_and_label_and_is_one_undo_step()
     assert_eq!(keys[0].tween, original_key.tween);
     assert_eq!(keys[0].label, original_key.label);
     assert_eq!(editor.frame, 3);
-    assert!(editor.selected.is_none());
+    assert!(editor.selection.is_empty());
     editor.project.validate().unwrap();
     let moved = editor.project.clone();
 
@@ -389,7 +389,7 @@ fn key_copy_retains_source_and_rejected_destinations_do_not_change_history() {
     assert_eq!(editor.project, locked);
 }
 
-fn stage_input_frame(
+pub(crate) fn stage_input_frame(
     editor: &mut Editor,
     ctx: &egui::Context,
     time: f64,
@@ -409,7 +409,7 @@ fn stage_input_frame(
     )
 }
 
-fn primary_button(pos: egui::Pos2, pressed: bool) -> egui::Event {
+pub(crate) fn primary_button(pos: egui::Pos2, pressed: bool) -> egui::Event {
     egui::Event::PointerButton {
         pos,
         button: egui::PointerButton::Primary,
@@ -418,7 +418,7 @@ fn primary_button(pos: egui::Pos2, pressed: bool) -> egui::Event {
     }
 }
 
-fn rectangle_stage() -> (Editor, egui::Context, egui::Rect) {
+pub(crate) fn rectangle_stage() -> (Editor, egui::Context, egui::Rect) {
     let ctx = egui::Context::default();
     let mut editor = Editor::from_project(&ctx, Project::blank());
     editor.tool = crate::app::Tool::Rectangle;
@@ -473,7 +473,7 @@ fn rectangle_tool_uses_pointer_press_origin_and_release_to_create_undoable_shape
         panic!("rectangle tool created a different primitive");
     };
     assert_eq!((width, height), (120., 80.));
-    assert!(editor.draw_start.is_none());
+    assert!(editor.shape_draft.is_none());
     editor.project.validate().unwrap();
 
     editor.undo();
@@ -516,7 +516,7 @@ fn rectangle_tool_handles_entire_reverse_drag_batched_into_one_input_frame() {
         panic!("rectangle tool created a different primitive");
     };
     assert_eq!((width, height), (130., 110.));
-    assert!(editor.draw_start.is_none());
+    assert!(editor.shape_draft.is_none());
     editor.project.validate().unwrap();
     editor.undo();
     assert_eq!(editor.project, before);
@@ -542,12 +542,12 @@ fn rectangle_click_without_movement_creates_neither_shape_nor_undo_entry() {
             editor.project, before,
             "click without movement must not alter the document"
         );
-        assert!(editor.draw_start.is_none());
+        assert!(editor.shape_draft.is_none());
         assert!(!editor.history.can_undo());
     }
 }
 
-fn pen_click(
+pub(crate) fn pen_click(
     editor: &mut Editor,
     ctx: &egui::Context,
     time: f64,
@@ -934,13 +934,13 @@ fn selecting_a_highly_scaled_tiny_curve_matches_visible_geometry() {
         100.,
         100.,
     );
-    let id = editor.selected.clone();
+    let id = editor.selection.clone();
     editor.selected_element_mut().unwrap().transform.scale_x = 1000.;
     editor.selected_element_mut().unwrap().transform.scale_y = 1000.;
-    editor.selected = None;
+    editor.clear_selection();
     let point = page.min + egui::vec2(150., 150.);
     pen_click(&mut editor, &ctx, 0.1, point, point);
-    assert_eq!(editor.selected, id);
+    assert_eq!(editor.selection, id);
 }
 
 #[test]
@@ -1030,7 +1030,7 @@ fn accessibility_edits_between_keys_preserve_the_visible_pose_and_undo() {
 fn conversion_preserves_one_semantic_target_instead_of_duplicating_it_inside_the_symbol() {
     let mut editor = editor_at_middle(Easing::Linear);
     editor.set_accessibility(Some(button_metadata()));
-    let id = editor.selected.clone().unwrap();
+    let id = editor.selected_element().unwrap().id.clone();
     editor.convert_to_symbol();
     let instance = editor.selected_element().unwrap();
     assert_eq!(instance.accessibility, Some(button_metadata()));

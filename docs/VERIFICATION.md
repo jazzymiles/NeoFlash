@@ -1,13 +1,13 @@
 # Verification record
 
-Date: 2026-10-26. This record covers the development preview, vector tools, authored web semantics, ActionScript functions and binary geometry preservation, not complete Flash compatibility.
+Date: 2026-10-26. This record covers the development preview, vector and object tools, authored web semantics, ActionScript functions and binary geometry/Contents preservation, not complete Flash compatibility.
 
 ## Automated checks
 
 `./scripts/check.sh` passes on Apple Silicon, macOS 15.8, Rust 1.99.1:
 
 - Formatting and Clippy (`--workspace --all-targets -- -D warnings`).
-- 110 Rust tests: 30 core, 30 editor, 20 script, 26 importer and 4 exporter.
+- 169 Rust tests: 30 core, 78 editor, 20 script, 37 importer and 4 exporter.
 - 27 browser-host/actual-WASM/cache tests in Node, including semantic bounds, DOM identity, focus restoration, pan/zoom and lifetime-checked keyboard activation.
 - 30 execution fixtures using JavaScript emitted by the script compiler, plus an integration check using the actual host proxy/dispatch code with a lifecycle stub.
 - Release WebAssembly build and standalone demo export.
@@ -35,11 +35,23 @@ The subsequent vector increment has headless egui gesture tests for pen curves/c
 
 The Accessibility panel is covered by editor tests for sampled-pose key insertion, grouped Undo, stopping playback during an edit, locked-layer rejection and preserving exactly one semantic target during symbol conversion. Live native checks of this panel are also pending the Mac being unlocked.
 
+### Selection and Free Transform increment
+
+The 78 editor tests include pure transform mathematics, tessellated primitive geometry and actual egui input batches. New coverage exercises cross-layer eased-pose edits, Shift toggle/additive marquee, nested-instance selection, locked foreground objects, whole-selection duplicate/delete, final release outside the stage, cancellation and no-op history, and frame/tool/view changes. Timeline tests verify that a key moves to the release column while retaining its original layer. Real menu-click events also verify Undo of an open Pen draft with empty history, then Redo of the completed path.
+
+Transform tests cover rotated and reflected objects, opposite-anchor and center resizing, aspect preservation, singular/finite limits, group scaling/rotation and angle snapping. Gesture regressions drive Q resize on a mirrored object, Option+Shift resizing, multiple-object scaling, and a two-turn rotation recorded as one Undo step. Point edits and object drags returning to their original sampled pose do not leave a keyframe or history entry. Pen/Pencil regressions cover batched outside release and changes of viewport during drawing.
+
+Rectangle/ellipse tests check fill and stroke mesh areas/bounds under scaled, reflected and nested transforms, degenerate geometry, ellipse tessellation tolerance, and the meshes submitted to an egui Painter. These are geometry checks; they do not replace visual comparison on a display.
+
+The optimized bundle was rebuilt and passed `codesign --verify --deep --strict`; its minimum system version is 15.0. Executable SHA-256: `edacc8de6d6721feb1472b934faf4b77d489d7198963995849832e3dcdbf9baf`. The Mac remains locked, so live mouse/keyboard and visual checks of this release remain pending. No previous native screenshot is offered as evidence for the new V/Q tools.
+
 ## Script and preservation regressions
 
 ActionScript execution checks cover function hoisting, recursion, lexical closures, shadowing, typed arguments/returns, exact supported argument counts and independent instance state. Review found and fixed duplicate numeric conversion in typed postfix updates, escaped object-property keys, line terminators before postfix operators, conditional-branch assignment parsing, and AS trace bypassing the browser host's visible output. The host integration uses distinct trace and console observations, so writing directly to console cannot satisfy the visible-trace regression.
 
 Binary geometry tests exercise every truncated prefix of original fixtures, exact source-byte retention, invalid style references, optional fields, coordinate wrapping and shared allocation budgets. A separate local deterministic malformed-input probe ran 20,000 inputs through the public shape decoder without panic or out-of-range diagnostic offsets. This probe complements the committed fixtures; it does not prove safety for all inputs or visual fidelity.
+
+Eleven Contents tests cover versioned prefixes, truncated input, descriptor/class/object identities, selected-scene references, missing/duplicate/wrong-role streams, Unicode and compact string boundaries, nested metadata and collection budgets. Raw settings retain fractional FPS and color words; unread suffix bytes remain exact. Passing these tests establishes preservation within the documented boundary, not complete document conversion.
 
 ## Observed HTML5 checks
 
@@ -89,9 +101,9 @@ Screenshots: `target/verification/html5-keyboard.jpg`, `html5-keyboard-390-fit.j
 
 Initial signature inspection recognized 42 local FLA/SWF files: 20 compound binary FLA; 22 SWF (20 FWS + 2 CWS, versions 3–8). The new strict CFB reader accepted 19 binary containers and rejected one for adjacent red directory nodes; this requires writer-compatibility investigation and does not establish that the original application cannot open it. Accepted save targets: Flash 3 × 6, Flash 5 × 10, Flash MX × 2 and Flash 8 × 1. These identify the saved format, not the last editing application.
 
-The reader indexed 20 scene streams, 246 symbol streams and 23 media streams. The later geometry-preservation increment increased fully consumed timeline streams from seven to 75 and retained 394 complete shape bodies, including geometry inherited by enclosing records that may later stop. These contain 501 fills, 208 strokes, 2,916 straight edges, 4,180 quadratic edges and 706 auxiliary curves. Inspection emits only aggregate counts; exact geometry is available only through the opt-in preservation API. Contents and other unsupported payloads still block every editable binary conversion. See IMPORTS.md for exact boundaries. No private source/content/derived artwork was uploaded. Projector EXEs and the legacy HTML file were not executed.
+The reader indexed 20 scene streams, 246 symbol streams and 23 media streams. The later geometry-preservation increment increased fully consumed timeline streams from seven to 75 and retained 394 complete shape bodies, including geometry inherited by enclosing records that may later stop. These contain 501 fills, 208 strokes, 2,916 straight edges, 4,180 quadratic edges and 706 auxiliary curves. The Contents increment resolves 289 descriptors and reaches raw document settings in all 19 accepted containers. Every file stops explicitly at the unread Contents suffix; unsupported scene/object/media/action payloads also remain. Inspection emits only aggregate counts; exact geometry, descriptor bytes and settings are available only through opt-in preservation APIs. Every editable binary conversion remains blocked. See IMPORTS.md for exact boundaries. No private source/content/derived artwork was uploaded. Projector EXEs and the legacy HTML file were not executed.
 
-Per-file reports, screenshots, logs and temporary test projects remain in ignored `target/verification/`. Only original small XFL fixtures and the NeoFlash example are public.
+Per-file reports, screenshots, logs and temporary test projects remain in ignored `target/verification/`. Only original synthetic fixtures and NeoFlash examples are public.
 
 ## Artifacts
 

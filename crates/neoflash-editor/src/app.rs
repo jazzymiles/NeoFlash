@@ -1,11 +1,12 @@
 use crate::fonts::Fonts;
-use eframe::egui::{self, Color32, Key, Modifiers, Pos2, Vec2};
+use eframe::egui::{self, Color32, Key, Modifiers, Vec2};
 use neoflash_core::*;
 use std::{path::PathBuf, time::Instant};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Tool {
     Select,
+    Transform,
     Rectangle,
     Ellipse,
     Text,
@@ -34,7 +35,8 @@ pub struct Editor {
     pub editing: Vec<String>,
     pub frame: u32,
     pub layer: usize,
-    pub selected: Option<String>,
+    pub selection: crate::selection::Selection,
+    pub object_gesture: Option<crate::stage_selection::SelectionGesture>,
     pub tool: Tool,
     pub playing: bool,
     pub last_tick: Instant,
@@ -48,8 +50,7 @@ pub struct Editor {
     pub onion_opacity: f32,
     pub zoom: f32,
     pub pan: Vec2,
-    pub drag_origin: Option<(Pos2, Transform)>,
-    pub draw_start: Option<Pos2>,
+    pub shape_draft: Option<crate::stage_selection::ShapeDraft>,
     pub fill: Color,
     pub bottom: BottomTab,
     pub script_target: ScriptTarget,
@@ -62,7 +63,7 @@ pub struct Editor {
     pub confirm: Option<Pending>,
     pub allow_close: bool,
     pub timeline_cell: f32,
-    pub timeline_key_drag: Option<(usize, u32)>,
+    pub timeline_key_drag: Option<(String, String, u32)>,
     pub library_selected: Option<String>,
     pub vector: crate::vector::VectorState,
 }
@@ -102,11 +103,11 @@ impl Editor {
         let root = project.root.clone();
         let mut s = Self {
             project, history: History::new(150), path: None, saved_json,
-            editing: vec![root], frame: 0, layer: 0, selected: None, tool: Tool::Select,
+            editing: vec![root.clone()], frame: 0, layer: 0, selection: crate::selection::Selection { symbol: root, targets: vec![] }, object_gesture: None, tool: Tool::Select,
             playing: false, last_tick: Instant::now(), accumulator: 0.,
             onion: false, onion_outlines: false, onion_before: 3, onion_after: 3,
             onion_anchor: false, anchored_range: (0, 6), onion_opacity: 0.3,
-            zoom: 0.75, pan: Vec2::ZERO, drag_origin: None, draw_start: None,
+            zoom: 0.75, pan: Vec2::ZERO, shape_draft: None,
             fill: [50, 117, 184, 255], bottom: BottomTab::Properties,
             script_target: ScriptTarget::Frame, script_event: ObjectEvent::Click,
             status: "Ready · F5 frame · F6 keyframe · F7 blank keyframe · ⌘↵ Test Movie".into(),
@@ -148,14 +149,16 @@ impl Editor {
         self.output.push(self.status.clone());
     }
     pub fn transact(&mut self, f: impl FnOnce(&mut Self)) {
-        if self.vector.point_drag.take().is_some() {
-            self.history.commit(&self.project);
-        }
+        self.finish_selection_gesture();
+        self.shape_draft = None;
+        self.timeline_key_drag = None;
+        self.finish_point_drag();
         self.history.begin(&self.project);
         f(self);
         self.history.commit(&self.project);
     }
     pub fn normalize_selection(&mut self) {
+        self.cancel_stale_selection_gesture();
         self.editing.retain(|id| self.project.symbol(id).is_some());
         if self.editing.is_empty() {
             self.editing.push(self.project.root.clone());
@@ -180,49 +183,21 @@ impl Editor {
         self.frame = self
             .frame
             .min(self.symbol().timeline.frame_count.saturating_sub(1));
-        if self.selected_element().is_none() {
-            self.selected = None;
-        }
+        self.normalize_targets();
     }
     pub fn undo(&mut self) {
+        self.finish_edits();
+        self.timeline_key_drag = None;
         self.vector = Default::default();
         self.history.undo(&mut self.project);
         self.normalize_selection();
     }
     pub fn redo(&mut self) {
+        self.finish_edits();
+        self.timeline_key_drag = None;
         self.vector = Default::default();
         self.history.redo(&mut self.project);
         self.normalize_selection();
-    }
-    pub fn selected_element(&self) -> Option<&Element> {
-        let id = self.selected.as_deref()?;
-        self.symbol()
-            .timeline
-            .layers
-            .get(self.layer)?
-            .key_at(self.frame)?
-            .elements
-            .iter()
-            .find(|e| e.id == id)
-    }
-    pub fn selected_sampled(&self) -> Option<Element> {
-        let id = self.selected.as_deref()?;
-        sample_layer(self.symbol().timeline.layers.get(self.layer)?, self.frame)
-            .into_iter()
-            .find(|e| e.id == id)
-    }
-    pub fn selected_element_mut(&mut self) -> Option<&mut Element> {
-        let id = self.selected.clone()?;
-        let layer = self.layer;
-        let frame = self.frame;
-        self.symbol_mut()
-            .timeline
-            .layers
-            .get_mut(layer)?
-            .key_at_mut(frame)?
-            .elements
-            .iter_mut()
-            .find(|e| e.id == id)
     }
     pub fn layer_editable(&self) -> bool {
         self.symbol()
@@ -232,45 +207,15 @@ impl Editor {
             .is_some_and(|l| !l.locked && l.visible)
     }
     pub fn make_key(&mut self, blank: bool) {
+        self.finish_edits();
         if !self.layer_editable() {
             return;
         }
         self.transact(|s| s.ensure_key(blank));
     }
     pub fn ensure_key(&mut self, blank: bool) {
-        let frame = self.frame;
-        let layer = self.layer;
-        let layer = &mut self.symbol_mut().timeline.layers[layer];
-        if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == frame) {
-            if blank {
-                key.elements.clear();
-                key.tween = None;
-            }
-            return;
-        }
-        let sampled = sample_layer(layer, frame);
-        let mut key = if blank {
-            Keyframe {
-                frame,
-                elements: vec![],
-                tween: None,
-                label: String::new(),
-            }
-        } else {
-            layer.key_at(frame).cloned().unwrap_or(Keyframe {
-                frame,
-                elements: vec![],
-                tween: None,
-                label: String::new(),
-            })
-        };
-        if !blank {
-            key.elements = sampled;
-        }
-        key.frame = frame;
-        key.label.clear();
-        layer.keyframes.push(key);
-        layer.keyframes.sort_by_key(|k| k.frame);
+        let id = self.symbol().timeline.layers[self.layer].id.clone();
+        self.ensure_key_for(&id, blank);
     }
     pub fn add_element(&mut self, kind: ElementKind, x: f64, y: f64) {
         if !self.layer_editable() {
@@ -318,59 +263,20 @@ impl Editor {
                 .unwrap()
                 .elements
                 .push(element);
-            s.selected = Some(id);
+            s.select_single_id(id);
         });
         self.tool = Tool::Select;
     }
-    pub fn delete_selected(&mut self) {
-        if !self.layer_editable() {
-            return;
-        }
-        let Some(id) = self.selected.clone() else {
-            return;
-        };
-        self.transact(|s| {
-            s.ensure_key(false);
-            let layer = s.layer;
-            let frame = s.frame;
-            if let Some(k) = s.symbol_mut().timeline.layers[layer].key_at_mut(frame) {
-                k.elements.retain(|e| e.id != id);
-            }
-            s.selected = None;
-        });
-    }
-    pub fn duplicate(&mut self) {
-        if !self.layer_editable() {
-            return;
-        }
-        let Some(mut e) = self.selected_sampled() else {
-            return;
-        };
-        self.transact(|s| {
-            s.ensure_key(false);
-            e.id = new_id("object");
-            e.name = format!("{}_copy_{}", e.name, e.id.rsplit('-').next().unwrap_or("1"));
-            e.transform.x += 16.;
-            e.transform.y += 16.;
-            s.selected = Some(e.id.clone());
-            let layer = s.layer;
-            let frame = s.frame;
-            s.symbol_mut().timeline.layers[layer]
-                .key_at_mut(frame)
-                .unwrap()
-                .elements
-                .push(e);
-        });
-    }
     pub fn convert_to_symbol(&mut self) {
-        if !self.layer_editable() {
+        self.finish_edits();
+        if !self.selected_editable() {
             return;
         }
         let Some(element) = self.selected_sampled() else {
             return;
         };
         self.transact(|s| {
-            s.ensure_key(false);
+            s.ensure_selected_key();
             let id = new_id("symbol");
             let mut content = element.clone();
             content.transform = Transform::default();
@@ -408,14 +314,15 @@ impl Editor {
         });
     }
     pub fn enter_symbol(&mut self, id: String) {
-        self.finish_vector_edit();
+        self.finish_edits();
+        self.timeline_key_drag = None;
         if self.project.symbol(&id).is_none() {
             return;
         }
         self.editing.push(id);
         self.frame = 0;
         self.layer = 0;
-        self.selected = None;
+        self.clear_selection();
         self.playing = false;
         self.pan = Vec2::ZERO;
     }
@@ -442,6 +349,7 @@ impl Editor {
         }
     }
     pub fn request(&mut self, pending: Pending, ctx: &egui::Context) {
+        self.finish_edits();
         if self.dirty() {
             self.confirm = Some(pending);
         } else {
@@ -449,7 +357,7 @@ impl Editor {
         }
     }
     pub fn perform(&mut self, pending: Pending, ctx: &egui::Context) {
-        self.cancel_vector();
+        self.cancel_edits();
         match pending {
             Pending::New | Pending::Demo => {
                 self.project = if matches!(pending, Pending::New) {
@@ -460,7 +368,7 @@ impl Editor {
                 self.editing = vec![self.project.root.clone()];
                 self.frame = 0;
                 self.layer = 0;
-                self.selected = None;
+                self.clear_selection();
                 self.path = None;
                 self.history = History::new(150);
                 self.saved_json = serde_json::to_string(&self.project).unwrap_or_default();
@@ -490,6 +398,7 @@ impl Editor {
         }
     }
     pub fn open_path(&mut self, path: PathBuf, ctx: &egui::Context) {
+        self.cancel_edits();
         match std::fs::read_to_string(&path)
             .map_err(|e| e.to_string())
             .and_then(|s| Project::from_json(&s).map_err(|e| e.to_string()))
@@ -499,7 +408,7 @@ impl Editor {
                 self.editing = vec![self.project.root.clone()];
                 self.frame = 0;
                 self.layer = 0;
-                self.selected = None;
+                self.clear_selection();
                 self.path = Some(path);
                 self.history = History::new(150);
                 self.saved_json = serde_json::to_string(&self.project).unwrap_or_default();
@@ -512,6 +421,7 @@ impl Editor {
     }
 
     pub fn import_legacy(&mut self, path: PathBuf, ctx: &egui::Context) {
+        self.cancel_edits();
         match neoflash_import::inspect(&path) {
             Ok(report) => {
                 self.message(format!(
@@ -529,7 +439,7 @@ impl Editor {
                             self.editing = vec![self.project.root.clone()];
                             self.frame = 0;
                             self.layer = 0;
-                            self.selected = None;
+                            self.clear_selection();
                             self.path = None;
                             self.saved_json = String::new();
                             self.history = History::new(150);
@@ -562,7 +472,7 @@ impl Editor {
         let Some(path) = path else {
             return false;
         };
-        self.finish_vector_edit();
+        self.finish_edits();
         let result = self
             .project
             .to_json()
@@ -620,7 +530,7 @@ impl Editor {
                     .as_secs()
             ))
         };
-        self.finish_vector_edit();
+        self.finish_edits();
         match neoflash_export::export_project(&self.project, &output, &Self::runtime_dir()) {
             Ok(index) => {
                 self.message(format!("HTML5 exported: {}", index.display()));
@@ -637,7 +547,7 @@ impl Editor {
             }
         }
     }
-    fn shortcuts(&mut self, ctx: &egui::Context) {
+    pub(crate) fn shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.wants_keyboard_input();
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S)) {
             self.save(false);
@@ -656,6 +566,9 @@ impl Editor {
                 self.redo();
             } else if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Z)) {
                 self.undo();
+            }
+            if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::A)) {
+                self.select_all();
             }
             if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::D)) {
                 self.duplicate();
@@ -679,16 +592,23 @@ impl Editor {
                 self.delete_selected();
             }
             if ctx.input(|i| i.key_pressed(Key::Escape)) {
-                self.cancel_vector();
+                let captured = self.object_gesture.is_some()
+                    || self.shape_draft.is_some()
+                    || self.vector.point_drag.is_some()
+                    || self.vector.draft.is_some();
+                self.cancel_edits();
+                if !captured {
+                    self.clear_selection();
+                }
             }
             if ctx.input(|i| i.key_pressed(Key::Enter)) && self.vector.draft.is_some() {
                 self.finish_path(false);
             } else if ctx.input(|i| i.key_pressed(Key::Enter)) {
-                self.playing = !self.playing;
-                self.last_tick = Instant::now();
+                self.set_playing(!self.playing);
             }
             for (key, tool) in [
                 (Key::V, Tool::Select),
+                (Key::Q, Tool::Transform),
                 (Key::R, Tool::Rectangle),
                 (Key::O, Tool::Ellipse),
                 (Key::T, Tool::Text),
@@ -701,9 +621,11 @@ impl Editor {
                 }
             }
             if ctx.input(|i| i.key_pressed(Key::ArrowLeft)) {
+                self.finish_edits();
                 self.frame = self.frame.saturating_sub(1);
             }
             if ctx.input(|i| i.key_pressed(Key::ArrowRight)) {
+                self.finish_edits();
                 self.frame = (self.frame + 1).min(self.symbol().timeline.frame_count - 1);
             }
         }
@@ -737,12 +659,13 @@ impl Editor {
             l.keyframes.sort_by_key(|k| k.frame);
             s.frame = to;
             s.layer = layer;
-            s.selected = None;
+            s.clear_selection();
         });
         true
     }
 
     pub fn insert_frame(&mut self) {
+        self.finish_edits();
         if !self.layer_editable() {
             return;
         }
@@ -807,9 +730,12 @@ impl Editor {
 
 impl eframe::App for Editor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if ctx.input(|i| i.viewport().close_requested()) && self.dirty() && !self.allow_close {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.confirm = Some(Pending::Close);
+        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
+            self.finish_edits();
+            if self.dirty() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.confirm = Some(Pending::Close);
+            }
         }
         self.shortcuts(ctx);
         if self.playing {
