@@ -1,5 +1,6 @@
 //! Bounded, read-only CFB and binary FLA structure inspection.
 //! No byte-pattern recovery: unknown records stop the current stream.
+pub(crate) mod geometry;
 mod mfc;
 
 use crate::{ImportError, ImportReport};
@@ -46,6 +47,8 @@ pub struct BinaryStreamInspection {
     pub root_class: Option<String>,
     pub root_schema: Option<u16>,
     pub records: RecordCounts,
+    #[serde(default)]
+    pub geometry: geometry::GeometryCounts,
     pub stop_code: Option<String>,
     pub stop_message: Option<String>,
 }
@@ -61,11 +64,37 @@ pub struct BinaryFlaInspection {
     pub streams: Vec<BinaryStreamInspection>,
 }
 
+/// Explicit opt-in preservation API. Contains private artwork; unlike inspect(),
+/// callers must not publish this data without the source owner's authorization.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BinaryGeometryDocument {
+    pub inspection: BinaryFlaInspection,
+    pub streams: Vec<BinaryStreamGeometry>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BinaryStreamGeometry {
+    pub index: usize,
+    /// Only complete, validated shape blocks before the stream's first stop.
+    /// The enclosing object can still be incomplete; see inspection.streams.
+    pub shapes: Vec<geometry::LocatedBinaryShape>,
+}
+
+/// Read complete shape blocks as preservation IR without making a Project.
+/// Unknown records stop their stream. This does not assemble contour topology,
+/// resolve scene/layer/library ownership, or decode document-level Contents.
+pub fn read_binary_geometry(path: &Path) -> Result<BinaryGeometryDocument, ImportError> {
+    read(path, true)?.ok_or_else(|| container("compound document is not recognized as binary FLA"))
+}
+
 fn container(message: impl Into<String>) -> ImportError {
     ImportError::Container(message.into())
 }
 
 pub(crate) fn inspect(path: &Path) -> Result<Option<BinaryFlaInspection>, ImportError> {
+    Ok(read(path, false)?.map(|document| document.inspection))
+}
+
+fn read(path: &Path, retain_geometry: bool) -> Result<Option<BinaryGeometryDocument>, ImportError> {
     let file = File::open(path)?;
     if file.metadata()?.len() > MAX_CONTAINER {
         return Err(container("CFB exceeds 64 MiB"));
@@ -153,6 +182,8 @@ pub(crate) fn inspect(path: &Path) -> Result<Option<BinaryFlaInspection>, Import
         logical_bytes,
         streams: vec![],
     };
+    let mut geometry_streams = Vec::new();
+    let mut retained_items_remaining = 250_000;
     for (index, (path, byte_length, role)) in entries.into_iter().enumerate() {
         let mut data = Vec::new();
         compound
@@ -173,6 +204,7 @@ pub(crate) fn inspect(path: &Path) -> Result<Option<BinaryFlaInspection>, Import
             root_class: None,
             root_schema: None,
             records: RecordCounts::default(),
+            geometry: geometry::GeometryCounts::default(),
             stop_code: None,
             stop_message: None,
         };
@@ -196,7 +228,17 @@ pub(crate) fn inspect(path: &Path) -> Result<Option<BinaryFlaInspection>, Import
                     stream.stop_message = Some("Contents stream has no revision byte.".into());
                 }
             }
-            BinaryStreamRole::Scene | BinaryStreamRole::Symbol => mfc::inspect(&data, &mut stream),
+            BinaryStreamRole::Scene | BinaryStreamRole::Symbol => {
+                let shapes = mfc::inspect(
+                    &data,
+                    &mut stream,
+                    retain_geometry,
+                    &mut retained_items_remaining,
+                );
+                if !shapes.is_empty() {
+                    geometry_streams.push(BinaryStreamGeometry { index, shapes });
+                }
+            }
             BinaryStreamRole::Media => {
                 stream.stop_code = Some("fla_media_unsupported".into());
                 stream.stop_message = Some(
@@ -211,7 +253,10 @@ pub(crate) fn inspect(path: &Path) -> Result<Option<BinaryFlaInspection>, Import
         }
         result.streams.push(stream);
     }
-    Ok(Some(result))
+    Ok(Some(BinaryGeometryDocument {
+        inspection: result,
+        streams: geometry_streams,
+    }))
 }
 
 fn preflight(bytes: &[u8]) -> Result<u16, ImportError> {

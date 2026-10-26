@@ -3,7 +3,11 @@ mod legacy;
 mod source;
 mod xfl;
 
-pub use legacy::{BinaryFlaInspection, BinaryStreamInspection, BinaryStreamRole, RecordCounts};
+pub use legacy::geometry::*;
+pub use legacy::{
+    BinaryFlaInspection, BinaryGeometryDocument, BinaryStreamGeometry, BinaryStreamInspection,
+    BinaryStreamRole, RecordCounts, read_binary_geometry,
+};
 
 use neoflash_core::Project;
 use serde::{Deserialize, Serialize};

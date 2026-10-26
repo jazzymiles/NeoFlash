@@ -1,5 +1,5 @@
 //! Aggregate-only local audit. Never emits paths, stream names, strings or bytes.
-use neoflash_import::{ImportFormat, inspect};
+use neoflash_import::{ImportFormat, inspect, read_binary_geometry};
 use serde_json::json;
 use std::{
     collections::BTreeMap,
@@ -23,6 +23,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut classes = BTreeMap::<String, usize>::new();
     let mut failures = BTreeMap::<String, usize>::new();
     let mut complete_records = BTreeMap::<&str, usize>::new();
+    let mut geometry_counts = BTreeMap::<&str, usize>::new();
+    let mut preserved_shape_blocks = 0;
     for path in &paths {
         match inspect(path) {
             Ok(report) => {
@@ -32,6 +34,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .entry(report.version.unwrap_or_else(|| "unknown".into()))
                     .or_default() += 1;
                 if let Some(binary) = report.binary_fla {
+                    let expected_shapes = binary
+                        .streams
+                        .iter()
+                        .map(|s| s.geometry.complete_shape_blocks)
+                        .sum::<usize>();
+                    let preserved = read_binary_geometry(path)?;
+                    let retained_shapes = preserved
+                        .streams
+                        .iter()
+                        .map(|s| s.shapes.len())
+                        .sum::<usize>();
+                    if expected_shapes != retained_shapes {
+                        return Err(
+                            "geometry retention budget reached or source changed during audit"
+                                .into(),
+                        );
+                    }
+                    preserved_shape_blocks += retained_shapes;
                     for stream in binary.streams {
                         *roles.entry(format!("{:?}", stream.role)).or_default() += 1;
                         complete_streams += usize::from(stream.structure_complete);
@@ -42,6 +62,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             ("shapes", stream.records.shapes),
                         ] {
                             *complete_records.entry(kind).or_default() += count;
+                        }
+                        for (kind, count) in [
+                            (
+                                "complete_shape_blocks",
+                                stream.geometry.complete_shape_blocks,
+                            ),
+                            (
+                                "nonempty_shape_blocks",
+                                stream.geometry.nonempty_shape_blocks,
+                            ),
+                            ("fills", stream.geometry.fills),
+                            ("strokes", stream.geometry.strokes),
+                            ("straight_edges", stream.geometry.straight_edges),
+                            ("quadratic_edges", stream.geometry.quadratic_edges),
+                            ("auxiliary_curves", stream.geometry.auxiliary_curves),
+                            (
+                                "unresolved_fill_payloads",
+                                stream.geometry.unresolved_fill_payloads,
+                            ),
+                        ] {
+                            *geometry_counts.entry(kind).or_default() += count;
                         }
                         if let Some(class) = stream.root_class {
                             *classes.entry(class).or_default() += 1;
@@ -86,7 +127,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    let result = json!({"files":paths.len(), "recognized_binary_fla":recognized, "blocked_editable_conversion":blocked, "container_failures":invalid, "container_failure_categories":failures, "save_targets":versions, "stream_roles":roles, "complete_structure_streams":complete_streams, "complete_records":complete_records, "root_classes":classes, "diagnostic_codes":codes});
+    let result = json!({"files":paths.len(), "recognized_binary_fla":recognized, "blocked_editable_conversion":blocked, "container_failures":invalid, "container_failure_categories":failures, "save_targets":versions, "stream_roles":roles, "complete_structure_streams":complete_streams, "complete_records":complete_records, "geometry_counts":geometry_counts, "preserved_shape_blocks":preserved_shape_blocks, "root_classes":classes, "diagnostic_codes":codes});
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)

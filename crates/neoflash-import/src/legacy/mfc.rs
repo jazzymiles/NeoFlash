@@ -1,6 +1,6 @@
 //! Sequential bounded MFC structure reader. Unknown data stops parsing;
 //! neither byte-pattern scans nor guessed record boundaries are used.
-use super::{BinaryStreamInspection, RecordCounts};
+use super::{BinaryStreamInspection, RecordCounts, geometry};
 
 const MAX_RECORDS: usize = 50_000;
 const MAX_DEPTH: usize = 32;
@@ -56,13 +56,13 @@ enum Reference {
     Object(Class),
 }
 struct Stop {
-    code: &'static str,
+    code: String,
     message: String,
 }
 type Result<T> = std::result::Result<T, Stop>;
 fn stop<T>(code: &'static str, message: impl Into<String>) -> Result<T> {
     Err(Stop {
-        code,
+        code: code.into(),
         message: message.into(),
     })
 }
@@ -71,31 +71,46 @@ struct Reader<'a> {
     pos: usize,
     refs: Vec<Reference>,
     counts: RecordCounts,
+    geometry: geometry::GeometryCounts,
+    retained: Vec<geometry::LocatedBinaryShape>,
+    retain_geometry: bool,
+    retained_items_remaining: &'a mut usize,
     root_class: Option<Class>,
     root_schema: Option<u16>,
 }
 
-pub(super) fn inspect(data: &[u8], stream: &mut BinaryStreamInspection) {
+pub(super) fn inspect(
+    data: &[u8],
+    stream: &mut BinaryStreamInspection,
+    retain_geometry: bool,
+    retained_items_remaining: &mut usize,
+) -> Vec<geometry::LocatedBinaryShape> {
     let mut reader = Reader {
         data,
         pos: 0,
         refs: vec![Reference::Null],
         counts: RecordCounts::default(),
+        geometry: geometry::GeometryCounts::default(),
+        retained: Vec::new(),
+        retain_geometry,
+        retained_items_remaining,
         root_class: None,
         root_schema: None,
     };
     let result = reader.root();
     stream.bytes_consumed = reader.pos;
     stream.records = reader.counts;
+    stream.geometry = reader.geometry;
     stream.root_class = reader.root_class.map(|c| c.name().to_owned());
     stream.root_schema = reader.root_schema;
     match result {
         Ok(()) => stream.structure_complete = true,
         Err(e) => {
-            stream.stop_code = Some(e.code.into());
+            stream.stop_code = Some(e.code);
             stream.stop_message = Some(e.message);
         }
     }
+    reader.retained
 }
 
 impl<'a> Reader<'a> {
@@ -373,35 +388,34 @@ impl<'a> Reader<'a> {
         Ok(())
     }
     fn shape(&mut self) -> Result<()> {
-        self.revision(6, "CPicShape")?;
-        self.skip(24)?;
-        let rev = self.revision(5, "shape data")?;
-        self.dword()?;
-        if self.word()? != 0 {
-            return stop(
-                "fla_shape_styles_unsupported",
-                "Shape fill styles need a versioned geometry decoder.",
-            );
+        match geometry::decode_prefix(&self.data[self.pos..]) {
+            Ok(shape) => {
+                if self.retain_geometry && shape.item_count() > *self.retained_items_remaining {
+                    return stop(
+                        "fla_geometry_document_limit",
+                        "Retained geometry exceeds 250000 items across this document.",
+                    );
+                }
+                let offset = self.pos;
+                self.pos += shape.original_bytes.len();
+                self.geometry.add(&shape);
+                if self.retain_geometry {
+                    *self.retained_items_remaining -= shape.item_count();
+                    self.retained.push(geometry::LocatedBinaryShape {
+                        offset,
+                        record: shape,
+                    });
+                }
+                Ok(())
+            }
+            Err(e) => {
+                self.pos += e.offset;
+                Err(Stop {
+                    code: e.code,
+                    message: e.message,
+                })
+            }
         }
-        if self.word()? != 0 {
-            return stop(
-                "fla_shape_styles_unsupported",
-                "Shape stroke styles need a versioned geometry decoder.",
-            );
-        }
-        if rev >= 2 && self.byte()? != 0 {
-            return stop(
-                "fla_shape_edges_unsupported",
-                "Nonempty delta-coded edge data is not implemented.",
-            );
-        }
-        if rev >= 5 && self.dword()? != 0 {
-            return stop(
-                "fla_shape_auxiliary_unsupported",
-                "Auxiliary shape geometry is not implemented.",
-            );
-        }
-        Ok(())
     }
     fn frame(&mut self, depth: usize) -> Result<()> {
         let rev = self.revision(26, "CPicFrame")?;
