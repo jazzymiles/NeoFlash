@@ -1,15 +1,15 @@
 # Verification record
 
-Date: 2026-10-26. This record covers the development preview, vector/object tools and clipboard, authored web semantics, ActionScript functions and binary geometry/Contents/timeline preservation, not complete Flash compatibility.
+Date: 2026-10-27. This record covers the development preview, vector/object tools and clipboard, authored web semantics, ActionScript functions/control flow/exceptions and binary geometry/Contents/timeline preservation plus a strict contour adapter, not complete Flash compatibility.
 
 ## Automated checks
 
 `./scripts/check.sh` passes on Apple Silicon, macOS 15.8, Rust 1.99.1:
 
 - Formatting and Clippy (`--workspace --all-targets -- -D warnings`).
-- 202 Rust tests: 42 core, 88 editor, 20 script, 48 importer and 4 exporter.
-- 27 browser-host/actual-WASM/cache tests in Node, including semantic bounds, DOM identity, focus restoration, pan/zoom and lifetime-checked keyboard activation.
-- 30 execution fixtures using JavaScript emitted by the script compiler, plus an integration check using the actual host proxy/dispatch code with a lifecycle stub.
+- 220 workspace Rust tests: 42 core, 90 editor, 26 script, 58 importer and 4 exporter; four additional tests exercise the pinned egui-winit paste adapter.
+- 32 browser-host/actual-WASM/cache tests in Node, including semantic bounds, DOM identity, focus restoration, pan/zoom, lifetime-checked activation, recovery and failure reporting.
+- 62 execution fixtures using JavaScript emitted by the script compiler, plus an integration check using the actual host proxy/dispatch code with a lifecycle stub.
 - Release WebAssembly build and standalone demo export.
 
 Important regressions include independent nested clocks while a parent is stopped; affine nesting; dispatch order/stale-instance protection; JSON validation and graph cycles; grouped undo; key insertion at an interpolated pose; midpoint duplicate/delete; symbol conversion and recursive-placement rejection; key move/copy/collision behavior; fast and normal pointer gestures; macOS collection-font loading; and the Metal backend being enabled in the actual desktop build.
@@ -63,11 +63,27 @@ The runtime regression uses the actual shared `Player` on a transferred nested p
 
 Ten editor clipboard tests use real egui events and menu clicks with an injected clipboard reader, never the user's OS clipboard. They cover one output per Copy/Cut, Cut and Paste history, centered/in-place modes, text-field ownership even for a valid object payload, deferred text delivery/cancellation, menu focus restoration, playback stopping before text delivery, empty/unavailable clipboard, malformed input, and no duplicate paste from a combined key/paste input batch. Review found the playback tick ordering issue and the tests now guard against it.
 
-The native paste event does not carry key-press modifiers. The tested V-release fallback handles the usual Shift chord, but cannot recover Shift if it was released before V in the same batch. The explicit Paste in Place menu action has no such ambiguity. Native modifier capture remains planned. Live OS clipboard exchange and the new menu's visual checks remain pending the Mac being unlocked.
+The original native paste event did not carry key-press modifiers. Its first V-release fallback could not recover Shift if it was released before V in the same batch. The later adapter increment below replaces that fallback with initiating-key metadata. Live OS clipboard exchange and the new menu's visual checks remain pending the Mac being unlocked.
 
 The rebuilt bundle passed `codesign --verify --deep --strict` and retains deployment minimum macOS 15.0. Executable SHA-256: `c0ef61a7ac73089704684d4acf48a5a97140cb3b6b708ecd6b01837756dcd871`; packaged WASM: `9b564330387b99c739fb4326d9567c882f9234c06ebb048b2566a0c5cec2085d`.
 
 The regenerated demo was served only from `dist/demo` over loopback and checked in the in-app browser. Animation advanced; Pause held frame 41; a click emitted `Orbit rotated`; Restart resumed near frame 3; a subsequent Pause held frame 70 and its object handler still worked. Captured console errors were empty, with the known nonembedded-font warning. An independent frozen-export review at 1280×720 also passed animation, pause, click and restart checks and verified the embedded WASM fingerprint. This is a runtime regression smoke check, not a live clipboard or transferred-project acceptance test. Screenshot: `target/verification/html5-clipboard-runtime.png`. Temporary tabs and the test server were closed.
+
+## Control flow, solid contours and paste intent — 27 October
+
+Structured control-flow fixtures exercise switch evaluation/fallthrough, do/continue, AS3 labels, throw identity, ordered typed catches, lexical catch captures, finally precedence and return coercion. Independent review found two additional defects, now guarded by fixtures: a method assigned to an outer receiver inside catch must remain callable afterward, and the Error facade's typed toString return must be coerced. Error message construction follows the pinned Adobe VM implementation, whose untyped message differs from the published documentation signature; this is recorded in the compatibility matrix.
+
+The actual-host failure tests cover 13 raw payloads and the same 13 inside AS2 envelopes, including null/undefined, primitives, errors, hostile accessors/conversion and revoked proxies. A full host boot test first reproduced a startup error preventing the animation loop from being installed. The fix leaves failed projects stopped but restartable. The original recovery example also runs through the Rust compiler, real WASM Player and shipped host code, checking independent counters/clocks, cross-handler payload identity, activation and reset.
+
+In the in-app browser, the example produced `AS3 Try again cleanup 1`, `AS3 Accepted cleanup 2`, independent `AS2 Try again cleanup 1`, then keyboard-triggered `AS3 Ready cleanup 3` and `AS2 Accepted cleanup 2`. Restart reset the counters. Separate exports displayed the original AS3 null and AS2 string failures with frame location, and a safe placeholder for a hostile JavaScript thrown object. A one-time startup failure recovered after Restart, advancing from frame 6 to 104 before Pause; its click handler still worked. No application errors occurred in the recovery example; expected font warnings remained. Temporary tabs and servers were closed.
+
+Ten contour tests cover exact units/style sides, shuffled edges, quadratic reversal, alternating nested holes/islands, same-fill internal edges, full affine baking, malformed IR, unsupported paints, intersections, uncertainty and work/precision bounds. Review added a guard for distinct points collapsing at f64 precision. A tangent fixture also caught an invalid supporting-plane shortcut in the initial certificate; both hulls must have the tested plane as an extremum. The original adapter-derived project was visually checked at 1280×720 in HTML5: rectangular hole, quadratic lens and reflected/sheared parallelogram rendered correctly, with no console errors. This is a visual check, not an exact pixel comparison or complete binary FLA import.
+
+The local aggregate candidate audit examined 136 nonempty shape records in six accepted Flash 3 containers. Seven passed the strict adapter (seven contours, 80 boundary edges; six had a complete enclosing record). The remaining candidates report 106 unsupported-feature, 22 unsupported-paint and one uncertain-intersection diagnostic. Empty shapes and other save targets were skipped. All binary documents remain blocked for editable import; candidate shape success does not establish document-wide compatibility. No private artwork was rendered or published.
+
+Four adapter tests and twelve editor clipboard tests cover initiating-key metadata, either release order, later Shift changes, repeated/mixed batches, text delivery once and menu routing. After the Mac was unlocked, the old process was closed and the new bundle opened the recovery example through the native Open dialog. Keyboard/menu Paste in Place retained X=60 and X=123, verified from saved JSON. Copying two selected instances, creating a new document and pressing Paste produced two placements sharing one newly identified library symbol, retaining AS2 and AS3 handlers. The first automated key sequence received foreign clipboard text; isolated subsequent Copy and menu/keyboard Paste checks succeeded. Its cause was not established, so exhaustive timing/platform clipboard conformance is not claimed.
+
+The optimized bundle passed `codesign --verify --deep --strict` with minimum macOS 15.0. Executable SHA-256: `6cd7ae793200a3153eba0391be855bb119a1616c60b0827e348f26789e487129`; packaged WASM: `9b564330387b99c739fb4326d9567c882f9234c06ebb048b2566a0c5cec2085d`. Test/build logs and original UI fixtures remain under ignored `target/verification/`. Screenshots include `html5-script-recovery.png` and `html5-binary-contours.png`.
 
 ## Observed HTML5 checks
 

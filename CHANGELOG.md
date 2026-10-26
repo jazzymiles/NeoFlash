@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added structured ActionScript switch/do control flow, AS3 labels, synchronous exceptions and selected typed error support, with explicit per-language boundaries and executable cleanup/scope regressions.
+- Fixed HTML5 failure reporting for arbitrary thrown values; added an editable AS2/AS3 recovery example and integration checks through the actual compiler, browser host and WASM Player.
+- Preserved initiating paste-key modifiers in a pinned egui-winit adapter, removing the Shift/V release-order ambiguity while retaining one text paste event.
+- Added an opt-in Flash 3 solid-contour adapter with exact endpoint assembly, affine path coordinates, bounded topology certification and provenance. General binary FLA document conversion remains blocked.
+
 - Added object Copy/Cut/Paste and Paste in Place across frames/documents, preserving sampled placements, shared nested symbols, timeline scripts and accessibility metadata. Complete candidate validation precedes each paste; text-focused commands retain their recipient and pause playback.
 - Added opt-in typed binary FLA timelines with archive identity, explicit child ownership, partial record fields and shape associations. Added bounded Flash 3 publish/compatibility suffix reading to exact EOF and proven empty historical-action envelopes. Editable binary conversion remains blocked.
 - Added cross-layer multi-selection, Shift selection, marquee, Select All, duplicate/delete and grouped Undo; V remains the selection tool and Q provides Free Transform.

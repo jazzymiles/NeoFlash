@@ -13,7 +13,8 @@ Priority is based on the stated product goal, with explicit evidence required fo
 - [x] Cross-layer multi-selection, Shift/marquee/Select All, whole-selection duplicate/delete and V/Q object editing, with automated native-input regression coverage. Live native visual checks of this increment remain pending.
 - Custom registration points/pivots, skew, nonuniform multi-object transforms and groups.
 - [x] Object Copy/Cut/Paste and Paste in Place across frames/documents, including shared symbol closure, instance identity, scripts, text-focus routing and one-step Undo. Core and egui input tests pass; live OS clipboard checks remain pending.
-- Timeline clipboard for selected frame ranges, layer-preserving paste modes and a native paste adapter that retains modifiers at key press even when Shift is released before V within one input batch.
+- [x] Preserve paste shortcut modifiers at key press in a pinned egui-winit adapter, with release-order, repeated-batch and text-recipient regressions. Physical macOS clipboard delivery remains unverified while the desktop is locked.
+- Timeline clipboard for selected frame ranges and layer-preserving paste modes.
 - Drag/copy/reverse frame spans, keyframe movement, multi-frame edit and layer folders/reordering.
 - [x] Bezier paths, pen/pencil, direct point editing, compound fills and HTML5 geometry.
 - Brush/pressure, spline fitting, point insertion/deletion, tangent constraints, shape splitting/merging, gradients, masks and guides.
@@ -32,6 +33,7 @@ Priority is based on the stated product goal, with explicit evidence required fo
 - JS/TS module imports, type checking, code completion, diagnostics navigation and debugger.
 - Full AS2/AS3 parser/type/coercion conformance, classes/prototypes, E4X/namespaces and API mappings.
 - [x] Function declarations/expressions, lexical locals, recursion and closures in the documented ActionScript subset; executable coercion/evaluation-order regressions.
+- [x] Structured switch/do control flow, AS3 labels, explicit throws, selected typed catches and finally in the documented subset, with safe HTML5 failure reporting and a compiler/host/WASM recovery example. Full language/error conformance and AS2 ambiguous catch-scope forms remain pending.
 - Sound/video/image import; synchronization, browser input and lifecycle.
 - Runtime event conformance for nested clips, construction, re-entry, bubbling, scope and removed objects.
 
@@ -42,7 +44,8 @@ Priority is based on the stated product goal, with explicit evidence required fo
 - [x] Preserve bounded binary shape/style/edge records with exact source bytes and aggregate-only inspection; verify the private corpus without publishing artwork.
 - [x] Preserve bounded Contents prefixes, scene/library/media descriptors, MFC identities and raw settings; resolve all 289 descriptors in the 19 accepted local containers while retaining unread suffix bytes.
 - [x] Preserve typed timeline identity/ownership/partial fields and shape associations from one container snapshot; read the supported Flash 3 Contents suffix to exact EOF. Synthetic fixtures and aggregate corpus verification establish the documented reader boundary.
-- Binary FLA lossless document conversion: Contents extensions/suffix, interpreted linkage, contour assembly, object/media payloads and historical actions. Investigate one corpus container rejected by strict directory validation.
+- [x] Pure, bounded Flash 3 solid contour adapter with original fixtures, exact endpoint assembly, affine path coordinates and explicit topology/paint diagnostics. This does not enable binary document import.
+- Binary FLA document conversion: document-wide semantic acceptance, Contents extensions/suffix, interpreted linkage, more paints/contours, object/media payloads and historical actions. Investigate one corpus container rejected by strict directory validation. Lossless FLA round-trip also requires retained document provenance and metadata.
 - Evaluate Ruffle as optional SWF playback/compatibility module. Keep new HTML5 publication independent of mandatory SWF.
 - Reproducible private-corpus tests: per-file diagnostics, rendered frames, input scenarios, comparison provenance.
 

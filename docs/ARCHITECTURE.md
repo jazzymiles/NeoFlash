@@ -18,6 +18,8 @@ Vector paths use explicit line/quadratic/cubic commands and compound contours. T
 
 `neoflash-script` parses JS and transforms TS with Oxc, in a strict function-body context matching the browser host. Type checking and package/module bundling are separate future work. The AS2/AS3 frontend has a real tokenizer/parser/AST and explicit unsupported-feature diagnostics. There is no string-substitution claim of full ActionScript translation.
 
+Structured control flow uses validated enclosing jump targets, lexical catch environments and conservative completion analysis. Supported try/finally constructs lower directly to JavaScript, preserving return/break/continue exits. Explicit AS2 throws use a shared branded envelope across handlers; catch-all AS2 clauses do not absorb arbitrary host failures. The HTML5 boundary unwraps that envelope and formats arbitrary thrown values without replacing their cause. See [structured ActionScript and exceptions](decisions/0006-actionscript-control-flow.md) and the compatibility matrix for the exact language boundary.
+
 `neoflash-web` compiles the same Rust `Player` to WebAssembly. The browser host provides Canvas painting, pointer input, script object proxies, helper APIs and a browser error surface. Only Test Movie/published output executes project code at present. A future native runtime must share the same event contract rather than invent a different interpreter path.
 
 ## Publishing
@@ -32,6 +34,8 @@ Optional placement accessibility metadata is evaluated by the same Rust runtime.
 
 `eframe/egui 0.33.3` is pinned as the initial tested UI baseline with wgpu/Metal rendering. Custom panels implement a dense classic workspace. Native dialogs use rfd; installed fonts use font-kit/CoreText. A native `.app` wrapper sets macOS 15 as the deployment target. AppKit integration (menus, document lifecycle, accessibility and richer input) needs further work.
 
+A single pinned egui-winit source patch retains the initiating key event immediately before its paste payload. The editor consumes that adjacent event as paste intent before normal shortcut/text routing, so final frame modifiers and release order cannot change Paste in Place. Upstream provenance/licenses and the removable patch are recorded in `vendor/egui-winit/NEOFLASH-PATCH.md`.
+
 Commands currently group snapshot history around edits. Drag gestures are grouped; history is bounded. Larger documents will require a measured transition to delta commands and resource-aware history. Autosave/recovery and multi-document editing are not implemented yet.
 
 Selection is editor state scoped to a symbol and stable layer/element IDs. Gestures capture the authored frame, view transform and original sampled poses, then apply changes from that snapshot. Keys and history begin only with an effective edit; cancellation and a return to the original pose leave neither behind. V selects/moves and Q exposes object transform handles. Multiple selections support rotation and uniform scaling; the TRS document model does not silently approximate skew. See [selection and gestures](decisions/0004-selection-and-gestures.md).
@@ -43,6 +47,8 @@ The core clipboard model captures ordered sampled placements and their reachable
 The importer is independent of native GUI and publishing. It inspects container signatures and supports only a documented XFL subset. Unsupported content blocks import, with a source location, rather than disappearing. Binary FLA, SWF bytecode/runtime and restoration of an editable source project are different compatibility tracks. See IMPORTS.md.
 
 Opt-in binary preservation reads Contents, archive object/reference tables and typed timeline fields from one immutable container snapshot. Partial ancestors, source-action presence and original byte spans remain explicit. Archive identity and byte consumption do not establish cross-frame placement identity or an editable document; conversion remains a separate validated adapter.
+
+The pure solid-contour adapter accepts a strict Flash 3 record/context subset. It assembles exact integer endpoints before applying the shape's full affine matrix to core path coordinates, retaining edge provenance separately. Bounded intersection/nesting checks reject ambiguous topology and paint; this API does not infer layers, timeline placement identities or document-wide import eligibility.
 
 ## Verification boundaries
 

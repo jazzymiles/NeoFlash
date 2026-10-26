@@ -1,6 +1,7 @@
 //! Bounded, read-only CFB and binary FLA structure inspection.
 //! No byte-pattern recovery: unknown records stop the current stream.
 pub(crate) mod contents;
+pub(crate) mod contours;
 pub(crate) mod geometry;
 mod mfc;
 pub(crate) mod timeline;

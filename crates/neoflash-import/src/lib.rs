@@ -4,6 +4,7 @@ mod source;
 mod xfl;
 
 pub use legacy::contents::*;
+pub use legacy::contours::*;
 pub use legacy::geometry::*;
 pub use legacy::timeline::*;
 pub use legacy::{

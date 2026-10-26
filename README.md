@@ -58,7 +58,7 @@ HTML5 export uses the same Rust timeline/runtime through WebAssembly and a small
 
 For interactive web content, use the **Accessibility** panel to give an object a name, description, Button/Image role and reading/focus order. Buttons use the existing Click handler for keyboard activation. See [interactive HTML5 projects](docs/WEB.md) for authoring and preview controls, and the verification record for tested boundaries.
 
-Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two independent AS3 counter instances, or [vector-paths.nflash](examples/vector-paths.nflash) for curved strokes and compound fills. HTML5 previews provide Fit, 100% and fixed zoom levels with scrolling and a Pan tool.
+Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two independent AS3 counter instances, [script-recovery.nflash](examples/script-recovery.nflash) for AS2/AS3 exceptions and cleanup on animated instances, or [vector-paths.nflash](examples/vector-paths.nflash) for curved strokes and compound fills. HTML5 previews provide Fit, 100% and fixed zoom levels with scrolling and a Pan tool.
 
 ## Project layout
 
@@ -74,6 +74,7 @@ web/                browser host and runtime tests
 examples/           small source examples
 scripts/            reproducible build, check and packaging commands
 docs/               requirements, architecture, decisions, roadmap, test record
+vendor/             pinned egui-winit input patch, provenance and upstream licenses
 ```
 
 There is one source tree. Version history belongs in Git, build outputs in ignored `target/` and `dist/`. User-provided `examples/old flash files/` stays local and is excluded from Git.
