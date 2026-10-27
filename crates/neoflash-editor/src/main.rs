@@ -5,6 +5,7 @@ mod detached;
 mod fonts;
 mod native_screens;
 mod panels;
+mod resources;
 mod selection;
 mod sources;
 mod stage;

@@ -39,3 +39,9 @@ The original example [keyboard-controls.nflash](../examples/keyboard-controls.nf
 ## Current verification boundary
 
 Core tests cover source persistence, focus ordering, disabled/hidden targets, nested placements and lifetime protection. Native authoring tests cover key insertion, Undo and symbol conversion. Actual browser keyboard, focus and narrow-viewport checks must be recorded separately in VERIFICATION.md. Passing generated-markup tests alone does not establish screen-reader usability. VoiceOver, other assistive technologies, Safari and more semantic roles still require dedicated verification.
+
+## Resource files and data requests
+
+Use Library → Resource files to import portable bytes, then load their exact project path from AS3 URLLoader or AS2 LoadVars. The exported bundle contains these files and can serve them without network access, including when opening its index.html directly. Text, URL-encoded variables and ByteArray data use the shared publication services. Resource imports and metadata/removal participate in Undo; renaming a logical path requires updating the script that uses it.
+
+Requests for external HTTP(S) URLs use browser access rules and require a reachable server. A local relative file that was not imported is not an implicit desktop-file request. Restart and cancellation suppress callbacks from abandoned operations. The compatibility matrix documents supported methods, fields, limits and error events. Storing an image/audio/video file does not yet create a Stage bitmap or media player; those consumers will reuse the same resource format.

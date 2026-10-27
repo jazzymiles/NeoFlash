@@ -10,7 +10,18 @@ use std::collections::BTreeMap;
 #[test]
 fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
     let ctx = egui::Context::default();
-    let mut editor = Editor::from_project(&ctx, Project::demo());
+    let mut initial = Project::demo();
+    initial.format_version = 3;
+    initial.resources.push(
+        neoflash_core::ResourceUnit::from_bytes(
+            "settings-resource",
+            "settings.txt",
+            "text/plain",
+            b"theme=dark",
+        )
+        .unwrap(),
+    );
+    let mut editor = Editor::from_project(&ctx, initial);
     editor.select_all();
     editor.transact(|e| e.project.name = "Unsaved authoring work".into());
     let project = editor.project.clone();
@@ -45,6 +56,27 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
     editor.undo();
     assert_ne!(editor.project.name, project.name);
     assert!(!editor.dirty());
+    let unit = neoflash_core::ResourceUnit::from_bytes(
+        "imported-resource",
+        "data.txt",
+        "text/plain",
+        b"portable data",
+    )
+    .unwrap();
+    editor.add_resource_units(vec![unit.clone()]).unwrap();
+    assert!(editor.dirty());
+    let imported = editor.project.clone();
+    assert!(editor.add_resource_units(vec![unit]).is_err());
+    assert_eq!(
+        editor.project, imported,
+        "conflicting resource import is atomic"
+    );
+    editor.undo();
+    assert_eq!(editor.project.resources.len(), 1);
+    assert!(!editor.dirty(), "Undo restores the saved resource snapshot");
+    editor.redo();
+    assert_eq!(editor.project.resources.len(), 2);
+    assert!(editor.dirty());
 }
 
 #[test]

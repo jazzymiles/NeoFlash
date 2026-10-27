@@ -34,7 +34,7 @@ pub struct Editor {
     pub project: Project,
     pub history: History,
     pub path: Option<PathBuf>,
-    pub saved_json: String,
+    pub saved_project: Option<Project>,
     pub editing: Vec<String>,
     pub frame: u32,
     pub layer: usize,
@@ -70,6 +70,7 @@ pub struct Editor {
     pub timeline_cell: f32,
     pub timeline_key_drag: Option<(String, String, u32)>,
     pub library_selected: Option<String>,
+    pub resource_panel: crate::resources::ResourcePanel,
     pub vector: crate::vector::VectorState,
     pub clipboard: crate::clipboard::ClipboardState,
     pub workspace: WorkspacePrefs,
@@ -98,10 +99,10 @@ impl Editor {
     }
     pub(crate) fn from_project(ctx: &egui::Context, project: Project) -> Self {
         WorkspacePrefs::default().theme.apply(ctx);
-        let saved_json = serde_json::to_string(&project).unwrap_or_default();
+        let saved_project = Some(project.clone());
         let root = project.root.clone();
         let mut s = Self {
-            project, history: History::new(150), path: None, saved_json,
+            project, history: History::new(150), path: None, saved_project,
             editing: vec![root.clone()], frame: 0, layer: 0, selection: crate::selection::Selection { symbol: root, targets: vec![] }, object_gesture: None, tool: Tool::Select,
             playing: false, last_tick: Instant::now(), accumulator: 0.,
             onion: false, onion_outlines: false, onion_before: 3, onion_after: 3,
@@ -114,6 +115,7 @@ impl Editor {
             output: vec!["NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser.".into()],
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
             timeline_cell: 13., timeline_key_drag: None, library_selected: None,
+            resource_panel: crate::resources::ResourcePanel::default(),
             vector: crate::vector::VectorState::default(),
             clipboard: crate::clipboard::ClipboardState::default(),
             workspace: WorkspacePrefs::default(),
@@ -174,7 +176,7 @@ impl Editor {
             .draft
             .as_ref()
             .is_some_and(|d| d.anchors.len() >= 2)
-            || serde_json::to_string(&self.project).unwrap_or_default() != self.saved_json
+            || self.saved_project.as_ref() != Some(&self.project)
     }
     pub fn message(&mut self, msg: impl Into<String>) {
         self.status = msg.into();
@@ -400,13 +402,14 @@ impl Editor {
                     Project::demo()
                 };
                 self.clipboard = Default::default();
+                self.resource_panel = Default::default();
                 self.editing = vec![self.project.root.clone()];
                 self.frame = 0;
                 self.layer = 0;
                 self.clear_selection();
                 self.path = None;
                 self.history = History::new(150);
-                self.saved_json = serde_json::to_string(&self.project).unwrap_or_default();
+                self.saved_project = Some(self.project.clone());
                 self.playing = false;
                 self.load_project_fonts(ctx);
             }
@@ -441,13 +444,14 @@ impl Editor {
             Ok(project) => {
                 self.project = project;
                 self.clipboard = Default::default();
+                self.resource_panel = Default::default();
                 self.editing = vec![self.project.root.clone()];
                 self.frame = 0;
                 self.layer = 0;
                 self.clear_selection();
                 self.path = Some(path);
                 self.history = History::new(150);
-                self.saved_json = serde_json::to_string(&self.project).unwrap_or_default();
+                self.saved_project = Some(self.project.clone());
                 self.playing = false;
                 self.load_project_fonts(ctx);
                 self.message("Project opened.");
@@ -473,12 +477,13 @@ impl Editor {
                         Ok(project) => {
                             self.project = project;
                             self.clipboard = Default::default();
+                            self.resource_panel = Default::default();
                             self.editing = vec![self.project.root.clone()];
                             self.frame = 0;
                             self.layer = 0;
                             self.clear_selection();
                             self.path = None;
-                            self.saved_json = String::new();
+                            self.saved_project = None;
                             self.history = History::new(150);
                             self.playing = false;
                             self.load_project_fonts(ctx);
@@ -522,7 +527,7 @@ impl Editor {
             });
         match result {
             Ok(()) => {
-                self.saved_json = serde_json::to_string(&self.project).unwrap_or_default();
+                self.saved_project = Some(self.project.clone());
                 self.path = Some(path);
                 self.message("Project saved.");
                 true

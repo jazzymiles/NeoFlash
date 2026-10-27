@@ -36,13 +36,19 @@ impl Project {
 
     pub fn to_json(&self) -> Result<String, ProjectError> {
         self.validate()?;
-        Ok(serde_json::to_string_pretty(self)?)
+        let json = serde_json::to_string_pretty(self)?;
+        if json.len() > MAX_PROJECT_JSON_BYTES {
+            return Err(ProjectError::Invalid(
+                "document exceeds the 128 MiB encoded JSON limit".into(),
+            ));
+        }
+        Ok(json)
     }
 
     pub fn from_json(json: &str) -> Result<Self, ProjectError> {
-        if json.len() > 32 * 1024 * 1024 {
+        if json.len() > MAX_PROJECT_JSON_BYTES {
             return Err(ProjectError::Invalid(
-                "document exceeds 32 MiB; external assets are required".into(),
+                "document exceeds the 128 MiB encoded JSON limit".into(),
             ));
         }
         let project: Self = serde_json::from_str(json)?;
@@ -54,11 +60,11 @@ impl Project {
 pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if !matches!(project.format_version, 1 | 2) {
+    if !matches!(project.format_version, 1..=3) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported versions are 1 and 2",
+                "unsupported version {}; supported versions are 1, 2 and 3",
                 project.format_version
             ),
         );
@@ -67,6 +73,12 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
         add(
             "format_version".into(),
             "project sources and class linkage require document version 2".into(),
+        );
+    }
+    if !project.resources.is_empty() && project.format_version < 3 {
+        add(
+            "format_version".into(),
+            "portable resources require document version 3".into(),
         );
     }
     if project.width == 0 || project.height == 0 || project.width > 65535 || project.height > 65535
@@ -83,6 +95,52 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
         add("root".into(), "root symbol does not exist".into());
     }
     let mut identities: HashMap<&str, String> = HashMap::new();
+    let mut resource_paths = HashSet::new();
+    let mut resource_bytes = 0usize;
+    if project.resources.len() > MAX_RESOURCES {
+        add("resources".into(), "resource count exceeds 1024".into());
+    }
+    let encoded_bytes = project.resources.iter().fold(0usize, |total, resource| {
+        total.saturating_add(resource.data_base64.len())
+    });
+    let encoded_size_ok = encoded_bytes <= crate::resources::MAX_ENCODED_TOTAL_BYTES;
+    if !encoded_size_ok {
+        add(
+            "resources".into(),
+            "encoded resources exceed the 64 MiB decoded total budget".into(),
+        );
+    }
+    for (index, resource) in project.resources.iter().take(MAX_RESOURCES).enumerate() {
+        let path = format!("resources[{index}]");
+        register(
+            &mut identities,
+            &resource.id,
+            &format!("resource:{index}"),
+            &format!("{path}.id"),
+            &mut add,
+        );
+        if let Err(error) = resource.validate_metadata() {
+            add(path.clone(), error.to_string());
+        }
+        if !resource_paths.insert(resource.path.to_lowercase()) {
+            add(
+                format!("{path}.path"),
+                "resource paths must be unique, including case-insensitive matches".into(),
+            );
+        }
+        if encoded_size_ok {
+            match resource.decoded_bytes() {
+                Ok(bytes) => resource_bytes = resource_bytes.saturating_add(bytes.len()),
+                Err(error) => add(format!("{path}.data_base64"), error.to_string()),
+            }
+        }
+    }
+    if resource_bytes > MAX_RESOURCE_TOTAL_BYTES {
+        add(
+            "resources".into(),
+            "decoded resources exceed the 64 MiB total budget".into(),
+        );
+    }
     let mut source_paths = HashSet::new();
     let mut source_bytes = 0usize;
     if project.sources.len() > 4096 {

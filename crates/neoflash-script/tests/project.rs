@@ -53,6 +53,11 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { public interface A { var value:int; } }",
         "package { public class A { public function A(value:int=0){} } }",
         "package { public class A implements Missing {} }",
+        "package { import flash.net.URLLoader; public class A extends URLLoader {} }",
+        "package { import flash.net.URLVariables; public class A extends URLVariables {} }",
+        "package { import flash.events.ProgressEvent; public class A extends ProgressEvent {} }",
+        "package { import flash.net.URLRequestMethod; public class A { public function A(){new URLRequestMethod();} } }",
+        "package { import flash.net.URLLoaderDataFormat; public class A { public function A(){new URLLoaderDataFormat();} } }",
         "package { import flash.display.MovieClip; public class A extends MovieClip {public var x:Number;} }",
         "package { import flash.display.Shape; public class A extends Shape {public var graphics:Object;} }",
         "package { import flash.display.Sprite; public class A extends Sprite {public function addChild(value:Object):void {}} }",
@@ -93,6 +98,11 @@ fn class_syntax_outside_profile_is_never_erased() {
     assert!(
         neoflash_script::compile_project(&legacy).is_err(),
         "ByteArray is an AS3 family, not an AS2 import"
+    );
+    legacy.sources[0].source = "import flash.net.URLLoader; class A {}".into();
+    assert!(
+        neoflash_script::compile_project(&legacy).is_err(),
+        "AS2 uses LoadVars, not the AS3 URLLoader import"
     );
     let mut mixed = project(&[
         ("A.as", "class A extends B {}"),

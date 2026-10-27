@@ -1,5 +1,7 @@
 # Backlog
 
+Independent 798e28b acceptance (`LINKED-INTERFACES-HTML5-20261027T0243Z`) confirms bounded linked MovieClip/valid AS2 attachMovie and AS3 interface/accessor workflows, real input and Restart. The deliberate missing-link AS2 probe reproduces the documented host-error catch boundary and stops its frame; this remains a partial-contract follow-up. Only 25 exact declarations receive this evidence. See [the independent record](VERIFICATION.md#independent-linked-movieclip-and-interface-verification-of-798e28b). Current resource/loader work inherits no pass.
+
 Independent 2b5deff verification accepts the bounded dynamic display/Graphics and ByteArray workflows, adjacent diagnostics and Restart. Exact members retain partial scope; linked timelines and external binary interoperability remain follow-up work. See [the separate record](VERIFICATION.md#independent-dynamic-display-and-binary-verification-of-2b5deff).
 
 Independent ed3c39b verification accepts the bounded geometry/timer workflow and pending-callback cleanup on publication Restart; other members keep their individual status. See [the separate verification](VERIFICATION.md#independent-geometrytimer-verification-of-ed3c39b).
@@ -23,9 +25,9 @@ On frozen `01f1381`, `FAMILY-INPUT-001` drops trusted mouse `click` events with 
 
 Array/String constructors, mutation, searches, Flash sorting and data-processing callbacks now share a bounded profile across handlers and project classes. Plain authored TextField mutation/color/line queries and Canvas measurements are also implemented; the combined data-to-text example passed browser observation and Restart. Reused scenarios keep verification cost controlled. AS2 project classes and legacy Key/Mouse/Stage input now pass the combined host scenario and representative browser interactions. Point/Rectangle/Matrix and Timer/TimerEvent/getTimer now pass one combined exported workflow and Restart. The dynamic Sprite/Shape/empty MovieClip graph, solid Graphics and bounded ByteArray now pass the combined exported workflow. Explicit linked MovieClips/AS2 attachMovie and project AS3 accessors/interfaces now have shared compiler/core/export scenarios; representative browser interactions/Restart passed and native observations remain pending in VERIFICATION.md. Follow-up batches cover richer TextField/fonts and bitmap/resource documents, media, authoring operations and responsive DOM components; runtime identity remains independent of parentage. Catalogue entries only change status when their bounded behavior exists; a family module alone does not mark all of its declarations implemented.
 
-## Next shared resource family
+## Portable resources delivered; next text and visual families
 
-Add portable project resources and bounded AS3 URLRequest/URLLoader/URLVariables plus AS2 LoadVars as one background-friendly batch. Reuse the binary-to-text workflow for text, bytes and form variables, cancellation, errors and Restart. Resource storage, export packaging and clipboard preservation come before Bitmap/BitmapData, so loading does not create a separate browser-only image graph. Dynamic TextField/TextFormat with explicit layout boxes is a separate subsequent family; rich HTML/input/IME and font embedding remain explicit follow-ups.
+Portable project resources, AS3 URLRequest/URLLoader/URLVariables and AS2 LoadVars now share one binary-to-text workflow, including actual HTTP POST, cancellation, errors and Restart. Resource storage, export packaging and clipboard preservation are implemented; browser/native observations are separately recorded. Bitmap/BitmapData will build on this storage and the shared scene graph. Dynamic TextField/TextFormat with explicit layout boxes is a separate subsequent family; rich HTML/input/IME and font embedding remain explicit follow-ups.
 
 ## P0 — HTML5 correctness
 

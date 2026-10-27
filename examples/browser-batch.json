@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "resource-loading",
+      "path": "examples/resource-loading.nflash",
+      "title": "Portable resources, URLLoader and AS2 LoadVars",
+      "checks": [
+        "Embedded text, form variables and the 50-byte binary packet update the stage; AS2 LoadVars completes with the decoded values.",
+        "The missing-resource branch is handled and the cancelled callback count stays zero.",
+        "Load HTTP notes fetches the exported README over HTTP and displays its status/length; Restart resets loaders and repeats the embedded pipeline."
+      ]
+    },
+    {
       "id": "linked-movieclips",
       "path": "examples/linked-movieclips.nflash",
       "title": "Linked MovieClips, independent timelines and attachMovie",

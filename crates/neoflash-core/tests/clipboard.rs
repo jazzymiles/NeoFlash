@@ -639,6 +639,21 @@ fn nullable_metadata_and_omitted_defaults_are_accepted_but_duplicate_fields_are_
 
 #[test]
 fn text_and_object_budgets_reject_before_pasting() {
+    let mut portable = Project::blank();
+    portable.format_version = 3;
+    portable.resources.push(
+        ResourceUnit::from_bytes(
+            "large-resource",
+            "data/large.bin",
+            "application/octet-stream",
+            &vec![0; MAX_CLIPBOARD_BYTES],
+        )
+        .unwrap(),
+    );
+    assert!(matches!(
+        ClipboardPayload::capture(&portable, vec![shape("portable", 0.)], "session", [0., 0.]),
+        Err(ClipboardError::TooLarge)
+    ));
     let oversized = format!("{CLIPBOARD_PREFIX}{}", " ".repeat(MAX_CLIPBOARD_BYTES));
     assert!(matches!(
         ClipboardPayload::from_text(&oversized),

@@ -20,6 +20,7 @@ const LEGACY_INPUT: &str = include_str!("../../../web/legacy-input.js");
 const GEOMETRY: &str = include_str!("../../../web/geom.js");
 const TIMERS: &str = include_str!("../../../web/timers.js");
 const BYTE_ARRAY: &str = include_str!("../../../web/byte-array.js");
+const NET: &str = include_str!("../../../web/net.js");
 const DISPLAY: &str = include_str!("../../../web/display.js");
 const MARKER: &str = "neoflash-export.json";
 
@@ -78,9 +79,13 @@ pub fn export_warnings(project: &Project) -> Vec<String> {
             }
         }
     }
-    fonts.into_iter().map(|font| format!(
+    let mut warnings: Vec<_> = fonts.into_iter().map(|font| format!(
         "Font '{font}' is referenced by name, not embedded. Visitors need this font installed; otherwise the browser uses a fallback."
-    )).collect()
+    )).collect();
+    if !project.resources.is_empty() {
+        warnings.push(format!("{} project data resource(s) are embedded and available by their relative paths. Resource bytes are not automatically installed as fonts or display assets.", project.resources.len()));
+    }
+    warnings
 }
 
 fn compile_scripts(
@@ -207,10 +212,10 @@ pub fn export_project(
     let marker =
         serde_json::json!({"generator":"NeoFlash", "format_version":1, "project":project.name});
     let readme = format!(
-        "{} — NeoFlash HTML5 export\n\nOpen index.html in a modern browser, or upload this entire folder to static hosting.\nNo plugins, CDN, SWF, build tools or network services are required to play it.\nThe shared Rust evaluator is embedded as WebAssembly in bundle.js.\n\nPublishing notes:\n{}\n\nUse scripts in Actions only from authors you trust: JavaScript executes in the browser.\n",
+        "{} — NeoFlash HTML5 export\n\nOpen index.html in a modern browser, or upload this entire folder to static hosting.\nThe player and embedded project data need no plugins, CDN, SWF or build tools.\nExternal HTTP(S) requests, if used by your scripts, need reachable servers and browser CORS permission. Embedded resources work offline; local filesystem URLs are not a network fallback.\nThe shared Rust evaluator and project resources are embedded in bundle.js.\n\nPublishing notes:\n{}\n\nUse scripts in Actions only from authors you trust: JavaScript executes in the browser.\n",
         project.name,
         if warnings.is_empty() {
-            "No font warnings.".into()
+            "No publishing warnings.".into()
         } else {
             warnings.join("\n")
         }
@@ -241,6 +246,7 @@ pub fn export_project(
         ("geom.js", GEOMETRY),
         ("timers.js", TIMERS),
         ("byte-array.js", BYTE_ARRAY),
+        ("net.js", NET),
         ("display.js", DISPLAY),
         ("bundle.js", bundle_js.as_str()),
         ("README.txt", readme.as_str()),
@@ -316,6 +322,7 @@ fn html_document(title: &str) -> String {
   <script defer src="geom.js"></script>
   <script defer src="timers.js"></script>
   <script defer src="byte-array.js"></script>
+  <script defer src="net.js"></script>
   <script defer src="display.js"></script>
   <script defer src="runtime.js"></script>
 </head>
@@ -355,6 +362,16 @@ mod tests {
         runtime(&rt);
         let mut project = Project::blank();
         project.name = "</title><script>alert('x')</script>".into();
+        project.format_version = 3;
+        project.resources.push(
+            neoflash_core::ResourceUnit::from_bytes(
+                "sample",
+                "data/sample.txt",
+                "text/plain",
+                b"</script>portable data",
+            )
+            .unwrap(),
+        );
         let output = dir.join("output");
         export_project(&project, &output, &rt).unwrap();
         let html = fs::read_to_string(output.join("index.html")).unwrap();
@@ -367,6 +384,18 @@ mod tests {
         );
         assert!(!html.contains("https://"));
         assert!(html.find("src=\"path.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
+        assert!(html.find("src=\"net.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
+        let bundle = fs::read_to_string(output.join("bundle.js")).unwrap();
+        assert!(bundle.contains("PC9zY3JpcHQ+cG9ydGFibGUgZGF0YQ=="));
+        assert!(
+            !output.join("data/sample.txt").exists(),
+            "resource bytes stay in the portable bundle, without filesystem path writes"
+        );
+        assert!(
+            fs::read_to_string(output.join("net.js"))
+                .unwrap()
+                .contains("NeoFlashNet")
+        );
         assert!(
             fs::read_to_string(output.join("path.js"))
                 .unwrap()

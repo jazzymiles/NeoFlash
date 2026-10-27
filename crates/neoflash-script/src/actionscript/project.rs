@@ -21,6 +21,15 @@ const BUILTINS: &[&str] = &[
     "flash.utils.Timer",
     "flash.utils.ByteArray",
     "flash.utils.Endian",
+    "flash.net.URLRequest",
+    "flash.net.URLRequestHeader",
+    "flash.net.URLRequestMethod",
+    "flash.net.URLVariables",
+    "flash.net.URLLoader",
+    "flash.net.URLLoaderDataFormat",
+    "flash.events.ProgressEvent",
+    "flash.events.IOErrorEvent",
+    "flash.events.HTTPStatusEvent",
     "flash.events.TimerEvent",
     "flash.events.EventDispatcher",
     "flash.events.Event",
@@ -104,6 +113,9 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "start"
                 | "reset"
                 | "updateAfterEvent"
+                | "load"
+                | "close"
+                | "decode"
         )
 }
 
@@ -469,6 +481,21 @@ fn parse_class(
             &header.script,
             0,
             "ByteArray indexed storage cannot initialize an existing native subclass receiver; Endian supplies constants and Graphics comes from its display owner. Inheritance from these built-ins is unsupported.",
+        ));
+    }
+    if base.as_ref().is_some_and(|base| {
+        base.starts_with("flash.net.")
+            || matches!(
+                base.as_str(),
+                "flash.events.ProgressEvent"
+                    | "flash.events.IOErrorEvent"
+                    | "flash.events.HTTPStatusEvent"
+            )
+    }) {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "Network request/loader/value and network-event subclasses are outside this profile; create the supported native facade and use listener composition.",
         ));
     }
     let as2 = header.script.language == ScriptLanguage::ActionScript2;

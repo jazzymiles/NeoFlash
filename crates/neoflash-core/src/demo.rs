@@ -6,6 +6,7 @@ impl Project {
         Self {
             format_version: 1,
             sources: vec![],
+            resources: vec![],
             document_class: None,
             name: "Untitled".into(),
             width: 960,

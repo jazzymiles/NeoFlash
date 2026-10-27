@@ -393,8 +393,10 @@ impl<'a> Analysis<'a> {
             Expr::Member(base,_) if self.script.language==ScriptLanguage::ActionScript2 && matches!(base.as_ref(),Expr::Name(n)if n=="super") && !direct_callee => return Err(self.error(self.scopes[&scope].offset,"AS2 super property values and method extraction are outside this profile; call super.method(...) directly.")),
             Expr::Name(name) if is_error_type(name) && self.resolve(scope, name).is_none() => return Err(self.error(self.scopes[&scope].offset, "Core Error class values and constructor aliases are not supported; use an explicit new Error-family constructor.")),
             Expr::NewError(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Error constructor cannot be resolved as a core type; arbitrary constructor calls are unsupported.")),
-            Expr::NewBuiltin(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Array/String constructor requires arbitrary user-constructor semantics not supported here. Ordinary calls to the local binding remain supported.")),
+            Expr::NewBuiltin(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Array/String/LoadVars constructor requires arbitrary user-constructor semantics not supported here. Ordinary calls to the local binding remain supported.")),
+            Expr::NewBuiltin(name, args, offset) if name == "LoadVars" && !args.is_empty() => return Err(self.error(*offset,"AS2 LoadVars construction takes no arguments in this profile.")),
             Expr::NewClass(name, _, offset) if name == "flash.events.EventPhase" => return Err(self.error(*offset,"EventPhase contains constants and is not constructible.")),
+            Expr::NewClass(name, _, offset) if matches!(name.as_str(),"flash.net.URLRequestMethod"|"flash.net.URLLoaderDataFormat") => return Err(self.error(*offset,"Network method/data-format facades provide constants and cannot be constructed.")),
             Expr::NewClass(name, _, offset) if self.context.interfaces.contains(name) => return Err(self.error(*offset,"An interface is a nominal contract and cannot be constructed. Instantiate an implementing project class.")),
             Expr::NewClass(name, _, offset) if name == "flash.utils.Endian" => return Err(self.error(*offset,"Endian contains byte-order constants and is not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.display.Graphics" => return Err(self.error(*offset,"Graphics is supplied by a compatible display object's graphics property and is not directly constructible.")),
@@ -423,7 +425,7 @@ impl<'a> Analysis<'a> {
                     Expr::Member(_, _) => true,
                     _ => false,
                 };
-                let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"));
+                let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"));
                 let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_api);
                 // AS2 permits a later frame or a parent script to install a
                 // function on this timeline. The host checks the actual value

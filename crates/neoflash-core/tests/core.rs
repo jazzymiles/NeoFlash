@@ -59,6 +59,7 @@ fn symbol(id: &str, frames: u32, keys: Vec<Keyframe>) -> Symbol {
 fn project(symbols: Vec<Symbol>) -> Project {
     Project {
         sources: vec![],
+        resources: vec![],
         document_class: None,
         format_version: 1,
         name: "Test".into(),
@@ -343,7 +344,7 @@ fn persistence_validation_and_import_id_reservation() {
     let round = Project::from_json(&json).unwrap();
     assert_eq!(p, round);
     let mut invalid = p.clone();
-    invalid.format_version = 3;
+    invalid.format_version = u32::MAX;
     assert!(invalid.to_json().is_err());
     invalid = p.clone();
     invalid.symbols[0].timeline.layers[0].keyframes[0].elements[0]

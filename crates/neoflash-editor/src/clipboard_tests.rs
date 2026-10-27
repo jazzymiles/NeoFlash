@@ -28,7 +28,7 @@ fn fixture() -> (Editor, egui::Context) {
         },
     }];
     editor.history.clear();
-    editor.saved_json = serde_json::to_string(&editor.project).unwrap();
+    editor.saved_project = Some(editor.project.clone());
     (editor, ctx)
 }
 
@@ -163,7 +163,7 @@ fn keyboard_copy_and_cut_emit_one_valid_snapshot_and_cut_is_one_undo() {
             label: String::new(),
         });
     editor.frame = 5;
-    editor.saved_json = serde_json::to_string(&editor.project).unwrap();
+    editor.saved_project = Some(editor.project.clone());
     let before = editor.project.clone();
     let expected = editor.selected_sampled().unwrap();
     let text = copy_objects(&mut editor, &ctx);

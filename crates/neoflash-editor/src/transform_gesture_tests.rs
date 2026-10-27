@@ -18,7 +18,7 @@ fn shape() -> ElementKind {
 fn clean(editor: &mut Editor) {
     editor.set_tool(Tool::Transform);
     editor.history.clear();
-    editor.saved_json = serde_json::to_string(&editor.project).unwrap();
+    editor.saved_project = Some(editor.project.clone());
 }
 fn button(pos: egui::Pos2, pressed: bool, modifiers: egui::Modifiers) -> egui::Event {
     egui::Event::PointerButton {

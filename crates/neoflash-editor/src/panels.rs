@@ -1089,6 +1089,7 @@ impl Editor {
                         {
                             self.convert_to_symbol();
                         }
+                        self.resource_library(ui);
                         ui.add_space(18.);
                         ui.strong("Document");
                         ui.separator();

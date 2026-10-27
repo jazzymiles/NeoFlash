@@ -5,6 +5,7 @@ mod evaluate;
 mod geometry;
 mod history;
 pub mod model;
+mod resources;
 mod runtime;
 mod runtime_graph;
 mod runtime_graphics;
@@ -20,6 +21,10 @@ pub use geometry::{
 };
 pub use history::History;
 pub use model::*;
+pub use resources::{
+    MAX_PROJECT_JSON_BYTES, MAX_RESOURCE_BYTES, MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES,
+    ResourceError, ResourceUnit,
+};
 pub use runtime::{
     AccessibleNode, DisplayNode, PlaybackCommand, Player, ScriptDispatch, ScriptEvent,
 };

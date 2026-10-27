@@ -13,8 +13,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 218 | 1,957 | 117 |
-| AS3 | 43,740 | 15 | 297 | 43,178 | 250 |
+| AS2 | 2,307 | 15 | 219 | 1,956 | 117 |
+| AS3 | 43,740 | 15 | 301 | 43,174 | 250 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -24,7 +24,7 @@ Counts use the complete selected documentation catalogue, including AIR, Flex an
 | --- | ---: | ---: | ---: | ---: |
 | Editor and graphics | 5/12 | 5 | 2 | 41.7% |
 | Timelines and animation | 5/10 | 3 | 2 | 50.0% |
-| HTML5 and interactivity | 6/12 | 3 | 3 | 50.0% |
+| HTML5 and interactivity | 6/12 | 4 | 2 | 50.0% |
 | Import and file compatibility | 1/10 | 6 | 3 | 10.0% |
 | Platform and quality | 4/10 | 5 | 1 | 40.0% |
 
@@ -74,6 +74,8 @@ For object editing, **Selection (V)** moves objects; Shift-click toggles objects
 
 **Actions → Project files** stores reusable source code inside the project. Add or import source files, set the document class or a nested symbol's class, and use **Check project** for compiler feedback. Project programs support bounded public AS3 classes with typed fields, bound methods, getters/setters and project interfaces, and AS2 classes with erased annotations and shared prototypes. Both support exact imports and inheritance; unsupported constructs report diagnostics. Set an **Export identifier** on a MovieClip symbol to enable AS3 class construction from its library timeline or AS2 `attachMovie`. Projects with source files use document version 2. Older projects remain readable, and linked-symbol clipboard transfers preserve source files.
 
+**Library → Resource files** imports text, data and media bytes into the project. Use the displayed project path in scripts, edit its content type/path, or remove it with Undo. Resource documents use version 3 so older editors refuse them safely; versions 1 and 2 remain readable. Embedded files travel with HTML5 publication and work offline. AS3 URLLoader/URLVariables and AS2 LoadVars also support bounded browser HTTP(S) data requests. Image placement, sound/video playback and font embedding remain separate capabilities.
+
 Example frame script:
 
 ```js
@@ -112,6 +114,8 @@ Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two indep
 [linked-movieclips.nflash](examples/linked-movieclips.nflash) creates two AS3 instances from one exported library MovieClip and a third with AS2 `attachMovie`. Each keeps its own frame controls, nested animation, fields and script targets. Click the cards, use Right to step frames, Space to detach/reattach the middle instance and Up to use frame labels. Explicit export identifiers and required program/library snapshots survive cross-document clipboard transfer.
 
 [interfaces-accessors.nflash](examples/interfaces-accessors.nflash) uses project interfaces, inherited getter/setter properties and two independent typed models. Click the stage to increase the bounded model; Restart restores instance and static state.
+
+[resource-loading.nflash](examples/resource-loading.nflash) loads embedded text, repeated form fields and a 50-byte binary packet through AS3 URLLoader and AS2 LoadVars, handles an absent file and cancels a load. When served over HTTP, **Load HTTP notes** reads the published README and displays the response status/size. Restart repeats the portable pipeline.
 
 [binary-data.nflash](examples/binary-data.nflash) writes, reads and copies a typed binary/UTF packet with ByteArray/Endian and displays the decoded values. Buffers are bounded and session-owned; AMF, compression and other code pages remain unsupported.
 

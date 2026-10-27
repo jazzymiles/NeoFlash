@@ -38,6 +38,8 @@ pub struct ClipboardPayload {
     symbols: Vec<Symbol>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     sources: Vec<SourceUnit>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    resources: Vec<ResourceUnit>,
 }
 
 #[derive(Clone, Debug)]
@@ -70,6 +72,7 @@ impl ClipboardPayload {
             // Transfer the program snapshot as a conservative dependency closure.
             // Class-level pruning can be added once all backends expose a graph.
             sources: project.sources.clone(),
+            resources: project.resources.clone(),
             elements,
             symbols: project
                 .symbols
@@ -248,6 +251,28 @@ impl ClipboardPayload {
             }
         }
         let mut candidate = destination.clone();
+        for resource in &self.resources {
+            if let Some(existing) = candidate
+                .resources
+                .iter()
+                .find(|existing| existing.path.to_lowercase() == resource.path.to_lowercase())
+            {
+                // Both documents were validated above, so canonical base64
+                // equality is byte equality without another decoded allocation.
+                if existing.path != resource.path
+                    || existing.media_type != resource.media_type
+                    || existing.data_base64 != resource.data_base64
+                {
+                    return invalid(
+                        "a resource path conflicts with different destination spelling, media type or bytes; resolve the resource conflict before pasting",
+                    );
+                }
+            } else {
+                let mut imported = resource.clone();
+                imported.id = fresh_id("resource", &mut occupied, &forbidden);
+                candidate.resources.push(imported);
+            }
+        }
         for source in &self.sources {
             if let Some(existing) = candidate
                 .sources
@@ -281,6 +306,9 @@ impl ClipboardPayload {
         }
         if candidate.has_program() {
             candidate.enable_program();
+        }
+        if !candidate.resources.is_empty() {
+            candidate.format_version = candidate.format_version.max(3);
         }
         let mut pasted = self.elements.clone();
         let mut element_ids = Vec::with_capacity(pasted.len());
@@ -368,8 +396,11 @@ impl ClipboardPayload {
         validate_project(
             &Project {
                 sources: self.sources.clone(),
+                resources: self.resources.clone(),
                 document_class: None,
-                format_version: if self.sources.is_empty()
+                format_version: if !self.resources.is_empty() {
+                    3
+                } else if self.sources.is_empty()
                     && !symbols
                         .iter()
                         .any(|symbol| symbol.class_name.is_some() || symbol.linkage_id.is_some())
@@ -589,11 +620,12 @@ fn symbol_ids(symbol: &Symbol, ids: &mut HashSet<Id>) {
     }
 }
 fn project_ids(project: &Project) -> HashSet<Id> {
-    let mut ids = project
+    let mut ids: HashSet<Id> = project
         .sources
         .iter()
         .map(|source| source.id.clone())
         .collect();
+    ids.extend(project.resources.iter().map(|resource| resource.id.clone()));
     for symbol in &project.symbols {
         symbol_ids(symbol, &mut ids);
     }
@@ -602,6 +634,7 @@ fn project_ids(project: &Project) -> HashSet<Id> {
 fn payload_ids(payload: &ClipboardPayload) -> HashSet<Id> {
     let mut ids: HashSet<_> = payload.elements.iter().map(|e| e.id.clone()).collect();
     ids.extend(payload.sources.iter().map(|source| source.id.clone()));
+    ids.extend(payload.resources.iter().map(|resource| resource.id.clone()));
     for symbol in &payload.symbols {
         symbol_ids(symbol, &mut ids);
     }

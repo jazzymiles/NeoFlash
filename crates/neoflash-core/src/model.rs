@@ -70,6 +70,9 @@ pub(crate) fn reserve_ids(project: &Project) {
     for source in &project.sources {
         used.insert(source.id.clone());
     }
+    for resource in &project.resources {
+        used.insert(resource.id.clone());
+    }
     for symbol in &project.symbols {
         used.insert(symbol.id.clone());
         for layer in &symbol.timeline.layers {
@@ -95,6 +98,8 @@ pub struct Project {
     pub symbols: Vec<Symbol>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<SourceUnit>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resources: Vec<crate::ResourceUnit>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document_class: Option<String>,
 }

@@ -4,7 +4,7 @@
 
 `neoflash-core` owns a versioned `Project`: stage settings, library symbols, layers, sparse keyframes, element definitions, script source, and symbol references. IDs persist across keyframes and serialization. Import reserves loaded IDs to prevent collisions with newly created objects. Indexes in storage are zero-based; UI and script frame numbers are one-based.
 
-The document has no GUI objects, GPU handles or machine-specific resource paths. `.nflash` is readable JSON in this initial version; future external assets will use project-relative references and migrations. Unsupported document versions and invalid geometry/references are rejected, not guessed.
+The document has no GUI objects, GPU handles or machine-specific resource paths. `.nflash` is readable JSON. Version 2 adds logical source files and class linkage; version 3 adds immutable resource bytes with portable logical paths. Older document versions remain readable, while resource documents deliberately refuse older readers. Unsupported document versions and invalid geometry/references are rejected, not guessed.
 
 Vector paths use explicit line/quadratic/cubic commands and compound contours. The core owns validation, analytic bounds, bounded flattening and hit testing. Native rendering tessellates with lyon; the Canvas host constructs Path2D. Both apply nested affine transforms to fills and strokes. See [the vector decision](decisions/0002-vector-geometry.md) for gesture, interpolation and rendering limits.
 
@@ -40,7 +40,7 @@ A single pinned egui-winit source patch retains the initiating key event immedia
 
 A second pinned eframe patch initializes AccessKit for every child wgpu window, using the existing per-window event and output routing. Rendering an icon does not by itself establish native accessibility; both its tree and activation require separate checks. Provenance and feature-on/off checks live in `vendor/eframe/NEOFLASH-PATCH.md`.
 
-Commands currently group snapshot history around edits. Drag gestures are grouped; history is bounded. Larger documents will require a measured transition to delta commands and resource-aware history. Autosave/recovery and multi-document editing are not implemented yet.
+Commands currently group snapshot history around edits. Drag gestures are grouped; history is bounded. Resource bytes use shared immutable backing across snapshots, and dirty-state comparison uses a saved model snapshot without reserializing data every frame. Larger scene graphs will still require a measured transition to delta commands. Autosave/recovery and multi-document editing are not implemented yet.
 
 Selection is editor state scoped to a symbol and stable layer/element IDs. Gestures capture the authored frame, view transform and original sampled poses, then apply changes from that snapshot. Keys and history begin only with an effective edit; cancellation and a return to the original pose leave neither behind. V selects/moves and Q exposes object transform handles. Multiple selections support rotation and uniform scaling; the TRS document model does not silently approximate skew. See [selection and gestures](decisions/0004-selection-and-gestures.md).
 
@@ -57,3 +57,5 @@ The pure solid-contour adapter accepts a strict Flash 3 record/context subset. I
 ## Verification boundaries
 
 Tests cover core state, persistence, script compilation, import fixtures, publisher errors, and actual compiled WASM behavior in Node. Native UI and browser rendering require separate observed checks. Desktop and browser text use different shaping backends at this stage; identical transforms do not establish pixel-perfect typography.
+
+The publication data-loading service resolves embedded resources before normal browser HTTP(S), shares the EventDispatcher/ByteArray services and cancels requests on Restart/disposal. Clipboard preserves the complete resource snapshot because URL dependencies can be computed at runtime. See [portable resources and loading](decisions/0013-portable-resources-and-loading.md).

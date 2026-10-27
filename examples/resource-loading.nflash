@@ -1,0 +1,400 @@
+{
+  "format_version": 3,
+  "name": "Portable resources and data loading",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    34,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Portable resources and data loading",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 42,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / RESOURCES + URLLOADER + LOADVARS",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 86,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "One project. Three data formats.",
+                      "font_family": "Arial",
+                      "font_size": 34,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 134,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Embedded data works offline. Use “Load HTTP notes” when served over HTTP.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 48,
+                      "y": 194,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Text: loading…",
+                      "font_family": "Arial",
+                      "font_size": 27,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "measurements",
+                    "name": "measurements",
+                    "transform": {
+                      "x": 48,
+                      "y": 242,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Form: loading…",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        153,
+                        204,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 500,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Restart cancels prior loads and creates a fresh publication. No external server is needed.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "packetInfo",
+                    "name": "packetInfo",
+                    "transform": {
+                      "x": 48,
+                      "y": 290,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Binary: loading…",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "lifecycle",
+                    "name": "lifecycle",
+                    "transform": {
+                      "x": 48,
+                      "y": 386,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Checking missing-resource recovery and cancellation…",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyStatus",
+                    "name": "legacyStatus",
+                    "transform": {
+                      "x": 48,
+                      "y": 338,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 LoadVars: loading…",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        153,
+                        204,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "networkStatus",
+                    "name": "networkStatus",
+                    "transform": {
+                      "x": 48,
+                      "y": 426,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Optional HTTP check: load README.txt from this exported folder.",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        153,
+                        204,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "http-notes-button",
+                    "name": "httpNotesButton",
+                    "transform": {
+                      "x": 48,
+                      "y": 453,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 190,
+                      "height": 34,
+                      "fill": [
+                        37,
+                        109,
+                        139,
+                        255
+                      ],
+                      "stroke": [
+                        175,
+                        218,
+                        239,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.loadPublishNotes();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Load HTTP notes",
+                      "description": "Load the exported README.txt over HTTP. Direct file opening shows serving guidance.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "httpNotesLabel",
+                    "name": "httpNotesLabel",
+                    "transform": {
+                      "x": 65,
+                      "y": 461,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Load HTTP notes",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        255,
+                        255,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "var owner:Object = this;\nvar legacy:LoadVars = new LoadVars();\nlegacy.onLoad = function(success:Boolean):Void {\n  owner.legacyDone = success;\n  owner.legacyStatus.text = \"AS2 LoadVars: \" + this.name + \" | \" + this.city + \" | loaded: \" + success;\n};\nlegacy.load(\"data/profile.txt\");\nfunction postLegacy(url:String):Void {\n  var outgoing:LoadVars = new LoadVars();\n  outgoing.decode(\"name=Legacy+NeoFlash&tag=as2&tag=web\");\n  outgoing.addRequestHeader(\"X-NeoFlash-Legacy\", \"data-pipeline\");\n  var response:LoadVars = new LoadVars();\n  response.onLoad = function(success:Boolean):Void {\n    owner.legacyEchoDone = success;\n    owner.legacyStatus.text = \"AS2 POST: \" + this.name + \" | loaded: \" + success;\n  };\n  outgoing.sendAndLoad(url, response, \"POST\");\n}\n"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "source-main",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n  import flash.display.MovieClip;\n  import flash.net.URLRequest;\n  import flash.net.URLRequestHeader;\n  import flash.net.URLRequestMethod;\n  import flash.net.URLVariables;\n  import flash.net.URLLoader;\n  import flash.net.URLLoaderDataFormat;\n  import flash.events.Event;\n  import flash.events.ProgressEvent;\n  import flash.events.IOErrorEvent;\n  import flash.events.HTTPStatusEvent;\n  import flash.utils.ByteArray;\n  import flash.utils.Endian;\n  public class Main extends MovieClip {\n    public var notesLoader:URLLoader;\n    public var notesStatus:int = 0;\n    public var textLoader:URLLoader;\n    public var formLoader:URLLoader;\n    public var binaryLoader:URLLoader;\n    public var missingLoader:URLLoader;\n    public var cancelledLoader:URLLoader;\n    public var echoLoader:URLLoader;\n    public var packet:ByteArray;\n    public var readyCount:int = 0;\n    public var progressCount:int = 0;\n    public var errorCount:int = 0;\n    public var cancelledCount:int = 0;\n    public var httpStatus:int = 0;\n    public var echoDone:Boolean = false;\n    public var legacyDone:Boolean = false;\n    public var legacyEchoDone:Boolean = false;\n    public function Main() {\n      super(); stop();\n      textLoader = new URLLoader();\n      textLoader.addEventListener(Event.COMPLETE, textReady);\n      textLoader.addEventListener(ProgressEvent.PROGRESS, progress);\n      textLoader.load(new URLRequest(\"data/welcome.txt\"));\n      formLoader = new URLLoader();\n      formLoader.dataFormat = URLLoaderDataFormat.VARIABLES;\n      formLoader.addEventListener(Event.COMPLETE, formReady);\n      formLoader.load(new URLRequest(\"data/profile.txt\"));\n      binaryLoader = new URLLoader();\n      binaryLoader.dataFormat = URLLoaderDataFormat.BINARY;\n      binaryLoader.addEventListener(Event.COMPLETE, binaryReady);\n      binaryLoader.load(new URLRequest(\"data/packet.bin\"));\n      missingLoader = new URLLoader();\n      missingLoader.addEventListener(IOErrorEvent.IO_ERROR, missing);\n      missingLoader.load(new URLRequest(\"data/missing.txt\"));\n      cancelledLoader = new URLLoader();\n      cancelledLoader.addEventListener(Event.COMPLETE, cancelled);\n      cancelledLoader.load(new URLRequest(\"data/welcome.txt\"));\n      cancelledLoader.close();\n    }\n    public function textReady(event:Event):void {\n      status.text = \"Text: \" + String(textLoader.data);\n      readyCount++; summary();\n    }\n    public function formReady(event:Event):void {\n      var values:URLVariables = URLVariables(formLoader.data);\n      measurements.text = \"Form: \" + values.name + \" | \" + values.city + \" | tags: \" + values.tag.join(\" / \");\n      readyCount++; summary();\n    }\n    public function binaryReady(event:Event):void {\n      packet = ByteArray(binaryLoader.data);\n      var magic:uint = packet.readUnsignedInt();\n      packet.endian = Endian.LITTLE_ENDIAN;\n      packet.position = 28;\n      var label:String = packet.readUTF();\n      packetInfo.text = \"Binary: \" + packet.length + \" bytes | \" + label + \" | \" + packet.readUTFBytes(4);\n      readyCount++; summary();\n    }\n    public function progress(event:ProgressEvent):void { progressCount++; }\n    public function missing(event:IOErrorEvent):void { errorCount++; summary(); }\n    public function cancelled(event:Event):void { cancelledCount++; summary(); }\n    public function summary():void {\n      lifecycle.text = \"Ready: \" + readyCount + \"/3 | missing resource handled: \" + errorCount + \" | cancelled callbacks: \" + cancelledCount;\n      if (readyCount == 3 && errorCount == 1) trace(\"resources ready\", readyCount, errorCount, cancelledCount);\n    }\n    public function loadPublishNotes():void {\n      if (notesLoader != null) notesLoader.close();\n      notesStatus = 0;\n      networkStatus.text = \"Loading README.txt over HTTP…\";\n      notesLoader = new URLLoader();\n      notesLoader.addEventListener(HTTPStatusEvent.HTTP_STATUS, notesResponseStatus);\n      notesLoader.addEventListener(Event.COMPLETE, notesReady);\n      notesLoader.addEventListener(IOErrorEvent.IO_ERROR, notesFailed);\n      notesLoader.load(new URLRequest(\"README.txt\"));\n    }\n    public function notesResponseStatus(event:HTTPStatusEvent):void { notesStatus = event.status; }\n    public function notesReady(event:Event):void {\n      var text:String = String(notesLoader.data);\n      networkStatus.text = \"HTTP \" + notesStatus + \" | README.txt: \" + text.length + \" characters\";\n    }\n    public function notesFailed(event:IOErrorEvent):void {\n      networkStatus.text = \"HTTP notes unavailable. Serve this exported folder over HTTP, then try again.\";\n    }\n    public function loadEcho(url:String):void {\n      var values:URLVariables = new URLVariables(\"name=NeoFlash&tag=rust&tag=web\");\n      var request:URLRequest = new URLRequest(url);\n      request.method = URLRequestMethod.POST;\n      request.data = values;\n      request.requestHeaders = [new URLRequestHeader(\"X-NeoFlash-Example\", \"data-pipeline\")];\n      echoLoader = new URLLoader();\n      echoLoader.dataFormat = URLLoaderDataFormat.VARIABLES;\n      echoLoader.addEventListener(HTTPStatusEvent.HTTP_STATUS, responseStatus);\n      echoLoader.addEventListener(Event.COMPLETE, echoed);\n      echoLoader.load(request);\n    }\n    public function responseStatus(event:HTTPStatusEvent):void { httpStatus = event.status; }\n    public function echoed(event:Event):void {\n      var values:URLVariables = URLVariables(echoLoader.data);\n      networkStatus.text = \"HTTP \" + httpStatus + \": \" + values.name + \" | \" + values.tag.join(\" / \");\n      echoDone = true;\n    }\n  }\n}\n"
+    }
+  ],
+  "resources": [
+    {
+      "id": "welcome",
+      "path": "data/welcome.txt",
+      "media_type": "text/plain",
+      "data_base64": "UG9ydGFibGUgZGF0YSBzYXlzIGhlbGxvIOKAlCDPgA=="
+    },
+    {
+      "id": "profile",
+      "path": "data/profile.txt",
+      "media_type": "application/x-www-form-urlencoded",
+      "data_base64": "bmFtZT1OZW9GbGFzaCZjaXR5PUxpbWFzc29sJmNvdW50PTcmdGFnPXJ1c3QmdGFnPXdlYg=="
+    },
+    {
+      "id": "packet",
+      "path": "data/packet.bin",
+      "media_type": "application/octet-stream",
+      "data_base64": "TkZCMQH5APx5Ke3/mLrc/gAAoD8YLURU+yEJQBAATmVvRmxhc2ggz4Ag8J+mgGRvbmU="
+    }
+  ]
+}

@@ -74,7 +74,7 @@ fn fixture(frame: u32) -> (Editor, egui::Context, Rect) {
     editor.tool = Tool::Select;
     editor.clear_selection();
     editor.history.clear();
-    editor.saved_json = serde_json::to_string(&editor.project).unwrap();
+    editor.saved_project = Some(editor.project.clone());
     editor.project.validate().unwrap();
     (editor, ctx, page)
 }

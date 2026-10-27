@@ -25,7 +25,8 @@
  * writeBytes self-copy uses snapshot semantics and supports overlapping ranges.
  * Native subclass initialization/index enumeration, AMF/objectEncoding, shared
  * workers, compression and multibyte code pages explicitly reject. This module
- * is preparatory: compiler/export/runtime integration belongs to a later batch.
+ * shares its per-publication lifecycle with the browser runtime. Host-only bulk
+ * transfers copy bytes without exposing the backing store or changing cursors.
  */
 (function (global) {
   'use strict';
@@ -221,9 +222,19 @@
     Object.defineProperty(ByteArray,'defaultObjectEncoding',{get(){unsupported('defaultObjectEncoding');},set(){unsupported('defaultObjectEncoding');}});
     for(const name of ['readObject','writeObject','compress','uncompress','deflate','inflate','readMultiByte','writeMultiByte','atomicCompareAndSwapIntAt','atomicCompareAndSwapLength','toBase64','toHexString','writeBase64','writeHexString','writeRandomBytes'])Object.defineProperty(ByteArray.prototype,name,{value(){unsupported(name);}});
     for(const name of ['createFromBase64','createFromHexString'])Object.defineProperty(ByteArray,name,{value(){unsupported(name);}});
+    // Host-only copies for resource/network adapters. No mutable backing storage
+    // escapes, and transfers never change an existing ByteArray cursor.
+    function fromBytes(bytes){
+      open();if(!ArrayBuffer.isView(bytes)||bytes.BYTES_PER_ELEMENT!==1)throw new TypeError('ByteArray bulk input requires a byte view.');
+      size(bytes.byteLength,'bulk byte length');
+      const result=new ByteArray(),record=state(result);
+      try {extend(record,bytes.byteLength);record.bytes.set(new Uint8Array(bytes.buffer,bytes.byteOffset,bytes.byteLength));return result;}
+      catch(error){free(record);records.delete(record);throw error;}
+    }
+    function toBytes(receiver){const record=state(receiver);return record.bytes.slice(0,record.length);}
     function reset(){open();for(const record of records)free(record);records.clear();generation++;}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({ByteArray,Endian,reset,dispose});
+    return Object.freeze({ByteArray,Endian,fromBytes,toBytes,reset,dispose});
   }
   const api=Object.freeze({create});
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
