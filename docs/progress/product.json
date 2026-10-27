@@ -142,7 +142,7 @@
       "title": "Authored text",
       "status": "partial",
       "scope": "Editable authored text with system font family, size and color. Published plain TextFields now support runtime text/color changes and bounded string editing/line queries without mutating authored content.",
-      "limitations": "Rich text, input/selection, wrapping and complete shaping/layout remain missing. Runtime metrics follow the existing Canvas profile; portable fonts are separate work. Browser acceptance of the new plain TextField increment is pending.",
+      "limitations": "Rich text, input/selection, wrapping and complete shaping/layout remain missing. Runtime metrics follow the existing Canvas profile; portable fonts are separate work. The combined plain TextField browser pipeline and Restart passed.",
       "evidence": [
         "crates/neoflash-core/src/model.rs",
         "crates/neoflash-editor/src/fonts.rs",
@@ -378,8 +378,8 @@
       "category": "web",
       "title": "Authored events and interactivity",
       "status": "partial",
-      "scope": "Authored frame/Load/Click/EnterFrame handlers plus shared display/Stage EventDispatcher subscriptions, propagation/cancellation, bounded keyboard/pointer input and AS2 onEnterFrame/onPress callbacks.",
-      "limitations": "Full Flash construction/event order, remaining native callbacks, fullscreen/IME/touch and complete owner-specific API guards remain unfinished. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance.",
+      "scope": "Authored frame/Load/Click/EnterFrame handlers plus shared display/Stage EventDispatcher subscriptions, propagation/cancellation, bounded keyboard/pointer input and AS2 onEnterFrame/onPress callbacks. Captured AS2 Key/Mouse/Stage listener objects, keyboard state and hook-based cursor visibility share the same input hub and reset lifecycle.",
+      "limitations": "Full Flash construction/event order, remaining native callbacks, fullscreen/IME/touch and complete owner-specific API guards remain unfinished. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent frozen-01f1381 browser verification found trusted mouse click events with isPrimary=false dropped by the shared Stage guard; semantic Enter and keyboard paths passed. The corrected input route passed coordinate clicks and Restart in the original class/Stage examples; an unlocated aggregate observer exception remains open. The new AS2 combined scenario has executable host/WASM evidence; representative coordinate clicks, keyboard and Restart also passed in the in-app browser.",
       "evidence": [
         "crates/neoflash-core/src/runtime.rs",
         "web/runtime.js",
@@ -392,7 +392,11 @@
         "web/display.js",
         "crates/neoflash-core/tests/display_family.rs",
         "web/tests/display-family.test.cjs",
-        "examples/display-family.nflash"
+        "examples/display-family.nflash",
+        "docs/VERIFICATION.md",
+        "web/legacy-input.js",
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "examples/as2-project-input.nflash"
       ]
     },
     {
@@ -440,8 +444,8 @@
       "category": "web",
       "title": "Project sources, modules and debugging",
       "status": "partial",
-      "scope": "Embedded AS3 source units, exact imports and bounded public classes compile into a shared publication program with document/symbol linkage and source-path diagnostics. Sources can be edited in Actions.",
-      "limitations": "AS2 project classes, JS/TS modules, SWC dependencies, complete type checking, completion, debugger/source maps and full class semantics remain pending. Representative linked-class behavior and Restart passed in the shared in-app-browser batch; native Sources acceptance remains pending.",
+      "scope": "Embedded AS2/AS3 source units use distinct bounded class profiles with exact imports, shared publication programs, authored symbol linkage and source-path diagnostics. AS2 root document linkage is a NeoFlash extension. Sources can be edited in Actions.",
+      "limitations": "JS/TS modules, SWC dependencies, complete type checking, completion, debugger/source maps and full class semantics remain pending. Representative linked-class behavior and Restart passed in the shared in-app-browser batch; native Sources acceptance remains pending. The AS2 combined export/WASM/input scenario passes; representative coordinate clicks, keyboard and Restart also passed in the in-app browser.",
       "evidence": [
         "docs/BACKLOG.md",
         "docs/COMPATIBILITY.md",
@@ -451,7 +455,13 @@
         "crates/neoflash-script/tests/project-execute.mjs",
         "examples/project-program.nflash",
         "crates/neoflash-editor/src/sources.rs",
-        "crates/neoflash-core/tests/program.rs"
+        "crates/neoflash-core/tests/program.rs",
+        "docs/VERIFICATION.md",
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "examples/as2-project-input.nflash",
+        "web/legacy-input.js",
+        "web/runtime.js",
+        "web/display.js"
       ]
     },
     {

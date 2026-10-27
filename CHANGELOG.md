@@ -2,12 +2,17 @@
 
 ## Unreleased
 
+- Corrected shared Stage click delivery for mouse click events with isPrimary=false while retaining secondary-pointer filtering. Original AS3 class/Stage coordinate scenarios and Restart pass; an unlocated aggregate observer exception remains tracked separately.
+
+- Added bounded AS2 project classes with matching qualified source paths, exact imports, same-dialect inheritance/super, erased annotations, scalar prototype defaults, shared unbound methods and static state. Linked authored instances use the shared program; AS2 root document linkage is a NeoFlash extension, and full AVM1 semantics remain incomplete.
+- Added captured AS2 Key/Mouse/Stage singletons, object listener receivers/snapshots, keyboard state, cursor visibility, logical resize and reset/lifetime cleanup. One original two-instance example passes the combined ordinary-export/WASM/host/input scenario; coordinate clicks, keyboard and Restart passed in the in-app browser.
+
 - Fixed Cargo lookup in HTML5 verification launchers for CI runners that provide the Rust toolchain on PATH, and retained actionable process-launch errors.
 
 - Added bounded Array/String adapters shared by AS handlers and project methods: indexed mutation, Flash sort/sortOn flags, AS3 callbacks/search, UTF-16 text processing and AS3 literal-pattern replacement. Native method overrides keep their receiver/evaluation order; unsupported native extraction and richer coercion/prototype profiles diagnose.
-- Added live plain authored TextField text/color overrides, append/replace and line queries, with UTF-16 ranges and partial Canvas metrics. The collection example now displays AS2/AS3 leaderboard results on the stage. Authored content remains unchanged; rich text, wrapping/input and portable fonts remain pending. Browser acceptance of this increment is pending.
+- Added live plain authored TextField text/color overrides, append/replace and line queries, with UTF-16 ranges and partial Canvas metrics. The collection example now displays AS2/AS3 leaderboard results on the stage. Authored content remains unchanged; rich text, wrapping/input and portable fonts remain pending. The combined leaderboard/text example passed bounded browser observation and Restart.
 
-- Added embedded project source units and version-2 document/symbol linkage, with a bounded AS3 public-class compiler: exact imports, inheritance/super, typed instance/static fields, initialized const fields and stable bound methods. Linked classes initialize per placement lifetime; AS2 project classes and JS/TS modules remain unsupported.
+- Added embedded project source units and version-2 document/symbol linkage, with a bounded AS3 public-class compiler: exact imports, inheritance/super, typed instance/static fields, initialized const fields and stable bound methods. Linked classes initialize per placement lifetime. The later AS2 profile is recorded above; JS/TS project modules remain unsupported.
 - Added a coherent MovieClip/DisplayObject family: lifetime-aware hierarchy and child lookup, names, bounds and coordinate conversion, supported dimension setters, finite rotation readback and void timeline results. Added bounded AS2 onEnterFrame/onPress callbacks without claiming the complete Flash lifecycle.
 - Added shared EventDispatcher/Event/MouseEvent/KeyboardEvent facades, capture/target/bubble, listener priority/mutation, cancellation and reset cleanup. Added Stage dimensions, frame rate, focus and bounded pointer/keyboard input; automatic Flash resize modes, fullscreen and IME remain pending.
 - Added Sources editing within Actions, including source import/removal, linkage fields, project checks and feedback tied to the current source. Native verification of this workflow remains pending.

@@ -185,15 +185,26 @@
       if(value!==null&&value!==undefined&&typeof value!=='function')throw new TypeError(`${name} requires a function or null.`);
       target[name]=value;
       const ref=referenceOf(target),id=ref.key+'\u0000'+ref.lifetime;
-      let record=legacy.get(id);if(!record){record={target,ref,handlers:new Map()};legacy.set(id,record);}
+      let record=legacy.get(id);if(!record){record={target,ref,handlers:new Map(),dynamic:false};legacy.set(id,record);}
       if(value==null)record.handlers.delete(name);else record.handlers.set(name,value);
-      if(!record.handlers.size)legacy.delete(id);
+      if(!record.handlers.size&&!record.dynamic)legacy.delete(id);
       return value;
+    }
+    function refreshLegacyCallbacks(target) {
+      if(!['movie_clip','button'].includes(descriptor(target).owner))return;
+      const ref=referenceOf(target),id=ref.key+'\u0000'+ref.lifetime;
+      let record=legacy.get(id);
+      if(!record){record={target,ref,handlers:new Map(),dynamic:true};legacy.set(id,record);}
+      record.dynamic=true;
+    }
+    function callback(record,name) {
+      const handler=record?.dynamic?record.target[name]:record?.handlers.get(name);
+      return typeof handler==='function'?handler:null;
     }
     function alive(target){const ref=referenceOf(target);return !!ref&&player.lifetime_id(ref.key)===ref.lifetime;}
     function prune(){for(const[id,record]of legacy)if(!alive(record.target))legacy.delete(id);}
-    function enterFrame(){prune();for(const record of [...legacy.values()]){const handler=record.handlers.get('onEnterFrame');if(handler&&alive(record.target))Reflect.apply(handler,record.target,[]);}}
-    function press(target){prune();while(target&&referenceOf(target)){const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime),handler=record?.handlers.get('onPress');if(handler){Reflect.apply(handler,target,[]);return;}target=ref.path.length?proxyFor(ref.path.slice(0,-1)):null;}}
+    function enterFrame(){prune();for(const record of [...legacy.values()]){if(!alive(record.target))continue;const handler=callback(record,'onEnterFrame');if(handler)Reflect.apply(handler,record.target,[]);}}
+    function press(target){prune();while(target&&referenceOf(target)){const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime),handler=callback(record,'onPress');if(handler){Reflect.apply(handler,target,[]);return;}target=ref.path.length?proxyFor(ref.path.slice(0,-1)):null;}}
     const builtins={'flash.geom.Point':Point,'flash.geom.Rectangle':Rectangle};
     for(const[name,owners]of Object.entries({DisplayObject:null,DisplayObjectContainer:['movie_clip','graphic','button'],MovieClip:['movie_clip'],Sprite:['movie_clip','graphic','button'],TextField:['text']})) {
       function NativeDisplay(){throw new TypeError(`Dynamic new ${name}() placements are not supported yet. Use an authored instance or symbol linkage.`);}
@@ -202,7 +213,7 @@
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});
       builtins[(name==='TextField'?'flash.text.':'flash.display.')+name]=NativeDisplay;
     }
-    return {methods,get,set,builtins,descriptor,nodes,alive,convert,bounds,setLegacyCallback,enterFrame,press,prune,clear:()=>legacy.clear(),UNHANDLED};
+    return {methods,get,set,builtins,descriptor,nodes,alive,convert,bounds,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,prune,clear:()=>legacy.clear(),UNHANDLED};
   }
   const api={create,Point,Rectangle,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

@@ -4,6 +4,10 @@ Priority is based on the stated product goal, with explicit evidence required fo
 
 Current execution policy (user update, 27 October): breadth first, useful partial support across whole subsystems. Work and test in coherent batches, not one method at a time. P0 labels below identify risks, not a mandate to finish every edge case before the next subsystem. Prefer one representative integration/browser acceptance and a shared regression pass per delivery; defer non-blocking cases explicitly.
 
+## Shared pointer correction delivered; aggregate observer follow-up open
+
+On frozen `01f1381`, `FAMILY-INPUT-001` drops trusted mouse `click` events with `isPrimary=false` before EventDispatcher delivery. Reproduced in the original linked-class and Stage examples; Enter, keyboard and authored Click remain positive controls. The shared route is now corrected, and actual coordinate clicks/Restart passed in the original AS3 class and Stage examples alongside the AS2 input batch. Other engine results are not inferred. FAMILY-HARNESS-001 still records one unlocated aggregate MutationObserver exception; continue family implementation while its source is investigated. See [VERIFICATION.md](VERIFICATION.md#independent-family-verification-of-01f1381).
+
 ## Delivered family batch; native acceptance pending
 
 - Project program: source files, AS3 packages/imports/classes, reusable fields/methods, document and symbol linkage, Sources editing, save/reopen and clipboard preservation.
@@ -11,7 +15,7 @@ Current execution policy (user update, 27 October): breadth first, useful partia
 - Stage / EventDispatcher: stage geometry and input, listener management, propagation, event objects, keyboard/pointer/resize delivery.
 - Integration: one shared regression run and a combined ordinary export/WASM scenario passed. The aggregate in-app browser batch loaded all eight exports; representative class, geometry, input and restart interactions passed. A shared Restart/static-state defect was fixed and rechecked in the existing scenario. Native Sources editing and detached Actions feedback remain pending; further edge cases do not hold up the next family.
 
-Array/String constructors, mutation, searches, Flash sorting and data-processing callbacks now share a bounded profile across handlers and project classes. Plain authored TextField mutation/color/line queries and Canvas measurements are also implemented; the combined data-to-text example passed browser observation and Restart. Reused scenarios keep verification cost controlled. The next background family covers AS2 project classes and legacy Key/Mouse/Stage input. Following broad batches cover richer TextField/fonts and bitmap/resource documents; then dynamic display content, media, authoring operations and responsive DOM components. Catalogue entries only change status when their bounded behavior exists; a family module alone does not mark all of its declarations implemented.
+Array/String constructors, mutation, searches, Flash sorting and data-processing callbacks now share a bounded profile across handlers and project classes. Plain authored TextField mutation/color/line queries and Canvas measurements are also implemented; the combined data-to-text example passed browser observation and Restart. Reused scenarios keep verification cost controlled. AS2 project classes and legacy Key/Mouse/Stage input now pass the combined host scenario and representative browser interactions. The next family combines Point/Rectangle/Matrix and Timer/TimerEvent/getTimer. Following broad batches cover richer TextField/fonts and bitmap/resource documents; then dynamic display content, media, authoring operations and responsive DOM components. Catalogue entries only change status when their bounded behavior exists; a family module alone does not mark all of its declarations implemented.
 
 ## P0 — HTML5 correctness
 

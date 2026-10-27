@@ -130,8 +130,8 @@
       "id": "as2-receiver",
       "title": "this and method binding",
       "status": "partial",
-      "scope": "this refers to the frame/object handler owner; recognized onEnterFrame/onPress callback functions use the active callback receiver. Lexical owner fields remain available inside other functions.",
-      "limitations": "General explicit this in other AS2 functions and nested/expression functions remains rejected where receiver/global semantics are not implemented.",
+      "scope": "Frame/object handlers retain their owner. Declared AS2 class methods are shared and unbound, using their actual call receiver; function expressions can use explicit dynamic this. Listener callbacks retain their listener object.",
+      "limitations": "Bare owner fields in older handler closures still use the captured timeline owner. Complete AVM1 scope-chain/global-receiver semantics and reflection remain incomplete.",
       "evidence": [
         "crates/neoflash-script/src/actionscript/scope.rs",
         "crates/neoflash-script/tests/execute.mjs",
@@ -139,19 +139,29 @@
         "web/display.js",
         "crates/neoflash-core/tests/display_family.rs",
         "web/tests/display-family.test.cjs",
-        "examples/display-family.nflash"
+        "examples/display-family.nflash",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/src/actionscript/project-runtime.js",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "examples/as2-project-input.nflash"
       ]
     },
     {
       "id": "as2-types",
       "title": "Annotations and type system",
       "status": "partial",
-      "scope": "Selected Number/String/Boolean/Function/Error annotations and return-only Void are accepted; annotations are erased.",
-      "limitations": "There is no complete type checker, user-defined class model or typed instance-slot model; this.field writes and writes from another handler do not enforce the declared type.",
+      "scope": "Selected primitive and resolved project-class annotations are accepted and erased. AS2 class fields without initializers default to undefined; writes do not acquire AS3-style slot coercion.",
+      "limitations": "There is no complete AS2 static type checker or VM coercion model. Erased class annotations intentionally do not enforce assignment types at runtime.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/src/actionscript/project-runtime.js",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "examples/as2-project-input.nflash"
       ]
     },
     {
@@ -182,26 +192,36 @@
     {
       "id": "as2-classes",
       "title": "Classes, inheritance and interfaces",
-      "status": "planned",
-      "scope": "A complete model of class/interface, extends/implements, members, super, getters/setters and general new.",
-      "limitations": "AS2 class/prototype source units remain unsupported. The new AS3 project program does not implement the separate AS2 class model.",
+      "status": "partial",
+      "scope": "One qualified class per matching source path; public/default instance/static members, scalar prototype defaults, same-dialect inheritance/super, shared unbound writable methods and constructor-created objects. Existing instances observe prototype method replacement.",
+      "limitations": "Interfaces/accessors, nonpublic access control, non-scalar inline defaults, mixed-dialect inheritance, class-as-function casts and unsupported super value extraction diagnose. Complete prototype/reflection, construction and static initialization order are pending.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "docs/COMPATIBILITY.md",
-        "docs/ROADMAP.md"
+        "docs/ROADMAP.md",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/src/actionscript/project-runtime.js",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "examples/as2-project-input.nflash"
       ]
     },
     {
       "id": "as2-imports",
       "title": "Imports and project linking",
-      "status": "planned",
-      "scope": "import, external AS2 classes, symbol linkage and cross-file resolution.",
-      "limitations": "AS2 continues to compile synchronous frame/object handlers. Project sources/linkage currently require the separate AS3 class profile; AS2 external class resolution is not implemented.",
+      "status": "partial",
+      "scope": "Embedded AS2 sources support exact imports, same-package/qualified resolution and linked authored symbols. Class source paths match qualified names; the root document_class option is a NeoFlash extension.",
+      "limitations": "Wildcard and mixed-dialect imports, ambient filesystem/module loading and SWC dependencies are unsupported. Source compilation does not add FLA/XFL linkage extraction or a complete legacy linker.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/src/actionscript/scope.rs",
         "docs/COMPATIBILITY.md",
-        "docs/ROADMAP.md"
+        "docs/ROADMAP.md",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/src/actionscript/project-runtime.js",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "examples/as2-project-input.nflash"
       ]
     },
     {
@@ -243,7 +263,7 @@
       "title": "Primitives and global conversions",
       "status": "partial",
       "scope": "Number, Boolean, parseFloat, isNaN and isFinite retain JavaScript-backed conversions. String now uses the bounded primitive family facade; parseInt retains its separate pinned AS2 profile and earlier HTML5 acceptance.",
-      "limitations": "Complete historical coercions, boxed values and the full standard library remain unfinished. New Array/String expectations are documented_only; browser acceptance of that increment is pending.",
+      "limitations": "Complete historical coercions, boxed values and the full standard library remain unfinished. Array/String expectations are documented_only; the combined browser pipeline passed without original Flash comparison.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
@@ -271,7 +291,7 @@
       "title": "Array, String and Number methods",
       "status": "partial",
       "scope": "Bounded Array constructors and mutation/slicing, comparator/flag sort and multi-field sortOn; primitive String conversion, UTF-16 access/search/slicing/splitting/concatenation/casing. Shared adapters preserve custom overrides and lookup order in handlers and project methods. AS2 Number formatting and the Array search extension remain JavaScript-backed rather than complete native AS2 contracts.",
-      "limitations": "Partial profiles: 1,000,000 array entries/string code units or results; ordinary records, restricted sortOn options, no native method extraction/prototype augmentation, RegExp/custom string patterns, locale operations or complete historical coercion/order. AS3 NUMERIC requires numeric values; AS2 boxed String is unsupported. See fixture profile constants for exact dialect limits. Browser acceptance of this increment is pending.",
+      "limitations": "Partial profiles: 1,000,000 array entries/string code units or results; ordinary records, restricted sortOn options, no native method extraction/prototype augmentation, RegExp/custom string patterns, locale operations or complete historical coercion/order. AS3 NUMERIC requires numeric values; AS2 boxed String is unsupported. See fixture profile constants for exact dialect limits. The combined collection/text browser scenario passed; this does not establish every method.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
@@ -300,7 +320,7 @@
       "id": "as2-timeline",
       "title": "MovieClip and timelines",
       "status": "partial",
-      "scope": "play/stop, gotoAndPlay/gotoAndStop and nextFrame/prevFrame return undefined; current/total frames, named children and independent nested clocks remain available. AS2 labels use ASCII folding, first duplicate match and missing-label no-op; bounded numeric strings take precedence.",
+      "scope": "play/stop, gotoAndPlay/gotoAndStop and nextFrame/prevFrame return undefined; current/total frames, named children and independent nested clocks remain available. AS2 labels use ASCII folding, first duplicate match and missing-label no-op; bounded numeric strings take precedence. Linked AS2 MovieClip classes retain the same captured timeline bridge and per-placement lifetime.",
       "limitations": "This is a limited MovieClip facade; complete construction/re-entry, scenes, dynamic display lists and the Flash lifecycle are not implemented. Native goto aliases and complete historical numeric and lookup rules are unsupported.",
       "evidence": [
         "web/runtime.js",
@@ -312,7 +332,14 @@
         "web/display.js",
         "crates/neoflash-core/tests/display_family.rs",
         "web/tests/display-family.test.cjs",
-        "examples/display-family.nflash"
+        "examples/display-family.nflash",
+        "docs/VERIFICATION.md",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/src/actionscript/project-runtime.js",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "examples/as2-project-input.nflash",
+        "web/legacy-input.js"
       ]
     },
     {
@@ -339,8 +366,8 @@
       "id": "as2-events",
       "title": "Events and handlers",
       "status": "partial",
-      "scope": "Authored frame and load/click/enter_frame handlers plus recognized onEnterFrame/onPress callback assignment/removal on compatible authored instances, with receiver/lifetime checks and bounded dispatch.",
-      "limitations": "Other native callback properties, AS2 global Stage/Key/Mouse listener APIs, source on/onClipEvent wrappers and exact Flash lifecycle ordering remain pending. The AS3 EventDispatcher bridge is not an AS2 class implementation.",
+      "scope": "Authored handlers and onEnterFrame/onPress callbacks include live inherited AS2 prototype lookup. Captured Key/Mouse/Stage singletons provide object listeners, keyboard state, mouse visibility and logical resize with snapshot/reset/lifetime cleanup.",
+      "limitations": "Other native callbacks, AsBroadcaster, Selection, source on/onClipEvent wrappers, toggled-key/cross-domain/IME behavior and exact Flash lifecycle ordering remain pending. ASCII/layout and logical Stage resize are bounded browser profiles; representative coordinate clicks, keyboard and Restart passed in the AS2 browser batch.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -348,7 +375,11 @@
         "web/display.js",
         "crates/neoflash-core/tests/display_family.rs",
         "web/tests/display-family.test.cjs",
-        "examples/display-family.nflash"
+        "examples/display-family.nflash",
+        "docs/VERIFICATION.md",
+        "web/legacy-input.js",
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "examples/as2-project-input.nflash"
       ]
     },
     {
@@ -368,7 +399,7 @@
       "title": "TextField and text APIs",
       "status": "partial",
       "scope": "Existing authored Text elements now have live text/textColor, UTF-16 length, append/replace, line queries and partial Canvas text metrics through the shared runtime. Overrides leave authored content unchanged and clear with placement removal/replacement or Restart.",
-      "limitations": "Plain string values and RGB integers only; 1 MiB UTF-8 text and bounded UTF-16 replacement ranges preserving complete characters. No rich formatting/HTML, wrapping, input/selection, embedded fonts or dynamic TextField creation. Canvas width and 1.2×font-size line height are not full Flash layout. Shared helpers do not establish every historical AS2 method. Browser acceptance of this increment is pending.",
+      "limitations": "Plain string values and RGB integers only; 1 MiB UTF-8 text and bounded UTF-16 replacement ranges preserving complete characters. No rich formatting/HTML, wrapping, input/selection, embedded fonts or dynamic TextField creation. Canvas width and 1.2×font-size line height are not full Flash layout. Shared helpers do not establish every historical AS2 method. The combined collection/text browser scenario passed; this does not establish every method.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",

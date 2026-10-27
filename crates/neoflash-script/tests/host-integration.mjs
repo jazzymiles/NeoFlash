@@ -15,19 +15,20 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const end = runtime.indexOf('    function resize()', start);
   assert.ok(start >= 0 && end > start, 'host implementation boundaries changed');
   const scriptConsole = [], hostConsole = [], traceCalls = [];
-  const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value', '__nfProgram', '__nfDisplay'];
+  const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value', '__nfProgram', '__nfDisplay', '__nfLegacy'];
   const functions = new Map(compiledScripts.map(({ script, code, location }) => {
     const fn = new Function('console', `return function(${bindings.join(',')}) { "use strict"; return (function(){\n${code}\n}).call(this); }`)({ log: (...args) => scriptConsole.push(args) });
     return [sourceKey(script), { fn, location }];
   }));
   const globals = { NeoFlashDisplay:require(resolve(root,'web/display.js')), NeoFlashEvents:require(resolve(root,'web/events.js')),
-    NeoFlashStage:require(resolve(root,'web/stage.js')), NeoFlashAccessibility:require(resolve(root,'web/accessibility.js')) };
-  const host = new Function('player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'traceSpy', 'global', 'bundle', 'project', 'context', 'font',
+    NeoFlashStage:require(resolve(root,'web/stage.js')), NeoFlashLegacyInput:require(resolve(root,'web/legacy-input.js')), NeoFlashAccessibility:require(resolve(root,'web/accessibility.js')) };
+  if(options.keyTarget){globals.addEventListener=options.keyTarget.addEventListener.bind(options.keyTarget);globals.removeEventListener=options.keyTarget.removeEventListener.bind(options.keyTarget);}
+  const host = new Function('player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'traceSpy', 'global', 'bundle', 'project', 'context', 'font', 'canvas', 'viewport',
     'const proxies = new Map(); const render = () => {}; let lastTrace = "";\n' + runtime.slice(start, end) +
     '\nconst originalTrace = trace; trace = (...args) => { traceSpy(...args); return originalTrace(...args); };\n' +
-    'initializeFamily(); return { proxyFor, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, display:()=>display, stage:()=>stageHost, program:()=>program, lastTrace: () => lastTrace };'
+    'initializeFamily(); return { proxyFor, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, disposeFamily, display:()=>display, stage:()=>stageHost, legacy:()=>legacyGlobals, program:()=>program, lastTrace: () => lastTrace };'
   )(player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args),
-    globals, options.bundle, options.project || options.bundle?.project, options.context, kind=>`${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`);
+    globals, options.bundle, options.project || options.bundle?.project, options.context, kind=>`${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`, options.canvas, options.keyboardTarget);
   return { host, traceCalls, hostConsole, scriptConsole };
 }
 

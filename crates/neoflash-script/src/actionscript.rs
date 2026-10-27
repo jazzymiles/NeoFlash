@@ -13,6 +13,8 @@ mod scope;
 struct CompileContext {
     types: std::collections::BTreeMap<String, String>,
     members: std::collections::BTreeMap<String, Option<String>>,
+    static_members: std::collections::BTreeMap<String, String>,
+    static_method: bool,
     class_name: Option<String>,
     method_id: Option<usize>,
     project: bool,
@@ -733,7 +735,7 @@ impl<'a> Frontend<'a> {
             name.as_str(),
             "Number" | "String" | "Boolean" | "Function" | "Array" | "Object"
         ) || (as3 && matches!(name.as_str(), "int" | "uint" | "*"))
-            || (as3 && self.context.project && self.context.types.contains_key(&name))
+            || (self.context.project && self.context.types.contains_key(&name))
             || (is_error_type(&name) && (as3 || name == "Error"))
             || (returns && name == if as3 { "void" } else { "Void" });
         if !supported {
@@ -1302,6 +1304,21 @@ impl Emitter<'_> {
             .is_some_and(|(_, b)| b.ty.is_some())
     }
     fn name(&self, name: &str) -> String {
+        if !self.as3
+            && self.analysis.resolve(self.scope, name).is_none()
+            && matches!(name, "Key" | "Mouse" | "Stage")
+        {
+            return format!("__nfLegacy.{name}");
+        }
+        if !self.as3
+            && self
+                .analysis
+                .resolve(self.scope, name)
+                .is_some_and(|(id, binding)| id == 0 && binding.kind == scope::BindingKind::Field)
+            && let Some(owner) = self.analysis.context.static_members.get(name)
+        {
+            return format!("__nfProgram.type({owner:?}).{name}");
+        }
         if self.analysis.resolve(self.scope, name).is_none() && matches!(name, "Array" | "String") {
             return format!("__nf{name}Class({})", self.as3);
         }
@@ -1687,7 +1704,16 @@ impl Emitter<'_> {
                             return format!(
                                 "__nfAs2Value({}, {})",
                                 self.expression(callee),
-                                if owner == 0 { "__nfFrame" } else { "undefined" }
+                                if owner == 0 {
+                                    self.analysis
+                                        .context
+                                        .static_members
+                                        .get(name)
+                                        .map(|class| format!("__nfProgram.type({class:?})"))
+                                        .unwrap_or_else(|| "__nfFrame".into())
+                                } else {
+                                    "undefined".into()
+                                }
                             );
                         }
                         // A direct member call retains the receiver. Ordinary

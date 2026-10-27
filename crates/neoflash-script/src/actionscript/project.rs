@@ -1,4 +1,4 @@
-//! Project source units and a deliberately bounded AS3 class linker.
+//! Project source units and a deliberately bounded AS2/AS3 class linker.
 //! No filesystem/network access: every dependency comes from the Project snapshot.
 use super::*;
 use neoflash_core::Project;
@@ -49,6 +49,7 @@ pub struct ProjectProgram {
     pub code: String,
     pub class_names: Vec<String>,
     names: BTreeSet<String>,
+    languages: BTreeMap<String, ScriptLanguage>,
 }
 
 struct Header {
@@ -80,6 +81,38 @@ struct Class {
     base: Option<String>,
     fields: Vec<Field>,
     methods: Vec<Method>,
+}
+
+fn visible_names(
+    names: &BTreeSet<String>,
+    languages: &BTreeMap<String, ScriptLanguage>,
+    language: ScriptLanguage,
+) -> BTreeSet<String> {
+    names
+        .iter()
+        .filter(|name| {
+            languages.get(*name).map_or_else(
+                || {
+                    language == ScriptLanguage::ActionScript3
+                        || matches!(name.as_str(), "Object" | "Array")
+                },
+                |owner| *owner == language,
+            )
+        })
+        .cloned()
+        .collect()
+}
+
+fn scalar_initializer(value: &Expr) -> bool {
+    match value {
+        Expr::Literal(_) => true,
+        Expr::Name(name) => matches!(
+            name.as_str(),
+            "true" | "false" | "null" | "undefined" | "NaN" | "Infinity"
+        ),
+        Expr::Unary(op, value) if matches!(op.as_str(), "+" | "-") => scalar_initializer(value),
+        _ => false,
+    }
 }
 
 fn frontend(script: &Script, tokens: Vec<Token>, context: CompileContext) -> Frontend<'_> {
@@ -115,11 +148,14 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
         language: source.language,
         source: source.source.clone(),
     };
-    if script.language != ScriptLanguage::ActionScript3 {
+    if !matches!(
+        script.language,
+        ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript3
+    ) {
         return Err(Diagnostic::at(
             &script,
             0,
-            "Project source units currently require AS3 classes; JS/TS and AS2 frame/object handlers remain supported.",
+            "Project source units require AS2 or AS3 classes; JS/TS modules are not implemented yet.",
         ));
     }
     if script.source.len() > 1_048_576 {
@@ -135,8 +171,12 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
     }
     .tokens()?;
     let mut p = frontend(&script, tokens, CompileContext::default());
+    let as2 = script.language == ScriptLanguage::ActionScript2;
+    if as2 && p.is("package") {
+        return Err(p.error("AS2 uses a qualified class name, not an AS3 package block."));
+    }
     let packaged = p.eat("package");
-    let package = if packaged {
+    let mut package = if packaged {
         let name = if p.is("{") {
             String::new()
         } else {
@@ -149,14 +189,17 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
     };
     let imports = imports(&mut p)?;
     p.eat("public");
+    if as2 {
+        p.eat("dynamic");
+    }
     if p.is("final") || p.is("dynamic") || p.is("internal") {
         return Err(p.error(
             "Class modifiers final/dynamic/internal are outside the first public-class profile.",
         ));
     }
     p.expect("class")?;
-    let short = p.ident()?;
-    if invalid_binding(&short, false) {
+    let short = if as2 { qualified(&mut p)? } else { p.ident()? };
+    if invalid_binding(short.rsplit('.').next().unwrap(), false) {
         return Err(p.error("Invalid or reserved class name."));
     }
     let name = if package.is_empty() {
@@ -164,6 +207,15 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
     } else {
         format!("{package}.{short}")
     };
+    if as2 {
+        package = name
+            .rsplit_once('.')
+            .map_or("", |(owner, _)| owner)
+            .to_owned();
+        if source.path != format!("{}.as", name.replace('.', "/")) {
+            return Err(p.error("AS2 source path must match its qualified class name (app/Widget.as for app.Widget)."));
+        }
+    }
     let base = if p.eat("extends") {
         Some(qualified(&mut p)?)
     } else {
@@ -188,6 +240,7 @@ fn context(
     names: &BTreeSet<String>,
     package: &str,
     imports: &[String],
+    language: ScriptLanguage,
 ) -> Result<CompileContext, String> {
     let mut c = CompileContext {
         project: true,
@@ -195,6 +248,12 @@ fn context(
     };
     for name in names {
         c.types.insert(name.clone(), name.clone());
+    }
+    if language == ScriptLanguage::ActionScript2 {
+        c.types
+            .insert("MovieClip".into(), "flash.display.MovieClip".into());
+        c.types
+            .insert("TextField".into(), "flash.text.TextField".into());
     }
     for name in ["Object", "Array"] {
         c.types.insert(name.into(), name.into());
@@ -220,8 +279,13 @@ fn context(
     Ok(c)
 }
 fn parse_class(header: Header, names: &BTreeSet<String>) -> Result<Class, Diagnostic> {
-    let mut c = context(names, &header.package, &header.imports)
-        .map_err(|m| Diagnostic::at(&header.script, 0, m))?;
+    let mut c = context(
+        names,
+        &header.package,
+        &header.imports,
+        header.script.language,
+    )
+    .map_err(|m| Diagnostic::at(&header.script, 0, m))?;
     c.class_name = Some(header.name.clone());
     let base = header
         .base
@@ -232,6 +296,7 @@ fn parse_class(header: Header, names: &BTreeSet<String>) -> Result<Class, Diagno
             })
         })
         .transpose()?;
+    let as2 = header.script.language == ScriptLanguage::ActionScript2;
     let mut p = frontend(&header.script, header.tokens.clone(), c.clone());
     p.pos = header.body;
     let mut fields = vec![];
@@ -248,6 +313,11 @@ fn parse_class(header: Header, names: &BTreeSet<String>) -> Result<Class, Diagno
             } else if p.eat("static") {
                 is_static = true;
             } else if p.eat("override") {
+                if as2 {
+                    return Err(
+                        p.error("AS2 overrides methods by name without the AS3 override keyword.")
+                    );
+                }
                 override_ = true;
             } else {
                 break;
@@ -258,6 +328,11 @@ fn parse_class(header: Header, names: &BTreeSet<String>) -> Result<Class, Diagno
         }
         if p.is("var") || p.is("const") {
             let constant = p.eat("const");
+            if as2 && constant {
+                return Err(p.error(
+                    "AS2 class const fields are not supported; use a static var or read-only API.",
+                ));
+            }
             if !constant {
                 p.expect("var")?;
             }
@@ -276,6 +351,13 @@ fn parse_class(header: Header, names: &BTreeSet<String>) -> Result<Class, Diagno
                     return Err(
                         p.error("Class const fields require an initializer in this profile.")
                     );
+                }
+                if as2
+                    && value
+                        .as_ref()
+                        .is_some_and(|value| !scalar_initializer(value))
+                {
+                    return Err(p.error("AS2 inline field initializers currently require scalar constants. Initialize arrays, objects and computed values in the constructor."));
                 }
                 fields.push(Field {
                     name,
@@ -343,6 +425,20 @@ fn native_member(base: &str, name: &str) -> bool {
             || matches!(
                 name,
                 "x" | "y"
+                    | "_x"
+                    | "_y"
+                    | "_rotation"
+                    | "_alpha"
+                    | "_xscale"
+                    | "_yscale"
+                    | "_visible"
+                    | "_name"
+                    | "_width"
+                    | "_height"
+                    | "_root"
+                    | "_parent"
+                    | "_currentframe"
+                    | "_totalframes"
                     | "rotation"
                     | "alpha"
                     | "scaleX"
@@ -391,10 +487,15 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
     if !errors.is_empty() {
         return Err(errors);
     }
+    let languages: BTreeMap<_, _> = headers
+        .iter()
+        .map(|h| (h.name.clone(), h.script.language))
+        .collect();
     let mut classes = BTreeMap::new();
     for h in headers {
         let path = h.path.clone();
-        match parse_class(h, &names) {
+        let visible = visible_names(&names, &languages, h.script.language);
+        match parse_class(h, &visible) {
             Ok(c) => {
                 classes.insert(c.header.name.clone(), c);
             }
@@ -429,6 +530,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
     }
     // Resolve inherited declarations before compiling method bodies.
     let mut resolved = BTreeMap::<String, BTreeMap<String, Option<String>>>::new();
+    let mut static_members = BTreeMap::<String, BTreeMap<String, String>>::new();
     let mut native_bases = BTreeMap::<String, String>::new();
     let mut registrations = String::new();
     for name in &order {
@@ -492,6 +594,20 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                 members.insert(n.clone(), Some("Function".into()));
             }
         }
+        let mut statics = c
+            .base
+            .as_ref()
+            .and_then(|base| static_members.get(base))
+            .cloned()
+            .unwrap_or_default();
+        for field in c.fields.iter().filter(|f| f.is_static) {
+            statics.insert(field.name.clone(), name.clone());
+        }
+        for method in c.methods.iter().filter(|m| m.is_static) {
+            statics.insert(method.function.name.clone().unwrap(), name.clone());
+        }
+        c.context.static_members = statics.clone();
+        static_members.insert(name.clone(), statics);
         c.context.members = members.clone();
         resolved.insert(name.clone(), members);
         match emit_class(c) {
@@ -524,12 +640,13 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
     );
     // Common intrinsic captures precede helper declarations.
     let code = format!(
-        "const __nfNumber=Number,__nfString=String,__nfBoolean=Boolean,__nfTypeError=TypeError;\nconst __nfTrace=(...args)=>{{if(typeof __nfBuiltins.__nfTrace !== 'function')throw new Error('Project trace host binding is missing');return __nfBuiltins.__nfTrace(...args);}};\n{code}"
+        "const __nfNumber=Number,__nfString=String,__nfBoolean=Boolean,__nfTypeError=TypeError;\nconst __nfAs2Method=__nfBuiltins.__nfAs2Method,__nfAs2Value=__nfBuiltins.__nfAs2Value,__nfDisplay=__nfBuiltins.__nfDisplay,__nfLegacy=__nfBuiltins.__nfLegacy;\nconst __nfTrace=(...args)=>{{if(typeof __nfBuiltins.__nfTrace !== 'function')throw new Error('Project trace host binding is missing');return __nfBuiltins.__nfTrace(...args);}};\n{code}"
     );
     Ok(ProjectProgram {
         code,
         class_names: order,
         names,
+        languages,
     })
 }
 
@@ -543,14 +660,16 @@ pub fn compile_with_program(
     ) {
         return crate::compile(script);
     }
-    if script.language == ScriptLanguage::ActionScript2 {
-        return super::compile(script).map_err(|e| vec![e]);
-    }
     let tokens = Lexer { script, offset: 0 }.tokens().map_err(|e| vec![e])?;
     let mut p = frontend(script, tokens, CompileContext::default());
     let imported = imports(&mut p).map_err(|e| vec![e])?;
-    let c =
-        context(&program.names, "", &imported).map_err(|m| vec![Diagnostic::at(script, 0, m)])?;
+    let c = context(
+        &visible_names(&program.names, &program.languages, script.language),
+        "",
+        &imported,
+        script.language,
+    )
+    .map_err(|m| vec![Diagnostic::at(script, 0, m)])?;
     // Keep original byte positions/line numbers when removing import statements.
     let end = p.token().offset;
     let mut replaced = script.clone();
@@ -563,6 +682,7 @@ pub fn compile_with_program(
 }
 
 fn emit_class(c: &Class) -> Result<String, Diagnostic> {
+    let as3 = c.header.script.language == ScriptLanguage::ActionScript3;
     let mut fields = vec![];
     let mut methods = vec![];
     let mut constructor = "null".to_owned();
@@ -576,7 +696,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
     let field_analysis =
         scope::Analysis::with_context(&c.header.script, &initializers, c.context.clone())?;
     let emitter = Emitter {
-        as3: true,
+        as3,
         analysis: &field_analysis,
         scope: 0,
     };
@@ -599,6 +719,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         let name = f.name.as_ref().unwrap();
         let mut context = c.context.clone();
         context.method_id = Some(f.id);
+        context.static_method = method.is_static;
         let mut f = f.clone();
         f.name = Some(format!("__nfMethodBody{}", f.id));
         let is_ctor = name == short;
@@ -640,7 +761,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         let body = vec![Stmt::Function(f.clone())];
         let analysis = scope::Analysis::with_context(&c.header.script, &body, context)?;
         let emitter = Emitter {
-            as3: true,
+            as3,
             analysis: &analysis,
             scope: 0,
         };
@@ -655,7 +776,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         }
     }
     Ok(format!(
-        "__nfProgram.define({:?},{},[{}],[{}],{});\n",
+        "__nfProgram.define({:?},{},[{}],[{}],{},{:?});\n",
         c.header.name,
         c.base
             .as_ref()
@@ -663,6 +784,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
             .unwrap_or_else(|| "null".into()),
         fields.join(","),
         methods.join(","),
-        constructor
+        constructor,
+        if as3 { "as3" } else { "as2" }
     ))
 }

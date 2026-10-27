@@ -101,14 +101,20 @@ impl Editor {
                         ui.selectable_value(&mut self.selected_source, Some(unit.id.clone()), &unit.path);
                     }
                 });
-            if ui.button("New AS3 class").clicked() {
+            for (label, language) in [("New AS2 class", ScriptLanguage::ActionScript2), ("New AS3 class", ScriptLanguage::ActionScript3)] {
+              if ui.button(label).clicked() {
                 let mut index = 1;
                 while self.project.sources.iter().any(|s| s.path == format!("Class{index}.as")) {index += 1;}
                 let name = format!("Class{index}");
-                let unit = SourceUnit {id:new_id("source"), path:format!("{name}.as"), language:ScriptLanguage::ActionScript3,
-                    source:format!("package {{\n    public class {name} {{\n        public function {name}() {{\n        }}\n    }}\n}}\n")};
+                let source = if language == ScriptLanguage::ActionScript2 {
+                    format!("class {name} {{\n    public function {name}() {{\n    }}\n}}\n")
+                } else {
+                    format!("package {{\n    public class {name} {{\n        public function {name}() {{\n        }}\n    }}\n}}\n")
+                };
+                let unit = SourceUnit {id:new_id("source"), path:format!("{name}.as"), language, source};
                 self.selected_source = Some(unit.id.clone());
                 self.transact(|editor| {editor.project.enable_program();editor.project.sources.push(unit);});
+              }
             }
             if ui.button("Import source…").clicked()
                 && let Some(path) = rfd::FileDialog::new().add_filter("Project source", &["as", "js", "ts"]).pick_file() {

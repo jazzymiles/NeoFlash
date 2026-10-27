@@ -1,0 +1,371 @@
+{
+  "format_version": 2,
+  "name": "AS2 classes and classic input",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    34,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "AS2 project input",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 120,
+        "layers": [
+          {
+            "id": "scene-content",
+            "name": "scene-content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 42,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / AS2 CLASSES + CLASSIC INPUT",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 86,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "One prototype. Two independent instances.",
+                      "font_family": "Arial",
+                      "font_size": 33,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 134,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Click cards or use Left / Right. Space resets. H hides the cursor; S shows it.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "statusMessage",
+                    "name": "statusMessage",
+                    "transform": {
+                      "x": 48,
+                      "y": 180,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Waiting for AS2 project construction",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        99,
+                        202,
+                        218,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 476,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Inherited MovieClip classes · shared statics · Key / Mouse / Stage listener objects",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "left",
+                    "name": "left",
+                    "transform": {
+                      "x": 170,
+                      "y": 292,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "widget",
+                      "playback": "independent"
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "Activate left component",
+                      "description": "Activates an AS2 class instance with its own count and a shared total.",
+                      "role": "button",
+                      "tab_order": 1,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "right",
+                    "name": "right",
+                    "transform": {
+                      "x": 590,
+                      "y": 292,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "widget",
+                      "playback": "independent"
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "Activate right component",
+                      "description": "Activates an AS2 class instance with its own count and a shared total.",
+                      "role": "button",
+                      "tab_order": 2,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "widget",
+      "name": "AS2 inherited component",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 120,
+        "layers": [
+          {
+            "id": "widget-content",
+            "name": "widget-content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "plate",
+                    "name": "plate",
+                    "transform": {
+                      "x": -110,
+                      "y": -75,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 150,
+                      "fill": [
+                        35,
+                        70,
+                        105,
+                        255
+                      ],
+                      "stroke": [
+                        99,
+                        202,
+                        218,
+                        255
+                      ],
+                      "stroke_width": 2
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": -84,
+                      "y": -43,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Instance / 0",
+                      "font_family": "Arial",
+                      "font_size": 26,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "widget-subtitle",
+                    "name": "widget-subtitle",
+                    "transform": {
+                      "x": -84,
+                      "y": 3,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Click or use arrow keys",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "widget-detail",
+                    "name": "widget-detail",
+                    "transform": {
+                      "x": -84,
+                      "y": 32,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Inherited activate()",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        153,
+                        204,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      },
+      "class_name": "app.Widget"
+    }
+  ],
+  "sources": [
+    {
+      "id": "as2-source-base",
+      "path": "app/Base.as",
+      "language": "action_script2",
+      "source": "class app.Base extends MovieClip {\n  public static var instances:Number = 0;\n  public static var total:Number = 0;\n  public var count:Number = 0;\n  public var homeX:Number = 0;\n  public function Base() {\n    super();\n    homeX = _x;\n    app.Base.instances++;\n  }\n  public function activate():Void {\n    count++;\n    app.Base.total++;\n    _x = homeX + count * 8;\n    caption.text = _name.toUpperCase() + \" / \" + count;\n    trace(\"AS2 component\", _name, count, app.Base.total);\n  }\n  public function resetCount():Void {\n    count = 0;\n    _x = homeX;\n    caption.text = _name.toUpperCase() + \" / \" + count;\n  }\n}"
+    },
+    {
+      "id": "as2-source-widget",
+      "path": "app/Widget.as",
+      "language": "action_script2",
+      "source": "import app.Base;\nclass app.Widget extends Base {\n  public function Widget() {\n    super();\n    stop();\n    caption.text = _name.toUpperCase() + \" / \" + count;\n  }\n  public function onPress():Void {\n    activate();\n  }\n}"
+    },
+    {
+      "id": "as2-source-main",
+      "path": "app/Main.as",
+      "language": "action_script2",
+      "source": "import app.Base;\nclass app.Main extends MovieClip {\n  public var keyEvents:Number = 0;\n  public var keyUps:Number = 0;\n  public var mouseEvents:Number = 0;\n  public var resizeEvents:Number = 0;\n  public function Main() {\n    super();\n    stop();\n    Key.addListener(this);\n    Mouse.addListener(this);\n    Stage.addListener(this);\n    statusMessage.text = \"Ready: two AS2 instances, shared total 0\";\n    trace(\"AS2 ready\", Base.instances, Base.total, Stage.width, Stage.height);\n  }\n  public function onKeyDown():Void {\n    keyEvents++;\n    if (Key.isDown(Key.LEFT)) _root.left.activate();\n    if (Key.isDown(Key.RIGHT)) _root.right.activate();\n    if (Key.getCode() == Key.SPACE) {\n      Base.total = 0;\n      _root.left.resetCount();\n      _root.right.resetCount();\n      trace(\"AS2 reset\", _root.left.count, _root.right.count, Base.total);\n    }\n    if (Key.getCode() == 72) Mouse.hide();\n    if (Key.getCode() == 83) Mouse.show();\n    statusMessage.text = \"Key \" + Key.getCode() + \" / ASCII \" + Key.getAscii() + \" / shared total \" + Base.total;\n  }\n  public function onKeyUp():Void {\n    keyUps++;\n    trace(\"AS2 key up\", Key.getCode(), Key.isDown(Key.getCode()));\n  }\n  public function onMouseDown():Void {\n    mouseEvents++;\n    statusMessage.text = \"Mouse events \" + mouseEvents + \" / shared total \" + Base.total;\n    trace(\"AS2 mouse\", mouseEvents);\n  }\n  public function onResize():Void {\n    resizeEvents++;\n    statusMessage.text = \"Logical Stage \" + Stage.width + \" x \" + Stage.height;\n    trace(\"AS2 stage\", Stage.width, Stage.height);\n  }\n}"
+    }
+  ]
+}

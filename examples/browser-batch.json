@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "as2-project-input",
+      "path": "examples/as2-project-input.nflash",
+      "title": "AS2 classes, inherited MovieClips and shared input",
+      "checks": [
+        "Click both cards: inherited onPress changes each count independently and updates the shared total.",
+        "Left/Right activate the corresponding card; Space resets both; H/S hide and restore the stage cursor.",
+        "Restart restores two fresh instances, zero shared total and one set of input listeners."
+      ]
+    },
+    {
       "id": "collections-text",
       "path": "examples/collections-text.nflash",
       "title": "AS2 / AS3 data processing and text output",

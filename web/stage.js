@@ -80,7 +80,10 @@
       return result;
     }
     function handlePointer(type, domEvent = {}, explicitTarget = null) {
-      if (!enabled() || domEvent.isPrimary === false) return true;
+      if (!enabled()) return true;
+      // isPrimary belongs to pointer tracking. Browsers can report false on a
+      // synthesized click PointerEvent even for an ordinary trusted mouse click.
+      if (domEvent.isPrimary === false && /^(?:pointerdown|pointerup|pointermove)$/.test(type)) return true;
       const mapped = { pointerdown: 'mouseDown', pointerup: 'mouseUp', pointermove: 'mouseMove',
         mousedown: 'mouseDown', mouseup: 'mouseUp', mousemove: 'mouseMove', dblclick: 'doubleClick', wheel: 'mouseWheel' };
       type = mapped[type] || type;

@@ -202,7 +202,8 @@
         "crates/neoflash-script/src/actionscript/project-runtime.js",
         "crates/neoflash-script/tests/project.rs",
         "crates/neoflash-script/tests/project-execute.mjs",
-        "examples/project-program.nflash"
+        "examples/project-program.nflash",
+        "docs/VERIFICATION.md"
       ]
     },
     {
@@ -267,7 +268,7 @@
       "title": "Primitives and global conversions",
       "status": "partial",
       "scope": "Number, Boolean, parseFloat, isNaN and isFinite retain JavaScript-backed conversions. String now uses the bounded primitive family facade; parseInt retains its separate pinned AS3 profile and earlier HTML5 acceptance.",
-      "limitations": "Complete historical coercions, boxed values and the full standard library remain unfinished. New Array/String expectations are documented_only; browser acceptance of that increment is pending.",
+      "limitations": "Complete historical coercions, boxed values and the full standard library remain unfinished. Array/String expectations are documented_only; the combined browser pipeline passed without original Flash comparison.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
@@ -295,7 +296,7 @@
       "title": "Array, String and Number methods",
       "status": "partial",
       "scope": "Bounded Array constructors and mutation/slicing, comparator/flag sort and multi-field sortOn; primitive String conversion, UTF-16 access/search/slicing/splitting/concatenation/casing. Shared adapters preserve custom overrides and lookup order in handlers and project methods. AS3 adds Array callbacks/search and literal-pattern String replacement. The earlier primitive toFixed adapter remains available.",
-      "limitations": "Partial profiles: 1,000,000 array entries/string code units or results; ordinary records, restricted sortOn options, no native method extraction/prototype augmentation, RegExp/custom string patterns, locale operations or complete historical coercion/order. AS3 NUMERIC requires numeric values; AS2 boxed String is unsupported. See fixture profile constants for exact dialect limits. Browser acceptance of this increment is pending.",
+      "limitations": "Partial profiles: 1,000,000 array entries/string code units or results; ordinary records, restricted sortOn options, no native method extraction/prototype augmentation, RegExp/custom string patterns, locale operations or complete historical coercion/order. AS3 NUMERIC requires numeric values; AS2 boxed String is unsupported. See fixture profile constants for exact dialect limits. The combined collection/text browser scenario passed; this does not establish every method.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
@@ -341,7 +342,8 @@
         "crates/neoflash-script/src/actionscript/project-runtime.js",
         "crates/neoflash-script/tests/project.rs",
         "crates/neoflash-script/tests/project-execute.mjs",
-        "examples/project-program.nflash"
+        "examples/project-program.nflash",
+        "docs/VERIFICATION.md"
       ]
     },
     {
@@ -369,7 +371,7 @@
       "title": "Events and handlers",
       "status": "partial",
       "scope": "Shared EventDispatcher add/remove/has/willTrigger/dispatch with capture/target/bubble, priorities, phase snapshots, cancellation and redispatch cloning. Event/MouseEvent/KeyboardEvent facades, Stage dimensions/frameRate/focus and bounded pointer/keyboard input share placement lifetimes.",
-      "limitations": "Aggregation targets, full lifecycle/broadcast ordering, AS3 GC equivalence, fullscreen/scale modes, IME/touch and complete focus/input behavior remain pending. Exposed constants do not imply automatic lifecycle events; current fitted export has fixed logical Stage dimensions. Representative Stage behavior passed in the shared in-app-browser batch; native Sources and broader input acceptance remain pending.",
+      "limitations": "Aggregation targets, full lifecycle/broadcast ordering, AS3 GC equivalence, fullscreen/scale modes, IME/touch and complete focus/input behavior remain pending. Exposed constants do not imply automatic lifecycle events; current fitted export has fixed logical Stage dimensions. Representative Stage behavior passed in the shared in-app-browser batch; native Sources and broader input acceptance remain pending. Independent frozen-01f1381 browser verification found trusted mouse click events with isPrimary=false dropped by the shared Stage guard; semantic Enter and keyboard paths passed. The corrected input route passed coordinate clicks and Restart in the original class/Stage examples; an unlocated aggregate observer exception remains open.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -378,7 +380,8 @@
         "web/stage.js",
         "web/tests/events.test.cjs",
         "web/tests/stage.test.cjs",
-        "examples/events-stage.nflash"
+        "examples/events-stage.nflash",
+        "docs/VERIFICATION.md"
       ]
     },
     {
@@ -398,7 +401,7 @@
       "title": "TextField and text APIs",
       "status": "partial",
       "scope": "Existing authored Text elements now have live text/textColor, UTF-16 length, append/replace, line queries and partial Canvas text metrics through the shared runtime. Overrides leave authored content unchanged and clear with placement removal/replacement or Restart.",
-      "limitations": "Plain string values and RGB integers only; 1 MiB UTF-8 text and bounded UTF-16 replacement ranges preserving complete characters. No rich formatting/HTML, wrapping, input/selection, embedded fonts or dynamic TextField creation. Canvas width and 1.2×font-size line height are not full Flash layout. Shared helpers do not establish every historical AS2 method. Browser acceptance of this increment is pending.",
+      "limitations": "Plain string values and RGB integers only; 1 MiB UTF-8 text and bounded UTF-16 replacement ranges preserving complete characters. No rich formatting/HTML, wrapping, input/selection, embedded fonts or dynamic TextField creation. Canvas width and 1.2×font-size line height are not full Flash layout. Shared helpers do not establish every historical AS2 method. The combined collection/text browser scenario passed; this does not establish every method.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",

@@ -53,6 +53,26 @@ fn class_syntax_outside_profile_is_never_erased() {
             "{source}"
         );
     }
+    let mut legacy = project(&[("A.as", "class A { public var items:Array=[]; }")]);
+    legacy.sources[0].language = ScriptLanguage::ActionScript2;
+    assert!(
+        neoflash_script::compile_project(&legacy).is_err(),
+        "AS2 object initializers need constructor initialization"
+    );
+    legacy.sources[0].source = "package { public class A {} }".into();
+    assert!(
+        neoflash_script::compile_project(&legacy).is_err(),
+        "AS3 package syntax must not be accepted as AS2"
+    );
+    let mut mixed = project(&[
+        ("A.as", "class A extends B {}"),
+        ("B.as", "package {public class B {}}"),
+    ]);
+    mixed.sources[0].language = ScriptLanguage::ActionScript2;
+    assert!(
+        neoflash_script::compile_project(&mixed).is_err(),
+        "Cross-dialect inheritance requires a deliberate bridge"
+    );
 }
 #[test]
 fn linked_classes_are_resolved_before_publication() {

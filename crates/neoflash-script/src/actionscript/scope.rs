@@ -387,6 +387,9 @@ impl<'a> Analysis<'a> {
             }
         }
         match expr {
+            Expr::Name(name) if self.script.language==ScriptLanguage::ActionScript2 && name=="AsBroadcaster" && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"AS2 AsBroadcaster is not implemented yet; Key/Mouse/Stage support listener objects directly.")),
+            Expr::Name(name) if self.script.language==ScriptLanguage::ActionScript2 && self.context.static_method && self.resolve(scope,name).is_some_and(|(id,b)|id==0&&b.kind==BindingKind::Field) && !self.context.static_members.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"An AS2 static method cannot access an instance member without an explicit object receiver.")),
+            Expr::Member(base,_) if self.script.language==ScriptLanguage::ActionScript2 && matches!(base.as_ref(),Expr::Name(n)if n=="super") && !direct_callee => return Err(self.error(self.scopes[&scope].offset,"AS2 super property values and method extraction are outside this profile; call super.method(...) directly.")),
             Expr::Name(name) if is_error_type(name) && self.resolve(scope, name).is_none() => return Err(self.error(self.scopes[&scope].offset, "Core Error class values and constructor aliases are not supported; use an explicit new Error-family constructor.")),
             Expr::NewError(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Error constructor cannot be resolved as a core type; arbitrary constructor calls are unsupported.")),
             Expr::NewBuiltin(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Array/String constructor requires arbitrary user-constructor semantics not supported here. Ordinary calls to the local binding remain supported.")),
@@ -396,6 +399,10 @@ impl<'a> Analysis<'a> {
             Expr::Name(name) if name=="this" && !self.scopes[&scope].allow_this => return Err(self.error(self.scopes[&scope].offset,"Explicit this in an AS2 or nested/expression function needs receiver/global semantics not implemented yet. Use lexical locals or bare timeline fields; AS3 top-level declared methods support bound this.")),
             Expr::Call(callee,args,offset) => {
                 let binding=if let Expr::Name(name)=callee.as_ref() {self.resolve(scope,name)}else{None};
+                if self.script.language==ScriptLanguage::ActionScript2 && binding.is_none()
+                    && matches!(callee.as_ref(),Expr::Name(name)if self.context.types.contains_key(name)&&!matches!(name.as_str(),"Array"|"String")) {
+                    return Err(self.error(*offset,"AS2 class casts and class-as-function calls are not implemented in this profile; construct with new or use the existing instance directly."));
+                }
                 if self.script.language == ScriptLanguage::ActionScript3 && binding.is_none()
                     && matches!(callee.as_ref(), Expr::Name(name) if name == "parseInt") && args.len() > 2 {
                     return Err(self.error(*offset, "AS3 parseInt excess-argument semantics are not verified. Pass at most two arguments."));
@@ -411,7 +418,8 @@ impl<'a> Analysis<'a> {
                     Expr::Member(_, _) => true,
                     _ => false,
                 };
-                let builtin=binding.is_none() && !shadowed_math && Frontend::builtin_call(callee);
+                let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"));
+                let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_api);
                 // AS2 permits a later frame or a parent script to install a
                 // function on this timeline. The host checks the actual value
                 // when the call executes; arbitrary member APIs stay blocked.

@@ -66,6 +66,12 @@ test('installed pointer listeners use stage/local coordinates, focus, bubbling, 
   assert.equal(input.length, 1); assert.equal(input[0][0], 'mouseDown');
   canvas.send('click', { clientX: 240, clientY: 160 });
   assert.equal(input.length, 1, 'runtime retains sole ownership of authored Click dispatch');
+  const clicks = [];
+  child.addEventListener('click', event => clicks.push(event.target));
+  controller.handlePointer('click', { isPrimary: false, pointerType: 'mouse', button: 0 }, child);
+  assert.deepEqual(clicks, [child], 'click does not inherit the pointer tracking primary-contact filter');
+  controller.handlePointer('pointerdown', { isPrimary: false, pointerType: 'touch' }, child);
+  assert.equal(input.length, 2, 'secondary pointer tracking remains ignored');
 });
 
 test('keyboard routes to current focus, bubbles to Stage, preserves modifiers and supports native key-code fallback', () => {

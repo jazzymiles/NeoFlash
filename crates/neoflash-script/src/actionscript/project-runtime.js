@@ -32,6 +32,13 @@ const __nfProgram = (() => {
         return result;
     }
     function installFields(receiver, definition, isStatic) {
+        if (definition.dialect === 'as2') {
+            for (const field of definition.fields.filter(field => field.static === isStatic)) {
+                Object.defineProperty(receiver, field.name, { configurable: true, enumerable: false, writable: true,
+                    value: field.init ? field.init.call(receiver) : undefined });
+            }
+            return;
+        }
         let states = fieldStates.get(receiver);
         if (!states) fieldStates.set(receiver, states = new Map());
         for (const field of definition.fields.filter(field => field.static === isStatic)) {
@@ -50,13 +57,15 @@ const __nfProgram = (() => {
     }
     function initializeFields(name, receiver, isStatic = false) {
         const definition = definitions.get(name);
+        if (definition.dialect === 'as2') return; // Scalar defaults live on the shared prototype.
         for (const field of definition.fields.filter(field => field.static === isStatic)) {
             if (field.init) fieldStates.get(receiver).get(field.name).value = field.coerce(field.init.call(receiver));
         }
     }
     function installMethods(receiver, definition, isStatic) {
         for (const method of definition.methods.filter(method => method.static === isStatic)) {
-            Object.defineProperty(receiver, method.name, { configurable: true, enumerable: false, writable: false, value: method.fn.bind(receiver) });
+            Object.defineProperty(receiver, method.name, { configurable: true, enumerable: false,
+                writable: definition.dialect === 'as2', value: definition.dialect === 'as2' ? method.fn : method.fn.bind(receiver) });
         }
     }
     function invokeConstructor(name, receiver, args) {
@@ -66,7 +75,7 @@ const __nfProgram = (() => {
         seen.add(name);
         const definition = definitions.get(name);
         if (definition.ctor) return Reflect.apply(definition.ctor, receiver, args);
-        if (args.length) throw new TypeError(`${name} default constructor expects no arguments.`);
+        if (args.length && definition.dialect !== 'as2') throw new TypeError(`${name} default constructor expects no arguments.`);
         superConstruct(name, receiver, []);
         initializeFields(name, receiver);
     }
@@ -111,8 +120,11 @@ const __nfProgram = (() => {
         }
         identities.set(receiver, name);
         try {
-            for (const definition of chain(name)) installFields(receiver, definition, false);
-            for (const definition of chain(name)) installMethods(receiver, definition, false);
+            if (definitions.get(name).dialect === 'as2') Object.setPrototypeOf(receiver, type(name).prototype);
+            else {
+                for (const definition of chain(name)) installFields(receiver, definition, false);
+                for (const definition of chain(name)) installMethods(receiver, definition, false);
+            }
             invokeConstructor(name, receiver, args);
         } catch (error) {
             failed.set(receiver, error);
@@ -130,10 +142,25 @@ const __nfProgram = (() => {
         const prototype = nativeBase ? type(nativeBase).prototype : Object.prototype;
         return attach(name, Object.create(prototype || Object.prototype), args);
     }
-    function define(name, base, fields, methods, ctor) {
-        const facade = function(...args) { return construct(name, args); };
+    function define(name, base, fields, methods, ctor, dialect = 'as3') {
+        const facade = function(...args) {
+            if (dialect === 'as2' && !new.target) throw new TypeError('AS2 class-as-function casts are not supported; use new or the existing instance.');
+            return construct(name, args);
+        };
         Object.defineProperty(facade, Symbol.hasInstance, { value: value => is(value, name) });
-        definitions.set(name, { name, base, fields, methods, ctor, facade });
+        const definition = { name, base, fields, methods, ctor, facade, dialect };
+        definitions.set(name, definition);
+        if (dialect === 'as2') {
+            const parent = base ? type(base) : Object;
+            facade.prototype = Object.create(parent.prototype || Object.prototype);
+            // AVM1 ActionExtends exposes the superclass constructor on the
+            // subclass prototype, and creates the chain without invoking it.
+            Object.defineProperty(facade.prototype, 'constructor', { configurable: true, writable: true, value: parent });
+            Object.defineProperty(facade.prototype, '__constructor__', { configurable: true, writable: true, value: parent });
+            installFields(facade.prototype, definition, false);
+            installMethods(facade.prototype, definition, false);
+            if (definitions.has(base)) Object.setPrototypeOf(facade, parent);
+        }
     }
     function initializeStatics() {
         for (const definition of definitions.values()) {
@@ -142,5 +169,6 @@ const __nfProgram = (() => {
         }
         for (const definition of definitions.values()) initializeFields(definition.name, definition.facade, true);
     }
-    return Object.freeze({ type, is, cast, define, attach, construct, superConstruct, superView, initializeFields, initializeStatics });
+    return Object.freeze({ type, is, cast, define, attach, construct, superConstruct, superView, initializeFields, initializeStatics,
+        dialect:name=>definitions.get(name)?.dialect });
 })();

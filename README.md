@@ -13,8 +13,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 171 | 1,995 | 126 |
-| AS3 | 43,740 | 15 | 175 | 43,286 | 264 |
+| AS2 | 2,307 | 15 | 173 | 1,993 | 126 |
+| AS3 | 43,740 | 15 | 211 | 43,250 | 264 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -72,7 +72,7 @@ For object editing, **Selection (V)** moves objects; Shift-click toggles objects
 
 **Window** switches Light/Dark, hides or restores panels, and detaches Tools, Timeline or Actions into separate macOS windows. **Dock** returns a panel; **Restore Workspace** restores the default layout. Appearance and layout preferences do not change your project. See [workspace controls](docs/WORKSPACE.md).
 
-**Actions → Project files** stores reusable source code inside the project. Add or import source files, set the document class or a nested symbol's class, and use **Check project** for compiler feedback. The initial project program supports public AS3 classes, imports, inheritance, typed fields and methods; unsupported constructs report diagnostics. Projects with source files use document version 2. Older projects remain readable, and linked-symbol clipboard transfers preserve source files.
+**Actions → Project files** stores reusable source code inside the project. Add or import source files, set the document class or a nested symbol's class, and use **Check project** for compiler feedback. Project programs support bounded public AS3 classes with typed fields and bound methods, and AS2 classes with erased annotations and shared prototypes. Both support exact imports and inheritance; unsupported constructs report diagnostics. Projects with source files use document version 2. Older projects remain readable, and linked-symbol clipboard transfers preserve source files.
 
 Example frame script:
 
@@ -100,6 +100,8 @@ Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two indep
 [visibility.nflash](examples/visibility.nflash) exercises hidden AS2/AS3 clips that keep running, [symbol-replacement.nflash](examples/symbol-replacement.nflash) checks fresh nested state after replacement, and [as-intrinsics.nflash](examples/as-intrinsics.nflash) demonstrates the documented `parseInt`/`toFixed` profiles. These are bounded compatibility examples, not complete Flash API support.
 
 [project-program.nflash](examples/project-program.nflash) combines a document class, two linked components, shared state and input events. [display-family.nflash](examples/display-family.nflash) covers child traversal, geometry and AS2 callbacks; [events-stage.nflash](examples/events-stage.nflash) demonstrates propagation and Stage input. Compiler/host checks and visual acceptance are recorded separately in [VERIFICATION.md](docs/VERIFICATION.md).
+
+[as2-project-input.nflash](examples/as2-project-input.nflash) combines inherited AS2 MovieClips, independent instance counters, shared class state and Key/Mouse/Stage listeners. Left/Right activate the cards, Space resets them, and H/S hide or show the stage cursor. AS2 root document linkage is a NeoFlash extension.
 
 [collections-text.nflash](examples/collections-text.nflash) processes the same leaderboard in AS2 and AS3: parse rows, update records, sort with Flash array flags and display the result in authored text fields. The shared Array/String profile also works in project classes. Plain text mutation, color, line queries and Canvas-based measurements are available; rich text, editable input, wrapping and embedded fonts remain separate work.
 

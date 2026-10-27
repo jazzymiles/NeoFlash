@@ -6,6 +6,7 @@ import { resolve, dirname } from 'node:path';
 import { readFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import vm from 'node:vm';
 import { createRuntimeHost } from './host-integration.mjs';
+import { verifyAs2ProjectInput } from './as2-project-input.mjs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
@@ -16,6 +17,8 @@ const source=(id,path,source)=>({id,path,language:'action_script3',source});
 const project={format_version:2,name:'Original program fixture',width:320,height:180,fps:24,background:[255,255,255,255],root:'scene',
   symbols:[{id:'scene',name:'Scene',kind:'movie_clip',timeline:{frame_count:1,layers:[],scripts:[]}}],
   sources:[
+    {id:'legacy-model',path:'legacy/Model.as',language:'action_script2',source:'class legacy.Model { public var value:Number=1; public var missing:String; public var items:Array; public static var created:Number=0; public function Model(seed:Number) { value=seed; items=[]; created++; } public function increment(step:Number):Number { value+=step; return value; } public static function total():Number { return created; } }'},
+    {id:'legacy-counter',path:'legacy/Counter.as',language:'action_script2',source:'import legacy.Model; class legacy.Counter extends Model { public function Counter(seed:Number) { super(seed); } public function increment(step:Number):Number { return super.increment(step)+100; } }'},
     source('base','model/Base.as','package model { public class Base { public var value:int=1; public function Base(seed:int) { value=seed; } public function increment():int { value+=1; return value; } } }'),
     source('counter','model/Counter.as','package model { import model.Base; public class Counter extends Base { public static var created:int=0; public const label:String="counter"; public var step:int=3; public function Counter(seed:int) { super(seed); value+=2; Counter.created++; } public override function increment():int { return super.increment()+10; } public function callback():Function { return increment; } public function localTypes(String:Function,Array:Function):String { var values:Array=[1]; return String(Array(values[0])); } public function summarize(values:Array):String { var copy:Array=values.slice(); copy.sort(Array.NUMERIC); return String.fromCharCode(65)+copy.join(",").toUpperCase(); } } }'),
     source('watcher','app/Watcher.as','package app { import flash.events.Event; import flash.events.EventDispatcher; public class Watcher extends EventDispatcher { public var count:int=0; public function Watcher() { super(); addEventListener(Event.CHANGE,changed); } public function changed(e:Event):void { count++; } public function close():void { removeEventListener(Event.CHANGE,changed); } } }'),
@@ -24,7 +27,8 @@ const scripts=[{language:'action_script3',source:'import model.Counter; import a
 const result=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-script','--example','compile_project'],{cwd:root,input:JSON.stringify({project,scripts}),encoding:'utf8'});
 assert.equal(result.status,0,result.error?.message || result.stderr);
 const compiled=JSON.parse(result.stdout);assert.ok(compiled.Ok,JSON.stringify(compiled));
-const builtins={__nfTrace:()=>{}};
+const bridge=createRequire(import.meta.url)(resolve(root,'web/runtime.js')).createAs2Methods();
+const builtins={__nfTrace:()=>{},__nfAs2Method:bridge.method,__nfAs2Value:bridge.value};
 for(const name of ['Event','MouseEvent','KeyboardEvent','EventPhase','EventDispatcher'])builtins[`flash.events.${name}`]=events[name];
 const program=new Function('__nfBuiltins',compiled.Ok.code)(builtins);
 const lookup=[], probe=[];
@@ -45,6 +49,13 @@ assert.equal(program.type('model.Counter').created,2);
 const attached={};program.attach('model.Counter',attached,[8]);assert.equal(attached.value,10);
 program.attach('model.Counter',attached,[9]);assert.equal(attached.value,10,'attach is once per object');
 assert.equal(program.type('model.Counter').created,3);
+const oldA=program.construct('legacy.Counter',[2]),oldB=program.construct('legacy.Counter',[7]);
+assert.equal(oldA.increment,oldB.increment,'AS2 methods are shared unbound prototype functions');
+assert.equal(oldA.increment.call(oldB,3),110);assert.equal(oldA.value,2);assert.equal(oldB.value,10);
+assert.equal(oldA.missing,undefined);assert.notEqual(oldA.items,oldB.items);
+assert.equal(program.type('legacy.Model').total(),2);assert.equal(Object.getPrototypeOf(oldA),program.type('legacy.Counter').prototype);
+oldA.value='uncoerced';assert.equal(oldA.value,'uncoerced');
+assert.throws(()=>program.type('legacy.Counter')(3),/class-as-function/);
 const failed={};let failure;
 try { program.attach('model.Counter',failed,[Symbol('invalid numeric seed')]); } catch(error) { failure=error; }
 assert.ok(failure);assert.throws(()=>program.attach('model.Counter',failed,[1]),error=>error===failure,'failed construction cannot later masquerade as successful attachment');
@@ -85,4 +96,5 @@ try {
 } finally {
   player?.free();rmSync(directory,{recursive:true,force:true});
 }
+await verifyAs2ProjectInput(root,cargo);
 console.log('Project program: imports, inheritance/super, typed fields, constructors, static/const, stable methods, independent instances and actual EventDispatcher passed.');

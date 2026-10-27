@@ -46,7 +46,7 @@
       }
       function summary() {
         const count = predicate => observations.filter(predicate).length;
-        document.getElementById('summary').textContent = `${observations.length} cases · ${count(x => x.export.status === 'exported')} exported · ${count(x => x.runtime.status === 'dom_ready')} DOM ready · ${count(x => x.runtime.status === 'runtime_error')} runtime errors · ${count(x => x.manual.status === 'accepted')} manually accepted`;
+        document.getElementById('summary').textContent = `${observations.length} cases · ${count(x => x.export.status === 'exported')} exported · ${count(x => x.runtime.status === 'dom_ready')} DOM ready · ${count(x => x.runtime.status === 'runtime_error')} runtime errors · ${count(x => x.runtime.status === 'observation_error')} observation errors · ${count(x => x.manual.status === 'accepted')} manually accepted`;
       }
       document.getElementById('identity').textContent = `Run ${batch.run_id} · Prepared ${batch.created_utc} · Browser observations start ${new Date().toISOString()}`;
       for (const item of observations) {
@@ -82,7 +82,7 @@
         function result(status, message) {
           item.runtime = { status, message, observed_utc: new Date().toISOString() };
           runtime.textContent = `Runtime: ${status}`;
-          runtime.className = `state ${status === 'dom_ready' ? 'good' : status === 'runtime_error' ? 'bad' : ''}`;
+          runtime.className = `state ${status === 'dom_ready' ? 'good' : ['runtime_error', 'observation_error'].includes(status) ? 'bad' : ''}`;
           detail.textContent = message; summary();
         }
         function visible(node) {
@@ -105,6 +105,13 @@
             result('unobservable', 'Same-origin DOM access is unavailable. Serve the batch over local HTTP or inspect the project link manually.'); return;
           }
           function inspect() {
+            try { inspectDocument(); }
+            catch (error) {
+              finished = true; clearTimeout(deadline); observer?.disconnect();
+              result('observation_error', `Could not observe this frame: ${error.message}`);
+            }
+          }
+          function inspectDocument() {
             const alert = doc.querySelector('#error, [role="alert"]');
             if (visible(alert) && alert.textContent.trim()) {
               finished = true; clearTimeout(deadline); observer?.disconnect();
@@ -118,9 +125,14 @@
               if (alert) observer.observe(alert, { subtree: true, childList: true, characterData: true, attributes: true });
             }
           }
-          observer = new MutationObserver(inspect);
-          observer.observe(doc.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['style', 'hidden'] });
-          inspect();
+          try {
+            observer = new doc.defaultView.MutationObserver(inspect);
+            observer.observe(doc.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['style', 'hidden'] });
+            inspect();
+          } catch (error) {
+            finished = true; clearTimeout(deadline); observer?.disconnect();
+            result('observation_error', `Could not observe this frame: ${error.message}`);
+          }
         }, { once: true });
         frame.src = item.url;
         card.append(frame);

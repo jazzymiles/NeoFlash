@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "d96396e38677bf756914029b0e161efecf3815e347d41fbb3636491c0a531878",
+  "catalogSha256": "666ecfd3953b07b76f6f85532384f565cef1917d955931a8f3a1c32f35ed914c",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -83,8 +83,8 @@
       }
     ],
     "inputHashes": {
-      "implementation-audit.json": "ceb7259931f2a818121d6376aa0633b1f4ad43df2685a7af9e0e865a7368b966",
-      "implementation-evidence.json": "b579e05f8dfb628f85f247ef655b45434155cd6eafad9708760e7f9dab5e1ba0",
+      "implementation-audit.json": "f2463521e626c12ab11e971f256b8677795598d5d9049b144e80d61748c3c4d8",
+      "implementation-evidence.json": "a043730415313ecb59a2a5e8af3afc764aba84460ebc750de08e7a168a63094c",
       "as2.json": "160442a3ef962733440d4b187096b816398d5c4bc7fed87209e20bc157bf3791",
       "as2-components.json": "891666b00f6caf7c4bfc250187ab33cc19880715cb69468d8e0370a43a9aac82",
       "as2-components-supplement.json": "f7677e2c3a3e0f8baf899bdb4511de7bb14965bac4956b9de78a22be64eaa802",
@@ -257,29 +257,41 @@
         "originalFlashComparison": "documented_only",
         "decision": "different_symbol_subtree_reset_passes",
         "currentSourceVerified": false
+      },
+      {
+        "id": "FAMILY-HTML5-20261027T0057Z",
+        "recordedHead": "01f13815a115626411c40ca04e8c13da1beadb71",
+        "sourceCapturedAt": "2026-10-27T01:00:28.477237+00:00",
+        "verifiedAt": "2026-10-27T01:12:59.351216+00:00",
+        "sourceManifestSha256": "c4aeeb8e7f409c7d3deeae4c4e77d379907260d162d3bdaffe59f3e87b281c4e",
+        "browser": "Codex in-app browser",
+        "engine": "Not separately identified; no additional browser engines claimed",
+        "originalFlashComparison": "documented_only",
+        "decision": "not_accepted_as_complete_batch_shared_pointer_click_failure_verified_subsets_recorded",
+        "currentSourceVerified": false
       }
     ]
   },
   "summary": {
     "total": {
       "implemented_subset": 30,
-      "partial": 346,
-      "missing": 45281,
+      "partial": 384,
+      "missing": 45243,
       "needs_review": 390,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
         "implemented_subset": 15,
-        "partial": 171,
-        "missing": 1995,
+        "partial": 173,
+        "missing": 1993,
         "needs_review": 126,
         "total": 2307
       },
       "AS3": {
         "implemented_subset": 15,
-        "partial": 175,
-        "missing": 43286,
+        "partial": 211,
+        "missing": 43250,
         "needs_review": 264,
         "total": 43740
       }
@@ -308,8 +320,8 @@
       },
       "language": {
         "implemented_subset": 28,
-        "partial": 135,
-        "missing": 84,
+        "partial": 144,
+        "missing": 75,
         "needs_review": 62,
         "total": 309
       },
@@ -322,8 +334,8 @@
       },
       "runtime": {
         "implemented_subset": 2,
-        "partial": 51,
-        "missing": 6103,
+        "partial": 80,
+        "missing": 6074,
         "needs_review": 2,
         "total": 6158
       }
@@ -367,8 +379,8 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 32,
-          "missing": 873,
+          "partial": 34,
+          "missing": 871,
           "needs_review": 2,
           "total": 908
         }
@@ -397,8 +409,8 @@
         },
         "language": {
           "implemented_subset": 14,
-          "partial": 61,
-          "missing": 46,
+          "partial": 70,
+          "missing": 37,
           "needs_review": 3,
           "total": 124
         },
@@ -411,8 +423,8 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 19,
-          "missing": 5230,
+          "partial": 46,
+          "missing": 5203,
           "needs_review": 0,
           "total": 5250
         }
@@ -1005,15 +1017,570 @@
       ]
     },
     {
-      "id": "HTML5-PLAY-RETURN",
-      "title": "HTML5-PLAY-RETURN",
-      "reason": "trace(this.play()) emits true because host exposes WASM Boolean success; documented AS3 play():void is not preserved.",
-      "limitations": "Observed evidence: confirmed_internal_against_documented_signature. This is not an original Flash differential result.",
+      "id": "FAMILY-HTML5-20261027T0057Z",
+      "title": "Independent HTML5 acceptance: FAMILY-HTML5-20261027T0057Z",
+      "reason": "not accepted as complete batch shared pointer click failure verified subsets recorded",
+      "limitations": "Shared pointer-click delivery failure prevents full acceptance of this package; successful subsets remain partial with exact scope. Only Codex in-app browser was independently exercised. Original Flash Player was not run: documented_only. The AS3 source/class profile remains bounded. AS2 classes, JS/TS modules, native dynamic display-list creation, complete TextField mutation and resource/font fidelity are not supplied by this package. Native Sources/Undo/save-reopen and detached Actions D-008 remain pending. Browser program loading is not native save/reopen acceptance. Modern display tests called from JavaScript do not establish AS2 point mutation/void semantics; every untested member keeps its previous evidence. Collection work started after this snapshot receives no inherited pass. Main shared tests are recorded as reported evidence, not silently rerun or relabelled independent.",
       "evidence": [
         {
+          "path": "crates/neoflash-core/src/clipboard.rs",
+          "sha256": "effbff989939c25986691531aee1d3e9254191c76a3b13deeed1d006200de8f5"
+        },
+        {
+          "path": "crates/neoflash-core/src/demo.rs",
+          "sha256": "9481dc1466aafc1c5deadd40cbb62f3e49b4240da33fc9e249ab29fffbc56e0d"
+        },
+        {
+          "path": "crates/neoflash-core/src/evaluate.rs",
+          "sha256": "f305f8505a80dcff86f08f91d6326537452e6cf4b2b1e3528e4c89af71d5a703"
+        },
+        {
+          "path": "crates/neoflash-core/src/geometry.rs",
+          "sha256": "94b9531d20975840a8a9c998832f090fee17cfa66c5dbe78c12a30b0a527b2f8"
+        },
+        {
+          "path": "crates/neoflash-core/src/history.rs",
+          "sha256": "662c5cd0855fa1cccccac432fb374a7f86db680ed476559c92fbe324fff88441"
+        },
+        {
+          "path": "crates/neoflash-core/src/lib.rs",
+          "sha256": "ae7e1feaf727fa2c75e995aaa9bb7e2e06d0b5369dab3b544aba062ddcae3d99"
+        },
+        {
+          "path": "crates/neoflash-core/src/model.rs",
+          "sha256": "0d70db94a5b4139d209de77fa0742961fb0f6db358506e70ffd348b9e882e51f"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime.rs",
+          "sha256": "8d58bdca9e463544143154b8280f12972500c4ec307bd2a7e8a66f4c57c91769"
+        },
+        {
+          "path": "crates/neoflash-core/src/validation.rs",
+          "sha256": "cb9d507401852eadc7340820a2b4b82447a7af7d97863bb9d07b7f063fe94527"
+        },
+        {
+          "path": "crates/neoflash-editor/src/accessibility.rs",
+          "sha256": "7b02f21d880283cdf480a6c0579f732abf19fbe317917e4e18faf9b11d069369"
+        },
+        {
+          "path": "crates/neoflash-editor/src/app.rs",
+          "sha256": "a4ba48de3189000f0f11432e68b681d61e5cd283ac6a5361b21490775b64573c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard.rs",
+          "sha256": "e3ffc6db4a9567d2de9194bfbc8a4715e3ddb0b206dc593002cce2ec9eb169fe"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard_tests.rs",
+          "sha256": "2141e3ec04072a80a8dc58f3bfd27e9477c602c65ae804e1bbfa2e11b18418e5"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached.rs",
+          "sha256": "4857ae64827f7818f7f159fff43b3e14a6ff784bcd0148d161a25e7765e59b3d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached_tests.rs",
+          "sha256": "e66b38262cd5cf6d0a1f64887b19ba86950233cc6fd77c16a977bcba16f14ceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/fonts.rs",
+          "sha256": "b3b012e4712f82048b3aa174465c2a9070a4ab402d64c5522548f9c44ff96791"
+        },
+        {
+          "path": "crates/neoflash-editor/src/main.rs",
+          "sha256": "76fbfc0fefa7e191c5edf4b574fd07782081a79ebc1c6780baaffe4629579aec"
+        },
+        {
+          "path": "crates/neoflash-editor/src/native_screens.rs",
+          "sha256": "b3eb6e6612dfd09c9ddfb206b82c3039343730bcf616c380cbee383b92664440"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panel_tests.rs",
+          "sha256": "1f30578675e958423af68ba50fc07ca5cc466f91f5f0a7fee9a56f65ee98dd11"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panels.rs",
+          "sha256": "dd9f1b01b7f280f33b34d341f3251a4aae8199d1251a3c80dd4fd52c03db398b"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection.rs",
+          "sha256": "0c1ea7f8306eb81328d80672436993f0c4d270891d6c50ee81d6ef0243626859"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection_tests.rs",
+          "sha256": "7f00cde935e571026375a4ce1ee1edb3937add0aa377882d1b8ab084318e3ab2"
+        },
+        {
+          "path": "crates/neoflash-editor/src/sources.rs",
+          "sha256": "eb903cab950aab7f9cb46cff285270844c7960c917955f726a614eb48e9b5a65"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage.rs",
+          "sha256": "53212c5224158f9edf528c2dd01eb283bc3931bcc0f33f0d8d4f8c780b4b67be"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_primitives.rs",
+          "sha256": "fe940d6123cb492a4c6a6a9e135b51da023fe4c47193a6c3cdc185bd679cfceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_selection.rs",
+          "sha256": "e7ca9975a795b79e376ad096bc440bc469b17247f66b166c801756e8bcaeed13"
+        },
+        {
+          "path": "crates/neoflash-editor/src/tests.rs",
+          "sha256": "a4b96abeb579c8d59014b974e97d883d8ff9802dfb5baca770340c60405c73d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/theme.rs",
+          "sha256": "98c946389cff79af8d415b3bd8a282633d097989e60d8643f2f8125f7f8c4936"
+        },
+        {
+          "path": "crates/neoflash-editor/src/timeline_paint.rs",
+          "sha256": "87a87535956dcfaa686e6222bb56f1953328b00be858a0b522094097759848d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_geometry.rs",
+          "sha256": "584f5b1d3d7cc50906d5fe647812678d97333fd8df4a7d31264e0b9f245c971f"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_gesture_tests.rs",
+          "sha256": "f8ae23fabe656e336cbac2d3937097149cd7798990b95e64b07ebb052fba3adb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/ui_icons.rs",
+          "sha256": "532a69689f893cb6ad5bf82f4106b6472315fa1cea8af335b2d459ac0eaed74e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector.rs",
+          "sha256": "0d3ae90b25ab48e3228149b0b96920b8f1367e86a609f8d2c10176653ae35f1c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector_gesture_tests.rs",
+          "sha256": "6f54dd33ea9edf03f1c08383e932cffcc47a26cb2a54e2dfe0d8fed07e84d77e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace.rs",
+          "sha256": "e5adb69dad73eba07bc70ebed9d7907d837290df1bb80cae44f4fcd64d9f3b45"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace_editor_tests.rs",
+          "sha256": "b41e9d80e196a5e58766db1ebd1a2c9e8be74b277006eb366c37af69eb8dc74a"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "d491306e392ec6aece439b443ce6b212b4e7972b9240f78cf99bc88daf05e62d"
+        },
+        {
+          "path": "crates/neoflash-export/src/main.rs",
+          "sha256": "a174e11c87e970fc4ff37cb5966c525dd5435c744715b6ce93b0052c56bf89d8"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy.rs",
+          "sha256": "9dfdb5573c5e1f63121cc4e7bc623bf151e55124ba47da8e688de153f65ccafa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents.rs",
+          "sha256": "adde25d4fa8736d8d47acbf215e78b054b9d31345fb80caef65009f2677cbffa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents/payload.rs",
+          "sha256": "b0c146ec3f5c56525f7e7c4e7b6a4bb28590e4711445b811766801caf685fedd"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours.rs",
+          "sha256": "f434f77c72359b53b18b42b137763d4d607b38b1f010a407b92f2575e7f7799e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours/certificate.rs",
+          "sha256": "fb4abe54a5984e47a05b1848e92f15adf61c4a35825edf7872e9103f8950caae"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/geometry.rs",
+          "sha256": "15797f76b2ed8a9b165b9f184ab8cf2d9439eefe702dcdc68e019c7ad9a191bf"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/mfc.rs",
+          "sha256": "2b79189ee7105947f7a18732860630e3f677ef82e55b2e91fcbde17959812021"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/timeline.rs",
+          "sha256": "7d5f4e1c0b44f6cc4e39628ed8f3724a99b81957394a0d8d07923ffd89f41f3a"
+        },
+        {
+          "path": "crates/neoflash-import/src/lib.rs",
+          "sha256": "3c54d4afecd01fde3e8f5db2bd9b42b0b0c5371be70d90ccc525027e2de53b8b"
+        },
+        {
+          "path": "crates/neoflash-import/src/main.rs",
+          "sha256": "2710f27ef30f4e62afb44537e56da44844aed04d4e8a864ccbda6edd75d4c2cc"
+        },
+        {
+          "path": "crates/neoflash-import/src/source.rs",
+          "sha256": "25662f5fd70d4e2cdafaf59518301dc8875fcf2f2e0636fd05e440823be5e9de"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl.rs",
+          "sha256": "7849526b7cdb15e131ee07e1a3387a3038b30b1512488e2c94fff00225cb698a"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/publish.rs",
+          "sha256": "0a631fa1a3c6b9c186eb76aef5115775b72b86e0d88462f3ea5028ee28b14c89"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/shape.rs",
+          "sha256": "2303fb011b22b32d56fccfe0505653af76057983da39540098b84be37abce1a5"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "65b864b19f7b5ed90ab1d9af9a109b71d1289873efa4d31e300a72f7b9ec2bc8"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/completion.rs",
+          "sha256": "94cea0172dc24782f16973e4dc0181db5e4ecc411f5bcf288c1eafb6c5d73346"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/control_tests.rs",
+          "sha256": "17588080043035299d94d9cd437e217ca2262b60c7f26be1d95e6fd2db92729a"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/exceptions.js",
+          "sha256": "534534a37d9d0c48b1898847615e0581b20661341d24ded64ed355785e8e366e"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/intrinsics.js",
+          "sha256": "65528ea334627dc829097e59627647382ffe716b39acb77e15c8bcbef68ebdb4"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "bc08156b11a2d835e0d0535c470a2d45893b5891f70553966702811b4cec901a"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "67efed7c0f35e207c2f69c54503fc5c89998e32e3757537d416b2d0df6b55556"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "6c0e9b28c16db1de3a9d4d02c15d653c968f02b46ce53ff5672a44506d828aab"
+        },
+        {
+          "path": "crates/neoflash-script/src/lib.rs",
+          "sha256": "3b7e634f008786775f3e8dd40dca84868b92e8af3e96f633ef28de5aa4464ec3"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "7e7a4d9d8b89affb1bd118783d293a4e1df7310de439469421ec9f54ae2a3f37"
+        },
+        {
+          "path": "web/accessibility.js",
+          "sha256": "19d4bbba7af344a9d30fdb0d695dace234f6cfad5d0d5d9838c656c6a9bfedb9"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "d8f6007d968245e2f6a972bc8b78ebc515d276e7de4c69c536e450db39ff17be"
+        },
+        {
+          "path": "web/events.js",
+          "sha256": "4f12e12e0e5edd0289036ce780cfcc2a80ab35cd4aea2416f1b50560323e1106"
+        },
+        {
+          "path": "web/path.js",
+          "sha256": "9286174f715ef1d1d37303aa010148a9fc593abfc2ee304599f6a2cd56f69da9"
+        },
+        {
+          "path": "web/preview.js",
+          "sha256": "1278996d0f1c0a7efe974919a8c496bbefebd5a0b5707926de03a708f4ca51fa"
+        },
+        {
           "path": "web/runtime.js",
-          "line": 133,
-          "sha256": "ff02fdd0396a66f13c3ad77f7daf646fcd5e2273251979680f5e8b02d525f88a"
+          "sha256": "f5edad6b6d48618626897d09f90c4d37e2d8c22eda162755314059d3d09f2590"
+        },
+        {
+          "path": "web/stage.js",
+          "sha256": "44021e5058555bfcdccc91b3ca3eb825c3518b3d28a037befa42f3be021026f7"
+        }
+      ],
+      "verification": {
+        "id": "FAMILY-HTML5-20261027T0057Z",
+        "recordedHead": "01f13815a115626411c40ca04e8c13da1beadb71",
+        "sourceCapturedAt": "2026-10-27T01:00:28.477237+00:00",
+        "verifiedAt": "2026-10-27T01:12:59.351216+00:00",
+        "sourceManifestSha256": "c4aeeb8e7f409c7d3deeae4c4e77d379907260d162d3bdaffe59f3e87b281c4e",
+        "browser": "Codex in-app browser",
+        "engine": "Not separately identified; no additional browser engines claimed",
+        "originalFlashComparison": "documented_only",
+        "decision": "not_accepted_as_complete_batch_shared_pointer_click_failure_verified_subsets_recorded",
+        "currentSourceVerified": false
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:MovieClip.html#event:onEnterFrame",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS2 authored MovieClip callback registration executes on frame ticks and real pointer down. Clearing onEnterFrame freezes ticks at 358 while nested frames advance. Callback replacement and the full legacy event family were not independently tested."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onPress",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS2 authored MovieClip callback registration executes on frame ticks and real pointer down. Clearing onEnterFrame freezes ticks at 358 while nested frames advance. Callback replacement and the full legacy event family were not independently tested."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#width",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Modern host facade called from JavaScript resizes an unrotated authored instance to 200x120 with scale 2/1.5 and changed pixels. AS3 class rotated dimension write raises an actionable RangeError. Rotated resizing and full Flash bounds semantics remain unsupported."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#height",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Modern host facade called from JavaScript resizes an unrotated authored instance to 200x120 with scale 2/1.5 and changed pixels. AS3 class rotated dimension write raises an actionable RangeError. Rotated resizing and full Flash bounds semantics remain unsupported."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#rotation",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS3 linked class assignment 405 reads 45; JavaScript host rotation changes rendered geometry and bounds. ENTER_FRAME rotates linked cards while the root timeline is stopped. Nonfinite/legacy coercion is outside this run."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#localToGlobal()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS3 linked instance round-trips point (10,15), parent identity equals the document class, and stage identity is shared. Singular transforms and general hierarchy mutations were not retested."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#globalToLocal()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS3 linked instance round-trips point (10,15), parent identity equals the document class, and stage identity is shared. Singular transforms and general hierarchy mutations were not retested."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#parent",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS3 linked instance round-trips point (10,15), parent identity equals the document class, and stage identity is shared. Singular transforms and general hierarchy mutations were not retested."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#stage",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS3 linked instance round-trips point (10,15), parent identity equals the document class, and stage identity is shared. Singular transforms and general hierarchy mutations were not retested."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#getBounds()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "JavaScript host scenario reports two children, stable getChildAt/getChildByName identity and local bounds 100x80; affine rendering and resize agree. This does not establish the AS2 mutation/void coordinate contracts or every AS3 compiler call form."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObjectContainer.html#numChildren",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "JavaScript host scenario reports two children, stable getChildAt/getChildByName identity and local bounds 100x80; affine rendering and resize agree. This does not establish the AS2 mutation/void coordinate contracts or every AS3 compiler call form."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#getChildAt()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "JavaScript host scenario reports two children, stable getChildAt/getChildByName identity and local bounds 100x80; affine rendering and resize agree. This does not establish the AS2 mutation/void coordinate contracts or every AS3 compiler call form."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#getChildByName()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS3 document constructor resolves two initialized linked widgets by authored names. JavaScript display scenario confirms lookup after rename. Dynamic child insertion/removal remains unsupported."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#name",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "JavaScript display scenario renames a child, confirms named lookup/property identity, index 1 and contains=true on live authored geometry. No general dynamic display-list conformance claim."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#getChildIndex()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "JavaScript display scenario renames a child, confirms named lookup/property identity, index 1 and contains=true on live authored geometry. No general dynamic display-list conformance claim."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#contains()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "JavaScript display scenario renames a child, confirms named lookup/property identity, index 1 and contains=true on live authored geometry. No general dynamic display-list conformance claim."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/MovieClip.html#play()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS3 linked class calls return typeof undefined; the root remains at frame 1 while linked children run. This covers the selected public void results and gotoAndStop(1), not all labels, re-entry ordering or other navigation methods."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/MovieClip.html#stop()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS3 linked class calls return typeof undefined; the root remains at frame 1 while linked children run. This covers the selected public void results and gotoAndStop(1), not all labels, re-entry ordering or other navigation methods."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/MovieClip.html#gotoAndStop()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS3 linked class calls return typeof undefined; the root remains at frame 1 while linked children run. This covers the selected public void results and gotoAndStop(1), not all labels, re-entry ordering or other navigation methods."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#stageWidth",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Shared Stage reports authored 960x540 in AS3 project and 760x440/30fps in JavaScript event scenario. Logical fixed size and transient frameRate were observed; resize/noScale/fullscreen behavior was not accepted."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#stageHeight",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Shared Stage reports authored 960x540 in AS3 project and 760x440/30fps in JavaScript event scenario. Logical fixed size and transient frameRate were observed; resize/noScale/fullscreen behavior was not accepted."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#frameRate",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Shared Stage reports authored 960x540 in AS3 project and 760x440/30fps in JavaScript event scenario. Logical fixed size and transient frameRate were observed; resize/noScale/fullscreen behavior was not accepted."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#addEventListener()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_partial_with_reproduced_shared_input_failure",
+          "scopeNote": "Keyboard semantic activation reaches linked-class/event listeners once; remove/add toggling works and Restart clears subscriptions. Actual trusted mouse clicks with isPrimary=false are silently rejected by the shared Stage guard on this IAB run. The package input path is not accepted."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#addEventListener()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_partial_with_reproduced_shared_input_failure",
+          "scopeNote": "Keyboard semantic activation reaches linked-class/event listeners once; remove/add toggling works and Restart clears subscriptions. Actual trusted mouse clicks with isPrimary=false are silently rejected by the shared Stage guard on this IAB run. The package input path is not accepted."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#removeEventListener()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_partial_with_reproduced_shared_input_failure",
+          "scopeNote": "Keyboard semantic activation reaches linked-class/event listeners once; remove/add toggling works and Restart clears subscriptions. Actual trusted mouse clicks with isPrimary=false are silently rejected by the shared Stage guard on this IAB run. The package input path is not accepted."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#hasEventListener()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_partial_with_reproduced_shared_input_failure",
+          "scopeNote": "Keyboard semantic activation reaches linked-class/event listeners once; remove/add toggling works and Restart clears subscriptions. Actual trusted mouse clicks with isPrimary=false are silently rejected by the shared Stage guard on this IAB run. The package input path is not accepted."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#CLICK",
+          "status": "partial",
+          "evidenceKind": "independent_browser_partial_with_reproduced_shared_input_failure",
+          "scopeNote": "Keyboard semantic activation reaches linked-class/event listeners once; remove/add toggling works and Restart clears subscriptions. Actual trusted mouse clicks with isPrimary=false are silently rejected by the shared Stage guard on this IAB run. The package input path is not accepted."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#dispatchEvent()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "JavaScript Event facade cancels a custom bubbling event and dispatchEvent returns false. Stage capture phase 1 precedes semantic-activated target phase 2. AS3 Space handler prevents default. Full mutation, priority and propagation branches are not browser-verified here."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/Event.html#Event()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "JavaScript Event facade cancels a custom bubbling event and dispatchEvent returns false. Stage capture phase 1 precedes semantic-activated target phase 2. AS3 Space handler prevents default. Full mutation, priority and propagation branches are not browser-verified here."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#preventDefault()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "JavaScript Event facade cancels a custom bubbling event and dispatchEvent returns false. Stage capture phase 1 precedes semantic-activated target phase 2. AS3 Space handler prevents default. Full mutation, priority and propagation branches are not browser-verified here."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#eventPhase",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "JavaScript Event facade cancels a custom bubbling event and dispatchEvent returns false. Stage capture phase 1 precedes semantic-activated target phase 2. AS3 Space handler prevents default. Full mutation, priority and propagation branches are not browser-verified here."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#keyCode",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS3 linked instances receive ENTER_FRAME while root is stopped; Space resets both instances. Stage ArrowRight reports keyCode 39 and moves the pad from x=60 to 70, including after Restart. IME, touch and complete focus semantics remain pending."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/KeyboardEvent.html#KEY_DOWN",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS3 linked instances receive ENTER_FRAME while root is stopped; Space resets both instances. Stage ArrowRight reports keyCode 39 and moves the pad from x=60 to 70, including after Restart. IME, touch and complete focus semantics remain pending."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#ENTER_FRAME",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS3 linked instances receive ENTER_FRAME while root is stopped; Space resets both instances. Stage ArrowRight reports keyCode 39 and moves the pad from x=60 to 70, including after Restart. IME, touch and complete focus semantics remain pending."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#class",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Three embedded AS3 source units resolve exact imports, linked document/symbol classes and native MovieClip inheritance/super. Two instances have independent typed initialized fields; alias/member int writes yield 4, static counts reset on Restart. Uninitialized defaults and old handler slots were not independently accepted; AS2 classes and JS/TS project modules remain absent."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#package",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Three embedded AS3 source units resolve exact imports, linked document/symbol classes and native MovieClip inheritance/super. Two instances have independent typed initialized fields; alias/member int writes yield 4, static counts reset on Restart. Uninitialized defaults and old handler slots were not independently accepted; AS2 classes and JS/TS project modules remain absent."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#import",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Three embedded AS3 source units resolve exact imports, linked document/symbol classes and native MovieClip inheritance/super. Two instances have independent typed initialized fields; alias/member int writes yield 4, static counts reset on Restart. Uninitialized defaults and old handler slots were not independently accepted; AS2 classes and JS/TS project modules remain absent."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#extends",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Three embedded AS3 source units resolve exact imports, linked document/symbol classes and native MovieClip inheritance/super. Two instances have independent typed initialized fields; alias/member int writes yield 4, static counts reset on Restart. Uninitialized defaults and old handler slots were not independently accepted; AS2 classes and JS/TS project modules remain absent."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#public",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Three embedded AS3 source units resolve exact imports, linked document/symbol classes and native MovieClip inheritance/super. Two instances have independent typed initialized fields; alias/member int writes yield 4, static counts reset on Restart. Uninitialized defaults and old handler slots were not independently accepted; AS2 classes and JS/TS project modules remain absent."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#static",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Three embedded AS3 source units resolve exact imports, linked document/symbol classes and native MovieClip inheritance/super. Two instances have independent typed initialized fields; alias/member int writes yield 4, static counts reset on Restart. Uninitialized defaults and old handler slots were not independently accepted; AS2 classes and JS/TS project modules remain absent."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#super",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Three embedded AS3 source units resolve exact imports, linked document/symbol classes and native MovieClip inheritance/super. Two instances have independent typed initialized fields; alias/member int writes yield 4, static counts reset on Restart. Uninitialized defaults and old handler slots were not independently accepted; AS2 classes and JS/TS project modules remain absent."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#var",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Three embedded AS3 source units resolve exact imports, linked document/symbol classes and native MovieClip inheritance/super. Two instances have independent typed initialized fields; alias/member int writes yield 4, static counts reset on Restart. Uninitialized defaults and old handler slots were not independently accepted; AS2 classes and JS/TS project modules remain absent."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#override",
+          "status": "partial",
+          "evidenceKind": "source_review_with_reported_project_runtime_test",
+          "scopeNote": "Source review and the main thread reported project-execute scenario cover project inheritance/override, initialized const fields and construction of ordinary project objects. No independent browser assertion for these specific branches. Native display-list construction remains rejected."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#const",
+          "status": "partial",
+          "evidenceKind": "source_review_with_reported_project_runtime_test",
+          "scopeNote": "Source review and the main thread reported project-execute scenario cover project inheritance/override, initialized const fields and construction of ordinary project objects. No independent browser assertion for these specific branches. Native display-list construction remains rejected."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#new",
+          "status": "partial",
+          "evidenceKind": "source_review_with_reported_project_runtime_test",
+          "scopeNote": "Source review and the main thread reported project-execute scenario cover project inheritance/override, initialized const fields and construction of ordinary project objects. No independent browser assertion for these specific branches. Native display-list construction remains rejected."
         }
       ]
     },
@@ -1026,24 +1593,6 @@
         {
           "path": "crates/neoflash-core/src/runtime.rs",
           "line": 467,
-          "sha256": "9ddb1f5458193bc01d9933323518614cff2b3d3f90287fafc30f1e1862620227"
-        }
-      ]
-    },
-    {
-      "id": "HTML5-SILENT-ONENTERFRAME",
-      "title": "HTML5-SILENT-ONENTERFRAME",
-      "reason": "Assigning this.onEnterFrame=function(){trace(\"tick\")} compiles and stores a function; two runtime ticks never call it.",
-      "limitations": "Observed evidence: confirmed_internal. This is not an original Flash differential result.",
-      "evidence": [
-        {
-          "path": "web/runtime.js",
-          "line": 179,
-          "sha256": "ff02fdd0396a66f13c3ad77f7daf646fcd5e2273251979680f5e8b02d525f88a"
-        },
-        {
-          "path": "crates/neoflash-core/src/runtime.rs",
-          "line": 300,
           "sha256": "9ddb1f5458193bc01d9933323518614cff2b3d3f90287fafc30f1e1862620227"
         }
       ]
@@ -1062,24 +1611,6 @@
         {
           "path": "web/runtime.js",
           "line": 219,
-          "sha256": "ff02fdd0396a66f13c3ad77f7daf646fcd5e2273251979680f5e8b02d525f88a"
-        }
-      ]
-    },
-    {
-      "id": "HTML5-SILENT-WIDTH",
-      "title": "HTML5-SILENT-WIDTH",
-      "reason": "this.width=100 compiles and reads back 100 while actual scene geometry/transform remain unchanged.",
-      "limitations": "Observed evidence: confirmed_internal. This is not an original Flash differential result.",
-      "evidence": [
-        {
-          "path": "web/runtime.js",
-          "line": 113,
-          "sha256": "ff02fdd0396a66f13c3ad77f7daf646fcd5e2273251979680f5e8b02d525f88a"
-        },
-        {
-          "path": "web/runtime.js",
-          "line": 179,
           "sha256": "ff02fdd0396a66f13c3ad77f7daf646fcd5e2273251979680f5e8b02d525f88a"
         }
       ]

@@ -149,7 +149,7 @@
     let lastTime = null;
     let accumulated = 0;
     let lastTrace = '';
-    const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value', '__nfProgram', '__nfDisplay'];
+    const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value', '__nfProgram', '__nfDisplay', '__nfLegacy'];
     for (const script of bundle.scripts) {
       try {
         functions.set(sourceKey(script), {
@@ -166,8 +166,16 @@
     };
     const references = new WeakMap();
     const attachedClasses = new Map();
-    let display = null, eventHub = null, stageHost = null, program = null;
+    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, program = null;
+    let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
+    function updateCursor() {
+      if(typeof canvas!=='undefined')canvas.style.cursor=!legacyCursorVisible?'none':typeof preview!=='undefined'&&preview.panMode?'grab':pointerOverContent?'pointer':'default';
+    }
+    function inputFailure(error) {
+      const cause=unwrapScriptThrow(error),failure=new Error(`Input callback: ${describeThrown(cause)}`,{cause});
+      if(typeof fail==='function')fail(failure);else throw failure;
+    }
     function initializeFamily() {
       if (!global.NeoFlashDisplay || typeof player.display_nodes_json !== 'function') return;
       display=global.NeoFlashDisplay.create({player,proxyFor,referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
@@ -185,7 +193,14 @@
           coordinates:event=>{if(typeof canvas==='undefined')return null;const r=canvas.getBoundingClientRect();return[(event.clientX-r.left)*project.width/r.width,(event.clientY-r.top)*project.height/r.height];},
           isInputEnabled:()=>typeof failed==='undefined'||(!failed&&!preview.panMode&&!preview.suppressClick),
           onLegacyInput:(type,target,event)=>{if(type==='mouseDown'&&(event.button===undefined||event.button===0))display.press(target);},
-          afterInput:()=>{dispatchScripts();if(typeof context!=='undefined')render();},onError:error=>{const cause=unwrapScriptThrow(error),failure=new Error(`Input callback: ${describeThrown(cause)}`,{cause});if(typeof fail==='function')fail(failure);else throw failure;}});
+          afterInput:()=>{dispatchScripts();if(typeof context!=='undefined')render();},onError:inputFailure});
+        if(global.NeoFlashLegacyInput){
+          legacyHost=global.NeoFlashLegacyInput.create({stage:stageHost.stage,
+            keyTarget:typeof global.addEventListener==='function'?global:null,
+            alive:listener=>!references.has(listener)||display.alive(listener),
+            onVisibility:visible=>{legacyCursorVisible=visible;updateCursor();},onError:inputFailure});
+          legacyGlobals=Object.freeze({Key:legacyHost.Key,Mouse:legacyHost.Mouse,Stage:legacyHost.Stage});
+        }
       }
       initializeProgram();
     }
@@ -193,6 +208,8 @@
       if(!display)return;
       const builtins={...display.builtins};
       builtins.__nfTrace=trace;
+      builtins.__nfAs2Method=as2.method;builtins.__nfAs2Value=as2.value;
+      builtins.__nfDisplay=display;builtins.__nfLegacy=legacyGlobals;
       if(global.NeoFlashEvents)for(const name of ['Event','MouseEvent','KeyboardEvent','EventDispatcher','EventPhase'])builtins['flash.events.'+name]=global.NeoFlashEvents[name];
       if(global.NeoFlashStage)builtins['flash.display.Stage']=global.NeoFlashStage.Stage;
       program=typeof bundle!=='undefined'&&bundle.program ? new Function('__nfBuiltins',bundle.program.code)(builtins) : {
@@ -201,10 +218,13 @@
       };
     }
     function resetProject() {
-      proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();lastTrace = '';
+      proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();lastTrace = '';
       player.reset();
       initializeProgram();
       dispatchScripts();
+    }
+    function disposeFamily() {
+      legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
     function attachNewInstances() {
       if(!display)return;
@@ -217,7 +237,11 @@
         if(previous===node.lifetime_id)continue;
         attachedClasses.set(key,node.lifetime_id);
         const receiver=proxyFor(node.path);
-        if(node.class_name){if(!program?.attach)throw new Error(`Linked class ${node.class_name} has no compiled project program.`);program.attach(node.class_name,receiver);}
+        if(node.class_name){
+          if(!program?.attach)throw new Error(`Linked class ${node.class_name} has no compiled project program.`);
+          program.attach(node.class_name,receiver);
+          if(program.dialect?.(node.class_name)==='as2')display.refreshLegacyCallbacks(receiver);
+        }
       }
       for(const key of attachedClasses.keys())if(!player.lifetime_id(key))attachedClasses.delete(key);
     }
@@ -308,6 +332,7 @@
           }
           if(Object.hasOwn(target,name))return Reflect.get(target,name,proxy);
           if (Object.hasOwn(custom, name)) return custom[name];
+          if(Reflect.has(target,name))return Reflect.get(target,name,proxy);
           const child = JSON.parse(player.child_path(key, name));
           return child ? proxyFor(child) : undefined;
         },
@@ -330,7 +355,7 @@
             }
           } else if (['currentFrame', 'totalFrames', '_currentframe', '_totalframes', '_root', '_parent', 'root', 'parent'].includes(name)) {
             throw new Error(`${name} is read-only.`);
-          } else if(Object.hasOwn(target,name))return Reflect.set(target,name,value,proxy);
+          } else if(Object.hasOwn(target,name)||(!Object.hasOwn(custom,name)&&Reflect.has(target,name)))return Reflect.set(target,name,value,proxy);
           else custom[name] = value;
           return true;
         },
@@ -367,7 +392,8 @@
           });
           try {
             compiled.fn.call(scope, event, proxyFor([]), scope._parent, trace,
-              scope.play, scope.stop, scope.gotoAndPlay, scope.gotoAndStop, scope.nextFrame, scope.prevFrame, as2.method, as2.value, program, display);
+              scope.play, scope.stop, scope.gotoAndPlay, scope.gotoAndStop, scope.nextFrame, scope.prevFrame, as2.method, as2.value, program, display,
+              item.script.language==='action_script2'?legacyGlobals:undefined);
           } catch (error) {
             const cause = unwrapScriptThrow(error);
             throw new Error(`${compiled.location}: ${describeThrown(cause)}`, { cause });
@@ -454,7 +480,8 @@
         if (target&&player.lifetime_id(JSON.stringify(target))===lifetime) { player.click(JSON.stringify(target)); dispatchScripts(target); render(); }
       } catch (error) { fail(error); }
     });
-    canvas.addEventListener('pointermove', event => { canvas.style.cursor = preview.panMode ? 'grab' : (hitAt(event) ? 'pointer' : 'default'); });
+    canvas.addEventListener('pointermove', event => { pointerOverContent=Boolean(hitAt(event));updateCursor(); });
+    canvas.addEventListener('pointerleave', () => { pointerOverContent=false;updateCursor(); });
     toggle.addEventListener('click', () => {
       player.set_playing(!player.is_playing());
       lastTime = null;
@@ -471,7 +498,8 @@
     document.addEventListener('visibilitychange', () => { lastTime = null; accumulated = 0; });
     document.getElementById('zoom').addEventListener('change', event => preview.setMode(event.target.value));
     const panButton = document.getElementById('pan');
-    panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); canvas.style.cursor = preview.panMode ? 'grab' : 'default'; });
+    panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
+    global.addEventListener('pagehide', event => { if(!event.persisted)disposeFamily(); });
     new ResizeObserver(() => { resize(); render(); }).observe(viewport);
     initializeFamily();
     canvas.tabIndex=-1;
