@@ -1,5 +1,7 @@
 # Script and runtime compatibility
 
+The bounded Rust reuse experiment adds 10 AS2 globals and 52 AS3 geometry methods/properties, and moves 14 existing AS2 String members into Rust. Both ordinary exports have grouped browser and Restart evidence. This is a partial standard-library increment; no new language constructs, full VM, 3D renderer or FLA converter are claimed. See [counts, boundaries and efficiency comparison](AS-REUSE-EXPERIMENT.md). The catalogue below retains its separately dated audit.
+
 Independent 01f2261 acceptance (`POINTER-HTML5-20261027T1113Z`) confirms the observed AS3 donor-margin and AS2 −4-degree-parent drags, child/disabled targeting, bounded geometry/rectangle refusals, outside release and fresh Restart. AS3 is unrotated and both parents use unit scale; cursor effects and the first unresolved nested linked-target miss remain outside the accepted scope. See [the independent record](VERIFICATION.md#independent-pointer-verification-of-01f2261).
 
 Independent f42ad94 acceptance (`VIDEO-HTML5-20261027T1042Z`) confirms real embedded AS3/AS2 MP4 playback, pre-completion pause/seek/resume, natural completion, post-completion Close retention, one-view clear and active HTTP Restart. The silent short file does not establish audible output, precise synchronization, broad codecs/transport or active-close races. See [the independent record](VERIFICATION.md#independent-video-verification-of-f42ad94).

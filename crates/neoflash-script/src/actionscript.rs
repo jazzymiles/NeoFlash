@@ -50,7 +50,21 @@ impl CompileContext {
                 name,
                 "encodeURI" | "encodeURIComponent" | "decodeURI" | "decodeURIComponent"
             ))
-            || (!as3 && name == "random"))
+            || (!as3
+                && matches!(
+                    name,
+                    "random"
+                        | "escape"
+                        | "unescape"
+                        | "chr"
+                        | "ord"
+                        | "length"
+                        | "substring"
+                        | "mbchr"
+                        | "mbord"
+                        | "mblength"
+                        | "mbsubstring"
+                )))
             && !self.types.contains_key(name)
             && !self.functions.contains_key(name)
     }
@@ -1626,6 +1640,16 @@ impl<'a> Frontend<'a> {
                         | "Boolean"
                         | "parseInt"
                         | "parseFloat"
+                        | "escape"
+                        | "unescape"
+                        | "chr"
+                        | "ord"
+                        | "length"
+                        | "substring"
+                        | "mbchr"
+                        | "mbord"
+                        | "mblength"
+                        | "mbsubstring"
                         | "isNaN"
                         | "isFinite"
                         | "Date"
@@ -2106,7 +2130,14 @@ impl Emitter<'_> {
             return if self.as3 {
                 format!("__nfUriFunctions.{name}")
             } else {
-                "__nfRandom2".into()
+                match name {
+                    "escape" => "__nfEscape2",
+                    "unescape" => "__nfUnescape2",
+                    "chr" | "ord" | "length" | "substring" | "mbchr" | "mbord" | "mblength"
+                    | "mbsubstring" => return format!("__nfLegacyStringGlobals.{name}"),
+                    _ => "__nfRandom2",
+                }
+                .into()
             };
         }
         if name == "Object"

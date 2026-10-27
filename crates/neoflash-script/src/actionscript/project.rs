@@ -45,6 +45,9 @@ const BUILTINS: &[&str] = &[
     "flash.geom.Point",
     "flash.geom.Rectangle",
     "flash.geom.Matrix",
+    "flash.geom.Vector3D",
+    "flash.geom.Matrix3D",
+    "flash.geom.Utils3D",
     "flash.geom.Transform",
     "flash.geom.ColorTransform",
     "flash.utils.Timer",
@@ -773,12 +776,19 @@ fn parse_class(
     }
     if matches!(
         base.as_deref(),
-        Some("flash.geom.Transform" | "flash.geom.ColorTransform" | "flash.utils.Dictionary")
+        Some(
+            "flash.geom.Transform"
+                | "flash.geom.ColorTransform"
+                | "flash.geom.Vector3D"
+                | "flash.geom.Matrix3D"
+                | "flash.geom.Utils3D"
+                | "flash.utils.Dictionary"
+        )
     ) {
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "Transform, ColorTransform and Dictionary native subclass initialization is outside this profile; use native instances through composition.",
+            "Transform, ColorTransform, Vector3D, Matrix3D, Utils3D and Dictionary native subclass initialization is outside this profile; use native instances through composition.",
         ));
     }
     if matches!(
@@ -1793,7 +1803,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         return Err(errors);
     }
     let code = format!(
-        "{}\n{}\n{}\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
+        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
         embedded_helpers(),
         include_str!("project-runtime.js"),
         registrations

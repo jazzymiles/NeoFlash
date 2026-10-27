@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Completed a bounded Rust reuse experiment: 10 new AS2 globals, 43 AS3 geometry methods and nine properties; 14 existing AS2 String members moved to Rust. Individual licensed algorithms replace engine integration. Both ordinary HTML5 examples passed browser execution and Restart; see [the measured result](docs/AS-REUSE-EXPERIMENT.md). The wider project remains paused.
+
 - Added a bounded core-language batch: AS2/AS3 comma/void expressions, sparse arrays and Object construction; AS3 primitive is/as, scalar constructors, RegExp literals, numeric formatting and URI codecs; AS2 int/random and Boolean omission behavior. Existing grouped scenarios cover the batch; full catalogue reassessment and browser acceptance remain separate.
 
 - Independently checked frozen 01f2261 pointer/drag (`POINTER-HTML5-20261027T1113Z`): real donor-margin and rotated-AS2 dragging, child/disabled targeting, outside release, bounded negative/positive geometry controls and fresh Restart. The actual transforms, unmeasured cursor effects and unresolved first linked-target miss are retained explicitly; body and semantic controls pass within that scope.

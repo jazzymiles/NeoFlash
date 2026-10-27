@@ -426,6 +426,10 @@
         legacyGlobals=Object.freeze({...legacyGlobals,XML:xmlHost.LegacyXML,XMLNode:xmlHost.XMLNode});
       }
       if(textHost)legacyGlobals=Object.freeze({...legacyGlobals,TextFormat:textHost.TextFormat});
+      if(global.NeoFlashAS2Strings){
+        const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
+        legacyGlobals=Object.freeze({...legacyGlobals,strings:global.NeoFlashAS2Strings.create({execute:request=>wasm.as2_string_json(request)})});
+      }
       initializeProgram();
     }
     function initializeProgram() {
@@ -434,6 +438,12 @@
       builtins.__nfTrace=trace;
       builtins.__nfAs2Method=as2.method;builtins.__nfAs2Value=as2.value;
       builtins.__nfDisplay=display;builtins.__nfLegacy=legacyGlobals;
+      if(global.NeoFlashGeom3D){
+        const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
+        const geometry=global.NeoFlashGeom3D.create(wasm);
+        for(const name of ['Vector3D','Matrix3D','Utils3D'])builtins['flash.geom.'+name]=geometry[name];
+        builtins.__nfGeometryNumberVector=geometry.setNumberVectorFactory;
+      }
       builtins.__nfHasNativeProperty=(receiver,name)=>Boolean(references.get(receiver)?.nativeHas(name));
       builtins.__nfIsNativeDisplay=receiver=>references.has(receiver);
       if(xmlHost){builtins.__nfXML=xmlHost;builtins.XML=xmlHost.XML;builtins.XMLList=xmlHost.XMLList;}

@@ -12,6 +12,7 @@ import { controlFlowFixtures } from './control-flow-fixtures.mjs';
 import { intrinsicFixtures } from './intrinsic-fixtures.mjs';
 import { collectionsFixtures } from './collections-fixtures.mjs';
 import { stringsFixtures } from './strings-fixtures.mjs';
+import { createRustStrings } from './rust-strings-host.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const { createAs2Methods } = createRequire(import.meta.url)(resolve(root, 'web/runtime.js'));
@@ -247,11 +248,12 @@ for (const [index, fixture] of fixtures.entries()) {
   const consoleLogs = [];
   const run = new Function('console', 'trace', 'stop', '__nfAs2Method', '__nfAs2Value', '__nfDisplay', '__nfLegacy', '"use strict"; return (function(){\n' + outputs[index].Ok + '\n}).call(this)');
   const display=fixture.nativeDisplay?{alive:receiver=>receiver===fixture.context}:undefined;
+  const legacy = {strings: createRustStrings(), ...fixture.legacy};
   for (let i = 0; i < (fixture.repeat || 1); i++) {
     if (fixture.verifyThrown) {
-      assert.throws(() => run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args), undefined, as2Bridge.method, as2Bridge.value, display, fixture.legacy), error => { fixture.verifyThrown(error); return true; });
+      assert.throws(() => run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args), undefined, as2Bridge.method, as2Bridge.value, display, legacy), error => { fixture.verifyThrown(error); return true; });
     } else {
-      run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args), () => { throw new Error('wrong binding'); }, as2Bridge.method, as2Bridge.value, display, fixture.legacy);
+      run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args), () => { throw new Error('wrong binding'); }, as2Bridge.method, as2Bridge.value, display, legacy);
     }
   }
   fixture.verify(fixture.context, logs);

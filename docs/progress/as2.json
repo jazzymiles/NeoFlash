@@ -307,8 +307,8 @@
       "id": "as2-primitive-globals",
       "title": "Primitives and global conversions",
       "status": "partial",
-      "scope": "Number, Boolean, parseFloat, isNaN and isFinite retain JavaScript-backed conversions. String now uses the bounded primitive family facade; parseInt retains its separate pinned AS2 profile and earlier HTML5 acceptance. Bare getTimer() reads signed 32-bit elapsed milliseconds from the publication session clock.",
-      "limitations": "Complete historical coercions, boxed values and the full standard library remain unfinished. Array/String expectations are documented_only; the combined browser pipeline passed without original Flash comparison. Restart rebases the clock; this does not add AS2 interval/timeout APIs or establish historical timing equivalence. The combined geometry/clock browser workflow and Restart passed.",
+      "scope": "Number, Boolean, parseFloat, isNaN and isFinite retain JavaScript-backed conversions. String now uses the bounded primitive family facade; parseInt retains its separate pinned AS2 profile and earlier HTML5 acceptance. Bare getTimer() reads signed 32-bit elapsed milliseconds from the publication session clock. The bounded Rust reuse experiment adds escape/unescape and the legacy chr/ord/length/substring plus mb variants; eight legacy names share four kernels.",
+      "limitations": "Complete historical coercions, boxed values and the full standard library remain unfinished. Array/String expectations are documented_only; the combined browser pipeline passed without original Flash comparison. Restart rebases the clock; this does not add AS2 interval/timeout APIs or establish historical timing equivalence. The combined geometry/clock browser workflow and Restart passed. The Rust string/legacy-global profile targets SWF6+ and retains explicit surrogate URL-codec and malformed UTF-8 boundaries. No new language constructs or full VM are implied.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
@@ -322,7 +322,11 @@
         "web/timers.js",
         "web/runtime.js",
         "crates/neoflash-script/src/actionscript/project.rs",
-        "crates/neoflash-script/tests/project-execute.mjs"
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "crates/neoflash-core/src/as2_strings.rs",
+        "web/as2-strings.js",
+        "examples/reuse-as2.nflash",
+        "docs/AS-REUSE-EXPERIMENT.md"
       ]
     },
     {
@@ -351,7 +355,7 @@
       "id": "as2-collections",
       "title": "Collections, strings, dates and data APIs",
       "status": "partial",
-      "scope": "Bounded Array constructors and mutation/slicing, comparator/flag sort and multi-field sortOn; primitive String conversion, UTF-16 access/search/slicing/splitting/concatenation/casing. Shared adapters preserve custom overrides and lookup order in handlers and project methods. AS2 Number formatting and the Array search extension remain JavaScript-backed rather than complete native AS2 contracts. Date adds current/millisecond/component construction, UTC/local getters and setters, static UTC/parse, modern browser date strings and native-branded values shared between compiled units.",
+      "scope": "Bounded Array constructors and mutation/slicing, comparator/flag sort and multi-field sortOn; primitive String conversion, UTF-16 access/search/slicing/splitting/concatenation/casing. Shared adapters preserve custom overrides and lookup order in handlers and project methods. AS2 Number formatting and the Array search extension remain JavaScript-backed rather than complete native AS2 contracts. Date adds current/millisecond/component construction, UTC/local getters and setters, static UTC/parse, modern browser date strings and native-branded values shared between compiled units. Fourteen existing String members now run in the shared Rust core, adapted from pinned Ruffle algorithms and historical Flash case tables. Browser acceptance covers the 24-member combined string/global scenario with rerun and Restart.",
       "limitations": "Partial profiles: 1,000,000 array entries/string code units or results; ordinary records, restricted sortOn options, no native method extraction/prototype augmentation, RegExp/custom string patterns, locale operations or complete historical coercion/order. AS3 NUMERIC requires numeric values; AS2 boxed String is unsupported. See fixture profile constants for exact dialect limits. The combined collection/text browser scenario passed; this does not establish every method. Date uses the modern browser calendar/parser/locale backend; complete historical coercion/DST/formatting and native subclasses remain unsupported. Native RegExp and JSON are AS3-only; user AS2 classes with those names retain their ordinary resolution. Initial data-processing delivery verification is recorded separately. Independent 7ed1605 evidence (DATA-HTML5-20261027T0452Z) covers only numeric UTC Date construction/mutation/readback in the separate AS2 card and Restart, as scoped in VERIFICATION.md. It does not imply native AS2 JSON/RegExp or locale/DST/parsing conformance.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
@@ -368,7 +372,11 @@
         "crates/neoflash-script/src/actionscript/dates.js",
         "examples/data-processing.nflash",
         "crates/neoflash-script/tests/data-processing.mjs",
-        "docs/decisions/0017-data-processing-builtins.md"
+        "docs/decisions/0017-data-processing-builtins.md",
+        "crates/neoflash-core/src/as2_strings.rs",
+        "web/as2-strings.js",
+        "docs/AS2-REUSE-PROVENANCE.md",
+        "docs/AS-REUSE-EXPERIMENT.md"
       ]
     },
     {

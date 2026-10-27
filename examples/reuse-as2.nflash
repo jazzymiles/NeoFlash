@@ -1,0 +1,441 @@
+{
+  "format_version": 1,
+  "name": "AS2 Rust string reuse",
+  "width": 960,
+  "height": 570,
+  "fps": 24,
+  "background": [
+    14,
+    24,
+    33,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 42,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / RUST REUSE EXPERIMENT",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        115,
+                        213,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 42,
+                      "y": 82,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ActionScript 2 · Rust string core",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 42,
+                      "y": 125,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Individual Ruffle algorithms, adapted into our existing runtime.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel",
+                    "name": "panel",
+                    "transform": {
+                      "x": 32,
+                      "y": 175,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 890,
+                      "height": 195,
+                      "fill": [
+                        25,
+                        42,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "result",
+                    "name": "result",
+                    "transform": {
+                      "x": 52,
+                      "y": 205,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Running checks…",
+                      "font_family": "Arial",
+                      "font_size": 25,
+                      "color": [
+                        115,
+                        229,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pipeline",
+                    "name": "pipeline",
+                    "transform": {
+                      "x": 52,
+                      "y": 248,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Text pipeline",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "casing",
+                    "name": "casing",
+                    "transform": {
+                      "x": 52,
+                      "y": 286,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Historical casing",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "codec",
+                    "name": "codec",
+                    "transform": {
+                      "x": 52,
+                      "y": 324,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "URL codecs",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rerun",
+                    "name": "rerun",
+                    "transform": {
+                      "x": 42,
+                      "y": 397,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "run-button",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.runReuse();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 285,
+                      "y": 417,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run again executes the same authored AS2 function.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "counts",
+                    "name": "counts",
+                    "transform": {
+                      "x": 42,
+                      "y": 480,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Awaiting runtime results",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 42,
+                      "y": 522,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "UTF-16 transport · local WASM · no external compiler or embedded engine",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop();\nruns = 0;\nfunction runReuse() {\n  runs += 1;\n  var checks = 0;\n  var passed = 0;\n  var records = \"\";\n  function check(id:String, actual, expected) {\n    checks++;\n    var ok = actual === expected;\n    if (ok) passed++;\n    if (records != \"\") records += \",\";\n    records += '{\"id\":\"' + id + '\",\"pass\":' + ok + ',\"actualEncoded\":\"' + escape(String(actual)) + '\",\"expectedEncoded\":\"' + escape(String(expected)) + '\"}';\n  }\n  var raw = \"title:neo|level:3|tag:flash\";\n  var rows = raw.split(\"|\");\n  var output = \"\";\n  for (var i = 0; i < rows.length; i++) {\n    var separator = rows[i].indexOf(\":\");\n    var key = rows[i].substring(0, separator).toUpperCase();\n    var value = rows[i].slice(separator + 1);\n    output = output.concat(output == \"\" ? \"\" : \";\", key, \"=\", value);\n  }\n  check(\"String.charAt\", raw.charAt(0), \"t\");\n  check(\"String.charCodeAt\", raw.charCodeAt(0), 116);\n  check(\"String.concat\", \"Neo\".concat(\"Flash\"), \"NeoFlash\");\n  check(\"String.fromCharCode\", String.fromCharCode(65, 0, 66), \"A\");\n  check(\"String.indexOf\", raw.indexOf(\"|\"), 9);\n  check(\"String.lastIndexOf\", raw.lastIndexOf(\"|\"), 17);\n  check(\"String.slice\", raw.slice(-5), \"flash\");\n  check(\"String.split\", rows.length, 3);\n  check(\"String.substr\", \"abcdef\".substr(1, -2), \"bcde\");\n  check(\"String.substring\", \"abcdef\".substring(4, 1), \"bcd\");\n  check(\"String.toLowerCase\", \"İ\".toLowerCase(), \"i\");\n  check(\"String.toUpperCase\", \"straße\".toUpperCase(), \"STRAßE\");\n  check(\"String.toString\", \"value\".toString(), \"value\");\n  check(\"String.valueOf\", \"value\".valueOf(), \"value\");\n  check(\"escape\", escape(\"A @é+\"), \"A%20%40%C3%A9%2B\");\n  check(\"unescape\", unescape(\"A+%40%C3%A9%2B\"), \"A @é+\");\n  check(\"chr\", chr(65), \"A\");\n  check(\"ord\", ord(\"é\"), 233);\n  check(\"length\", length(\"😀\"), 2);\n  check(\"substring\", substring(\"abcdef\", 2, 3), \"bcd\");\n  check(\"mbchr\", mbchr(233), \"é\");\n  check(\"mbord\", mbord(\"\\ud800\"), 65533);\n  check(\"mblength\", mblength(\"neo\"), 3);\n  check(\"mbsubstring\", mbsubstring(\"abcdef\", 3, -1), \"cdef\");\n  check(\"utf16.lone-surrogate\", \"\\ud800\".slice(0, 1).charCodeAt(0), 55296);\n  check(\"pipeline\", output, \"TITLE=neo;LEVEL=3;TAG=flash\");\n  var encode = escape;\n  check(\"alias\", encode(\"a+b\"), \"a%2Bb\");\n  _root.result.text = passed + \" / \" + checks + \" checks passed · run \" + runs;\n  _root.pipeline.text = output;\n  _root.casing.text = 'Historical casing: straße → ' + \"straße\".toUpperCase() + ' / İ → ' + \"İ\".toLowerCase();\n  _root.codec.text = 'escape: ' + escape(\"A @é+\") + ' / unescape: ' + unescape(\"A+%40%C3%A9%2B\");\n  _root.counts.text = \"24 exercised APIs: 14 moved to Rust + 10 new globals. No full AS2 claim.\";\n  var report = '{\"suite\":\"as2-rust-reuse\",\"run\":' + runs + ',\"passed\":' + passed + ',\"checks\":' + checks + ',\"uniqueApis\":24,\"movedToRust\":14,\"newGlobals\":10,\"results\":[' + records + ']}';\n  _root.report = report;\n  trace(report);\n}\nrunReuse();\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-button",
+      "name": "run-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "run-button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 56,
+                      "fill": [
+                        32,
+                        116,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 35,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RUN AGAIN",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ]
+}

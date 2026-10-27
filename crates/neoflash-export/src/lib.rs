@@ -18,6 +18,9 @@ const EVENTS: &str = include_str!("../../../web/events.js");
 const STAGE: &str = include_str!("../../../web/stage.js");
 const LEGACY_INPUT: &str = include_str!("../../../web/legacy-input.js");
 const GEOMETRY: &str = include_str!("../../../web/geom.js");
+const GEOMETRY_3D: &str = include_str!("../../../web/geom3d.js");
+const AS2_STRINGS: &str = include_str!("../../../web/as2-strings.js");
+const ALGORITHM_NOTICES: &str = include_str!("../../../THIRD_PARTY_NOTICES.txt");
 const TIMERS: &str = include_str!("../../../web/timers.js");
 const BYTE_ARRAY: &str = include_str!("../../../web/byte-array.js");
 const NET: &str = include_str!("../../../web/net.js");
@@ -262,6 +265,9 @@ pub fn export_project(
         ("stage.js", STAGE),
         ("legacy-input.js", LEGACY_INPUT),
         ("geom.js", GEOMETRY),
+        ("geom3d.js", GEOMETRY_3D),
+        ("as2-strings.js", AS2_STRINGS),
+        ("THIRD_PARTY_NOTICES.txt", ALGORITHM_NOTICES),
         ("timers.js", TIMERS),
         ("byte-array.js", BYTE_ARRAY),
         ("net.js", NET),
@@ -351,6 +357,8 @@ fn html_document(title: &str) -> String {
   <script defer src="stage.js"></script>
   <script defer src="legacy-input.js"></script>
   <script defer src="geom.js"></script>
+  <script defer src="geom3d.js"></script>
+  <script defer src="as2-strings.js"></script>
   <script defer src="timers.js"></script>
   <script defer src="byte-array.js"></script>
   <script defer src="net.js"></script>

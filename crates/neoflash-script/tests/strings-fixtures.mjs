@@ -4,18 +4,19 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRustStrings } from './rust-strings-host.mjs';
 
 export const stringsProfile = {
   status: 'documented_only',
   sources: [
     'https://open-flash.github.io/mirrors/as2-language-reference/String.html',
     'https://airsdk.dev/reference/actionscript/3.0/String.html',
-    'https://github.com/ruffle-rs/ruffle/blob/fe6cfc545405b888ebb478ce1c211d63147ca49b/core/src/avm1/globals/string.rs',
+    'https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/src/avm1/globals/string.rs',
     'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/String.as',
     'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/StringClass.cpp',
     'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/StringObject.cpp',
   ],
-  boundary: 'Primitive UTF-16 strings, at most 1000000 code units/results. AS2 follows the named AVM1 implementation for later-SWF defaults and integer positions, not an original-player oracle. AS3 RegExp construction and literals support matching/search/replacement/split through a bounded JavaScript-engine facade; AS2 native RegExp, PCRE-only syntax and custom pattern objects remain unsupported. No AS2 boxed String, native method extraction, prototype augmentation or locale String methods. Unicode casing, browser Date parsing/timezone and general object conversion retain the JavaScript-backed profile, not historical Flash tables/complete AVM coercion. AS2 extra arguments are evaluated then ignored; AS3 fixed-arity methods diagnose excess arguments because their arity behavior is not verified. This is not a claimed Flash ArgumentError. Constructor arguments after the first are ignored as in the pinned implementation.',
+  boundary: 'Primitive UTF-16 strings, at most 1000000 code units/results. AS2 follows the named AVM1 implementation for later-SWF defaults and integer positions, not an original-player oracle. AS3 RegExp construction and literals support matching/search/replacement/split through a bounded JavaScript-engine facade; AS2 native RegExp, PCRE-only syntax and custom pattern objects remain unsupported. No AS2 boxed String, native method extraction, prototype augmentation or locale String methods. AS2 String algorithms and historical SWF casing tables run in the shared Rust core. AS3 Unicode casing, browser Date parsing/timezone and general object conversion retain the existing JavaScript-backed profile; complete AVM coercion is not claimed. AS2 extra arguments are evaluated then ignored; AS3 fixed-arity methods diagnose excess arguments because their arity behavior is not verified. This is not a claimed Flash ArgumentError. Constructor arguments after the first are ignored as in the pinned implementation.',
   distinctions: 'AS2 fromCharCode stops at zero; missing search/slice/substr/substring arguments return undefined. AS3 nullable typed search arguments do not match, explicit undefined numeric endpoints convert to zero, and string-pattern replace inserts replacement text literally after converting it before the pattern. AS3 split follows StringClass.cpp: undefined delimiter becomes the text undefined; an empty subject gives one empty result when limit is nonzero. These pinned VM details are more specific than the reference summaries. AS3 new String returns a primitive; constructor aliases under new are not supported.',
 };
 
@@ -62,7 +63,25 @@ var localDate = dateShadow(function(value:Number):String { return "local:"+value
 trace("TEXT", result, suffix, heading, firstCode, lower);`;
 
 export const stringSources = {
-  as2: commonSource,
+  as2: commonSource + `
+var legacyCharacters = chr(65) + mbchr(233);
+var legacyCodes = ord("é") + mbord("\\ud800");
+var legacyLengths = length("😀") + mblength("neo");
+var legacySlices = substring("abcdef", 2, 3) + ":" + mbsubstring("abcdef", 3, -1);
+var substringAlias = substring;
+var legacyAliasResult = substringAlias("abcd", 2, 2);
+function customLength(length:Function):Number { return length("shadow"); }
+var shadowedLength = customLength(function(value:String):Number { return 17; });
+var escapedRust = escape("A @é+");
+var unescapedRust = unescape("A+%40%C3%A9%2B");
+var historicalUpper = "straße".toUpperCase();
+var historicalLower = "İ".toLowerCase();
+var surrogateUnit = "\\ud800".charCodeAt(0);
+var escapeAlias = escape;
+var escapedAlias = escapeAlias("a+b");
+function customEscape(escape:Function):String { return escape("local"); }
+var shadowedEscape = customEscape(function(value:String):String { return "user:" + value; });
+`,
   as3: commonSource + `
 var constructed:String = new String("primitive");
 var literalReplacement = "red red".replace("red","$&");
@@ -156,6 +175,11 @@ export const stringsFixtures = ['as2','as3'].map(language => ({
       assert.equal(c.omitted,undefined); assert.equal(c.explicitEnd,'bcd'); assert.equal(c.nullSearch,0);
       assert.equal(c.generated,'A'); assert.equal(c.wrappedIndex,'a');
       assert.deepEqual(c.defaultParts,['undefinedxundefined']); assert.deepEqual(c.emptyParts,[]);
+      assert.equal(c.legacyCharacters,'Aé'); assert.equal(c.legacyCodes,65766); assert.equal(c.legacyLengths,5);
+      assert.equal(c.legacySlices,'bcd:cdef'); assert.equal(c.legacyAliasResult,'bc'); assert.equal(c.shadowedLength,17);
+      assert.equal(c.escapedRust,'A%20%40%C3%A9%2B'); assert.equal(c.unescapedRust,'A @é+');
+      assert.equal(c.historicalUpper,'STRAßE'); assert.equal(c.historicalLower,'i');
+      assert.equal(c.surrogateUnit,0xd800); assert.equal(c.escapedAlias,'a%2Bb'); assert.equal(c.shadowedEscape,'user:local');
     }
     assert.deepEqual(logs,expected);
   },
@@ -166,7 +190,8 @@ export const stringsFixtures = ['as2','as3'].map(language => ({
 export function verifyStringsAdapter() {
   const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
   const code=['regexp.js','strings.js'].map(name=>readFileSync(resolve(root,'crates/neoflash-script/src/actionscript',name),'utf8')).join('\n');
-  const api=new Function('__nfTypeError','__nfString','__nfNumber','__nfErrorTypes',code+'\nreturn {method:__nfStringMethod,create:__nfStringCreate,type:__nfStringClass,value:__nfStringMethodValue};')(TypeError,String,Number,{SyntaxError});
+  const strings=createRustStrings();
+  const api=new Function('__nfTypeError','__nfString','__nfNumber','__nfErrorTypes','__nfAs2Strings',code+'\nreturn {method:__nfStringMethod,create:__nfStringCreate,type:__nfStringClass,value:__nfStringMethodValue};')(TypeError,String,Number,{SyntaxError},()=>strings);
   const originalLower=String.prototype.toLowerCase;
   for(const as3 of [false,true]) {
     const call=(text,name,...args)=>api.method(text,name,as3)(...args);

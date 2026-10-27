@@ -1,0 +1,489 @@
+{
+  "schema_version": 1,
+  "experiment": "as-reuse-30m-rust-adaptation",
+  "upstream": {
+    "repository": "https://github.com/ruffle-rs/ruffle",
+    "commit": "07d3e430631333f80f754df01a968bdcd80d98c5",
+    "license": "MIT (selected from MIT OR Apache-2.0)",
+    "files": [
+      {
+        "path": "render/src/matrix3d.rs",
+        "sha256": "47c89957c01c81a05bde12fae6159f0994f693794a01479601cae4dc3480df08"
+      },
+      {
+        "path": "core/src/avm2/globals/flash/geom/Vector3D.as",
+        "sha256": "9c8adc6f80b2fece6a5a3b2e3c50cb306db105c52849b2d2bb69eda2974b9d3d"
+      },
+      {
+        "path": "core/src/avm2/globals/flash/geom/matrix_3d.rs",
+        "sha256": "f7ed3512f27bffa0919b0b94bd4c317d6762d03a0f818a90e67e29d26704dbd0"
+      },
+      {
+        "path": "core/src/avm2/globals/flash/geom/Utils3D.as",
+        "sha256": "ab9106743a18c9c2d41007c9bfbaa8c4fae96b6ca3880b9d9fdac0888d3ff6c7"
+      }
+    ]
+  },
+  "counts": {
+    "new_api_methods": 43,
+    "new_api_properties": 9,
+    "new_api_members_excluding_constructors_constants": 52,
+    "new_constructors": 2,
+    "new_constants": 3,
+    "existing_members_reimplemented": 0,
+    "new_language_constructs": 0,
+    "authored_grouped_scenario_checks": 39,
+    "browser_executed_api_members": 52
+  },
+  "members": [
+    {
+      "id": "flash.geom.Matrix3D.append",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.appendRotation",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.appendScale",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.appendTranslation",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.clone",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.copyColumnFrom",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.copyColumnTo",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.copyFrom",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.copyRawDataFrom",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.copyRawDataTo",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.copyRowFrom",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.copyRowTo",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.copyToMatrix3D",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.deltaTransformVector",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.determinant",
+      "kind": "property",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.identity",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.invert",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.position",
+      "kind": "property",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.prepend",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.prependRotation",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.prependScale",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.prependTranslation",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.rawData",
+      "kind": "property",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.transformVector",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.transformVectors",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Matrix3D.transpose",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Utils3D.projectVector",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Utils3D.projectVectors",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.add",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.angleBetween",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.clone",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.copyFrom",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.crossProduct",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.decrementBy",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.distance",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.dotProduct",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.equals",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.incrementBy",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.length",
+      "kind": "property",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.lengthSquared",
+      "kind": "property",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.nearEquals",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.negate",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.normalize",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.project",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.scaleBy",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.setTo",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.subtract",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.toString",
+      "kind": "method",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.w",
+      "kind": "property",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.x",
+      "kind": "property",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.y",
+      "kind": "property",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    },
+    {
+      "id": "flash.geom.Vector3D.z",
+      "kind": "property",
+      "baseline": "missing",
+      "implementation": "partial",
+      "scenario": "examples/reuse-as3.nflash",
+      "browser_verified": true
+    }
+  ],
+  "constructors": [
+    "flash.geom.Vector3D",
+    "flash.geom.Matrix3D"
+  ],
+  "constants": [
+    "flash.geom.Vector3D.X_AXIS",
+    "flash.geom.Vector3D.Y_AXIS",
+    "flash.geom.Vector3D.Z_AXIS"
+  ],
+  "verification": {
+    "rust_grouped_test": "as3_geom::tests::adapted_geometry_family",
+    "rust_result": "passed after Utils3D extension; shared filtered core run 2/2",
+    "browser_result": "39/39 checks, 52 methods/properties, Advance step 0 to 1, Restart to 0; no browser errors",
+    "no_complete_language_coverage_claim": true,
+    "browser_report": "docs/AS-REUSE-EXPERIMENT.md"
+  },
+  "limitations": [
+    "Finite numeric profile; NaN/Infinity and non-finite results produce diagnostics",
+    "Matrix3D storage and scalar vector transforms use upstream f32 precision",
+    "decompose/recompose/interpolate/interpolateTo/pointAt remain unsupported with diagnostics",
+    "No Transform.matrix3D or 3D rendering integration; example maps Rust-computed x/y to existing 2D display objects",
+    "Native subclass initialization unsupported",
+    "Matrix raw input must contain exactly sixteen finite elements; shape/coercion edge behavior is not full Flash conformance",
+    "No new AS3 syntax constructs or execution engine; existing compiler/project runtime unchanged except native registrations and typed-vector return hookup",
+    "Utils3D projection requires complete xyz triples and finite non-zero homogeneous w; pointTowards remains unsupported"
+  ],
+  "timing_utc": {
+    "rust_scope_start": "2026-10-27T22:47:00Z",
+    "initial_core_and_bridge_ready": "2026-10-27T22:51:58Z",
+    "initial_browser_acceptance": "2026-10-27T22:55:00Z",
+    "feature_freeze": "2026-10-27T22:57:30Z",
+    "initial_abandoned_external_toolchain_minutes_approx": 5.5
+  }
+}

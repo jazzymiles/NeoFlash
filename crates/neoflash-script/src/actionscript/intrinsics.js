@@ -8,6 +8,19 @@ const __nfNativeFixed = Number.prototype.toFixed;
 const __nfNativeExponential = Number.prototype.toExponential;
 const __nfNativePrecision = Number.prototype.toPrecision;
 const __nfApply = Reflect.apply;
+// Per-publication Rust service; there is deliberately no JavaScript fallback.
+function __nfAs2Strings() {
+    if (typeof __nfLegacy === 'undefined' || typeof __nfLegacy?.strings?.invoke !== 'function') {
+        throw new __nfTypeError('AS2 String Rust service is unavailable. Re-export this project with the current WASM runtime.');
+    }
+    return __nfLegacy.strings;
+}
+function __nfEscape2(...args) { return __nfAs2Strings().invoke('escape', '', args); }
+function __nfUnescape2(...args) { return __nfAs2Strings().invoke('unescape', '', args); }
+const __nfLegacyStringGlobals = Object.freeze(Object.fromEntries(
+    ['chr', 'ord', 'length', 'substring', 'mbchr', 'mbord', 'mblength', 'mbsubstring']
+        .map(name => [name, (...args) => __nfAs2Strings().invoke('global.' + name, '', args)])
+));
 function __nfMethodValue(value) {
     // A computed property name can select the native method without any
     // statically recognizable "toFixed" token. Check the resulting identity,

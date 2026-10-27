@@ -1,4 +1,9 @@
 //! Thin JavaScript bindings around the same Rust timeline runtime used by the editor.
+mod as2_strings;
+mod as3_geom;
+
+pub use as2_strings::as2_string_json;
+
 use neoflash_core::{
     ColorTransform, DisplayMutation, DynamicKind, GraphicsOp, ObjectRef, PixelRef, PixelSnapping,
     PlaybackCommand, Player, Project, RuntimeScriptDispatch, ScriptDispatch, ScrollRect,

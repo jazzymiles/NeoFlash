@@ -340,8 +340,8 @@
       "id": "as3-math",
       "title": "Math",
       "status": "partial",
-      "scope": "A closed list of numeric Math methods, including trigonometry, abs, min/max, pow, random and round. Exact project imports also expose finite Point/Rectangle/Matrix values: point arithmetic, rectangle queries and affine matrix construction/composition/inversion/coordinate mapping. Display bounds and coordinate conversion use the same value classes. Runtime Transform/ColorTransform adds exact affine overrides, copy-valued geometry getters, skew-preserving scalar mutation, nested RGBA paint composition and independent tinted views of shared pixels.",
-      "limitations": "Execution is delegated to JavaScript; the full contract and numerical equivalence with Flash are not certified. The shared geometry profile requires finite numbers and rejects overflow/singular inversion; 3D values and complete historical coercion/native-slot behavior remain pending. Runtime Transform uses logical stage coordinates and bounded finite values; native script preview/authoring skew, browser-window mapping and exact raster pixelBounds are not claimed. The combined geometry/Timer browser workflow and Restart passed. The combined Transform workflow passed actual-WASM and in-app-browser Cycle/Restart; independent declaration audit and exact historical conformance remain separate.",
+      "scope": "A closed list of numeric Math methods, including trigonometry, abs, min/max, pow, random and round. Exact project imports also expose finite Point/Rectangle/Matrix values: point arithmetic, rectangle queries and affine matrix construction/composition/inversion/coordinate mapping. Display bounds and coordinate conversion use the same value classes. Runtime Transform/ColorTransform adds exact affine overrides, copy-valued geometry getters, skew-preserving scalar mutation, nested RGBA paint composition and independent tinted views of shared pixels. Rust-owned Vector3D, Matrix3D and Utils3D add 43 methods, nine properties, two constructors and three axis constants through individual licensed algorithm adaptations; scalar/bulk projection uses the same values.",
+      "limitations": "The pre-existing Math/2D value implementation is delegated to JavaScript; the full contract and numerical equivalence with Flash are not certified. The shared geometry profile requires finite numbers and rejects overflow/singular inversion; 3D display integration and complete historical coercion/native-slot behavior remain pending. Runtime Transform uses logical stage coordinates and bounded finite values; native script preview/authoring skew, browser-window mapping and exact raster pixelBounds are not claimed. The combined geometry/Timer browser workflow and Restart passed. The combined Transform workflow passed actual-WASM and in-app-browser Cycle/Restart; independent declaration audit and exact historical conformance remain separate. Rust 3D values require finite inputs and bounded arrays; decomposition, interpolation and pointTowards remain explicit diagnostics. One 39-check ordinary HTML5 scenario exercised all 52 new method/property names, Advance and Restart; no 3D rendering claim.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "docs/COMPATIBILITY.md",
@@ -355,7 +355,12 @@
         "examples/display-transforms.nflash",
         "crates/neoflash-script/tests/display-transforms.mjs",
         "docs/decisions/0018-runtime-display-transforms.md",
-        "docs/VERIFICATION.md"
+        "docs/VERIFICATION.md",
+        "crates/neoflash-core/src/as3_geom.rs",
+        "web/geom3d.js",
+        "examples/reuse-as3.nflash",
+        "docs/AS3-REUSE-PROVENANCE.md",
+        "docs/AS-REUSE-EXPERIMENT.md"
       ]
     },
     {

@@ -1,6 +1,6 @@
 # NeoFlash — working agreement
 
-- Project status: paused at the user's request. The bounded agent-1 language experiment is complete on `experiment/as-language-30m`; new implementation, agents and verification cycles require a new user instruction. The separate unfinished TextField checkpoint remains on `checkpoint/paused-text-viewport`. Existing monitor automations stay paused.
+- Project status: paused at the user's request. The bounded language experiment is complete on `experiment/as-language-30m`, and the isolated two-agent Rust reuse experiment is complete on `experiment/as-reuse-30m` (docs/AS-REUSE-EXPERIMENT.md). New implementation, agents and verification cycles require a new user instruction. The separate unfinished TextField checkpoint remains on `checkpoint/paused-text-viewport`. Existing monitor automations stay paused.
 
 - Product: open-source Rust authoring environment for macOS 15+, inspired by classic Flash before Animate. HTML5 is the primary publishing target.
 - User requirements include websites/apps, games and animation; AS2/AS3 plus JavaScript/TypeScript; nested timelines, instances, frame/object scripts; system fonts; eventual FLA/XFL/SWF import.
@@ -10,6 +10,8 @@
 - Keep verification cost controlled: extend coherent family scenarios before adding new test cases, avoid duplicating the same behavior across many harnesses, and rerun the shared suite only for a delivery batch or a concrete regression. While the user is away or the screen is locked, continue compiler/runtime work in the background and leave UI-only acceptance explicitly pending.
 - Project workflow checks collect all family failures in one pass. After a concrete failure, use `NEOFLASH_WORKFLOWS=id1,id2 node crates/neoflash-script/tests/project-execute.mjs` to rerun only affected families; the default still runs every family and its common prelude. Do not use a focused selection to claim a complete delivery check.
 - Keep one source tree. Versions belong in Git tags/history, never in nested v1/v2 copies. No asset-folder chains. Build outputs go under ignored `target/` and `dist/`.
+- Reuse compatible open-source algorithms and references after understanding and adapting them to the shared Rust core. Preserve licenses, attribution and pinned provenance; do not label adapted code as wholly original. Do not embed complete third-party ActionScript engines or introduce foreign-language implementations for new runtime behavior. Browser adapters should marshal data and connect browser facilities, without duplicating Rust algorithms.
+- Downloaded source checkouts, archives, external tools and exploratory artifacts belong under ignored `target/`; generated exports belong under ignored `dist/`. Commit only deliberately adapted source, necessary license notices and authored project examples.
 - `crates/` contains Rust modules, `web/` the browser host, `examples/` small source projects, `scripts/` build/check tasks, `docs/` product and engineering records.
 - Keep the serialized document independent of UI, rendering backend and filesystem paths. Keep authored evaluation side-effect free for scrubbing/onion skin.
 - Unsupported imports and script features must produce actionable diagnostics. Never silently drop content or code.
