@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "666ecfd3953b07b76f6f85532384f565cef1917d955931a8f3a1c32f35ed914c",
+  "catalogSha256": "463298442a3dd82f0534fa88edbf86cd1e1a40b6fd1c7e5249bcd68ae3be9362",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -83,8 +83,8 @@
       }
     ],
     "inputHashes": {
-      "implementation-audit.json": "f2463521e626c12ab11e971f256b8677795598d5d9049b144e80d61748c3c4d8",
-      "implementation-evidence.json": "a043730415313ecb59a2a5e8af3afc764aba84460ebc750de08e7a168a63094c",
+      "implementation-audit.json": "9fcfcafb0bbaac8297499377a373b6a8885b7e67e5f789d542c6fb0619c15f75",
+      "implementation-evidence.json": "0ce90721f78ef2d375774fbfba30a6e5361f45e8b84d9095805412b5c1484d14",
       "as2.json": "160442a3ef962733440d4b187096b816398d5c4bc7fed87209e20bc157bf3791",
       "as2-components.json": "891666b00f6caf7c4bfc250187ab33cc19880715cb69468d8e0370a43a9aac82",
       "as2-components-supplement.json": "f7677e2c3a3e0f8baf899bdb4511de7bb14965bac4956b9de78a22be64eaa802",
@@ -269,30 +269,54 @@
         "originalFlashComparison": "documented_only",
         "decision": "not_accepted_as_complete_batch_shared_pointer_click_failure_verified_subsets_recorded",
         "currentSourceVerified": false
+      },
+      {
+        "id": "COLLECTIONS-TEXT-HTML5-20261027T0120Z",
+        "recordedHead": "a05a08dc06dcadcdb3bd14c24492e9ca8f3b8a7c",
+        "sourceCapturedAt": "2026-10-27T01:25:43.547836+00:00",
+        "verifiedAt": "2026-10-27T01:39:35.159120+00:00",
+        "sourceManifestSha256": "27c9b8cf2987588aabee4ac2992d1582696f4584388aad734e205dc6d8da9a73",
+        "browser": "Codex in-app browser",
+        "engine": "Not separately identified; no additional browser engines claimed",
+        "originalFlashComparison": "documented_only",
+        "decision": "bounded_collections_plain_text_verified_complete_delivery_blocked_by_existing_shared_pointer_click_failure",
+        "currentSourceVerified": false
+      },
+      {
+        "id": "AS2-INPUT-HTML5-20261027T0140Z",
+        "recordedHead": "a3fedc33553b0c15885aca973769e2e4c6c96c21",
+        "sourceCapturedAt": "2026-10-27T01:42:18.059398+00:00",
+        "verifiedAt": "2026-10-27T01:49:26.519362+00:00",
+        "sourceManifestSha256": "5cbaf7d8d5d73759a0a2161efe9c7f5a90da84195cdc39d635c078450e126c81",
+        "browser": "Codex in-app browser",
+        "engine": "Not separately identified; no additional browser engines claimed",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_bounded_as2_class_input_family_pointer_P0_closed_in_observed_route",
+        "currentSourceVerified": false
       }
     ]
   },
   "summary": {
     "total": {
       "implemented_subset": 30,
-      "partial": 384,
-      "missing": 45243,
-      "needs_review": 390,
+      "partial": 452,
+      "missing": 45199,
+      "needs_review": 366,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
         "implemented_subset": 15,
-        "partial": 173,
-        "missing": 1993,
-        "needs_review": 126,
+        "partial": 211,
+        "missing": 1964,
+        "needs_review": 117,
         "total": 2307
       },
       "AS3": {
         "implemented_subset": 15,
-        "partial": 211,
-        "missing": 43250,
-        "needs_review": 264,
+        "partial": 241,
+        "missing": 43235,
+        "needs_review": 249,
         "total": 43740
       }
     },
@@ -306,9 +330,9 @@
       },
       "core": {
         "implemented_subset": 0,
-        "partial": 160,
-        "missing": 35,
-        "needs_review": 326,
+        "partial": 193,
+        "missing": 26,
+        "needs_review": 302,
         "total": 521
       },
       "framework": {
@@ -320,8 +344,8 @@
       },
       "language": {
         "implemented_subset": 28,
-        "partial": 144,
-        "missing": 75,
+        "partial": 150,
+        "missing": 69,
         "needs_review": 62,
         "total": 309
       },
@@ -334,8 +358,8 @@
       },
       "runtime": {
         "implemented_subset": 2,
-        "partial": 80,
-        "missing": 6074,
+        "partial": 109,
+        "missing": 6045,
         "needs_review": 2,
         "total": 6158
       }
@@ -351,9 +375,9 @@
         },
         "core": {
           "implemented_subset": 0,
-          "partial": 65,
-          "missing": 15,
-          "needs_review": 65,
+          "partial": 78,
+          "missing": 11,
+          "needs_review": 56,
           "total": 145
         },
         "framework": {
@@ -365,8 +389,8 @@
         },
         "language": {
           "implemented_subset": 14,
-          "partial": 74,
-          "missing": 38,
+          "partial": 80,
+          "missing": 32,
           "needs_review": 59,
           "total": 185
         },
@@ -379,8 +403,8 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 34,
-          "missing": 871,
+          "partial": 53,
+          "missing": 852,
           "needs_review": 2,
           "total": 908
         }
@@ -395,9 +419,9 @@
         },
         "core": {
           "implemented_subset": 0,
-          "partial": 95,
-          "missing": 20,
-          "needs_review": 261,
+          "partial": 115,
+          "missing": 15,
+          "needs_review": 246,
           "total": 376
         },
         "framework": {
@@ -423,8 +447,8 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 46,
-          "missing": 5203,
+          "partial": 56,
+          "missing": 5193,
           "needs_review": 0,
           "total": 5250
         }
@@ -432,6 +456,544 @@
     }
   },
   "rules": [
+    {
+      "id": "AS2-INPUT-HTML5-20261027T0140Z",
+      "title": "Independent HTML5 acceptance: AS2-INPUT-HTML5-20261027T0140Z",
+      "reason": "accepted bounded as2 class input family pointer P0 closed in observed route",
+      "limitations": "All per-declaration changes remain partial; successful authored project behavior does not establish full AVM1 classes, prototype enumeration, erased annotation semantics or every default/return contract. Browser logical resize, Stage listener removal, Key/Mouse listener removal, printable ASCII/layout rules, full input focus and multi-touch/secondary-pointer behavior were not exercised. Stage.addListener is not promoted solely because registration returned without an error. Only Codex in-app browser was checked; engine/version not separately identified and original Flash not run: documented_only. Native Sources/undo/save-reopen/D-008 remain pending; the unsaved native document was preserved. Geometry/timer/ByteArray work after a3fedc3 receives no inherited pass. Older independently measured builds and their failures remain historical evidence. Owner-aware diagnostics outside the bounded text/input profile, cross-handler typed slots/defaults and AS2 Number conversion remain open; rich text/assets and JS/TS project modules remain outside this verified family.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/Cargo.toml",
+          "sha256": "92cc029943b58f815950532bc446c724c8c87f947936708ea477990c4a6554f4"
+        },
+        {
+          "path": "crates/neoflash-core/src/clipboard.rs",
+          "sha256": "effbff989939c25986691531aee1d3e9254191c76a3b13deeed1d006200de8f5"
+        },
+        {
+          "path": "crates/neoflash-core/src/demo.rs",
+          "sha256": "9481dc1466aafc1c5deadd40cbb62f3e49b4240da33fc9e249ab29fffbc56e0d"
+        },
+        {
+          "path": "crates/neoflash-core/src/evaluate.rs",
+          "sha256": "e9d57510c0c65e8e04866d76f767c3d1c66db6e90ebb0646b77cf0f6be6a388a"
+        },
+        {
+          "path": "crates/neoflash-core/src/geometry.rs",
+          "sha256": "94b9531d20975840a8a9c998832f090fee17cfa66c5dbe78c12a30b0a527b2f8"
+        },
+        {
+          "path": "crates/neoflash-core/src/history.rs",
+          "sha256": "662c5cd0855fa1cccccac432fb374a7f86db680ed476559c92fbe324fff88441"
+        },
+        {
+          "path": "crates/neoflash-core/src/lib.rs",
+          "sha256": "ae7e1feaf727fa2c75e995aaa9bb7e2e06d0b5369dab3b544aba062ddcae3d99"
+        },
+        {
+          "path": "crates/neoflash-core/src/model.rs",
+          "sha256": "0d70db94a5b4139d209de77fa0742961fb0f6db358506e70ffd348b9e882e51f"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime.rs",
+          "sha256": "0eaf5224b620a49366201f2d65ab4143e399c4988221b2fad1a7ecf38b3de052"
+        },
+        {
+          "path": "crates/neoflash-core/src/validation.rs",
+          "sha256": "cb9d507401852eadc7340820a2b4b82447a7af7d97863bb9d07b7f063fe94527"
+        },
+        {
+          "path": "crates/neoflash-editor/Cargo.toml",
+          "sha256": "8549dc2d0d3b59abd1336bb322e2ca39e4198372b5f5cdf3ace861521e8741d9"
+        },
+        {
+          "path": "crates/neoflash-editor/src/accessibility.rs",
+          "sha256": "7b02f21d880283cdf480a6c0579f732abf19fbe317917e4e18faf9b11d069369"
+        },
+        {
+          "path": "crates/neoflash-editor/src/app.rs",
+          "sha256": "a4ba48de3189000f0f11432e68b681d61e5cd283ac6a5361b21490775b64573c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard.rs",
+          "sha256": "e3ffc6db4a9567d2de9194bfbc8a4715e3ddb0b206dc593002cce2ec9eb169fe"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard_tests.rs",
+          "sha256": "2141e3ec04072a80a8dc58f3bfd27e9477c602c65ae804e1bbfa2e11b18418e5"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached.rs",
+          "sha256": "4857ae64827f7818f7f159fff43b3e14a6ff784bcd0148d161a25e7765e59b3d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached_tests.rs",
+          "sha256": "e66b38262cd5cf6d0a1f64887b19ba86950233cc6fd77c16a977bcba16f14ceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/fonts.rs",
+          "sha256": "b3b012e4712f82048b3aa174465c2a9070a4ab402d64c5522548f9c44ff96791"
+        },
+        {
+          "path": "crates/neoflash-editor/src/main.rs",
+          "sha256": "76fbfc0fefa7e191c5edf4b574fd07782081a79ebc1c6780baaffe4629579aec"
+        },
+        {
+          "path": "crates/neoflash-editor/src/native_screens.rs",
+          "sha256": "b3eb6e6612dfd09c9ddfb206b82c3039343730bcf616c380cbee383b92664440"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panel_tests.rs",
+          "sha256": "1f30578675e958423af68ba50fc07ca5cc466f91f5f0a7fee9a56f65ee98dd11"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panels.rs",
+          "sha256": "dd9f1b01b7f280f33b34d341f3251a4aae8199d1251a3c80dd4fd52c03db398b"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection.rs",
+          "sha256": "0c1ea7f8306eb81328d80672436993f0c4d270891d6c50ee81d6ef0243626859"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection_tests.rs",
+          "sha256": "7f00cde935e571026375a4ce1ee1edb3937add0aa377882d1b8ab084318e3ab2"
+        },
+        {
+          "path": "crates/neoflash-editor/src/sources.rs",
+          "sha256": "2cd368126055a9cae40f9af25aabfb8ef8646e4ccc9651176be62dce1c0978e3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage.rs",
+          "sha256": "53212c5224158f9edf528c2dd01eb283bc3931bcc0f33f0d8d4f8c780b4b67be"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_primitives.rs",
+          "sha256": "fe940d6123cb492a4c6a6a9e135b51da023fe4c47193a6c3cdc185bd679cfceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_selection.rs",
+          "sha256": "e7ca9975a795b79e376ad096bc440bc469b17247f66b166c801756e8bcaeed13"
+        },
+        {
+          "path": "crates/neoflash-editor/src/tests.rs",
+          "sha256": "a4b96abeb579c8d59014b974e97d883d8ff9802dfb5baca770340c60405c73d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/theme.rs",
+          "sha256": "98c946389cff79af8d415b3bd8a282633d097989e60d8643f2f8125f7f8c4936"
+        },
+        {
+          "path": "crates/neoflash-editor/src/timeline_paint.rs",
+          "sha256": "87a87535956dcfaa686e6222bb56f1953328b00be858a0b522094097759848d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_geometry.rs",
+          "sha256": "584f5b1d3d7cc50906d5fe647812678d97333fd8df4a7d31264e0b9f245c971f"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_gesture_tests.rs",
+          "sha256": "f8ae23fabe656e336cbac2d3937097149cd7798990b95e64b07ebb052fba3adb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/ui_icons.rs",
+          "sha256": "532a69689f893cb6ad5bf82f4106b6472315fa1cea8af335b2d459ac0eaed74e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector.rs",
+          "sha256": "0d3ae90b25ab48e3228149b0b96920b8f1367e86a609f8d2c10176653ae35f1c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector_gesture_tests.rs",
+          "sha256": "6f54dd33ea9edf03f1c08383e932cffcc47a26cb2a54e2dfe0d8fed07e84d77e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace.rs",
+          "sha256": "e5adb69dad73eba07bc70ebed9d7907d837290df1bb80cae44f4fcd64d9f3b45"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace_editor_tests.rs",
+          "sha256": "b41e9d80e196a5e58766db1ebd1a2c9e8be74b277006eb366c37af69eb8dc74a"
+        },
+        {
+          "path": "crates/neoflash-export/Cargo.toml",
+          "sha256": "577ab7bd07bb5614f4a0ef2e408b553befaad996024c65916121a52266cd0954"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "c94d35267a0e2d5ab9b7d526579a14cc87af34e4e972016d877f8fe08193dfa4"
+        },
+        {
+          "path": "crates/neoflash-export/src/main.rs",
+          "sha256": "a174e11c87e970fc4ff37cb5966c525dd5435c744715b6ce93b0052c56bf89d8"
+        },
+        {
+          "path": "crates/neoflash-import/Cargo.toml",
+          "sha256": "ae07834a20cc84f4472c253088f5ce17127b137952daad3f066f34eca6ea96cc"
+        },
+        {
+          "path": "crates/neoflash-import/examples/contour_fixture.rs",
+          "sha256": "037f00320374630c556f0e45087b279071260e8de090fac6c81d059c362f3a59"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_binary_corpus.rs",
+          "sha256": "3ea8b650bcd5ced084b3c266f4f5865e2af96b43b3d3075588c6ae1414dea4d1"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_contour_candidates.rs",
+          "sha256": "9e6912139440480d7dee72ac4c6643c3690408f0ea19618df8f4d1276b20fe5e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy.rs",
+          "sha256": "9dfdb5573c5e1f63121cc4e7bc623bf151e55124ba47da8e688de153f65ccafa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents.rs",
+          "sha256": "adde25d4fa8736d8d47acbf215e78b054b9d31345fb80caef65009f2677cbffa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents/payload.rs",
+          "sha256": "b0c146ec3f5c56525f7e7c4e7b6a4bb28590e4711445b811766801caf685fedd"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours.rs",
+          "sha256": "f434f77c72359b53b18b42b137763d4d607b38b1f010a407b92f2575e7f7799e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours/certificate.rs",
+          "sha256": "fb4abe54a5984e47a05b1848e92f15adf61c4a35825edf7872e9103f8950caae"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/geometry.rs",
+          "sha256": "15797f76b2ed8a9b165b9f184ab8cf2d9439eefe702dcdc68e019c7ad9a191bf"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/mfc.rs",
+          "sha256": "2b79189ee7105947f7a18732860630e3f677ef82e55b2e91fcbde17959812021"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/timeline.rs",
+          "sha256": "7d5f4e1c0b44f6cc4e39628ed8f3724a99b81957394a0d8d07923ffd89f41f3a"
+        },
+        {
+          "path": "crates/neoflash-import/src/lib.rs",
+          "sha256": "3c54d4afecd01fde3e8f5db2bd9b42b0b0c5371be70d90ccc525027e2de53b8b"
+        },
+        {
+          "path": "crates/neoflash-import/src/main.rs",
+          "sha256": "2710f27ef30f4e62afb44537e56da44844aed04d4e8a864ccbda6edd75d4c2cc"
+        },
+        {
+          "path": "crates/neoflash-import/src/source.rs",
+          "sha256": "25662f5fd70d4e2cdafaf59518301dc8875fcf2f2e0636fd05e440823be5e9de"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl.rs",
+          "sha256": "7849526b7cdb15e131ee07e1a3387a3038b30b1512488e2c94fff00225cb698a"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/publish.rs",
+          "sha256": "0a631fa1a3c6b9c186eb76aef5115775b72b86e0d88462f3ea5028ee28b14c89"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/shape.rs",
+          "sha256": "2303fb011b22b32d56fccfe0505653af76057983da39540098b84be37abce1a5"
+        },
+        {
+          "path": "crates/neoflash-script/Cargo.toml",
+          "sha256": "2923af027d33f803b1fb9e876f0793be299b666fd437b22c81b70d7e15122b57"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_batch.rs",
+          "sha256": "c428fa1a84b3649229d9b8a6b33b3fa08ac274dd07679ca61de666b9bc069436"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_project.rs",
+          "sha256": "e7d780759bb4e62704d56c55e0d8e76c2ed9f5ae4a35f82e286aaea98a7c0ac6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "871e460aba1ea84460b8521f8ea80b29013ab7063cde450869fd8c162cbbd920"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/collections.js",
+          "sha256": "63d55193c51b297e35970684a20cf31d8608956aa1f87210af778f67c0ab8cd0"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/completion.rs",
+          "sha256": "94cea0172dc24782f16973e4dc0181db5e4ecc411f5bcf288c1eafb6c5d73346"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/control_tests.rs",
+          "sha256": "17588080043035299d94d9cd437e217ca2262b60c7f26be1d95e6fd2db92729a"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/exceptions.js",
+          "sha256": "534534a37d9d0c48b1898847615e0581b20661341d24ded64ed355785e8e366e"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/intrinsics.js",
+          "sha256": "65528ea334627dc829097e59627647382ffe716b39acb77e15c8bcbef68ebdb4"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "e9b26a3adb16554318cde010ea0cdac7750d9ee42501f1a089ce3e0e0a616466"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "c7e4335f8f688f6764c378328a43467fdfbe1dfd65181ab18f8d1cc4fce4a359"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "d22708bd0615d1f0bf2b7413b0f1a43ae3f2ca278578648b64ae99f18f8c7405"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/strings.js",
+          "sha256": "c307b5ae03320e2d3b8a2fd4370050b768cfee7e01fac27b0b3bed7df00f875c"
+        },
+        {
+          "path": "crates/neoflash-script/src/lib.rs",
+          "sha256": "3b7e634f008786775f3e8dd40dca84868b92e8af3e96f633ef28de5aa4464ec3"
+        },
+        {
+          "path": "crates/neoflash-web/Cargo.toml",
+          "sha256": "e4a23adb132e7030d23f844f33861b0f929c49b9ece3396cec154ebff42bf9b5"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "871bc5aa4d2a669086b91b4b3c1b11aaf314adbfc65e9e587d430fa94ae7f4e6"
+        },
+        {
+          "path": "web/accessibility.js",
+          "sha256": "19d4bbba7af344a9d30fdb0d695dace234f6cfad5d0d5d9838c656c6a9bfedb9"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "a695bb4e5dba98ccbfc311c78a5442e69b7950e825cdf581e565cb4b17c6f8a8"
+        },
+        {
+          "path": "web/events.js",
+          "sha256": "4f12e12e0e5edd0289036ce780cfcc2a80ab35cd4aea2416f1b50560323e1106"
+        },
+        {
+          "path": "web/legacy-input.js",
+          "sha256": "14ac0086abbbb5b1de591ea5ae35fafdce9f65f101b6e942871c62dc9c7b4c35"
+        },
+        {
+          "path": "web/path.js",
+          "sha256": "9286174f715ef1d1d37303aa010148a9fc593abfc2ee304599f6a2cd56f69da9"
+        },
+        {
+          "path": "web/preview.js",
+          "sha256": "1278996d0f1c0a7efe974919a8c496bbefebd5a0b5707926de03a708f4ca51fa"
+        },
+        {
+          "path": "web/progress/app.js",
+          "sha256": "b5f78ad52e27e498e0020ae33f59e4e545ed2d83c4f4abe8f9c3bd8fbc098780"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "2611227071a9c252a0ecc3abc7a56adb577af2d6667f3124eb677178ebc4b0e8"
+        },
+        {
+          "path": "web/stage.js",
+          "sha256": "22a028eb5580e04276a6fb63e042f8094fa5d77ba00d91b6629017d52f981dd4"
+        }
+      ],
+      "verification": {
+        "id": "AS2-INPUT-HTML5-20261027T0140Z",
+        "recordedHead": "a3fedc33553b0c15885aca973769e2e4c6c96c21",
+        "sourceCapturedAt": "2026-10-27T01:42:18.059398+00:00",
+        "verifiedAt": "2026-10-27T01:49:26.519362+00:00",
+        "sourceManifestSha256": "5cbaf7d8d5d73759a0a2161efe9c7f5a90da84195cdc39d635c078450e126c81",
+        "browser": "Codex in-app browser",
+        "engine": "Not separately identified; no additional browser engines claimed",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_bounded_as2_class_input_family_pointer_P0_closed_in_observed_route",
+        "currentSourceVerified": false
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:statements.html#class",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Three qualified AS2 classes compile and attach to authored root/instances; two Widget instances initialize and update independently. Root document_class is a NeoFlash extension, not historical AS2 document-class compatibility."
+        },
+        {
+          "catalogId": "as2:statements.html#extends",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Widget extends Base extends MovieClip; inherited activation/reset and base construction produce two independent counts with shared total. Deeper inheritance and full AVM1 construction order were not verified."
+        },
+        {
+          "catalogId": "as2:statements.html#import",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Exact import app.Base resolves the superclass and shared static state in this three-source project. Wildcard imports, cross-dialect imports and ambiguous resolution are outside the accepted scope."
+        },
+        {
+          "catalogId": "as2:statements.html#public",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Public variables and methods in the bounded AS2 class profile compile and execute in the linked-instance scenario. Nonpublic access control and reflection were not verified."
+        },
+        {
+          "catalogId": "as2:statements.html#static",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Base.instances is 2 and Base.total starts at 0; two clicks and two arrow actions produce shared total 4 with independent counts 2/2. Restart restores instances 2 and total 0. Static dependency order and inherited static edge cases were not verified."
+        },
+        {
+          "catalogId": "as2:statements.html#super",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Explicit constructor super() initializes the Base/MovieClip chain before the two widgets become interactive. super.method calls, implicit constructors and super value extraction were not exercised."
+        },
+        {
+          "catalogId": "as2:Key.html#addListener()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The root listener receives one callback per observed arrow/H/S/Space action, including after Restart with no duplicate activation. addListener return value, duplicate registration and listener-list mutation were not tested in this browser run."
+        },
+        {
+          "catalogId": "as2:Key.html#event:onKeyDown",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Root onKeyDown activates the matching left/right instance and updates visible status; Space resets both counts and shared total. IME, repeat, modifier and focus-edge behavior were not exercised."
+        },
+        {
+          "catalogId": "as2:Key.html#event:onKeyUp",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Releasing Left/Right/H/S/Space invokes onKeyUp with codes 37/39/72/83/32 and isDown(code) false. Layout and modifier semantics remain unverified."
+        },
+        {
+          "catalogId": "as2:Key.html#isDown()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "LEFT/RIGHT are down when their key-down callbacks activate the corresponding card; key-up traces report false for the released code. Multiple simultaneously held keys and blur clearing were not tested."
+        },
+        {
+          "catalogId": "as2:Key.html#getCode()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Key-up traces report 37/39/72/83/32; getCode selects Space reset and H/S cursor operations. Broader key-layout mapping and held-key ordering were not tested."
+        },
+        {
+          "catalogId": "as2:Key.html#getAscii()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The screenshot after ArrowRight shows Key 39 / ASCII 0 / shared total 4. Printable ASCII, control-character mapping and historical Flash keyboard remapping were not tested."
+        },
+        {
+          "catalogId": "as2:Key.html#LEFT",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Real Left input activates only the left card; its release reports code 37. No other constant or keyboard layout is inferred."
+        },
+        {
+          "catalogId": "as2:Key.html#RIGHT",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Real Right input activates only the right card; its release reports code 39. No other constant or keyboard layout is inferred."
+        },
+        {
+          "catalogId": "as2:Key.html#SPACE",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Real Space input produces AS2 reset 0 0 0 and release code 32. No other key constant is inferred."
+        },
+        {
+          "catalogId": "as2:Mouse.html#addListener()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Registering the root enables one global mouse-down callback per observed coordinate press. After Restart the first press is mouse 1 without duplicate listener delivery. Registration return value and mutation/removal were not tested."
+        },
+        {
+          "catalogId": "as2:Mouse.html#event:onMouseDown",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Each real card press logs one AS2 mouse callback before one inherited component activation. Mouse-up/move/wheel and button-edge behavior were not tested."
+        },
+        {
+          "catalogId": "as2:Mouse.html#hide()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "After H, the browser records #stage style cursor: none. This establishes stage-local cursor hiding; previous-visibility return values and OS-global cursor behavior were not tested."
+        },
+        {
+          "catalogId": "as2:Mouse.html#show()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "After S, the browser records #stage style cursor: pointer. This establishes restoration of the host cursor policy; previous-visibility return values were not tested."
+        },
+        {
+          "catalogId": "as2:Stage.html#width",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Startup and Restart report logical Stage width 960 in the fixed fitted publication. Width writes, noScale/window resizing and resize callbacks were not tested."
+        },
+        {
+          "catalogId": "as2:Stage.html#height",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Startup and Restart report logical Stage height 540 in the fixed fitted publication. Height writes, noScale/window resizing and resize callbacks were not tested."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onPress",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Inherited AS2 prototype onPress receives real coordinate presses and invokes the correct instance method once; independent counts and shared state reset on Restart. Prototype replacement and own callback suppression remain integration-only evidence."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_x",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Class activation changes the corresponding card position through _x while its sibling retains independent state; Space restores the authored positions. Numeric/coercion edge cases were not independently exercised."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_name",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The two linked AS2 instances read authored names left/right in traces and render LEFT / n and RIGHT / n captions. Renaming, unusual names and name-lookup mutation were not tested."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#addEventListener()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "On a3fedc3, real coordinate clicks now reach linked AS3 class and Stage listeners exactly once. Stage capture records phase 1 before the pad listener records phase 3; re-add after removal and Restart work. This corrects the observed FAMILY-INPUT-001 route for the tested in-app browser only."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#removeEventListener()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Clicking the Stage scenario toggle removes the pad callback; the following real pad click produces no increment. Re-add permits Pad 2, and Restart returns to Pad 1. Mutation during dispatch and full removal semantics were not tested."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#hasEventListener()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The Stage toggle reports Pad listener false after removal and true after re-add, matching callback suppression/resumption on real clicks. Other event types and ancestor listeners were not tested."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#CLICK",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "CLICK listeners receive actual coordinate clicks in linked AS3 instances and the Stage scenario on the corrected guard build. Repeated clicks/Restart do not duplicate callbacks; touch, pen and other engines remain unverified."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/KeyboardEvent.html#KEY_DOWN",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The Stage scenario receives real ArrowRight KEY_DOWN, reports code 39 and moves pad x from 60 to 70. It remains a bounded keyboard regression control, not full keyboard conformance."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#eventPhase",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Real Stage scenario clicks report capture phase 1 followed by pad listener phase 3, including after Restart. Target phase 2, stopping propagation and redispatch were not exercised by this scenario."
+        }
+      ]
+    },
     {
       "id": "B01",
       "title": "Architectural absence of platform libraries",
@@ -1017,6 +1579,738 @@
       ]
     },
     {
+      "id": "COLLECTIONS-TEXT-HTML5-20261027T0120Z",
+      "title": "Independent HTML5 acceptance: COLLECTIONS-TEXT-HTML5-20261027T0120Z",
+      "reason": "bounded collections plain text verified complete delivery blocked by existing shared pointer click failure",
+      "limitations": "Useful Array/String/plain authored TextField behavior is verified only in the named source scenarios; all affected declarations remain partial. Whole classes are not promoted. The existing shared pointer-click defect remains P0 and prevents full delivery acceptance; the bounded data-to-text results are retained independently. Only Codex in-app browser was exercised; engine/version was not separately identified. Original Flash was not run: documented_only. Array sorting uses ordinary records and bounded inputs. Equal-key casing, historical comparator order, sparse arrays, exotic coercions and complete prototype behavior were not established. TextWidth/textHeight were only checked positive, not compared with original Flash layout. Rich HTML/CSS, wrapping, editable input/selection, embedded fonts and dynamic TextField creation are not implemented by this profile. AS2 host line-query helpers are not promoted to nonexistent native AS2 catalogue entries. Unsupported AS3 htmlText remains missing despite its tested diagnostic. Native Sources, undo/save/reopen and detached Actions D-008 remain pending; no unsaved native document was touched. Later AS2 project classes, classic Key/Mouse/Stage and pointer-guard changes receive no inherited result. Main automated checks are supplemental reported evidence.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/clipboard.rs",
+          "sha256": "effbff989939c25986691531aee1d3e9254191c76a3b13deeed1d006200de8f5"
+        },
+        {
+          "path": "crates/neoflash-core/src/demo.rs",
+          "sha256": "9481dc1466aafc1c5deadd40cbb62f3e49b4240da33fc9e249ab29fffbc56e0d"
+        },
+        {
+          "path": "crates/neoflash-core/src/evaluate.rs",
+          "sha256": "e9d57510c0c65e8e04866d76f767c3d1c66db6e90ebb0646b77cf0f6be6a388a"
+        },
+        {
+          "path": "crates/neoflash-core/src/geometry.rs",
+          "sha256": "94b9531d20975840a8a9c998832f090fee17cfa66c5dbe78c12a30b0a527b2f8"
+        },
+        {
+          "path": "crates/neoflash-core/src/history.rs",
+          "sha256": "662c5cd0855fa1cccccac432fb374a7f86db680ed476559c92fbe324fff88441"
+        },
+        {
+          "path": "crates/neoflash-core/src/lib.rs",
+          "sha256": "ae7e1feaf727fa2c75e995aaa9bb7e2e06d0b5369dab3b544aba062ddcae3d99"
+        },
+        {
+          "path": "crates/neoflash-core/src/model.rs",
+          "sha256": "0d70db94a5b4139d209de77fa0742961fb0f6db358506e70ffd348b9e882e51f"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime.rs",
+          "sha256": "0eaf5224b620a49366201f2d65ab4143e399c4988221b2fad1a7ecf38b3de052"
+        },
+        {
+          "path": "crates/neoflash-core/src/validation.rs",
+          "sha256": "cb9d507401852eadc7340820a2b4b82447a7af7d97863bb9d07b7f063fe94527"
+        },
+        {
+          "path": "crates/neoflash-editor/src/accessibility.rs",
+          "sha256": "7b02f21d880283cdf480a6c0579f732abf19fbe317917e4e18faf9b11d069369"
+        },
+        {
+          "path": "crates/neoflash-editor/src/app.rs",
+          "sha256": "a4ba48de3189000f0f11432e68b681d61e5cd283ac6a5361b21490775b64573c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard.rs",
+          "sha256": "e3ffc6db4a9567d2de9194bfbc8a4715e3ddb0b206dc593002cce2ec9eb169fe"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard_tests.rs",
+          "sha256": "2141e3ec04072a80a8dc58f3bfd27e9477c602c65ae804e1bbfa2e11b18418e5"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached.rs",
+          "sha256": "4857ae64827f7818f7f159fff43b3e14a6ff784bcd0148d161a25e7765e59b3d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached_tests.rs",
+          "sha256": "e66b38262cd5cf6d0a1f64887b19ba86950233cc6fd77c16a977bcba16f14ceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/fonts.rs",
+          "sha256": "b3b012e4712f82048b3aa174465c2a9070a4ab402d64c5522548f9c44ff96791"
+        },
+        {
+          "path": "crates/neoflash-editor/src/main.rs",
+          "sha256": "76fbfc0fefa7e191c5edf4b574fd07782081a79ebc1c6780baaffe4629579aec"
+        },
+        {
+          "path": "crates/neoflash-editor/src/native_screens.rs",
+          "sha256": "b3eb6e6612dfd09c9ddfb206b82c3039343730bcf616c380cbee383b92664440"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panel_tests.rs",
+          "sha256": "1f30578675e958423af68ba50fc07ca5cc466f91f5f0a7fee9a56f65ee98dd11"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panels.rs",
+          "sha256": "dd9f1b01b7f280f33b34d341f3251a4aae8199d1251a3c80dd4fd52c03db398b"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection.rs",
+          "sha256": "0c1ea7f8306eb81328d80672436993f0c4d270891d6c50ee81d6ef0243626859"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection_tests.rs",
+          "sha256": "7f00cde935e571026375a4ce1ee1edb3937add0aa377882d1b8ab084318e3ab2"
+        },
+        {
+          "path": "crates/neoflash-editor/src/sources.rs",
+          "sha256": "eb903cab950aab7f9cb46cff285270844c7960c917955f726a614eb48e9b5a65"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage.rs",
+          "sha256": "53212c5224158f9edf528c2dd01eb283bc3931bcc0f33f0d8d4f8c780b4b67be"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_primitives.rs",
+          "sha256": "fe940d6123cb492a4c6a6a9e135b51da023fe4c47193a6c3cdc185bd679cfceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_selection.rs",
+          "sha256": "e7ca9975a795b79e376ad096bc440bc469b17247f66b166c801756e8bcaeed13"
+        },
+        {
+          "path": "crates/neoflash-editor/src/tests.rs",
+          "sha256": "a4b96abeb579c8d59014b974e97d883d8ff9802dfb5baca770340c60405c73d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/theme.rs",
+          "sha256": "98c946389cff79af8d415b3bd8a282633d097989e60d8643f2f8125f7f8c4936"
+        },
+        {
+          "path": "crates/neoflash-editor/src/timeline_paint.rs",
+          "sha256": "87a87535956dcfaa686e6222bb56f1953328b00be858a0b522094097759848d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_geometry.rs",
+          "sha256": "584f5b1d3d7cc50906d5fe647812678d97333fd8df4a7d31264e0b9f245c971f"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_gesture_tests.rs",
+          "sha256": "f8ae23fabe656e336cbac2d3937097149cd7798990b95e64b07ebb052fba3adb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/ui_icons.rs",
+          "sha256": "532a69689f893cb6ad5bf82f4106b6472315fa1cea8af335b2d459ac0eaed74e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector.rs",
+          "sha256": "0d3ae90b25ab48e3228149b0b96920b8f1367e86a609f8d2c10176653ae35f1c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector_gesture_tests.rs",
+          "sha256": "6f54dd33ea9edf03f1c08383e932cffcc47a26cb2a54e2dfe0d8fed07e84d77e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace.rs",
+          "sha256": "e5adb69dad73eba07bc70ebed9d7907d837290df1bb80cae44f4fcd64d9f3b45"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace_editor_tests.rs",
+          "sha256": "b41e9d80e196a5e58766db1ebd1a2c9e8be74b277006eb366c37af69eb8dc74a"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "d491306e392ec6aece439b443ce6b212b4e7972b9240f78cf99bc88daf05e62d"
+        },
+        {
+          "path": "crates/neoflash-export/src/main.rs",
+          "sha256": "a174e11c87e970fc4ff37cb5966c525dd5435c744715b6ce93b0052c56bf89d8"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy.rs",
+          "sha256": "9dfdb5573c5e1f63121cc4e7bc623bf151e55124ba47da8e688de153f65ccafa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents.rs",
+          "sha256": "adde25d4fa8736d8d47acbf215e78b054b9d31345fb80caef65009f2677cbffa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents/payload.rs",
+          "sha256": "b0c146ec3f5c56525f7e7c4e7b6a4bb28590e4711445b811766801caf685fedd"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours.rs",
+          "sha256": "f434f77c72359b53b18b42b137763d4d607b38b1f010a407b92f2575e7f7799e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours/certificate.rs",
+          "sha256": "fb4abe54a5984e47a05b1848e92f15adf61c4a35825edf7872e9103f8950caae"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/geometry.rs",
+          "sha256": "15797f76b2ed8a9b165b9f184ab8cf2d9439eefe702dcdc68e019c7ad9a191bf"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/mfc.rs",
+          "sha256": "2b79189ee7105947f7a18732860630e3f677ef82e55b2e91fcbde17959812021"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/timeline.rs",
+          "sha256": "7d5f4e1c0b44f6cc4e39628ed8f3724a99b81957394a0d8d07923ffd89f41f3a"
+        },
+        {
+          "path": "crates/neoflash-import/src/lib.rs",
+          "sha256": "3c54d4afecd01fde3e8f5db2bd9b42b0b0c5371be70d90ccc525027e2de53b8b"
+        },
+        {
+          "path": "crates/neoflash-import/src/main.rs",
+          "sha256": "2710f27ef30f4e62afb44537e56da44844aed04d4e8a864ccbda6edd75d4c2cc"
+        },
+        {
+          "path": "crates/neoflash-import/src/source.rs",
+          "sha256": "25662f5fd70d4e2cdafaf59518301dc8875fcf2f2e0636fd05e440823be5e9de"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl.rs",
+          "sha256": "7849526b7cdb15e131ee07e1a3387a3038b30b1512488e2c94fff00225cb698a"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/publish.rs",
+          "sha256": "0a631fa1a3c6b9c186eb76aef5115775b72b86e0d88462f3ea5028ee28b14c89"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/shape.rs",
+          "sha256": "2303fb011b22b32d56fccfe0505653af76057983da39540098b84be37abce1a5"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "e68fdf5427b2e28f49c976441d6af883a1f45fadf1950160f31a835051e95ad5"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/collections.js",
+          "sha256": "63d55193c51b297e35970684a20cf31d8608956aa1f87210af778f67c0ab8cd0"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/completion.rs",
+          "sha256": "94cea0172dc24782f16973e4dc0181db5e4ecc411f5bcf288c1eafb6c5d73346"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/control_tests.rs",
+          "sha256": "17588080043035299d94d9cd437e217ca2262b60c7f26be1d95e6fd2db92729a"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/exceptions.js",
+          "sha256": "534534a37d9d0c48b1898847615e0581b20661341d24ded64ed355785e8e366e"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/intrinsics.js",
+          "sha256": "65528ea334627dc829097e59627647382ffe716b39acb77e15c8bcbef68ebdb4"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "096c11ed82ab645df2a52c944ec29a5d2919e7b0e7e35fa7fb5ad84275e944f2"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "6e7e2a8847829b6c301131300c011337d98eddac4031effb2145fe2b9ed319c1"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "b36f7f23a82041ae79c2844c567a0a643b5f2aa097f8fc252529966866118256"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/strings.js",
+          "sha256": "c307b5ae03320e2d3b8a2fd4370050b768cfee7e01fac27b0b3bed7df00f875c"
+        },
+        {
+          "path": "crates/neoflash-script/src/lib.rs",
+          "sha256": "3b7e634f008786775f3e8dd40dca84868b92e8af3e96f633ef28de5aa4464ec3"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "871bc5aa4d2a669086b91b4b3c1b11aaf314adbfc65e9e587d430fa94ae7f4e6"
+        },
+        {
+          "path": "web/accessibility.js",
+          "sha256": "19d4bbba7af344a9d30fdb0d695dace234f6cfad5d0d5d9838c656c6a9bfedb9"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "1dbf6ae8262ea7d77920704de5cc85427a4574a0c14608a177729005fea3dbce"
+        },
+        {
+          "path": "web/events.js",
+          "sha256": "4f12e12e0e5edd0289036ce780cfcc2a80ab35cd4aea2416f1b50560323e1106"
+        },
+        {
+          "path": "web/path.js",
+          "sha256": "9286174f715ef1d1d37303aa010148a9fc593abfc2ee304599f6a2cd56f69da9"
+        },
+        {
+          "path": "web/preview.js",
+          "sha256": "1278996d0f1c0a7efe974919a8c496bbefebd5a0b5707926de03a708f4ca51fa"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "f5edad6b6d48618626897d09f90c4d37e2d8c22eda162755314059d3d09f2590"
+        },
+        {
+          "path": "web/stage.js",
+          "sha256": "44021e5058555bfcdccc91b3ca3eb825c3518b3d28a037befa42f3be021026f7"
+        }
+      ],
+      "verification": {
+        "id": "COLLECTIONS-TEXT-HTML5-20261027T0120Z",
+        "recordedHead": "a05a08dc06dcadcdb3bd14c24492e9ca8f3b8a7c",
+        "sourceCapturedAt": "2026-10-27T01:25:43.547836+00:00",
+        "verifiedAt": "2026-10-27T01:39:35.159120+00:00",
+        "sourceManifestSha256": "27c9b8cf2987588aabee4ac2992d1582696f4584388aad734e205dc6d8da9a73",
+        "browser": "Codex in-app browser",
+        "engine": "Not separately identified; no additional browser engines claimed",
+        "originalFlashComparison": "documented_only",
+        "decision": "bounded_collections_plain_text_verified_complete_delivery_blocked_by_existing_shared_pointer_click_failure",
+        "currentSourceVerified": false
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:Array.html#Array()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Empty Array() and new Array() plus multi-value new Array(...) feed the observed record pipeline and numeric sort. Single-length construction, sparse arrays and invalid lengths were not checked."
+        },
+        {
+          "catalogId": "as2:Array.html#length",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Dense input length drives three records; slice(0,2).length is 2. Length writes, holes and truncation were not checked."
+        },
+        {
+          "catalogId": "as2:Array.html#push()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Appending record objects and labels produces the final three-entry leaderboard; appended Cy is subsequently returned by pop. New-length return values were not checked."
+        },
+        {
+          "catalogId": "as2:Array.html#splice()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "splice(1,1,replacement) replaces zoe with Zoe and returns an array whose first removed record is zoe. Negative indices, variable deletion counts and sparse cases were not checked."
+        },
+        {
+          "catalogId": "as2:Array.html#unshift()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Prepending Ann is observed through the next shift returning Ann and the final leaderboard excluding Ann. The returned length was not checked."
+        },
+        {
+          "catalogId": "as2:Array.html#shift()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "After unshift, shift returns the Ann record and removes it from the final leaderboard. Empty arrays and holes were not checked."
+        },
+        {
+          "catalogId": "as2:Array.html#pop()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "After push, pop returns the Cy record and removes it from the final leaderboard. Empty arrays and holes were not checked."
+        },
+        {
+          "catalogId": "as2:Array.html#slice()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "slice(0,2) yields length 2 while the source still produces three leaderboard entries. Slice contents, negative bounds and returned-array independence were not checked."
+        },
+        {
+          "catalogId": "as2:Array.html#sortOn()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Indexed descending score sort returns 1,0,2 and preserves the first source record Ada; in-place descending score sort returns the source array and produces Zoe:45|Ada:30|Bob:20. Tied secondary keys and accessors were not checked."
+        },
+        {
+          "catalogId": "as2:Array.html#sort()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "NUMERIC sorts [30,2,11] to [2,11,30]; UNIQUESORT returns 0 for duplicate echo strings. A per-array sort override returns custom:16. Comparator callbacks, sparse cases and duplicate-array preservation were not checked."
+        },
+        {
+          "catalogId": "as2:Array.html#join()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Explicit pipe, comma and newline separators produce observed leaderboard, index-order and numeric-sort strings. Default separators and null/undefined/hole coercion were not checked."
+        },
+        {
+          "catalogId": "as2:Array.html#reverse()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "reverse() returns the exact array receiver (copy === reversed is true). The reversed element order was not logged; ordering correctness is not accepted by this check."
+        },
+        {
+          "catalogId": "as2:Array.html#DESCENDING",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Descending score sort produces 45,30,20. Equal-key ordering and combinations beyond the observed indexed/in-place paths were not checked."
+        },
+        {
+          "catalogId": "as2:Array.html#NUMERIC",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "NUMERIC sorts numeric values [30,2,11] as 2,11,30, and passing the constant to an overridden method prints 16. Numeric strings and mixed values were not checked."
+        },
+        {
+          "catalogId": "as2:Array.html#RETURNINDEXEDARRAY",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "sortOn returns indices 1,0,2 while the source first record remains Ada. Full source identity/content preservation and tied keys were not checked."
+        },
+        {
+          "catalogId": "as2:Array.html#UNIQUESORT",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Sorting two equal echo strings with UNIQUESORT returns 0. The duplicate input content after refusal and the successful unique-input path were not checked."
+        },
+        {
+          "catalogId": "AS3:constructor:Array.html#Array()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Multi-value new Array(...) supplies [30,2,11] to a numeric comparator and duplicate echo strings to UNIQUESORT. Empty/default and exotic argument cases were not checked."
+        },
+        {
+          "catalogId": "AS3:constructor:Array.html#Array():variant:ddbdf02d56c9",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "new Array(3) accepts subsequent writes at indices 0..2 and those three assigned values feed map. Initial length and holes before those writes, invalid lengths and default construction were not inspected."
+        },
+        {
+          "catalogId": "AS3:property:Array.html#length",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "After dense mutation records.length is 4 and filter produces selected.length 3. Length writes, truncation and sparse arrays were not checked."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#map()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Callbacks parse three dense input strings and then transform sorted records into the observed labels. Callback thisArg, index/source identity, holes and mutation during iteration were not checked."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#splice()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "splice(1,1,replacement) changes zoe to Zoe:45 in the resulting leaderboard. The removed-array return, negative indices and other deletion/insertion forms were not checked."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#push()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Pushing Cy:10 increases records.length to 4 before filtering yields three qualifying records. The new-length return was not checked."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#filter()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The predicate retains the three records scoring at least 20 and excludes Cy:10; selected.length is 3. thisArg, holes and mutation during iteration were not checked."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#sortOn()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Indexed descending score sort returns 1,0,2 while the source first record remains Ada; in-place sorting yields Zoe:45|Ada:30|Bob:20. Tied secondary keys, numeric-versus-lexical discrimination and in-place return identity were not checked."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#forEach()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The callback sums selected scores to 95 and the return has typeof undefined. thisArg, callback index/source identity, holes and mutation during iteration were not checked."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#every()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The all-scores-at-least-20 predicate returns true in the observed combined every/some check. A false result and early termination were not checked."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#some()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The predicate finding Zoe returns true in the observed combined every/some check. A false result, callback count and early-termination order were not checked."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#indexOf()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "An exact string search finds Ada:30 at index 1. startIndex, misses, type discrimination and sparse arrays were not checked."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#lastIndexOf()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "An exact string search finds Bob:20 at index 2. Repeated matches, startIndex, misses and sparse arrays were not checked."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#sort()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "A numeric comparator sorts [30,2,11] to [2,11,30]; UNIQUESORT returns 0 for duplicate echo strings. Native NUMERIC-flag discrimination, comparator call order and duplicate-array preservation were not checked."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#join()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Explicit pipe, comma and newline separators yield observed leaderboard, index-order and sorted-number strings. Default separators and null/undefined/hole coercion were not checked."
+        },
+        {
+          "catalogId": "AS3:constant:Array.html#DESCENDING",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Descending score sort produces 45,30,20. Equal-key ordering and other option combinations were not checked."
+        },
+        {
+          "catalogId": "AS3:constant:Array.html#RETURNINDEXEDARRAY",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "sortOn returns indices 1,0,2 while the source first record remains Ada. Full source identity/content preservation and tied keys were not checked."
+        },
+        {
+          "catalogId": "AS3:constant:Array.html#UNIQUESORT",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Sorting two equal echo strings with UNIQUESORT returns 0. Duplicate-input preservation and the successful unique-input path were not checked."
+        },
+        {
+          "catalogId": "as2:String.html#split()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Splitting each name,score input on a literal comma feeds the observed record pipeline. Empty/omitted separators, limits, holes and regular expressions were not checked."
+        },
+        {
+          "catalogId": "AS3:method:String.html#split()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Splitting each name,score input on a literal comma feeds the observed record pipeline. Empty/omitted separators, limits, holes and regular expressions were not checked."
+        },
+        {
+          "catalogId": "as2:String.html#substring()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "substring(0,3) selects ada before uppercase conversion yields ADA. Swapped, negative, omitted and out-of-range bounds were not checked."
+        },
+        {
+          "catalogId": "AS3:method:String.html#substring()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "substring(0,3) selects ada before uppercase conversion yields ADA. Swapped, negative, omitted and out-of-range bounds were not checked."
+        },
+        {
+          "catalogId": "as2:String.html#toUpperCase()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "ASCII ada is converted to ADA. Non-ASCII casing and locale behavior were not checked."
+        },
+        {
+          "catalogId": "AS3:method:String.html#toUpperCase()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "ASCII ada is converted to ADA. Non-ASCII casing and locale behavior were not checked."
+        },
+        {
+          "catalogId": "as2:String.html#substr()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "substr(4,3) selects zoe. Negative start, omitted length and out-of-range inputs were not checked."
+        },
+        {
+          "catalogId": "AS3:method:String.html#substr()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "substr(4,3) selects zoe. Negative start, omitted length and out-of-range inputs were not checked."
+        },
+        {
+          "catalogId": "as2:String.html#toLowerCase()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "toLowerCase accepts an already lowercase zoe string and returns zoe. Conversion of uppercase input and Unicode casing were not checked."
+        },
+        {
+          "catalogId": "AS3:method:String.html#toLowerCase()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "toLowerCase accepts an already lowercase zoe string and returns zoe. Conversion of uppercase input and Unicode casing were not checked."
+        },
+        {
+          "catalogId": "as2:String.html#slice()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "slice(-3) yields bob. Other negative/positive endpoint combinations and omitted arguments were not checked."
+        },
+        {
+          "catalogId": "AS3:method:String.html#slice()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "slice(-3) yields bob. Other negative/positive endpoint combinations and omitted arguments were not checked."
+        },
+        {
+          "catalogId": "as2:String.html#charAt()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "charAt(0) yields a for the sample string. Out-of-range and surrogate-unit results were not checked."
+        },
+        {
+          "catalogId": "AS3:method:String.html#charAt()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "charAt(0) yields a for the sample string. Out-of-range and surrogate-unit results were not checked."
+        },
+        {
+          "catalogId": "as2:String.html#charCodeAt()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "charCodeAt(0) yields 97 for a. Out-of-range behavior was not checked."
+        },
+        {
+          "catalogId": "AS3:method:String.html#charCodeAt()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "charCodeAt(0) yields 97; reading the emoji-containing text at offsets 1 and 2 yields UTF-16 surrogate units 55357 and 56832. Out-of-range behavior was not checked."
+        },
+        {
+          "catalogId": "as2:String.html#lastIndexOf()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "lastIndexOf(\"|\") finds the last of two separators at offset 7. Explicit startIndex and misses were not checked."
+        },
+        {
+          "catalogId": "AS3:method:String.html#lastIndexOf()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "lastIndexOf(\"|\") finds the last of two separators at offset 7. Explicit startIndex and misses were not checked."
+        },
+        {
+          "catalogId": "as2:String.html#fromCharCode()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "String.fromCharCode(65,66) yields AB. Zero handling, wrapping, surrogate pairs and invalid coercions were not checked."
+        },
+        {
+          "catalogId": "AS3:method:String.html#fromCharCode()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "String.fromCharCode(65,66) yields AB. Zero handling, wrapping, surrogate pairs and invalid coercions were not checked."
+        },
+        {
+          "catalogId": "as2:String.html#indexOf()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Searching the returned leaderboard text for CR yields index 6. Explicit startIndex, misses and coercion edge cases were not checked."
+        },
+        {
+          "catalogId": "AS3:method:String.html#indexOf()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Searching the returned leaderboard text for CR yields index 6. Explicit startIndex, misses and coercion edge cases were not checked."
+        },
+        {
+          "catalogId": "AS3:method:String.html#replace()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Literal replace(\"red\",\"$&\") on \"red red\" yields \"$& red\": first-match replacement and a literal replacement string. RegExp patterns, callbacks, misses and coercion edge cases were not checked."
+        },
+        {
+          "catalogId": "as2:TextField.html#text",
+          "status": "partial",
+          "evidenceKind": "independent_html5_browser",
+          "scopeNote": "Authored plain TextField receives the three-line leaderboard; getter exposes CR separators (first CR at index 6). Repeated after Restart. Full AS2 coercion and rich text are unverified."
+        },
+        {
+          "catalogId": "as2:TextField.html#textColor",
+          "status": "partial",
+          "evidenceKind": "independent_html5_browser",
+          "scopeNote": "RGB integer 0x70ddfa assigned in the exercised authored-text pipeline and repeated after Restart. General AS2 conversion and formatting semantics are unverified."
+        },
+        {
+          "catalogId": "as2:TextField.html#length",
+          "status": "partial",
+          "evidenceKind": "independent_html5_browser",
+          "scopeNote": "Three-line plain leaderboard reports length 20 before and after Restart. This AS2 observation does not establish all Unicode/coercion cases."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#text",
+          "status": "partial",
+          "evidenceKind": "independent_html5_browser",
+          "scopeNote": "Authored plain-text setter/getter preserves leaderboard text and CR line separators. Unicode A😀B/LF/C reads back as A😀B/CR/C after a rejected split-surrogate edit; saved leaderboard text is restored. Rich text, input and full coercion remain unsupported or unverified."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#textColor",
+          "status": "partial",
+          "evidenceKind": "independent_html5_browser",
+          "scopeNote": "RGB integer 0x48d8b0 assigned in the exercised authored-text pipeline and repeated after Restart. General uint conversion and formatting semantics are unverified."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#length",
+          "status": "partial",
+          "evidenceKind": "independent_html5_browser",
+          "scopeNote": "Leaderboard reports 30 UTF-16 code units; A😀B/LF/C reports 6, including the surrogate pair. Only these authored plain-text cases were observed."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#numLines",
+          "status": "partial",
+          "evidenceKind": "independent_html5_browser",
+          "scopeNote": "Unwrapped leaderboard reports four lines and A😀B/LF/C reports two; repeated after Restart. Wrapping and full Flash layout semantics were not checked."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#textWidth",
+          "status": "partial",
+          "evidenceKind": "independent_html5_browser",
+          "scopeNote": "Canvas-backed width was observed only as textWidth > 0 for the leaderboard. No numerical accuracy, font equivalence or Flash metric comparison was performed."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#textHeight",
+          "status": "partial",
+          "evidenceKind": "independent_html5_browser",
+          "scopeNote": "Renderer-backed height was observed only as textHeight > 0 for the leaderboard. No numerical accuracy, line-layout or Flash metric comparison was performed."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#appendText()",
+          "status": "partial",
+          "evidenceKind": "independent_html5_browser",
+          "scopeNote": "Appends LF plus Total: 95 to the authored leaderboard, producing the observed length 30 and four lines; repeated after Restart. Return value and broader argument conversions were not observed."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#replaceText()",
+          "status": "partial",
+          "evidenceKind": "independent_html5_browser",
+          "scopeNote": "Removes the four-code-unit prefix from the leaderboard. A range splitting the emoji surrogate pair raises RangeError and preserves text. Only bounded ordered UTF-16 edits were observed; return value and broader Flash range behavior were not checked."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getLineText()",
+          "status": "partial",
+          "evidenceKind": "independent_html5_browser",
+          "scopeNote": "First leaderboard line equals Zoe:45 followed by CR before and after Restart. Other line indices and invalid-index errors were not exercised in this browser run."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getLineLength()",
+          "status": "partial",
+          "evidenceKind": "independent_html5_browser",
+          "scopeNote": "First leaderboard line including CR reports 7 code units; A😀B followed by CR reports 5. Other ranges and invalid-index errors were not exercised in this browser run."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#htmlText",
+          "status": "missing",
+          "evidenceKind": "independent_html5_browser",
+          "scopeNote": "Setting HTML on an authored TextField raises the explicit plain-text-profile TypeError. A same-named MovieClip custom field remains usable. This closes silent acceptance for this case but does not implement HTML text."
+        }
+      ]
+    },
+    {
       "id": "FAMILY-HTML5-20261027T0057Z",
       "title": "Independent HTML5 acceptance: FAMILY-HTML5-20261027T0057Z",
       "reason": "not accepted as complete batch shared pointer click failure verified subsets recorded",
@@ -1594,24 +2888,6 @@
           "path": "crates/neoflash-core/src/runtime.rs",
           "line": 467,
           "sha256": "9ddb1f5458193bc01d9933323518614cff2b3d3f90287fafc30f1e1862620227"
-        }
-      ]
-    },
-    {
-      "id": "HTML5-SILENT-TEXT",
-      "title": "HTML5-SILENT-TEXT",
-      "reason": "TextField proxy text getter starts undefined; text=\"Changed\" reads back Changed, while actual scene text remains Original.",
-      "limitations": "Observed evidence: confirmed_internal. This is not an original Flash differential result.",
-      "evidence": [
-        {
-          "path": "web/runtime.js",
-          "line": 179,
-          "sha256": "ff02fdd0396a66f13c3ad77f7daf646fcd5e2273251979680f5e8b02d525f88a"
-        },
-        {
-          "path": "web/runtime.js",
-          "line": 219,
-          "sha256": "ff02fdd0396a66f13c3ad77f7daf646fcd5e2273251979680f5e8b02d525f88a"
         }
       ]
     },

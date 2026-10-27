@@ -70,11 +70,13 @@
       "title": "Classic loops and jumps",
       "status": "implemented",
       "scope": "while, do/while, three-part for, and nested break/continue with jump-target validation.",
-      "limitations": "for..in property enumeration and full compatibility of condition coercion are tracked separately.",
+      "limitations": "for..in property enumeration and full compatibility of condition coercion are tracked separately. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/src/actionscript/control_tests.rs",
-        "crates/neoflash-script/tests/control-flow-fixtures.mjs"
+        "crates/neoflash-script/tests/control-flow-fixtures.mjs",
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -193,7 +195,7 @@
       "title": "Classes, inheritance and interfaces",
       "status": "partial",
       "scope": "One public AS3 class per embedded source unit; constructors, public instance/static var and initialized const fields, project inheritance, super calls, project-method overrides and stable bound methods. Document/symbol classes attach once per active placement lifetime.",
-      "limitations": "Interfaces, accessors, private/protected/internal access, final/dynamic classes, native overrides, full lazy static dependency ordering and dynamic display-list construction remain unsupported. This is a bounded useful class profile, not full AS3.",
+      "limitations": "Interfaces, accessors, private/protected/internal access, final/dynamic classes, native overrides, full lazy static dependency ordering and dynamic display-list construction remain unsupported. This is a bounded useful class profile, not full AS3. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "docs/COMPATIBILITY.md",
@@ -203,7 +205,8 @@
         "crates/neoflash-script/tests/project.rs",
         "crates/neoflash-script/tests/project-execute.mjs",
         "examples/project-program.nflash",
-        "docs/VERIFICATION.md"
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -277,18 +280,24 @@
         "examples/as-intrinsics.nflash",
         "docs/VERIFICATION.md",
         "crates/neoflash-script/src/actionscript/strings.js",
-        "crates/neoflash-script/tests/strings-fixtures.mjs"
+        "crates/neoflash-script/tests/strings-fixtures.mjs",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
       "id": "as3-math",
       "title": "Math",
       "status": "partial",
-      "scope": "A closed list of numeric Math methods, including trigonometry, abs, min/max, pow, random and round.",
-      "limitations": "Execution is delegated to JavaScript; the full contract and numerical equivalence with Flash are not certified.",
+      "scope": "A closed list of numeric Math methods, including trigonometry, abs, min/max, pow, random and round. Exact project imports also expose finite Point/Rectangle/Matrix values: point arithmetic, rectangle queries and affine matrix construction/composition/inversion/coordinate mapping. Display bounds and coordinate conversion use the same value classes.",
+      "limitations": "Execution is delegated to JavaScript; the full contract and numerical equivalence with Flash are not certified. The shared geometry profile requires finite numbers and rejects overflow/singular inversion; Transform, 3D values and complete historical coercion/native-slot behavior remain pending. The combined geometry/Timer browser workflow and Restart passed.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "web/geom.js",
+        "web/display.js",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/tests/geometry-timer.mjs",
+        "examples/geometry-timer.nflash"
       ]
     },
     {
@@ -308,7 +317,8 @@
         "crates/neoflash-script/tests/collections-fixtures.mjs",
         "crates/neoflash-script/tests/strings-fixtures.mjs",
         "crates/neoflash-script/tests/project-execute.mjs",
-        "examples/collections-text.nflash"
+        "examples/collections-text.nflash",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -370,8 +380,8 @@
       "id": "as3-events",
       "title": "Events and handlers",
       "status": "partial",
-      "scope": "Shared EventDispatcher add/remove/has/willTrigger/dispatch with capture/target/bubble, priorities, phase snapshots, cancellation and redispatch cloning. Event/MouseEvent/KeyboardEvent facades, Stage dimensions/frameRate/focus and bounded pointer/keyboard input share placement lifetimes.",
-      "limitations": "Aggregation targets, full lifecycle/broadcast ordering, AS3 GC equivalence, fullscreen/scale modes, IME/touch and complete focus/input behavior remain pending. Exposed constants do not imply automatic lifecycle events; current fitted export has fixed logical Stage dimensions. Representative Stage behavior passed in the shared in-app-browser batch; native Sources and broader input acceptance remain pending. Independent frozen-01f1381 browser verification found trusted mouse click events with isPrimary=false dropped by the shared Stage guard; semantic Enter and keyboard paths passed. The corrected input route passed coordinate clicks and Restart in the original class/Stage examples; an unlocated aggregate observer exception remains open.",
+      "scope": "Shared EventDispatcher add/remove/has/willTrigger/dispatch with capture/target/bubble, priorities, phase snapshots, cancellation and redispatch cloning. Event/MouseEvent/KeyboardEvent facades, Stage dimensions/frameRate/focus and bounded pointer/keyboard input share placement lifetimes. Imported Timer/TimerEvent add start/stop/reset, delay/repeatCount/currentCount/running, TIMER then TIMER_COMPLETE, listener dispatch and updateAfterEvent. Imported getTimer reads elapsed session milliseconds; Restart cancels old timers/listeners and rebases the clock.",
+      "limitations": "Aggregation targets, full lifecycle/broadcast ordering, AS3 GC equivalence, fullscreen/scale modes, IME/touch and complete focus/input behavior remain pending. Exposed constants do not imply automatic lifecycle events; current fitted export has fixed logical Stage dimensions. Representative Stage behavior passed in the shared in-app-browser batch; native Sources and broader input acceptance remain pending. Independent frozen-01f1381 browser verification found trusted mouse click events with isPrimary=false dropped by the shared Stage guard; semantic Enter and keyboard paths passed. The corrected input route passed coordinate clicks and Restart in the original class/Stage examples; an unlocated aggregate observer exception remains open. Timers accept finite bounded delays/repeat counts, schedule at least 1 ms and allow 1,024 concurrent runs by default. Browser throttling/catch-up, historical coercion/error IDs, public interval/timeout facades and full native inheritance remain outside this profile; the combined geometry/Timer browser workflow and Restart passed. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -381,7 +391,11 @@
         "web/tests/events.test.cjs",
         "web/tests/stage.test.cjs",
         "examples/events-stage.nflash",
-        "docs/VERIFICATION.md"
+        "docs/VERIFICATION.md",
+        "web/timers.js",
+        "crates/neoflash-script/tests/geometry-timer.mjs",
+        "examples/geometry-timer.nflash",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -412,7 +426,9 @@
         "crates/neoflash-web/src/lib.rs",
         "crates/neoflash-core/tests/display_family.rs",
         "web/tests/display-family.test.cjs",
-        "examples/collections-text.nflash"
+        "examples/collections-text.nflash",
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {

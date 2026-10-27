@@ -70,11 +70,13 @@
       "title": "Classic loops and jumps",
       "status": "implemented",
       "scope": "while, do/while, three-part for, and nested break/continue with jump-target validation.",
-      "limitations": "for..in property enumeration and full compatibility of condition coercion are tracked separately.",
+      "limitations": "for..in property enumeration and full compatibility of condition coercion are tracked separately. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/src/actionscript/control_tests.rs",
-        "crates/neoflash-script/tests/control-flow-fixtures.mjs"
+        "crates/neoflash-script/tests/control-flow-fixtures.mjs",
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -194,7 +196,7 @@
       "title": "Classes, inheritance and interfaces",
       "status": "partial",
       "scope": "One qualified class per matching source path; public/default instance/static members, scalar prototype defaults, same-dialect inheritance/super, shared unbound writable methods and constructor-created objects. Existing instances observe prototype method replacement.",
-      "limitations": "Interfaces/accessors, nonpublic access control, non-scalar inline defaults, mixed-dialect inheritance, class-as-function casts and unsupported super value extraction diagnose. Complete prototype/reflection, construction and static initialization order are pending.",
+      "limitations": "Interfaces/accessors, nonpublic access control, non-scalar inline defaults, mixed-dialect inheritance, class-as-function casts and unsupported super value extraction diagnose. Complete prototype/reflection, construction and static initialization order are pending. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "docs/COMPATIBILITY.md",
@@ -203,7 +205,9 @@
         "crates/neoflash-script/src/actionscript/project-runtime.js",
         "crates/neoflash-script/tests/project-execute.mjs",
         "crates/neoflash-script/tests/as2-project-input.mjs",
-        "examples/as2-project-input.nflash"
+        "examples/as2-project-input.nflash",
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -262,8 +266,8 @@
       "id": "as2-primitive-globals",
       "title": "Primitives and global conversions",
       "status": "partial",
-      "scope": "Number, Boolean, parseFloat, isNaN and isFinite retain JavaScript-backed conversions. String now uses the bounded primitive family facade; parseInt retains its separate pinned AS2 profile and earlier HTML5 acceptance.",
-      "limitations": "Complete historical coercions, boxed values and the full standard library remain unfinished. Array/String expectations are documented_only; the combined browser pipeline passed without original Flash comparison.",
+      "scope": "Number, Boolean, parseFloat, isNaN and isFinite retain JavaScript-backed conversions. String now uses the bounded primitive family facade; parseInt retains its separate pinned AS2 profile and earlier HTML5 acceptance. Bare getTimer() reads signed 32-bit elapsed milliseconds from the publication session clock.",
+      "limitations": "Complete historical coercions, boxed values and the full standard library remain unfinished. Array/String expectations are documented_only; the combined browser pipeline passed without original Flash comparison. Restart rebases the clock; this does not add AS2 interval/timeout APIs or establish historical timing equivalence. The combined geometry/clock browser workflow and Restart passed.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
@@ -272,18 +276,28 @@
         "examples/as-intrinsics.nflash",
         "docs/VERIFICATION.md",
         "crates/neoflash-script/src/actionscript/strings.js",
-        "crates/neoflash-script/tests/strings-fixtures.mjs"
+        "crates/neoflash-script/tests/strings-fixtures.mjs",
+        "docs/progress/actionscript-audit.json",
+        "web/timers.js",
+        "web/runtime.js",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/tests/project-execute.mjs"
       ]
     },
     {
       "id": "as2-math",
       "title": "Math",
       "status": "partial",
-      "scope": "A closed list of numeric Math methods, including trigonometry, abs, min/max, pow, random and round.",
-      "limitations": "Execution is delegated to JavaScript; the full contract and numerical equivalence with Flash are not certified.",
+      "scope": "A closed list of numeric Math methods, including trigonometry, abs, min/max, pow, random and round. Exact project imports also expose finite Point/Rectangle/Matrix values: point arithmetic, rectangle queries and affine matrix construction/composition/inversion/coordinate mapping. Display bounds and coordinate conversion use the same value classes.",
+      "limitations": "Execution is delegated to JavaScript; the full contract and numerical equivalence with Flash are not certified. The shared geometry profile requires finite numbers and rejects overflow/singular inversion; Transform, 3D values and complete historical coercion/native-slot behavior remain pending. The combined geometry/Timer browser workflow and Restart passed.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "web/geom.js",
+        "web/display.js",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/tests/geometry-timer.mjs",
+        "examples/geometry-timer.nflash"
       ]
     },
     {
@@ -301,7 +315,9 @@
         "crates/neoflash-script/tests/collections-fixtures.mjs",
         "crates/neoflash-script/tests/strings-fixtures.mjs",
         "crates/neoflash-script/tests/project-execute.mjs",
-        "examples/collections-text.nflash"
+        "examples/collections-text.nflash",
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -321,7 +337,7 @@
       "title": "MovieClip and timelines",
       "status": "partial",
       "scope": "play/stop, gotoAndPlay/gotoAndStop and nextFrame/prevFrame return undefined; current/total frames, named children and independent nested clocks remain available. AS2 labels use ASCII folding, first duplicate match and missing-label no-op; bounded numeric strings take precedence. Linked AS2 MovieClip classes retain the same captured timeline bridge and per-placement lifetime.",
-      "limitations": "This is a limited MovieClip facade; complete construction/re-entry, scenes, dynamic display lists and the Flash lifecycle are not implemented. Native goto aliases and complete historical numeric and lookup rules are unsupported.",
+      "limitations": "This is a limited MovieClip facade; complete construction/re-entry, scenes, dynamic display lists and the Flash lifecycle are not implemented. Native goto aliases and complete historical numeric and lookup rules are unsupported. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -339,7 +355,8 @@
         "crates/neoflash-script/tests/project-execute.mjs",
         "crates/neoflash-script/tests/as2-project-input.mjs",
         "examples/as2-project-input.nflash",
-        "web/legacy-input.js"
+        "web/legacy-input.js",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -347,7 +364,7 @@
       "title": "Display properties",
       "status": "partial",
       "scope": "Position, scale, alpha, bounded finite rotation readback, visibility, root/parent and AS2 aliases including _name/_width/_height. The shared facade supplies name lookup, transformed bounds/coordinates and supported nonrotated dimension changes.",
-      "limitations": "Full MovieClip APIs, dynamic placements, masks/filters and TextField/Button contracts remain incomplete. Rotated dimension writes and noninvertible coordinate conversions diagnose; legacy rotation/visibility coercion is not full AVM1 conformance. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance.",
+      "limitations": "Full MovieClip APIs, dynamic placements, masks/filters and TextField/Button contracts remain incomplete. Rotated dimension writes and noninvertible coordinate conversions diagnose; legacy rotation/visibility coercion is not full AVM1 conformance. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -359,7 +376,8 @@
         "web/display.js",
         "crates/neoflash-core/tests/display_family.rs",
         "web/tests/display-family.test.cjs",
-        "examples/display-family.nflash"
+        "examples/display-family.nflash",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -367,7 +385,7 @@
       "title": "Events and handlers",
       "status": "partial",
       "scope": "Authored handlers and onEnterFrame/onPress callbacks include live inherited AS2 prototype lookup. Captured Key/Mouse/Stage singletons provide object listeners, keyboard state, mouse visibility and logical resize with snapshot/reset/lifetime cleanup.",
-      "limitations": "Other native callbacks, AsBroadcaster, Selection, source on/onClipEvent wrappers, toggled-key/cross-domain/IME behavior and exact Flash lifecycle ordering remain pending. ASCII/layout and logical Stage resize are bounded browser profiles; representative coordinate clicks, keyboard and Restart passed in the AS2 browser batch.",
+      "limitations": "Other native callbacks, AsBroadcaster, Selection, source on/onClipEvent wrappers, toggled-key/cross-domain/IME behavior and exact Flash lifecycle ordering remain pending. ASCII/layout and logical Stage resize are bounded browser profiles; representative coordinate clicks, keyboard and Restart passed in the AS2 browser batch. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -379,7 +397,8 @@
         "docs/VERIFICATION.md",
         "web/legacy-input.js",
         "crates/neoflash-script/tests/as2-project-input.mjs",
-        "examples/as2-project-input.nflash"
+        "examples/as2-project-input.nflash",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -410,7 +429,9 @@
         "crates/neoflash-web/src/lib.rs",
         "crates/neoflash-core/tests/display_family.rs",
         "web/tests/display-family.test.cjs",
-        "examples/collections-text.nflash"
+        "examples/collections-text.nflash",
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -473,10 +494,12 @@
       "title": "Source on / onClipEvent wrappers",
       "status": "planned",
       "scope": "Parsing legacy object-script wrappers and compatible AS2 event registration.",
-      "limitations": "The editor event selector accepts only a handler body; source wrappers are unsupported.",
+      "limitations": "The editor event selector accepts only a handler body; source wrappers are unsupported. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {

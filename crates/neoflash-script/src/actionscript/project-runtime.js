@@ -104,7 +104,8 @@ const __nfProgram = (() => {
         if (base) {
             const prototype = type(base).prototype;
             if (prototype) for (const key of Object.getOwnPropertyNames(prototype)) {
-                if (key !== 'constructor' && !Object.hasOwn(view, key) && typeof prototype[key] === 'function') view[key] = prototype[key].bind(receiver);
+                const method = Object.getOwnPropertyDescriptor(prototype,key)?.value;
+                if (key !== 'constructor' && !Object.hasOwn(view, key) && typeof method === 'function') view[key] = method.bind(receiver);
             }
         }
         cache.set(name, view);

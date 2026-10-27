@@ -34,7 +34,7 @@
       "title": "Classic workspace",
       "status": "partial",
       "scope": "Stage, tools, timeline, library, Properties and Actions; Light/Dark themes, saved panel layout and detached Tools/Timeline/Actions. Actions now includes Sources editing, source import/removal, linkage fields and source-specific project-check feedback.",
-      "limitations": "Native Sources editing/feedback/save/reopen acceptance is pending. Drag-to-dock, tabs/splits and named presets are missing; VoiceOver/IME and multiple monitors are not fully verified.",
+      "limitations": "Native Sources editing/feedback/save/reopen acceptance is pending. Drag-to-dock, tabs/splits and named presets are missing; VoiceOver/IME and multiple monitors are not fully verified. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
       "evidence": [
         "crates/neoflash-editor/src/panels.rs",
         "crates/neoflash-editor/src/detached.rs",
@@ -42,7 +42,8 @@
         "crates/neoflash-editor/src/panel_tests.rs",
         "docs/WORKSPACE.md",
         "docs/VERIFICATION.md",
-        "crates/neoflash-editor/src/sources.rs"
+        "crates/neoflash-editor/src/sources.rs",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -154,7 +155,9 @@
         "crates/neoflash-core/tests/display_family.rs",
         "web/tests/display-family.test.cjs",
         "examples/collections-text.nflash",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -378,8 +381,8 @@
       "category": "web",
       "title": "Authored events and interactivity",
       "status": "partial",
-      "scope": "Authored frame/Load/Click/EnterFrame handlers plus shared display/Stage EventDispatcher subscriptions, propagation/cancellation, bounded keyboard/pointer input and AS2 onEnterFrame/onPress callbacks. Captured AS2 Key/Mouse/Stage listener objects, keyboard state and hook-based cursor visibility share the same input hub and reset lifecycle.",
-      "limitations": "Full Flash construction/event order, remaining native callbacks, fullscreen/IME/touch and complete owner-specific API guards remain unfinished. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent frozen-01f1381 browser verification found trusted mouse click events with isPrimary=false dropped by the shared Stage guard; semantic Enter and keyboard paths passed. The corrected input route passed coordinate clicks and Restart in the original class/Stage examples; an unlocated aggregate observer exception remains open. The new AS2 combined scenario has executable host/WASM evidence; representative coordinate clicks, keyboard and Restart also passed in the in-app browser.",
+      "scope": "Authored frame/Load/Click/EnterFrame handlers plus shared display/Stage EventDispatcher subscriptions, propagation/cancellation, bounded keyboard/pointer input and AS2 onEnterFrame/onPress callbacks. Captured AS2 Key/Mouse/Stage listener objects, keyboard state and hook-based cursor visibility share the same input hub and reset lifecycle. Publication-owned AS3 timers drive the same script/render lifecycle, with completion, elapsed-time queries and Restart cleanup; the geometry-timer example combines this with typed affine geometry and live text.",
+      "limitations": "Full Flash construction/event order, remaining native callbacks, fullscreen/IME/touch and complete owner-specific API guards remain unfinished. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent frozen-01f1381 browser verification found trusted mouse click events with isPrimary=false dropped by the shared Stage guard; semantic Enter and keyboard paths passed. The corrected input route passed coordinate clicks and Restart in the original class/Stage examples; an unlocated aggregate observer exception remains open. The new AS2 combined scenario has executable host/WASM evidence; representative coordinate clicks, keyboard and Restart also passed in the in-app browser. The combined geometry/Timer browser workflow and Restart passed; historical Flash timing and cross-engine conformance remain unverified. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
       "evidence": [
         "crates/neoflash-core/src/runtime.rs",
         "web/runtime.js",
@@ -396,7 +399,12 @@
         "docs/VERIFICATION.md",
         "web/legacy-input.js",
         "crates/neoflash-script/tests/as2-project-input.mjs",
-        "examples/as2-project-input.nflash"
+        "examples/as2-project-input.nflash",
+        "web/timers.js",
+        "crates/neoflash-script/tests/geometry-timer.mjs",
+        "examples/geometry-timer.nflash",
+        "web/geom.js",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {

@@ -12,6 +12,7 @@ mod scope;
 #[derive(Clone, Default)]
 struct CompileContext {
     types: std::collections::BTreeMap<String, String>,
+    functions: std::collections::BTreeMap<String, String>,
     members: std::collections::BTreeMap<String, Option<String>>,
     static_members: std::collections::BTreeMap<String, String>,
     static_method: bool,
@@ -1304,6 +1305,14 @@ impl Emitter<'_> {
             .is_some_and(|(_, b)| b.ty.is_some())
     }
     fn name(&self, name: &str) -> String {
+        if self.analysis.resolve(self.scope, name).is_none() && (!self.as3 && name == "getTimer") {
+            return "__nfProgram.type(\"flash.utils.getTimer\")".into();
+        }
+        if self.analysis.resolve(self.scope, name).is_none()
+            && let Some(path) = self.analysis.context.functions.get(name)
+        {
+            return format!("__nfProgram.type({path:?})");
+        }
         if !self.as3
             && self.analysis.resolve(self.scope, name).is_none()
             && matches!(name, "Key" | "Mouse" | "Stage")
@@ -1460,7 +1469,12 @@ impl Emitter<'_> {
                 .analysis
                 .resolve(self.scope, name.split('.').next().unwrap())
                 .is_none()
-            && let Some(qname) = self.analysis.context.types.get(&name)
+            && let Some(qname) = self
+                .analysis
+                .context
+                .types
+                .get(&name)
+                .or_else(|| self.analysis.context.functions.get(&name))
         {
             return format!("__nfProgram.type({qname:?})");
         }
@@ -1615,6 +1629,23 @@ impl Emitter<'_> {
                 self.expression(no)
             ),
             Expr::Call(callee, args, _) => {
+                if let Some(name) = qualified_name(callee)
+                    && self
+                        .analysis
+                        .resolve(self.scope, name.split('.').next().unwrap())
+                        .is_none()
+                    && (self.analysis.context.functions.contains_key(&name)
+                        || (!self.as3 && name == "getTimer"))
+                {
+                    return format!(
+                        "({})({})",
+                        self.expression(callee),
+                        args.iter()
+                            .map(|a| self.expression(a))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
                 if let Expr::Name(name) = callee.as_ref()
                     && self.analysis.resolve(self.scope, name).is_none()
                 {

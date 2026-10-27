@@ -22,11 +22,15 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   }));
   const globals = { NeoFlashDisplay:require(resolve(root,'web/display.js')), NeoFlashEvents:require(resolve(root,'web/events.js')),
     NeoFlashStage:require(resolve(root,'web/stage.js')), NeoFlashLegacyInput:require(resolve(root,'web/legacy-input.js')), NeoFlashAccessibility:require(resolve(root,'web/accessibility.js')) };
+  globals.NeoFlashGeom=require(resolve(root,'web/geom.js'));
+  const timerModule=require(resolve(root,'web/timers.js'));
+  globals.NeoFlashTimers={create:settings=>timerModule.create({...settings,...options.timers})};
+  globals.requestAnimationFrame=options.requestAnimationFrame||(callback=>queueMicrotask(callback));
   if(options.keyTarget){globals.addEventListener=options.keyTarget.addEventListener.bind(options.keyTarget);globals.removeEventListener=options.keyTarget.removeEventListener.bind(options.keyTarget);}
   const host = new Function('player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'traceSpy', 'global', 'bundle', 'project', 'context', 'font', 'canvas', 'viewport',
     'const proxies = new Map(); const render = () => {}; let lastTrace = "";\n' + runtime.slice(start, end) +
     '\nconst originalTrace = trace; trace = (...args) => { traceSpy(...args); return originalTrace(...args); };\n' +
-    'initializeFamily(); return { proxyFor, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, disposeFamily, display:()=>display, stage:()=>stageHost, legacy:()=>legacyGlobals, program:()=>program, lastTrace: () => lastTrace };'
+    'initializeFamily(); return { proxyFor, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, disposeFamily, stopTimers, display:()=>display, stage:()=>stageHost, legacy:()=>legacyGlobals, timers:()=>timerHost, program:()=>program, lastTrace: () => lastTrace };'
   )(player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args),
     globals, options.bundle, options.project || options.bundle?.project, options.context, kind=>`${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`, options.canvas, options.keyboardTarget);
   return { host, traceCalls, hostConsole, scriptConsole };

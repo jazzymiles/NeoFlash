@@ -2,6 +2,26 @@
 
 Date: 2026-10-27. This record covers the development preview, vector/object tools and clipboard, authored web semantics, ActionScript functions/control flow/exceptions, the bounded project/display/events family batch and binary preservation. It does not establish complete Flash compatibility. Historical desktop/browser observations apply only to their named increments; current family browser evidence and pending native acceptance are recorded below.
 
+## Independent AS2/input verification of a3fedc3
+
+Run `AS2-INPUT-HTML5-20261027T0140Z` pinned all 128 source fingerprints to `a3fedc33553b0c15885aca973769e2e4c6c96c21` and independently published five original projects using the matching exporter/bindings/WASM. Actual coordinate clicks now reach both original AS3 class listeners and the Stage example; listener removal/re-add, keyboard and Restart pass. This independently closes `FAMILY-INPUT-001` in the observed in-app-browser mouse route. Earlier 01f1381/a05a08d failures remain historical evidence, not current results for the corrected snapshot.
+
+The AS2 project demonstrates qualified sources/imports, inheritance/super, independent initialized instance fields and shared static state. Two clicks plus Left/Right give two counts per instance/shared total four; Space and Restart reset correctly. Key-up state is false. H/S changes the observed Canvas inline cursor from none to pointer. After Restart the next click produces one Mouse callback and one component callback. Stage width/height were observed; logical resize and legacy listener removal were not tested in-browser. 30 exact catalogue overrides remain partial. Original collection/text output and numeric startup traces are shared regression controls.
+
+Standalone scenarios have no console error. The aggregate MutationObserver exception remains unlocated (`FAMILY-HARNESS-001`, needs_review); it does not erase the measured standalone results. Only Codex in-app browser was exercised, engine/version not separately identified, original Flash not run (`documented_only`). Native Sources/D-008 stays pending, and later geometry/timer work inherits no pass. Main automated tests remain reported supplemental evidence.
+
+The public [normalized audit](progress/actionscript-audit.json) retains sanitized per-entry provenance. Local acceptance, AS2 pixels and Stage restart screenshots remain under ignored `target/html5-as2-input-independent-20261027T0140Z/`; full local evidence is in `docs/actionscript-reference/implementation-evidence.json`.
+
+## Independent collections/text verification of a05a08d
+
+Run `COLLECTIONS-TEXT-HTML5-20261027T0120Z` independently built the exporter from immutable commit `a05a08dc06dcadcdb3bd14c24492e9ca8f3b8a7c`; all 71 source fingerprints match. Bindings/WASM were pinned to the same committed publication. One ordinary five-case export/browser batch verified AS2/AS3 data processing through visible authored text/color, a repeated result after Restart, bounded UTF-16 line/edit contracts, and an explicit unsupported htmlText diagnostic beside a valid same-named custom MovieClip field. 71 exact declaration overrides preserve partial scope (22 missing to partial); htmlText remains missing.
+
+The existing `FAMILY-INPUT-001` still reproduces on this snapshot: an actual pointer click does not reach the Stage listener; Enter and ArrowRight do. Linked AS3 class keyboard activation/static state/Restart and numeric startup traces remain positive regression controls. Useful data/text subsets are retained, but the shared input defect still prevents complete delivery acceptance. The aggregate tab again logs a MutationObserver exception (`FAMILY-HARNESS-001`); standalone collections/text has no console error. DOM readiness is not behavior acceptance.
+
+Only Codex in-app browser was independently tested; engine/version was not separately identified and original Flash was not run (`documented_only`). Metrics were only tested positive, not for Flash font-engine equality. Rich formatting, input/wrapping, embedded fonts and dynamic TextField construction remain outside the profile. Later AS2 classes/classic input/guard changes inherit no results. Native Sources/D-008 remains pending; no unsaved document was touched. Main shared-suite results are supplemental reported evidence, not an independent rerun.
+
+The public [normalized audit](progress/actionscript-audit.json) retains sanitized per-entry provenance. Full local fixtures, expected/actual traces and fingerprints remain in `docs/actionscript-reference/implementation-evidence.json`; local acceptance and screenshots are under ignored `target/html5-collections-independent-20261027T0120Z/`. Historical binary-cache regeneration is disclosed separately in the record; prior measured artifact hashes and published evidence are not replaced.
+
 ## Independent family verification of 01f1381
 
 Run `FAMILY-HTML5-20261027T0057Z` independently reused exporter/JS/WASM after all 69 recorded source hashes matched commit `01f13815a115626411c40ca04e8c13da1beadb71`. The ordinary seven-case export/browser batch confirmed selected class/typed-field/Restart, display geometry, AS2 callback, keyboard and regression behavior. It did **not accept the complete package**: real trusted mouse clicks are silently discarded by the shared `isPrimary === false` guard in `web/stage.js`, while semantic Enter activation succeeds. A diagnostic extension of the existing event scenario recorded `PointerEvent`, `isTrusted=true`, `isPrimary=false`, `pointerType=mouse`, `button=0`. The unchanged original class example reproduces the same failure. Legacy authored Click and AS2 onPress remain functional.
@@ -27,7 +47,19 @@ Important regressions include independent nested clocks while a parent is stoppe
 
 The build emits an upstream future-compatibility notice for the Metal dependency `block 0.1.6`. This is not a current compilation or Clippy error; dependency modernization remains tracked work.
 
+## Geometry and Timer family — 27 October
+
+One shared `scripts/check.sh` run passed with unchanged totals: 309 workspace Rust tests, four adapter tests, 66 Node tests and 90 compiler fixtures. The existing project executor additionally runs one combined geometry/Timer workflow. It uses the ordinary exporter, actual WASM and shipped host with a deterministic scheduler: typed geometry returned by display methods, four ticks, completion, elapsed time, Restart, stale timer invalidation and disposal. Existing project checks also cover native Point/Timer subclass initialization and imported/qualified/locally shadowed getTimer. No per-method browser matrix was added. Log: `target/verification/geometry-timer-integrated-check.log`.
+
+The in-app browser loaded all eleven ordinary exports in run `20261027T014838Z-42816a36`. The new geometry example produced four marker positions `(320,256)`, `(460,292)`, `(600,328)`, `(740,364)` with typed bounds `32 × 32`, followed by `geometry complete 4 4 false`. The visible status and marker agreed. Restart visibly restored the starting marker and zero count, then repeated exactly the same four position/bounds traces and one completion. Elapsed browser time was observed but is not asserted as exact scheduling conformance.
+
+Runtime overlays, dashboard observation errors and captured console errors were all zero in this run. The earlier unlocated `FAMILY-HARNESS-001` observer exception did not reproduce; its source remains unresolved and it is not declared fixed. The other ten examples received startup checks only. Browser engine/version was not independently identified, original Flash was not run, and native Sources acceptance remains pending. Artifacts: `target/verification/geometry-timer-browser/observations.json`, `console.json`, `restart.png` and `complete.png`.
+
+The optimized macOS package built and strict codesign verification passed. Executable SHA-256 `7e4b3d4f5b37156f035ef9aadbcba144c46f4aaf158191a28e7861f514cdac3d`; WASM `27797ba59dc7f2b53f67499c4ee9cb1cddc2b1b873f80c6796d0c30c268c701d`; exporter `9f0c3eae8974cb009903da785ac31fa3ea53e747a4bab5f97cfaa7df29566b03`. Source/build identity is retained in `target/verification/geometry-timer-build-evidence.json`.
+
 ## AS2 project classes and classic input — 27 October
+
+Published `a3fedc3` passed the complete [GitHub Check workflow](https://github.com/jazzymiles/NeoFlash/actions/runs/40433660794) and Progress Pages.
 
 The shared `scripts/check.sh` run passed once for this delivery: 309 workspace Rust tests, four adapter tests, 66 Node tests and 90 compiler fixtures, with AS2 added to the existing combined project scenario. Test counts did not increase. The scenario publishes the original `examples/as2-project-input.nflash` through the ordinary exporter and actual WASM/host; it covers inherited linked instances, shared prototypes/statics, erased annotations, keyboard/mouse/Stage listeners, lifetime cleanup and Restart. Log: `target/verification/as2-program-input-check.log`.
 

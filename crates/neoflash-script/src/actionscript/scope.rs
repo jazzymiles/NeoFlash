@@ -414,7 +414,7 @@ impl<'a> Analysis<'a> {
                 let user_binding=binding.is_some_and(|(_,b)| self.script.language==ScriptLanguage::ActionScript2 || !b.ty.as_deref().is_some_and(|t|matches!(t,"Number"|"String"|"Boolean"|"int"|"uint")));
                 let shadowed_math=matches!(callee.as_ref(),Expr::Member(base,_) if matches!(base.as_ref(),Expr::Name(name) if name=="Math" && self.resolve(scope,name).is_some()));
                 let project_call = self.context.project && match callee.as_ref() {
-                    Expr::Name(name) => self.context.types.contains_key(name) || project::is_host_method(name) || (name == "super" && self.context.class_name.is_some()),
+                    Expr::Name(name) => self.context.types.contains_key(name) || self.context.functions.contains_key(name) || project::is_host_method(name) || (name == "super" && self.context.class_name.is_some()),
                     Expr::Member(_, _) => true,
                     _ => false,
                 };

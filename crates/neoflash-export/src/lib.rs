@@ -17,6 +17,8 @@ const PREVIEW: &str = include_str!("../../../web/preview.js");
 const EVENTS: &str = include_str!("../../../web/events.js");
 const STAGE: &str = include_str!("../../../web/stage.js");
 const LEGACY_INPUT: &str = include_str!("../../../web/legacy-input.js");
+const GEOMETRY: &str = include_str!("../../../web/geom.js");
+const TIMERS: &str = include_str!("../../../web/timers.js");
 const DISPLAY: &str = include_str!("../../../web/display.js");
 const MARKER: &str = "neoflash-export.json";
 
@@ -235,6 +237,8 @@ pub fn export_project(
         ("events.js", EVENTS),
         ("stage.js", STAGE),
         ("legacy-input.js", LEGACY_INPUT),
+        ("geom.js", GEOMETRY),
+        ("timers.js", TIMERS),
         ("display.js", DISPLAY),
         ("bundle.js", bundle_js.as_str()),
         ("README.txt", readme.as_str()),
@@ -307,6 +311,8 @@ fn html_document(title: &str) -> String {
   <script defer src="events.js"></script>
   <script defer src="stage.js"></script>
   <script defer src="legacy-input.js"></script>
+  <script defer src="geom.js"></script>
+  <script defer src="timers.js"></script>
   <script defer src="display.js"></script>
   <script defer src="runtime.js"></script>
 </head>

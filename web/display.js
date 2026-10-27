@@ -1,6 +1,9 @@
 /* MovieClip/DisplayObject facade over the shared Rust placement graph. */
 (function (global) {
   'use strict';
+  const geometry=typeof module!=='undefined'&&module.exports?require('./geom.js'):global.NeoFlashGeom;
+  if(!geometry)throw new Error('The geometry runtime is missing. Re-export this project.');
+  const {Point,Rectangle,Matrix}=geometry;
   const UNHANDLED = Symbol('unhandled display member');
   const identity = [1, 0, 0, 1, 0, 0];
   const samePath = (a, b) => a.length === b.length && a.every((id, i) => id === b[i]);
@@ -13,14 +16,6 @@
     if (!Number.isFinite(d) || Math.abs(d)<1e-12) throw new RangeError('Coordinate conversion requires an invertible target transform.');
     return [m[3]/d,-m[1]/d,-m[2]/d,m[0]/d,(m[2]*m[5]-m[3]*m[4])/d,(m[1]*m[4]-m[0]*m[5])/d];
   }
-  function Point(x=0,y=0) { this.x=Number(x); this.y=Number(y); }
-  Point.__nfIs = value => value instanceof Point;
-  Point.prototype.clone=function(){return new Point(this.x,this.y);};
-  function Rectangle(x=0,y=0,width=0,height=0) { this.x=Number(x);this.y=Number(y);this.width=Number(width);this.height=Number(height); }
-  Rectangle.__nfIs=value=>value instanceof Rectangle;
-  Rectangle.prototype.clone=function(){return new Rectangle(this.x,this.y,this.width,this.height);};
-  Rectangle.prototype.contains=function(x,y){return x>=this.x && y>=this.y && x<this.right && y<this.bottom;};
-  for (const [name,get] of Object.entries({left(){return this.x;},top(){return this.y;},right(){return this.x+this.width;},bottom(){return this.y+this.height;},xMin(){return this.x;},yMin(){return this.y;},xMax(){return this.x+this.width;},yMax(){return this.y+this.height;}})) Object.defineProperty(Rectangle.prototype,name,{get});
   function normalizedRotation(value) { const r=value%360;return r>180?r-360:r< -180?r+360:r; }
   const textProperties=new Set(['text','textColor','length','numLines','textWidth','textHeight']);
   const unsupportedText=new Set(['htmlText','defaultTextFormat','styleSheet','type','selectable','multiline','wordWrap','autoSize','embedFonts','displayAsPassword','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','background','backgroundColor','border','borderColor','antiAliasType','gridFitType','sharpness','thickness','condenseWhite','getTextFormat','setTextFormat','getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineIndexOfChar','getLineMetrics','getLineOffset','getParagraphLength','getFirstCharInParagraph','setSelection','replaceSelectedText']);
@@ -205,7 +200,7 @@
     function prune(){for(const[id,record]of legacy)if(!alive(record.target))legacy.delete(id);}
     function enterFrame(){prune();for(const record of [...legacy.values()]){if(!alive(record.target))continue;const handler=callback(record,'onEnterFrame');if(handler)Reflect.apply(handler,record.target,[]);}}
     function press(target){prune();while(target&&referenceOf(target)){const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime),handler=callback(record,'onPress');if(handler){Reflect.apply(handler,target,[]);return;}target=ref.path.length?proxyFor(ref.path.slice(0,-1)):null;}}
-    const builtins={'flash.geom.Point':Point,'flash.geom.Rectangle':Rectangle};
+    const builtins={'flash.geom.Point':Point,'flash.geom.Rectangle':Rectangle,'flash.geom.Matrix':Matrix};
     for(const[name,owners]of Object.entries({DisplayObject:null,DisplayObjectContainer:['movie_clip','graphic','button'],MovieClip:['movie_clip'],Sprite:['movie_clip','graphic','button'],TextField:['text']})) {
       function NativeDisplay(){throw new TypeError(`Dynamic new ${name}() placements are not supported yet. Use an authored instance or symbol linkage.`);}
       NativeDisplay.__nfIs=value=>{if(value&&value===getStage())return name==='DisplayObject'||name==='DisplayObjectContainer';try{const node=descriptor(value);return owners===null||owners.includes(node.owner);}catch(_){return false;}};
@@ -215,6 +210,6 @@
     }
     return {methods,get,set,builtins,descriptor,nodes,alive,convert,bounds,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,prune,clear:()=>legacy.clear(),UNHANDLED};
   }
-  const api={create,Point,Rectangle,normalizedRotation,UNHANDLED};
+  const api={create,Point,Rectangle,Matrix,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;
 })(globalThis);

@@ -1,0 +1,556 @@
+{
+  "format_version": 2,
+  "name": "Geometry and Timer",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    34,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Geometry and Timer",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 42,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / GEOMETRY + TIMER",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 86,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Four ticks. One transformed path.",
+                      "font_family": "Arial",
+                      "font_size": 34,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 132,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "A typed Matrix maps each step. Timer events move the marker and update live text.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 48,
+                      "y": 427,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Ready: 0 / 4 ticks",
+                      "font_family": "Arial",
+                      "font_size": 21,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "measurements",
+                    "name": "measurements",
+                    "transform": {
+                      "x": 48,
+                      "y": 462,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Bounds and local-to-global coordinates appear on each tick.",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        153,
+                        204,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 508,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Use Restart to create a fresh timer and repeat the four steps.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "step-0",
+                    "name": "step-0",
+                    "transform": {
+                      "x": 160,
+                      "y": 200,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 40,
+                      "height": 40,
+                      "fill": [
+                        33,
+                        53,
+                        75,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "step-label-0",
+                    "name": "step-label-0",
+                    "transform": {
+                      "x": 176,
+                      "y": 259,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "0",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "step-1",
+                    "name": "step-1",
+                    "transform": {
+                      "x": 300,
+                      "y": 236,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 40,
+                      "height": 40,
+                      "fill": [
+                        33,
+                        53,
+                        75,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "step-label-1",
+                    "name": "step-label-1",
+                    "transform": {
+                      "x": 316,
+                      "y": 295,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "1",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "step-2",
+                    "name": "step-2",
+                    "transform": {
+                      "x": 440,
+                      "y": 272,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 40,
+                      "height": 40,
+                      "fill": [
+                        33,
+                        53,
+                        75,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "step-label-2",
+                    "name": "step-label-2",
+                    "transform": {
+                      "x": 456,
+                      "y": 331,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "2",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "step-3",
+                    "name": "step-3",
+                    "transform": {
+                      "x": 580,
+                      "y": 308,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 40,
+                      "height": 40,
+                      "fill": [
+                        33,
+                        53,
+                        75,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "step-label-3",
+                    "name": "step-label-3",
+                    "transform": {
+                      "x": 596,
+                      "y": 367,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "3",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "step-4",
+                    "name": "step-4",
+                    "transform": {
+                      "x": 720,
+                      "y": 344,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 40,
+                      "height": 40,
+                      "fill": [
+                        33,
+                        53,
+                        75,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "step-label-4",
+                    "name": "step-label-4",
+                    "transform": {
+                      "x": 736,
+                      "y": 403,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "4",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "marker",
+                    "name": "marker",
+                    "transform": {
+                      "x": 180,
+                      "y": 220,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "marker-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "marker-symbol",
+      "name": "Moving marker",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "marker-symbol-content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "marker-body",
+                    "name": "marker-body",
+                    "transform": {
+                      "x": -16,
+                      "y": -16,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 32,
+                      "height": 32,
+                      "fill": [
+                        99,
+                        202,
+                        218,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n  import flash.display.MovieClip;\n  import flash.geom.Matrix;\n  import flash.geom.Point;\n  import flash.geom.Rectangle;\n  import flash.utils.Timer;\n  import flash.events.TimerEvent;\n  import flash.utils.getTimer;\n  public class Main extends MovieClip {\n    public var timer:Timer;\n    public var mapping:Matrix;\n    public var marker:MovieClip;\n    public var ticks:int = 0;\n    public function Main() {\n      super();\n      stop();\n      marker = getChildByName(\"marker\");\n      mapping = new Matrix(140, 36, 0, 1, 180, 220);\n      timer = new Timer(400, 4);\n      timer.addEventListener(TimerEvent.TIMER, onTick);\n      timer.addEventListener(TimerEvent.TIMER_COMPLETE, onComplete);\n      status.text = \"Running: 0 / 4 ticks\";\n      trace(\"geometry timer ready\", ticks, timer.currentCount);\n      timer.start();\n    }\n    public function onTick(event:TimerEvent):void {\n      ticks = timer.currentCount;\n      var next:Point = mapping.transformPoint(new Point(ticks, 0));\n      marker.x = next.x;\n      marker.y = next.y;\n      var bounds:Rectangle = marker.getBounds(this);\n      var world:Point = marker.localToGlobal(new Point(0, 0));\n      status.text = \"Running: \" + ticks + \" / 4 ticks\";\n      measurements.text = \"Global (\" + world.x + \", \" + world.y + \") | bounds \" + bounds.width + \" x \" + bounds.height + \" | elapsed \" + getTimer() + \" ms\";\n      trace(\"geometry tick\", ticks, next.x, next.y, bounds.width, bounds.height, world.x, world.y);\n    }\n    public function onComplete(event:TimerEvent):void {\n      status.text = \"Complete: \" + ticks + \" / 4 ticks. Restart to run again.\";\n      trace(\"geometry complete\", ticks, timer.currentCount, timer.running);\n    }\n  }\n}\n"
+    }
+  ]
+}

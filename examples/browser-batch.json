@@ -1,6 +1,15 @@
 {
   "cases": [
     {
+      "id": "geometry-timer",
+      "path": "examples/geometry-timer.nflash",
+      "title": "Geometry, Timer and live display updates",
+      "checks": [
+        "Four Timer ticks transform a Point with Matrix, move the marker and update the text using typed display bounds.",
+        "Timer completion reports four ticks and a stopped timer; Restart starts a fresh four-tick sequence."
+      ]
+    },
+    {
       "id": "as2-project-input",
       "path": "examples/as2-project-input.nflash",
       "title": "AS2 classes, inherited MovieClips and shared input",
@@ -53,31 +62,41 @@
       "id": "visibility",
       "path": "examples/visibility.nflash",
       "title": "Visibility and nested lifecycle",
-      "checks": ["Hide and restore the clip: pixels and semantic targets agree while its nested clock continues."]
+      "checks": [
+        "Hide and restore the clip: pixels and semantic targets agree while its nested clock continues."
+      ]
     },
     {
       "id": "as-intrinsics",
       "path": "examples/as-intrinsics.nflash",
       "title": "AS2 / AS3 value profiles",
-      "checks": ["The ordinary export produces its expected intrinsic traces and repeats them after Restart."]
+      "checks": [
+        "The ordinary export produces its expected intrinsic traces and repeats them after Restart."
+      ]
     },
     {
       "id": "keyboard-controls",
       "path": "examples/keyboard-controls.nflash",
       "title": "Keyboard and semantic HTML5 controls",
-      "checks": ["Tab navigation and Enter/Space activation remain usable at a narrow viewport."]
+      "checks": [
+        "Tab navigation and Enter/Space activation remain usable at a narrow viewport."
+      ]
     },
     {
       "id": "vector-paths",
       "path": "examples/vector-paths.nflash",
       "title": "Vector geometry",
-      "checks": ["Curves, compound fills and transformed geometry render without runtime errors."]
+      "checks": [
+        "Curves, compound fills and transformed geometry render without runtime errors."
+      ]
     },
     {
       "id": "nested-orbit",
       "path": "examples/nested-orbit.nflash",
       "title": "Nested animation",
-      "checks": ["Independent nested animation and playback controls still work."]
+      "checks": [
+        "Independent nested animation and playback controls still work."
+      ]
     }
   ]
 }

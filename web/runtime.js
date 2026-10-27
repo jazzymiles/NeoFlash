@@ -108,8 +108,10 @@
 
   const errorElement = document.getElementById('error');
   let failed = false;
+  let stopAsyncOnFailure = () => {};
   function fail(error) {
     failed = true;
+    try { stopAsyncOnFailure(); } catch (cleanupError) { console.error(cleanupError); }
     document.getElementById('loading').style.display = 'none';
     errorElement.style.display = 'block';
     errorElement.textContent = 'NeoFlash could not run this project.\n\n' + describeThrown(error, true);
@@ -166,7 +168,8 @@
     };
     const references = new WeakMap();
     const attachedClasses = new Map();
-    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, program = null;
+    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, program = null;
+    let timerRenderGeneration=0;
     let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
     function updateCursor() {
@@ -175,6 +178,19 @@
     function inputFailure(error) {
       const cause=unwrapScriptThrow(error),failure=new Error(`Input callback: ${describeThrown(cause)}`,{cause});
       if(typeof fail==='function')fail(failure);else throw failure;
+    }
+    function stopTimers() {timerRenderGeneration++;timerHost?.reset();}
+    function afterTimerEvent() {dispatchScripts();if(typeof context!=='undefined')render();}
+    function timerFailure(error) {
+      const cause=unwrapScriptThrow(error),failure=new Error(`Timer callback: ${describeThrown(cause)}`,{cause});
+      if(typeof fail==='function')fail(failure);else {stopTimers();throw failure;}
+    }
+    function requestTimerRender() {
+      const generation=timerRenderGeneration;
+      global.requestAnimationFrame(()=>{
+        if(generation!==timerRenderGeneration||(typeof failed!=='undefined'&&failed))return;
+        try {afterTimerEvent();}catch(error){timerFailure(error);}
+      });
     }
     function initializeFamily() {
       if (!global.NeoFlashDisplay || typeof player.display_nodes_json !== 'function') return;
@@ -202,6 +218,8 @@
           legacyGlobals=Object.freeze({Key:legacyHost.Key,Mouse:legacyHost.Mouse,Stage:legacyHost.Stage});
         }
       }
+      if(global.NeoFlashTimers&&global.NeoFlashEvents)timerHost=global.NeoFlashTimers.create({events:global.NeoFlashEvents,
+        onError:timerFailure,afterEvent:afterTimerEvent,requestRender:requestTimerRender});
       initializeProgram();
     }
     function initializeProgram() {
@@ -212,18 +230,21 @@
       builtins.__nfDisplay=display;builtins.__nfLegacy=legacyGlobals;
       if(global.NeoFlashEvents)for(const name of ['Event','MouseEvent','KeyboardEvent','EventDispatcher','EventPhase'])builtins['flash.events.'+name]=global.NeoFlashEvents[name];
       if(global.NeoFlashStage)builtins['flash.display.Stage']=global.NeoFlashStage.Stage;
+      if(timerHost){builtins['flash.utils.Timer']=timerHost.Timer;builtins['flash.events.TimerEvent']=timerHost.TimerEvent;builtins['flash.utils.getTimer']=timerHost.getTimer;}
       program=typeof bundle!=='undefined'&&bundle.program ? new Function('__nfBuiltins',bundle.program.code)(builtins) : {
         type:name=>{if(!builtins[name])throw new TypeError(`Unsupported built-in class ${name}.`);return builtins[name];},
         is:(value,name)=>Boolean(builtins[name]?.__nfIs?.(value)),
       };
     }
     function resetProject() {
+      stopTimers();
       proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();lastTrace = '';
       player.reset();
       initializeProgram();
       dispatchScripts();
     }
     function disposeFamily() {
+      timerRenderGeneration++;timerHost?.dispose();
       legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
     function attachNewInstances() {
@@ -501,6 +522,7 @@
     panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
     global.addEventListener('pagehide', event => { if(!event.persisted)disposeFamily(); });
     new ResizeObserver(() => { resize(); render(); }).observe(viewport);
+    stopAsyncOnFailure=stopTimers;
     initializeFamily();
     canvas.tabIndex=-1;
     stageHost?.attach();

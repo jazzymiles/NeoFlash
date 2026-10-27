@@ -15,13 +15,17 @@ const BUILTINS: &[&str] = &[
     "flash.text.TextField",
     "flash.geom.Point",
     "flash.geom.Rectangle",
+    "flash.geom.Matrix",
+    "flash.utils.Timer",
+    "flash.events.TimerEvent",
     "flash.events.EventDispatcher",
     "flash.events.Event",
     "flash.events.MouseEvent",
     "flash.events.KeyboardEvent",
     "flash.events.EventPhase",
 ];
-pub(super) fn is_host_method(name: &str) -> bool {
+const BUILTIN_FUNCTIONS: &[&str] = &["flash.utils.getTimer"];
+fn is_display_method(name: &str) -> bool {
     matches!(
         name,
         "addEventListener"
@@ -42,6 +46,44 @@ pub(super) fn is_host_method(name: &str) -> bool {
             | "preventDefault"
             | "isDefaultPrevented"
     )
+}
+
+pub(super) fn is_host_method(name: &str) -> bool {
+    is_display_method(name)
+        || matches!(
+            name,
+            "clone"
+                | "copyFrom"
+                | "setTo"
+                | "add"
+                | "subtract"
+                | "equals"
+                | "offset"
+                | "normalize"
+                | "containsPoint"
+                | "containsRect"
+                | "intersection"
+                | "intersects"
+                | "union"
+                | "offsetPoint"
+                | "inflate"
+                | "inflatePoint"
+                | "isEmpty"
+                | "setEmpty"
+                | "identity"
+                | "concat"
+                | "transformPoint"
+                | "deltaTransformPoint"
+                | "invert"
+                | "rotate"
+                | "scale"
+                | "translate"
+                | "createBox"
+                | "createGradientBox"
+                | "start"
+                | "reset"
+                | "updateAfterEvent"
+        )
 }
 
 /// `code` is a function body taking __nfBuiltins and returning the program API.
@@ -95,6 +137,7 @@ fn visible_names(
                 || {
                     language == ScriptLanguage::ActionScript3
                         || matches!(name.as_str(), "Object" | "Array")
+                        || name.starts_with("flash.geom.")
                 },
                 |owner| *owner == language,
             )
@@ -247,9 +290,15 @@ fn context(
         ..Default::default()
     };
     for name in names {
-        c.types.insert(name.clone(), name.clone());
+        if BUILTIN_FUNCTIONS.contains(&name.as_str()) {
+            c.functions.insert(name.clone(), name.clone());
+        } else {
+            c.types.insert(name.clone(), name.clone());
+        }
     }
     if language == ScriptLanguage::ActionScript2 {
+        c.functions
+            .insert("getTimer".into(), "flash.utils.getTimer".into());
         c.types
             .insert("MovieClip".into(), "flash.display.MovieClip".into());
         c.types
@@ -261,7 +310,11 @@ fn context(
     for name in names {
         let (owner, short) = name.rsplit_once('.').unwrap_or(("", name));
         if owner == package {
-            c.types.insert(short.into(), name.clone());
+            if BUILTIN_FUNCTIONS.contains(&name.as_str()) {
+                c.functions.insert(short.into(), name.clone());
+            } else {
+                c.types.insert(short.into(), name.clone());
+            }
         }
     }
     for name in imports {
@@ -271,10 +324,18 @@ fn context(
             ));
         }
         let short = name.rsplit('.').next().unwrap();
-        if c.types.get(short).is_some_and(|old| old != name) {
+        if c.types
+            .get(short)
+            .or_else(|| c.functions.get(short))
+            .is_some_and(|old| old != name)
+        {
             return Err(format!("Ambiguous imported name '{short}'."));
         }
-        c.types.insert(short.into(), name.clone());
+        if BUILTIN_FUNCTIONS.contains(&name.as_str()) {
+            c.functions.insert(short.into(), name.clone());
+        } else {
+            c.types.insert(short.into(), name.clone());
+        }
     }
     Ok(c)
 }
@@ -406,6 +467,93 @@ fn prefix(mut e: Diagnostic, path: &str) -> Diagnostic {
 // would therefore create a field/method that its author could never read back.
 // This bounded profile rejects those declarations instead of hiding them.
 fn native_member(base: &str, name: &str) -> bool {
+    let value_member = match base {
+        "flash.utils.Timer" => matches!(
+            name,
+            "addEventListener"
+                | "removeEventListener"
+                | "hasEventListener"
+                | "willTrigger"
+                | "dispatchEvent"
+                | "delay"
+                | "repeatCount"
+                | "currentCount"
+                | "running"
+                | "start"
+                | "stop"
+                | "reset"
+        ),
+        "flash.geom.Point" => matches!(
+            name,
+            "x" | "y"
+                | "length"
+                | "clone"
+                | "copyFrom"
+                | "setTo"
+                | "add"
+                | "subtract"
+                | "equals"
+                | "offset"
+                | "normalize"
+                | "toString"
+        ),
+        "flash.geom.Rectangle" => matches!(
+            name,
+            "x" | "y"
+                | "width"
+                | "height"
+                | "left"
+                | "right"
+                | "top"
+                | "bottom"
+                | "topLeft"
+                | "bottomRight"
+                | "size"
+                | "clone"
+                | "copyFrom"
+                | "setTo"
+                | "setEmpty"
+                | "isEmpty"
+                | "equals"
+                | "contains"
+                | "containsPoint"
+                | "containsRect"
+                | "intersection"
+                | "intersects"
+                | "union"
+                | "offset"
+                | "offsetPoint"
+                | "inflate"
+                | "inflatePoint"
+                | "toString"
+        ),
+        "flash.geom.Matrix" => matches!(
+            name,
+            "a" | "b"
+                | "c"
+                | "d"
+                | "tx"
+                | "ty"
+                | "clone"
+                | "copyFrom"
+                | "setTo"
+                | "identity"
+                | "concat"
+                | "transformPoint"
+                | "deltaTransformPoint"
+                | "invert"
+                | "rotate"
+                | "scale"
+                | "translate"
+                | "createBox"
+                | "createGradientBox"
+                | "toString"
+        ),
+        _ => false,
+    };
+    if value_member {
+        return true;
+    }
     if (base == "flash.events.EventDispatcher"
         || base.starts_with("flash.display.")
         || base == "flash.text.TextField")
@@ -421,7 +569,7 @@ fn native_member(base: &str, name: &str) -> bool {
         return true;
     }
     (base.starts_with("flash.display.") || base == "flash.text.TextField")
-        && (is_host_method(name)
+        && (is_display_method(name)
             || matches!(
                 name,
                 "x" | "y"
@@ -468,7 +616,11 @@ fn native_member(base: &str, name: &str) -> bool {
 pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnostic>> {
     let mut headers = vec![];
     let mut errors = vec![];
-    let mut names: BTreeSet<String> = BUILTINS.iter().map(|s| (*s).into()).collect();
+    let mut names: BTreeSet<String> = BUILTINS
+        .iter()
+        .chain(BUILTIN_FUNCTIONS)
+        .map(|s| (*s).into())
+        .collect();
     for source in &project.sources {
         match header(source) {
             Ok(h) => {
