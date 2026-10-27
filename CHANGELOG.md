@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Independently verified the 5be13d9 bounded E4X delivery: selector/literal/targeted-update semantics, interpolation order, namespace/QName selection, safe ambiguous refusal and Restart, with 24 independently parsed structures. A corrected handler probe establishes a narrow XML/XMLList typed bridge only on this snapshot. One five-project browser batch preserves typed collections, Transform, text and earlier collections; full E4X and uncalled APIs are not inferred.
+
+- Added runtime gradient Graphics across AS2/AS3: linear/radial fills and strokes, copied matrices/stops, shared cubic and rounded geometry, Vector drawPath and independent Graphics.copyFrom. The existing dynamic-display workflow combines palette edits, copied paint, hierarchy changes and Restart. Pad/RGB is the initial profile; bitmap fills, masks/filters and native gradient authoring remain separate work.
+
 - Added an E4X source layer: child/attribute/descendant/qualified selectors, editable target lists, Namespace/QName values and XML/XMLList literals with ordered interpolation. A buffered lexer handles XML text inside handlers and project methods. Staged edits reject ambiguous targets without changing the tree; the existing catalog workflow now combines these features with the AS2 DOM regression. Filters, scoped default namespaces and full XML/value equality remain explicit follow-ups.
 
 - Independently verified the f4fcb71 XML delivery: exact embedded catalog bytes, AS2/AS3 tree copy/mutation/serialization, Unicode and namespace preservation across fifteen independently parsed trees, visible updates, adjacent diagnostics and Restart. Direct failure-only/delegated APIs remain needs_review; E4X syntax and operators are not inferred. One five-project browser batch preserves typed collections, Transform, text and earlier collections.

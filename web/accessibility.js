@@ -1,6 +1,7 @@
 /* Authored semantics. DOM targets describe artwork; Canvas still owns pointer hit testing. */
 (function (global) {
   'use strict';
+  const paints=typeof module!=='undefined'&&module.exports?require('./path.js'):global.NeoFlashPaths;
   const point = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
   function union(a, b) {
     if (!a) return b; if (!b) return a;
@@ -71,18 +72,22 @@
     const m=item.transform, kind=item.kind;
     if (!m.every(Number.isFinite) || Math.abs(m[0]*m[3]-m[1]*m[2])<1e-12) return null;
     let bounds=null;
-    const stroke=kind.stroke && kind.stroke[3]>0 && kind.stroke_width>0 ? kind.stroke_width/2 : 0;
-    if (kind.type==='rectangle' || kind.type==='ellipse' || kind.type==='path') {
-      if (!(kind.fill[3]>0) && !stroke) return null;
+    const stroke=paints.paintVisible(kind,'stroke') && kind.stroke_width>0 ? kind.stroke_width/2 : 0;
+    if (kind.type==='rectangle' || kind.type==='ellipse' || kind.type==='path' || kind.type==='gradient_path') {
+      if (!paints.paintVisible(kind,'fill') && !stroke) return null;
       if (!stroke && ((kind.type==='rectangle'||kind.type==='ellipse') && (kind.width<=0||kind.height<=0))) return null;
-      if (!stroke && kind.type==='path' && !areaCapable(kind.commands)) return null;
+      if (!stroke && (kind.type==='path'||kind.type==='gradient_path') && !areaCapable(kind.commands)) return null;
       if (kind.type==='rectangle') bounds=fromPoints([[-stroke,-stroke],[kind.width+stroke,-stroke],[kind.width+stroke,kind.height+stroke],[-stroke,kind.height+stroke]].map(p=>point(m,...p)));
       else if (kind.type==='ellipse') {
         const center=point(m,kind.width/2,kind.height/2);
         const rx=Math.hypot(m[0]*kind.width/2,m[2]*kind.height/2), ry=Math.hypot(m[1]*kind.width/2,m[3]*kind.height/2);
         bounds={left:center[0]-rx,top:center[1]-ry,right:center[0]+rx,bottom:center[1]+ry};
       } else bounds=pathBounds(kind.commands,m);
-      if (bounds && stroke && kind.type!=='rectangle') {
+      if(kind.type==='gradient_path') {
+        const fillBounds=areaCapable(kind.commands)?paints.visibleBounds(kind,'fill',bounds,m):null;
+        let strokeBounds=null;if(bounds&&stroke){const dx=stroke*Math.hypot(m[0],m[2]),dy=stroke*Math.hypot(m[1],m[3]);strokeBounds=paints.visibleBounds(kind,'stroke',{left:bounds.left-dx,top:bounds.top-dy,right:bounds.right+dx,bottom:bounds.bottom+dy},m);}
+        bounds=union(fillBounds,strokeBounds);
+      } else if (bounds && stroke && kind.type!=='rectangle') {
         const dx=stroke*Math.hypot(m[0],m[2]),dy=stroke*Math.hypot(m[1],m[3]);
         bounds={left:bounds.left-dx,top:bounds.top-dy,right:bounds.right+dx,bottom:bounds.bottom+dy};
       }

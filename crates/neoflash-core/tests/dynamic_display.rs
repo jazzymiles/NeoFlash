@@ -146,16 +146,16 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
     assert!(!object(&detached, &shape).graphics.is_empty());
     assert!(detached.draws.iter().all(|draw| draw.owner_ref != shape));
     for kind in &object(&detached, &shape).graphics {
-        let ElementKind::Path { commands, .. } = kind else {
+        let RuntimeDrawKind::Element(ElementKind::Path { commands, .. }) = kind else {
             panic!("shared path paint")
         };
         validate_path_commands(commands).unwrap();
     }
-    let ElementKind::Path {
+    let RuntimeDrawKind::Element(ElementKind::Path {
         commands,
         fill_rule,
         ..
-    } = &object(&detached, &shape).graphics[0]
+    }) = &object(&detached, &shape).graphics[0]
     else {
         panic!("fill")
     };
@@ -182,7 +182,9 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
         .unwrap()
     );
     // Changing stroke style kept the fill's preceding line, rather than splitting it.
-    let ElementKind::Path { commands, .. } = &object(&detached, &shape).graphics[1] else {
+    let RuntimeDrawKind::Element(ElementKind::Path { commands, .. }) =
+        &object(&detached, &shape).graphics[1]
+    else {
         panic!("fill")
     };
     assert!(
@@ -325,7 +327,7 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
     );
     assert!(
         player
-            .graphics_apply(&shape, &[GraphicsOp::Clear; MAX_GRAPHICS_OPS + 1])
+            .graphics_apply(&shape, &vec![GraphicsOp::Clear; MAX_GRAPHICS_OPS + 1])
             .is_err()
     );
     assert_eq!(
@@ -375,8 +377,203 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
         player.create_display(DynamicKind::Shape).unwrap();
     }
     assert!(player.create_display(DynamicKind::Sprite).is_err());
+    gradient_geometry_remains_shared_and_atomic(project.clone());
     affine_color_views_follow_the_display_lifecycle(project.clone());
     linked_timelines_are_independent_namespaces(project);
+}
+
+fn gradient_geometry_remains_shared_and_atomic(project: Project) {
+    let authored = project.to_json().unwrap();
+    let mut player = Player::new(&project);
+    let root = player.object_ref(&[]).unwrap();
+    let shape = player.create_display(DynamicKind::Shape).unwrap();
+    let copy = player.create_display(DynamicKind::Sprite).unwrap();
+    add(&mut player, &project, &root, &shape);
+    let linear = GradientSpec {
+        kind: GradientKind::Linear,
+        colors: vec![0x204060, 0x80a0c0, 0xffffff],
+        alphas: vec![0., 0.5, 1.],
+        ratios: vec![0., 128., 255.],
+        matrix: [0.1, 0., 0., 0.1, 60., 40.],
+        spread_method: "pad".into(),
+        interpolation_method: "rgb".into(),
+        focal_point_ratio: 0.,
+    };
+    let radial = GradientSpec {
+        kind: GradientKind::Radial,
+        focal_point_ratio: 1.,
+        ..linear.clone()
+    };
+    player
+        .graphics_apply(
+            &shape,
+            &[
+                GraphicsOp::BeginGradientFill {
+                    gradient: linear.clone(),
+                },
+                GraphicsOp::LineStyle {
+                    width: Some(6.),
+                    color: 0x123456,
+                    alpha: 1.,
+                },
+                GraphicsOp::DrawRoundRect {
+                    x: 0.,
+                    y: 0.,
+                    width: 120.,
+                    height: 80.,
+                    ellipse_width: 24.,
+                    ellipse_height: 32.,
+                },
+                GraphicsOp::LineGradientStyle {
+                    gradient: radial.clone(),
+                },
+                GraphicsOp::MoveTo { x: 0., y: 100. },
+                GraphicsOp::CubicCurveTo {
+                    cx1: 30.,
+                    cy1: 75.,
+                    cx2: 90.,
+                    cy2: 125.,
+                    x: 120.,
+                    y: 100.,
+                },
+                GraphicsOp::DrawRoundRectComplex {
+                    x: 140.,
+                    y: 0.,
+                    width: 100.,
+                    height: 80.,
+                    top_left_radius: 10.,
+                    top_right_radius: 20.,
+                    bottom_left_radius: 15.,
+                    bottom_right_radius: 5.,
+                },
+                GraphicsOp::DrawPath {
+                    commands: vec![
+                        PathCommand::MoveTo { x: 0., y: 140. },
+                        PathCommand::LineTo { x: 100., y: 140. },
+                        PathCommand::LineTo { x: 100., y: 200. },
+                        PathCommand::Close,
+                    ],
+                    fill_rule: FillRule::NonZero,
+                },
+                GraphicsOp::LineTo { x: 20., y: 150. },
+                GraphicsOp::EndFill,
+            ],
+        )
+        .unwrap();
+    let snapshot = player.runtime_snapshot(&project);
+    let raw = object(&snapshot, &shape).graphics.clone();
+    for paint in &raw {
+        let commands = match paint {
+            RuntimeDrawKind::Element(ElementKind::Path { commands, .. })
+            | RuntimeDrawKind::GradientPath { commands, .. } => commands,
+            _ => panic!("shared path geometry"),
+        };
+        validate_path_commands(commands).unwrap();
+    }
+    let RuntimeDrawKind::GradientPath {
+        commands,
+        fill_rule,
+        fill_gradient: Some(gradient),
+        stroke_gradient,
+        stroke_width,
+        ..
+    } = &raw[0]
+    else {
+        panic!("gradient fill")
+    };
+    assert_eq!(gradient.kind, GradientKind::Linear);
+    assert_eq!(gradient.stops[1].color, [128, 160, 192, 128]);
+    assert!(stroke_gradient.is_none());
+    assert_eq!(*stroke_width, 0.);
+    assert!(
+        hit_test_path(
+            commands,
+            *fill_rule,
+            [60., 40.],
+            true,
+            0.,
+            FlattenOptions::default()
+        )
+        .unwrap()
+    );
+    assert!(
+        !hit_test_path(
+            commands,
+            *fill_rule,
+            [0., 0.],
+            true,
+            0.,
+            FlattenOptions::default()
+        )
+        .unwrap()
+    );
+    assert!(raw.iter().any(|p| matches!(
+        p,
+        RuntimeDrawKind::GradientPath {
+            fill_rule: FillRule::NonZero,
+            ..
+        }
+    )));
+    assert!(raw.iter().any(|p|matches!(p,RuntimeDrawKind::GradientPath{stroke_gradient:Some(g),fill_gradient:None,fill,..} if g.kind==GradientKind::Radial && *fill==[0;4])));
+    let transform = ColorTransform {
+        multipliers: [0.5, 1., 1., 0.5],
+        offsets: [10., 0., 0., 10.],
+    };
+    player
+        .object_set_color_transform(&shape, transform)
+        .unwrap();
+    let transformed = player.runtime_snapshot(&project);
+    assert_eq!(object(&transformed, &shape).graphics, raw);
+    let first = transformed
+        .draws
+        .iter()
+        .find(|d| d.owner_ref == shape)
+        .unwrap();
+    let RuntimeDrawKind::GradientPath {
+        fill_gradient: Some(gradient),
+        ..
+    } = &first.item.kind
+    else {
+        panic!("transformed gradient")
+    };
+    assert_eq!(gradient.stops[0].color, transform.apply([32, 64, 96, 0]));
+    assert_eq!(first.item.alpha, 1.);
+    player.graphics_copy_from(&copy, &shape).unwrap();
+    player.graphics_apply(&shape, &[GraphicsOp::Clear]).unwrap();
+    assert_eq!(
+        object(&player.runtime_snapshot(&project), &copy).graphics,
+        raw
+    );
+    let mut invalid = linear;
+    invalid.ratios = vec![255., 128., 0.];
+    for operations in [
+        vec![
+            GraphicsOp::Clear,
+            GraphicsOp::BeginGradientFill { gradient: invalid },
+        ],
+        vec![
+            GraphicsOp::Clear,
+            GraphicsOp::LineGradientStyle { gradient: radial },
+        ],
+        vec![
+            GraphicsOp::Clear,
+            GraphicsOp::DrawPath {
+                commands: vec![PathCommand::LineTo { x: f64::NAN, y: 0. }],
+                fill_rule: FillRule::EvenOdd,
+            },
+        ],
+    ] {
+        assert!(player.graphics_apply(&copy, &operations).is_err());
+        assert_eq!(
+            object(&player.runtime_snapshot(&project), &copy).graphics,
+            raw
+        );
+    }
+    let wire = serde_json::to_value(&raw[0]).unwrap();
+    assert_eq!(wire["type"], "gradient_path");
+    assert_eq!(wire["fill_rule"], "evenodd");
+    assert_eq!(wire["fill_gradient"]["stops"][1]["ratio"], 128);
+    assert_eq!(project.to_json().unwrap(), authored);
 }
 
 fn affine_color_views_follow_the_display_lifecycle(mut project: Project) {

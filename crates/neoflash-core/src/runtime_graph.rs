@@ -79,7 +79,7 @@ pub struct RuntimeObject {
     pub namespace_ref: Option<ObjectRef>,
     pub source_path: Option<Vec<Id>>,
     /// Own Graphics paints; these are not display children.
-    pub graphics: Vec<ElementKind>,
+    pub graphics: Vec<RuntimeDrawKind>,
     pub text: Option<TextFieldState>,
     pub bitmap: Option<PixelDescriptor>,
     pub smoothing: bool,
@@ -93,6 +93,15 @@ pub struct RuntimeObject {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RuntimeDrawKind {
+    GradientPath {
+        commands: Vec<PathCommand>,
+        fill_rule: FillRule,
+        fill: Color,
+        stroke: Color,
+        fill_gradient: Option<GradientPaint>,
+        stroke_gradient: Option<GradientPaint>,
+        stroke_width: f64,
+    },
     TextField {
         field: TextFieldState,
     },
@@ -700,7 +709,7 @@ impl Player {
                             layer_id: String::new(),
                             transform: display.world,
                             alpha: 1.,
-                            kind: RuntimeDrawKind::Element(kind),
+                            kind,
                         },
                     });
                 }
@@ -763,6 +772,22 @@ impl Player {
                     },
                 ) => fill[3] > 0 || (*stroke_width > 0. && stroke[3] > 0),
                 RuntimeDrawKind::TextField { field } => field.alpha > 0 && !field.text.is_empty(),
+                RuntimeDrawKind::GradientPath {
+                    fill,
+                    stroke,
+                    fill_gradient,
+                    stroke_gradient,
+                    stroke_width,
+                    ..
+                } => {
+                    fill_gradient
+                        .as_ref()
+                        .map_or(fill[3] > 0, |g| g.stops.iter().any(|s| s.color[3] > 0))
+                        || (*stroke_width > 0.
+                            && stroke_gradient
+                                .as_ref()
+                                .map_or(stroke[3] > 0, |g| g.stops.iter().any(|s| s.color[3] > 0)))
+                }
                 // The browser's revision cache supplies actual pixel alpha
                 // bounds. Core avoids rescanning bitmap buffers each snapshot.
                 RuntimeDrawKind::BitmapPixels {
@@ -1021,8 +1046,19 @@ impl Player {
         }
         let old = object.graphics.cost();
         let mut reservation = old;
+        let mut has_stroke = object.graphics.has_stroke();
         for op in operations {
             op.validate().map_err(error)?;
+            match op {
+                GraphicsOp::Clear => has_stroke = false,
+                GraphicsOp::LineStyle { width, .. } => has_stroke = width.is_some(),
+                GraphicsOp::LineGradientStyle { .. } if !has_stroke => {
+                    return Err(error(
+                        "lineGradientStyle requires an active positive-width lineStyle",
+                    ));
+                }
+                _ => {}
+            }
             if matches!(op, GraphicsOp::Clear) {
                 reservation = 0;
             } else {
@@ -1043,6 +1079,49 @@ impl Player {
             object.graphics.apply(op);
         }
         self.graph.graphics_cost = self.graph.graphics_cost - old + object.graphics.cost();
+        Ok(())
+    }
+
+    /// Snapshot all Graphics state, including active styles and the pen. The
+    /// destination subsequently evolves independently; display properties do not copy.
+    pub fn graphics_copy_from(
+        &mut self,
+        target: &ObjectRef,
+        source: &ObjectRef,
+    ) -> Result<(), DisplayError> {
+        let valid = |node: &DynamicObject| {
+            !matches!(node.kind, DynamicKind::Bitmap | DynamicKind::TextField)
+        };
+        let destination = self
+            .graph
+            .dynamic
+            .get(target)
+            .filter(|n| valid(n))
+            .ok_or_else(|| {
+                error("Graphics copy destination must be a live runtime Sprite, Shape or MovieClip")
+            })?;
+        let source = self
+            .graph
+            .dynamic
+            .get(source)
+            .filter(|n| valid(n))
+            .ok_or_else(|| {
+                error("Graphics copy source must be a live runtime Sprite, Shape or MovieClip")
+            })?;
+        let old = destination.graphics.cost();
+        let next = source.graphics.cost();
+        if self.graph.graphics_cost - old + next > MAX_GRAPHICS_COMMANDS {
+            return Err(error(
+                "Graphics copy exceeds the publication storage budget",
+            ));
+        }
+        let copy = source.graphics.clone();
+        self.graph
+            .dynamic
+            .get_mut(target)
+            .expect("validated destination")
+            .graphics = copy;
+        self.graph.graphics_cost = self.graph.graphics_cost - old + next;
         Ok(())
     }
 

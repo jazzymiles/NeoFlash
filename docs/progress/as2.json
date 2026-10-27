@@ -457,8 +457,8 @@
       "id": "as2-graphics-api",
       "title": "Programmatic drawing",
       "status": "partial",
-      "scope": "Runtime MovieClip beginFill/endFill/lineStyle/moveTo/lineTo/curveTo/clear use solid paths and percentage alpha through the shared Rust scene.",
-      "limitations": "Authored-owner drawing, hairlines, gradients, bitmap fills, non-round stroke modes, masks/filters and full legacy paint semantics remain unsupported. Graphics state is runtime-only and bounded to 100,000 commands/runs; the combined pointer/keyboard/dynamic-display workflow and Restart passed in the in-app browser. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified.",
+      "scope": "Runtime MovieClips expose solid/linear/radial gradient fill and stroke with native Matrix values and percentage alpha through the shared Rust scene. Lines, quadratic paths, clear and existing dynamic identity behavior remain available.",
+      "limitations": "Initial gradients support pad/rgb, 1..15 ordered stops, copied finite invertible matrices and focal ratios within -1..1. Authored-owner drawing, hairlines, non-round stroke modes, bitmap fills, masks/filters, native gradient tools and full historical paint/coercion semantics remain pending. Storage is bounded; prior independent solid-drawing evidence does not promote the new gradient declarations.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",
@@ -471,7 +471,10 @@
         "web/tests/display-family.test.cjs",
         "examples/dynamic-display.nflash",
         "docs/VERIFICATION.md",
-        "docs/progress/actionscript-audit.json"
+        "docs/progress/actionscript-audit.json",
+        "web/path.js",
+        "crates/neoflash-script/tests/gradient-graphics.mjs",
+        "docs/decisions/0022-runtime-gradient-graphics.md"
       ]
     },
     {
@@ -604,7 +607,7 @@
       "title": "XML",
       "status": "partial",
       "scope": "XML/XMLNode constructors and strict shared Rust parsing; DOM traversal, individual attributes/text, clone/move/remove, serialization and namespace preservation. XML.load reuses URLLoader with legacy callbacks/byte counters and publication lifetime.",
-      "limitations": "This is a bounded XML1.0 UTF-8 profile, separate from XFL parsing. DTD/custom entities, declaration/namespace mutation, send/sendAndLoad and full legacy status/coercion/partial-tree recovery remain unsupported. Strict syntax/namespace/character failure sets -6 and preserves prior content; other unsupported forms diagnose. Detached nodes count against publication bounds until Restart. Combined delivery evidence does not imply independent per-declaration audit or original-player conformance. Independent f4fcb71 evidence (XML-HTML5-20261027T0545Z) covers only the actual embedded-resource tree/catalog workflow, full logical-tree comparisons, copy/mutation/serialization and Restart in VERIFICATION.md. It does not imply byte-identical serialization syntax, full historical parser/coercion behavior or later E4X syntax. Direct parseXML remains needs_review: only malformed-input status -6 with the previous safe tree preserved was independently observed.",
+      "limitations": "This is a bounded XML1.0 UTF-8 profile, separate from XFL parsing. DTD/custom entities, declaration/namespace mutation, send/sendAndLoad and full legacy status/coercion/partial-tree recovery remain unsupported. Strict syntax/namespace/character failure sets -6 and preserves prior content; other unsupported forms diagnose. Detached nodes count against publication bounds until Restart. Combined delivery evidence does not imply independent per-declaration audit or original-player conformance. Independent f4fcb71 evidence (XML-HTML5-20261027T0545Z) covers only the actual embedded-resource tree/catalog workflow, full logical-tree comparisons, copy/mutation/serialization and Restart in VERIFICATION.md. It does not imply byte-identical serialization syntax, full historical parser/coercion behavior or later E4X syntax. Direct parseXML remains needs_review: only malformed-input status -6 with the previous safe tree preserved was independently observed. Independent 5be13d9 regression evidence (E4X-HTML5-20261027T0608Z) preserves the same three-item AS2 catalog tree mutations/totals and Restart in VERIFICATION.md. It does not establish positive direct parseXML or AS2 E4X support.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",

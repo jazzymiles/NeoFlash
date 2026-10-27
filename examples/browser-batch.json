@@ -103,11 +103,11 @@
     {
       "id": "dynamic-display",
       "path": "examples/dynamic-display.nflash",
-      "title": "Dynamic display, Graphics and shared identity",
+      "title": "Gradient fills, strokes and shared vector Graphics",
       "checks": [
-        "AS3 creates both panels, a Card subclass and its Shape badge; AS2 creates the purple triangle.",
-        "Click the card, use Right to reparent, Space to detach/reattach and Up for the identity/order cycle; click again to confirm the same listener and count.",
-        "Click the purple AS2 triangle; Restart restores fresh card counts, graphics and four timer ticks."
+        "The AS3 card has a linear fill, gradient outline and radial badge; the warm underlay has unequal round corners, the right panel has a cubic wave, and AS2 draws a purple gradient triangle.",
+        "Click the card to change its palette, use Right / Space / Up to reparent, detach/reattach and cycle it; identity and click count survive.",
+        "Click the AS2 triangle; Restart restores the initial gradient palette, fresh card counts and timer state."
       ]
     },
     {

@@ -1,6 +1,8 @@
 # Backlog
 
-Independent f4fcb71 acceptance (`XML-HTML5-20261027T0545Z`) confirms exact embedded XML bytes and bounded AS2/AS3 tree copy/mutation/serialization, visible catalog updates and Restart. Fifteen complete logical trees match an independent parser, including Unicode text and expanded namespaces. Failure-only AS2 parseXML and delegated XML.setChildren remain needs_review; an unqualified handler probe is inconclusive. See [the independent record](VERIFICATION.md#independent-xml-verification-of-f4fcb71). E4X is already in development and requires its own delivery evidence.
+Independent 5be13d9 acceptance (`E4X-HTML5-20261027T0608Z`) confirms bounded selectors, XML/XMLList literals, interpolation order, targeted creation, namespace/QName selection and content-preserving ambiguous-write refusal. Twenty-four complete structures match independent parsing. Corrected handler access establishes a narrow typed XML bridge on this snapshot; previous inconclusive evidence is unchanged. Pretty setters, direct methods and full E4X remain unverified. See [the independent record](VERIFICATION.md#independent-e4x-verification-of-5be13d9). Graphics gradients/strokes/paths is already in development and requires its own delivery evidence.
+
+Independent f4fcb71 acceptance (`XML-HTML5-20261027T0545Z`) confirms exact embedded XML bytes and bounded AS2/AS3 tree copy/mutation/serialization, visible catalog updates and Restart. Fifteen complete logical trees match an independent parser, including Unicode text and expanded namespaces. Failure-only AS2 parseXML and delegated XML.setChildren remain needs_review; an unqualified handler probe is inconclusive. See [the independent record](VERIFICATION.md#independent-xml-verification-of-f4fcb71). The later E4X source layer has a separate main-delivery record; it inherits no independent XML declaration pass.
 
 Independent 6396fd0 acceptance (`TYPED-COLLECTIONS-HTML5-20261027T0525Z`) confirms a class-specialized Vector/Dictionary inventory→scene→JSON workflow, real recycled-card identity/listeners, bounded fixed/bounds/type refusals, strong object/primitive key controls, AS2 plain-record enumeration and Restart. Weak GC, arbitrary mutation/order/reentry and native enumeration are not inferred. See [the independent record](VERIFICATION.md#independent-typed-collection-verification-of-6396fd0). The later f4fcb71 XML family has a separate independent record; it inherits no per-declaration evidence from typed collections.
 
@@ -60,6 +62,10 @@ The delivered partial family adds exact 2D matrix and RGBA color transforms to s
 ## Typed containers and enumeration
 
 Vector, Dictionary, original-key indexed operations and for-in/for-each now form one bounded language family. The typed-collections workflow brings dense model storage, display-object identity keys and a JSON report together while reusing linked cards. Delivery verification is recorded separately in VERIFICATION.md. XML/XMLList, E4X literals/name resolution, native display enumeration and complete historical mutation/coercion behavior remain separate follow-ups. See [the decision](decisions/0019-typed-collections-and-enumeration.md).
+
+## Runtime gradient Graphics batch
+
+The existing dynamic-display workflow now covers linear/radial gradient fills and strokes, cubic paths, rounded rectangles, Vector drawPath and independent Graphics.copyFrom state. Its shared delivery and browser acceptance passed. Rust retains the drawing intent; Canvas paints it and picks the same shared curves. The first profile uses pad/rgb and explicit limits. Native gradient authoring, bitmap fills, masks/filters, repeat/reflect and linearRGB remain follow-ups. Keep one combined ordinary export and browser workflow rather than per-method acceptance. See [the decision](decisions/0022-runtime-gradient-graphics.md).
 
 ## P0 — HTML5 correctness
 

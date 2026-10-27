@@ -13,6 +13,11 @@ const BUILTINS: &[&str] = &[
     "flash.display.Sprite",
     "flash.display.Shape",
     "flash.display.Graphics",
+    "flash.display.GradientType",
+    "flash.display.SpreadMethod",
+    "flash.display.InterpolationMethod",
+    "flash.display.GraphicsPathCommand",
+    "flash.display.GraphicsPathWinding",
     "flash.display.Bitmap",
     "flash.display.BitmapData",
     "flash.display.PixelSnapping",
@@ -49,6 +54,16 @@ const BUILTINS: &[&str] = &[
     "flash.events.EventPhase",
 ];
 const BUILTIN_FUNCTIONS: &[&str] = &["flash.utils.getTimer"];
+pub(super) fn is_graphics_constants(name: &str) -> bool {
+    matches!(
+        name,
+        "flash.display.GradientType"
+            | "flash.display.SpreadMethod"
+            | "flash.display.InterpolationMethod"
+            | "flash.display.GraphicsPathCommand"
+            | "flash.display.GraphicsPathWinding"
+    )
+}
 fn is_display_method(name: &str) -> bool {
     matches!(
         name,
@@ -77,6 +92,8 @@ fn is_display_method(name: &str) -> bool {
             | "getNextHighestDepth"
             | "attachBitmap"
             | "beginFill"
+            | "beginGradientFill"
+            | "lineGradientStyle"
             | "endFill"
             | "lineStyle"
             | "moveTo"
@@ -96,6 +113,13 @@ pub(super) fn is_host_method(name: &str) -> bool {
         || matches!(
             name,
             "clone"
+                | "cubicCurveTo"
+                | "drawRect"
+                | "drawRoundRect"
+                | "drawRoundRectComplex"
+                | "drawPath"
+                | "drawEllipse"
+                | "drawCircle"
                 | "copyFrom"
                 | "setTo"
                 | "add"
@@ -537,6 +561,13 @@ fn parse_class(
             ));
         }
         interfaces.push(resolved.clone());
+    }
+    if base.as_deref().is_some_and(is_graphics_constants) {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "Graphics enum classes supply constants and cannot be native base classes.",
+        ));
     }
     if matches!(
         base.as_deref(),

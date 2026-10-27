@@ -540,6 +540,11 @@ impl WebPlayer {
             .graphics_apply(&object_ref(target)?, &operations)
             .map_err(display_error)
     }
+    pub fn graphics_copy_from(&mut self, target: &str, source: &str) -> Result<(), JsValue> {
+        self.player
+            .graphics_copy_from(&object_ref(target)?, &object_ref(source)?)
+            .map_err(display_error)
+    }
     pub fn object_set_property(
         &mut self,
         target: &str,

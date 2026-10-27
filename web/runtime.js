@@ -24,7 +24,7 @@
       return x >= 0 && y >= 0 && y <= lines.length * kind.font_size * 1.2 &&
         x <= Math.max(0, ...lines.map(line => measureText(line, kind)));
     }
-    if (kind.type === 'path') return testPath(kind, x, y);
+    if (kind.type === 'path' || kind.type === 'gradient_path') return testPath(kind, x, y);
     if (kind.type === 'bitmap_pixels') return testBitmap?testBitmap(kind,x,y):false;
     if (kind.type === 'text_field') return testText?testText(kind.field,x,y):false;
     return false;
@@ -137,6 +137,7 @@
     if (!context) throw new Error('This browser does not provide Canvas 2D.');
     if (!global.NeoFlashPaths) throw new Error('The vector path runtime is missing. Re-export this project.');
     const paths = new global.NeoFlashPaths.PathCache();
+    const gradients = new global.NeoFlashPaths.GradientRenderer();
     const status = document.getElementById('status');
     const toggle = document.getElementById('toggle');
     const traceElement = document.getElementById('trace');
@@ -565,19 +566,8 @@
             context.lineWidth = kind.stroke_width;
             context.stroke();
           }
-        } else if (kind.type === 'path') {
-          const path = paths.get(kind.commands);
-          if (kind.fill[3] > 0) {
-            context.fillStyle = color(kind.fill);
-            context.fill(path, kind.fill_rule || 'nonzero');
-          }
-          if (kind.stroke_width > 0 && kind.stroke[3] > 0) {
-            context.strokeStyle = color(kind.stroke);
-            context.lineWidth = kind.stroke_width;
-            context.lineCap = 'round';
-            context.lineJoin = 'round';
-            context.stroke(path);
-          }
+        } else if (kind.type === 'path' || kind.type === 'gradient_path') {
+          gradients.draw(context,kind,paths.get(kind.commands));
         } else if (kind.type === 'bitmap_pixels') {
           if(!bitmapHost)throw new Error('Bitmap runtime is missing. Re-export this project.');
           bitmapHost.cache.draw(context,kind);
@@ -649,7 +639,7 @@
       failed = false;
       errorElement.style.display = 'none';
       accumulated = 0; lastTime = null;
-      try { resetProject(); render(); } catch (error) { fail(error); }
+      try { gradients.clear();resetProject(); render(); } catch (error) { fail(error); }
     });
     document.getElementById('audio-toggle')?.addEventListener('click',()=>{
       if(!audioHost||failed)return;
@@ -662,9 +652,9 @@
     document.getElementById('zoom').addEventListener('change', event => preview.setMode(event.target.value));
     const panButton = document.getElementById('pan');
     panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
-    global.addEventListener('pagehide', event => { if(!event.persisted)disposeFamily(); });
+    global.addEventListener('pagehide', event => { if(!event.persisted){gradients.clear();disposeFamily();} });
     new ResizeObserver(() => { resize(); render(); }).observe(viewport);
-    stopAsyncOnFailure=()=>{xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
+    stopAsyncOnFailure=()=>{gradients.clear();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
     initializeFamily();
     canvas.tabIndex=-1;
     stageHost?.attach();

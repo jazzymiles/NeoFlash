@@ -42,7 +42,7 @@ test('the actual host keeps scheduling after a startup script failure so Restart
     NeoFlashWasm: wasm,
     NeoFlashBundle: { wasm: '', project: { width: 320, height: 200, fps: 24, background: [255, 255, 255, 255] }, warnings: [],
       scripts: [{ ...script, location: 'Startup / frame 1', code: 'if (!globalThis.hasAttempted) { globalThis.hasAttempted = true; throw null; }' }] },
-    NeoFlashPaths: { PathCache: class {} },
+    NeoFlashPaths: require('../path.js'),
     NeoFlashAccessibility: { SemanticLayer: class { update() { return 0; } } },
     NeoFlashPreview: { Preview: class { constructor() { this.view = { scale: 1 }; } resize() {} } },
     ResizeObserver: class { observe() {} },

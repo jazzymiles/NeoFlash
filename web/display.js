@@ -10,6 +10,36 @@
   Graphics.__nfIs=value=>graphicsInstances.has(value);
   Graphics.__nfInitialize=()=>{throw new TypeError('Graphics cannot be used as a native base class.');};
   Object.defineProperty(Graphics,Symbol.hasInstance,{value:Graphics.__nfIs});
+  // Constants are shared by every publication, but cannot be constructed or
+  // extended. Unsupported modes remain named so selecting one gives a useful
+  // operation diagnostic instead of an undefined value.
+  function graphicsConstants(name,values) {
+    const type=class {constructor(){throw new TypeError(`${name} supplies Graphics constants and cannot be constructed.`);}};
+    Object.defineProperty(type,'name',{value:name});
+    type.__nfInitialize=()=>{throw new TypeError(`${name} cannot be a native base class.`);};
+    return Object.freeze(Object.assign(type,values));
+  }
+  const GradientType=graphicsConstants('GradientType',{LINEAR:'linear',RADIAL:'radial'});
+  const SpreadMethod=graphicsConstants('SpreadMethod',{PAD:'pad',REFLECT:'reflect',REPEAT:'repeat'});
+  const InterpolationMethod=graphicsConstants('InterpolationMethod',{RGB:'rgb',LINEAR_RGB:'linearRGB'});
+  const GraphicsPathCommand=graphicsConstants('GraphicsPathCommand',{NO_OP:0,MOVE_TO:1,LINE_TO:2,CURVE_TO:3,WIDE_MOVE_TO:4,WIDE_LINE_TO:5,CUBIC_CURVE_TO:6});
+  const GraphicsPathWinding=graphicsConstants('GraphicsPathWinding',{EVEN_ODD:'evenOdd',NON_ZERO:'nonZero'});
+  const graphicsEnums={GradientType,SpreadMethod,InterpolationMethod,GraphicsPathCommand,GraphicsPathWinding};
+  const vectorBrand=Symbol.for('neoflash.as3.vector.instance.v1');
+  function graphicsNumbers(value,name,limit,allowVector=false) {
+    const tag=value!=null&&(typeof value==='object'||typeof value==='function')?Object.getOwnPropertyDescriptor(value,vectorBrand):null;
+    const vector=allowVector&&tag&&Object.hasOwn(tag,'value')&&tag.value?.version===1;
+    if(!Array.isArray(value)&&!vector)throw new TypeError(`Graphics ${name} requires a dense Array${allowVector?' or typed Vector':''}.`);
+    const length=value.length;
+    if(!Number.isInteger(length)||length<0||length>limit)throw new RangeError(`Graphics ${name} exceeds ${limit} entries.`);
+    const result=[];
+    for(let i=0;i<length;i++) {
+      const item=Object.getOwnPropertyDescriptor(value,String(i));
+      if(!item||!Object.hasOwn(item,'value')||typeof item.value!=='number'||!Number.isFinite(item.value))throw new TypeError(`Graphics ${name}[${i}] requires a finite numeric data value; holes and accessors are unsupported.`);
+      result.push(item.value);
+    }
+    return result;
+  }
   const identity = [1, 0, 0, 1, 0, 0];
   const samePath = (a, b) => a.length === b.length && a.every((id, i) => id === b[i]);
   const within = (path, parent) => path.length >= parent.length && parent.every((id, i) => path[i] === id);
@@ -79,7 +109,7 @@
           const rx=Math.hypot(m[0]*kind.width/2,m[2]*kind.height/2)+stroke*Math.hypot(m[0],m[2]);
           const ry=Math.hypot(m[1]*kind.width/2,m[3]*kind.height/2)+stroke*Math.hypot(m[1],m[3]);
           include(center.x-rx,center.y-ry);include(center.x+rx,center.y+ry);
-        } else if(kind.type==='path') {
+        } else if(kind.type==='path'||kind.type==='gradient_path') {
           const b=pathBounds(kind.commands,m);
           if(b){const dx=stroke*Math.hypot(m[0],m[2]),dy=stroke*Math.hypot(m[1],m[3]);include(b.left-dx,b.top-dy);include(b.right+dx,b.bottom+dy);}
         } else if(kind.type==='text') {
@@ -158,7 +188,7 @@
       if(!Number.isInteger(index)||index<0||index>=lines.length)throw new RangeError('TextField line index is outside the unwrapped text.');
       return lines[index]+(index<lines.length-1?'\r':'');
     }
-    const graphicsCache=new WeakMap();
+    const graphicsCache=new WeakMap(),graphicsTargets=new WeakMap();
     function graphics(target) {
       descriptor(target);
       if(graphicsCache.has(target))return graphicsCache.get(target);
@@ -167,9 +197,43 @@
       const opacity=value=>{number(value,'alpha');if(value<0||value>1)throw new RangeError('Graphics alpha requires 0 through 1.');return value;};
       const apply=op=>{descriptor(target);player.graphics_apply(referenceOf(target).key,JSON.stringify([op]));};
       const rectangle=(op,x,y,width,height)=>apply({op,x:number(x,'x'),y:number(y,'y'),width:number(width,'width'),height:number(height,'height')});
+      // AIR Graphics/GraphicsPathCommand and the Adobe AS2 MovieClip reference
+      // define stop ranges, the 1638.4 gradient square and WIDE_* dummy pairs.
+      // Only native Matrix objects, pad spread and rgb interpolation are handled.
+      const gradient=(kind,colors,alphas,ratios,matrix=null,spreadMethod='pad',interpolationMethod='rgb',focalPointRatio=0)=>{
+        if(kind!=='linear'&&kind!=='radial')throw new TypeError('Graphics gradient type requires linear or radial.');
+        if(spreadMethod!=='pad')throw new TypeError('Graphics gradient spread currently supports pad; repeat and reflect are pending.');
+        if(interpolationMethod!=='rgb')throw new TypeError('Graphics gradient interpolation currently supports rgb; linearRGB is pending.');
+        const stops=graphicsNumbers(colors,'colors',15).map(rgb),alpha=graphicsNumbers(alphas,'alphas',15).map(value=>Math.max(0,Math.min(1,value))),positions=graphicsNumbers(ratios,'ratios',15);
+        if(stops.length===0||stops.length!==alpha.length||stops.length!==positions.length)throw new RangeError('Graphics gradients require matching colors, alphas and ratios with 1 through 15 stops.');
+        for(let i=0;i<positions.length;i++)if(!Number.isInteger(positions[i])||positions[i]<0||positions[i]>255||(i>0&&positions[i]<positions[i-1]))throw new RangeError('Graphics gradient ratios require nondecreasing integers from 0 through 255.');
+        if(matrix!==null&&!Matrix.__nfIs(matrix))throw new TypeError('Graphics gradient matrix requires flash.geom.Matrix or null; legacy box and 3×3 matrix objects are unsupported.');
+        const components=matrix===null?[...identity]:['a','b','c','d','tx','ty'].map(key=>number(matrix[key],`matrix.${key}`));
+        return {kind,colors:stops,alphas:alpha,ratios:positions,matrix:components,spread_method:spreadMethod,interpolation_method:interpolationMethod,focal_point_ratio:Math.max(-1,Math.min(1,number(focalPointRatio,'focalPointRatio')))};
+      };
+      const drawPath=(commands,data,winding='evenOdd')=>{
+        if(winding!=='evenOdd'&&winding!=='nonZero')throw new TypeError('Graphics.drawPath winding requires evenOdd or nonZero.');
+        const codes=graphicsNumbers(commands,'commands',100000,true),values=graphicsNumbers(data,'data',600000,true),path=[];
+        let cursor=0;
+        const next=()=>{if(cursor>=values.length)throw new RangeError('Graphics.drawPath data ends before all command coordinates.');return values[cursor++];};
+        for(const code of codes) {
+          switch(code) {
+            case 0:break;
+            case 1:case 2:path.push({op:code===1?'move_to':'line_to',x:next(),y:next()});break;
+            case 3:path.push({op:'quadratic_to',cx:next(),cy:next(),x:next(),y:next()});break;
+            case 4:case 5:next();next();path.push({op:code===4?'move_to':'line_to',x:next(),y:next()});break;
+            case 6:path.push({op:'cubic_to',cx1:next(),cy1:next(),cx2:next(),cy2:next(),x:next(),y:next()});break;
+            default:throw new TypeError(`Graphics.drawPath command ${code} is unsupported; use GraphicsPathCommand constants 0 through 6.`);
+          }
+        }
+        if(cursor!==values.length)throw new RangeError('Graphics.drawPath has unused coordinate data; provide exactly the command data.');
+        apply({op:'draw_path',commands:path,fill_rule:winding==='evenOdd'?'evenodd':'nonzero'});
+      };
       const methods={
         clear:()=>apply({op:'clear'}),
         beginFill:(color,alpha=1)=>apply({op:'begin_fill',color:rgb(color),alpha:opacity(alpha)}),
+        beginGradientFill:(...args)=>apply({op:'begin_gradient_fill',gradient:gradient(...args)}),
+        lineGradientStyle:(...args)=>apply({op:'line_gradient_style',gradient:gradient(...args)}),
         endFill:()=>apply({op:'end_fill'}),
         lineStyle:(width=NaN,color=0,alpha=1,pixelHinting=false,scaleMode='normal',caps=null,joints=null,miterLimit=3)=>{
           if(pixelHinting!==false||scaleMode!=='normal'||(caps!==null&&caps!=='round')||(joints!==null&&joints!=='round')||miterLimit!==3)throw new TypeError('Graphics.lineStyle currently supports scaling strokes with round caps/joins, no pixel hinting, and default miterLimit.');
@@ -179,12 +243,19 @@
         moveTo:(x,y)=>apply({op:'move_to',x:number(x,'x'),y:number(y,'y')}),
         lineTo:(x,y)=>apply({op:'line_to',x:number(x,'x'),y:number(y,'y')}),
         curveTo:(cx,cy,x,y)=>apply({op:'curve_to',cx:number(cx,'controlX'),cy:number(cy,'controlY'),x:number(x,'x'),y:number(y,'y')}),
+        cubicCurveTo:(cx1,cy1,cx2,cy2,x,y)=>apply({op:'cubic_curve_to',cx1:number(cx1,'controlX1'),cy1:number(cy1,'controlY1'),cx2:number(cx2,'controlX2'),cy2:number(cy2,'controlY2'),x:number(x,'x'),y:number(y,'y')}),
         drawRect:(x,y,width,height)=>rectangle('draw_rect',x,y,width,height),
+        drawRoundRect:(x,y,width,height,ellipseWidth,ellipseHeight=NaN)=>apply({op:'draw_round_rect',x:number(x,'x'),y:number(y,'y'),width:number(width,'width'),height:number(height,'height'),ellipse_width:number(ellipseWidth,'ellipseWidth'),ellipse_height:number(Number.isNaN(ellipseHeight)?ellipseWidth:ellipseHeight,'ellipseHeight')}),
+        // NeoFlash convenience extension, not a native Flash Graphics method:
+        // four corner radii in the Flex/OpenFL ordering (bottom-left before right).
+        drawRoundRectComplex:(x,y,width,height,topLeftRadius,topRightRadius,bottomLeftRadius,bottomRightRadius)=>apply({op:'draw_round_rect_complex',x:number(x,'x'),y:number(y,'y'),width:number(width,'width'),height:number(height,'height'),top_left_radius:number(topLeftRadius,'topLeftRadius'),top_right_radius:number(topRightRadius,'topRightRadius'),bottom_left_radius:number(bottomLeftRadius,'bottomLeftRadius'),bottom_right_radius:number(bottomRightRadius,'bottomRightRadius')}),
+        drawPath,
+        copyFrom:source=>{const owner=graphicsTargets.get(source);if(!owner)throw new TypeError('Graphics.copyFrom requires a Graphics facade from the same player.');descriptor(target);descriptor(owner);player.graphics_copy_from(referenceOf(target).key,referenceOf(owner).key);},
         drawEllipse:(x,y,width,height)=>rectangle('draw_ellipse',x,y,width,height),
         drawCircle:(x,y,radius)=>{number(radius,'radius');if(radius<0)throw new RangeError('Graphics radius must be nonnegative.');rectangle('draw_ellipse',number(x,'x')-radius,number(y,'y')-radius,radius*2,radius*2);},
       };
-      const facade=new Proxy(Object.freeze(methods),{get:(target,name)=>{if(typeof name==='symbol'||name==='then')return undefined;if(Object.hasOwn(target,name))return target[name];throw new TypeError(`Graphics.${name} is not implemented in the solid path profile.`);},set:()=>{throw new TypeError('Graphics members are read-only.');}});
-      graphicsInstances.add(facade);graphicsCache.set(target,facade);return facade;
+      const facade=new Proxy(Object.freeze(methods),{get:(target,name)=>{if(typeof name==='symbol'||name==='then')return undefined;if(Object.hasOwn(target,name))return target[name];throw new TypeError(`Graphics.${name} is not implemented in the path/gradient profile; bitmap/shader fills, triangles and graphics-data objects remain unsupported.`);},set:()=>{throw new TypeError('Graphics members are read-only.');}});
+      graphicsInstances.add(facade);graphicsTargets.set(facade,target);graphicsCache.set(target,facade);return facade;
     }
     function mutate(operation,deliver=true) {
       const packet=JSON.parse(player.display_mutate(JSON.stringify(operation)));
@@ -208,6 +279,8 @@
       const drawing=graphics(target);
       return {
         beginFill:(color,alpha=100)=>drawing.beginFill(color,alpha/100),
+        beginGradientFill:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>drawing.beginGradientFill(type,colors,graphicsNumbers(alphas,'AS2 alphas',15).map(alpha=>alpha/100),ratios,matrix,spread,interpolation==='RGB'?'rgb':interpolation,focal),
+        lineGradientStyle:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>drawing.lineGradientStyle(type,colors,graphicsNumbers(alphas,'AS2 alphas',15).map(alpha=>alpha/100),ratios,matrix,spread,interpolation==='RGB'?'rgb':interpolation,focal),
         endFill:drawing.endFill,lineStyle:(width,color=0,alpha=100,...options)=>drawing.lineStyle(width,color,alpha/100,...options),
         moveTo:drawing.moveTo,lineTo:drawing.lineTo,curveTo:drawing.curveTo,clear:drawing.clear,
         getNextHighestDepth:()=>children(target).length,
@@ -388,6 +461,7 @@
     }
     function initializeBitmap(receiver,args){const [data,snap,smooth]=bitmapArguments(args);set(receiver,'bitmapData',data);set(receiver,'pixelSnapping',snap);set(receiver,'smoothing',smooth);}
     const builtins={'flash.display.Graphics':Graphics,'flash.geom.Point':Point,'flash.geom.Rectangle':Rectangle,'flash.geom.Matrix':Matrix,'flash.geom.ColorTransform':ColorTransform,'flash.geom.Transform':Transform};
+    for(const[name,type]of Object.entries(graphicsEnums))builtins['flash.display.'+name]=type;
     for(const[name,owners]of Object.entries({DisplayObject:null,DisplayObjectContainer:['movie_clip','sprite','graphic','button'],MovieClip:['movie_clip'],Sprite:['movie_clip','sprite','graphic','button'],Shape:['shape'],Bitmap:['bitmap'],TextField:['text']})) {
       const allocation={Sprite:'sprite',Shape:'shape',MovieClip:'movie_clip',Bitmap:'bitmap',TextField:'text_field'}[name];
       function allocate(){if(!graph||!allocation)throw new TypeError(`Dynamic new ${name}() is not supported. Use an authored instance for this owner.`);return proxyForRef(JSON.parse(player.create_display(allocation)));}
@@ -405,6 +479,6 @@
     }
     return {methods,get,set,builtins,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,prune,clear:()=>legacy.clear(),UNHANDLED};
   }
-  const api={create,Point,Rectangle,Matrix,ColorTransform,normalizedRotation,UNHANDLED};
+  const api={create,Point,Rectangle,Matrix,ColorTransform,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;
 })(globalThis);

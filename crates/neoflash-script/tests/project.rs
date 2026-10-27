@@ -94,6 +94,9 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { import flash.utils.Endian; public class A extends Endian {} }",
         "package { import flash.display.Graphics; public class A extends Graphics {} }",
         "package { import flash.display.Graphics; public class A {public function A(){new Graphics();}} }",
+        "package { import flash.display.GradientType; public class A extends GradientType {} }",
+        "package { import flash.display.GraphicsPathCommand; public class A {public function A(){new GraphicsPathCommand();}} }",
+        "package { import flash.display.MovieClip; public class A extends MovieClip {public function beginGradientFill():void{}} }",
         "package { import flash.utils.Endian; public class A {public function A(){new Endian();}} }",
         "package { import flash.utils.ByteArray; public class A {public function A(){new ByteArray(8);}} }",
     ] {
@@ -126,6 +129,7 @@ fn class_syntax_outside_profile_is_never_erased() {
         "class A {public function A(){new TextField();}}",
         "class A {public function A(){new Sound(this);}}",
         "import flash.media.Sound; class A {}",
+        "import flash.display.GradientType; class A {}",
     ] {
         legacy.sources[0].source = source.into();
         assert!(
@@ -282,6 +286,29 @@ fn linked_classes_are_resolved_before_publication() {
         );
     }
     p.sources[0].source =
-        "package model { public class Model extends flash.display.MovieClip {} }".into();
+        r#"package model {
+            import flash.display.Graphics;
+            import flash.display.GradientType;
+            import flash.display.SpreadMethod;
+            import flash.display.InterpolationMethod;
+            import flash.display.GraphicsPathCommand;
+            import flash.display.GraphicsPathWinding;
+            import flash.geom.Matrix;
+            public class Model extends flash.display.MovieClip {
+                public function paint(source:Graphics):void {
+                    var drawing:Graphics=graphics;
+                    var box:Matrix=new Matrix(); box.createGradientBox(80,40);
+                    drawing.beginGradientFill(GradientType.LINEAR,[0xff0000,0x0000ff],[1,1],[0,255],box,SpreadMethod.PAD,InterpolationMethod.RGB,0);
+                    drawing.lineStyle(2); drawing.lineGradientStyle(GradientType.RADIAL,[0,0xffffff],[1,1],[0,255],box);
+                    drawing.drawRoundRect(0,0,80,40,8);
+                    drawing.drawRoundRectComplex(90,0,80,40,2,4,6,8);
+                    var commands:Vector.<int>=Vector.<int>([GraphicsPathCommand.MOVE_TO,GraphicsPathCommand.CUBIC_CURVE_TO]);
+                    var values:Vector.<Number>=Vector.<Number>([0,0,10,10,20,10,30,0]);
+                    drawing.drawPath(commands,values,GraphicsPathWinding.NON_ZERO);
+                    drawing.cubicCurveTo(35,0,40,10,45,0);drawing.endFill();
+                    drawing.copyFrom(source);
+                }
+            }
+        }"#.into();
     assert!(neoflash_script::compile_project(&p).is_ok());
 }

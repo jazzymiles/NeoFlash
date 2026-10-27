@@ -41,7 +41,10 @@ pub use runtime_graph::{
     MutationResult, ObjectRef, RuntimeAccessibleNode, RuntimeDrawItem, RuntimeDrawKind,
     RuntimeObject, RuntimeScriptDispatch, RuntimeSnapshot,
 };
-pub use runtime_graphics::{GraphicsOp, MAX_GRAPHICS_COMMANDS, MAX_GRAPHICS_OPS};
+pub use runtime_graphics::{
+    GradientKind, GradientPaint, GradientSpec, GradientStop, GraphicsOp, MAX_GRAPHICS_COMMANDS,
+    MAX_GRAPHICS_OPS,
+};
 pub use text::{
     MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextError, TextFieldState, TextFormat, TextFormatPatch,
     TextLayout, TextLine, TextPatch, TextReplacement, layout_text,

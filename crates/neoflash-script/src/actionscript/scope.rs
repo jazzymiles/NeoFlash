@@ -409,6 +409,7 @@ impl<'a> Analysis<'a> {
             Expr::NewClass(name, _, offset) if name == "flash.media.SoundChannel" => return Err(self.error(*offset,"SoundChannel is returned by Sound.play and cannot be directly constructed in this profile.")),
             Expr::NewClass(name, args, offset) if name == "flash.geom.Transform" && args.len() != 1 => return Err(self.error(*offset,"Transform construction requires one existing display object. Use object.transform or new Transform(object).")),
             Expr::NewClass(name, _, offset) if name == "flash.events.EventPhase" => return Err(self.error(*offset,"EventPhase contains constants and is not constructible.")),
+            Expr::NewClass(name, _, offset) if project::is_graphics_constants(name) => return Err(self.error(*offset,"Graphics enum classes supply constants and are not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.display.PixelSnapping" => return Err(self.error(*offset,"PixelSnapping contains constants and is not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.text.TextFormatAlign" => return Err(self.error(*offset,"TextFormatAlign contains alignment constants and is not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.text.TextField" && self.script.language == ScriptLanguage::ActionScript2 => return Err(self.error(*offset,"AS2 TextField creation uses MovieClip.createTextField with an append-only depth, not new TextField().")),
