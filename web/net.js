@@ -13,6 +13,10 @@
  * operations, 1024 form pairs/headers capped at64. No native subclassing, URLStream,
  * multipart/FormData, file upload, authentication prompts, automatic retry,
  * timeout configuration, or historical security/errorID/redirect-order claim.
+ * Navigation uses an injected synchronous navigate({url,method,target,fields})
+ * browser adapter. sendToURL shares request policy but never reads the response
+ * or dispatches loader events; reset aborts pending sends. Neither promises
+ * delivery across page unload. Navigation supports HTTP(S) GET/form POST only.
  */
 (function(global){
   'use strict';
@@ -154,6 +158,76 @@
       if(url.length>8192)throw new RangeError('GET URL data exceeds 8192 characters; use POST for larger form data.');
       return {url,method,body,headers:requestHeaders};
     }
+    function httpURL(source){
+      let url;try{url=new URL(source,baseURL||undefined);}catch(_){throw new TypeError('Request requires an absolute HTTP(S) URL or an HTTP(S) publication base URL.');}
+      if(!['http:','https:'].includes(url.protocol))throw new TypeError('Only browser HTTP(S) requests and navigation are supported; filesystem and scripting URLs are unavailable.');
+      if(url.username||url.password)throw new TypeError('Credentials embedded in request URLs are unsupported; use an explicit permitted request header for data loading.');
+      if(url.href.length>8192)throw new RangeError('Resolved request URL exceeds 8192 characters.');
+      return url.href;
+    }
+    function navigationTarget(value){
+      if(value===null||value===undefined||value==='')return '_blank';
+      const target=text(value,'Browser window target');
+      if(target.length>256||/[\s\x00-\x1f\x7f<>]/.test(target))throw new TypeError('Browser target requires a bounded window name without whitespace/control characters.');
+      const lower=target.toLowerCase();
+      if(['_self','_blank','_parent','_top'].includes(lower))return lower;
+      if(target.startsWith('_'))throw new TypeError('Unknown reserved browser target. Use _self, _blank, _parent, _top or a named window.');
+      return target;
+    }
+    function prepareNavigation(request,target=null){
+      open();const prepared=snapshot(request),url=httpURL(prepared.url),window=navigationTarget(target);
+      const formType=/^application\/x-www-form-urlencoded(?:\s*;\s*charset\s*=\s*(?:UTF-8|"UTF-8"))?\s*$/i;
+      // HTML navigation cannot attach custom HTTP headers. A form's own
+      // Content-Type is the sole allowed transport-generated header.
+      if(prepared.headers.some(([name,value])=>prepared.method!=='POST'||name.toLowerCase()!=='content-type'||!formType.test(value)))throw new TypeError('Browser navigation cannot send custom headers or a non-form Content-Type. Use URLLoader or sendToURL.');
+      let fields=[];
+      if(prepared.method==='POST'){
+        if(binary.ByteArray.__nfIs(request.data))throw new TypeError('Browser POST navigation requires URLVariables or a URL-encoded string, not ByteArray.');
+        if(!formType.test(request.contentType))throw new TypeError('Browser POST navigation supports application/x-www-form-urlencoded UTF-8 only.');
+        fields=parseForm(prepared.body?decoder.decode(prepared.body):'').map(pair=>Object.freeze(pair));
+      }
+      return Object.freeze({url,method:prepared.method,target:window,fields:Object.freeze(fields)});
+    }
+    function navigatePrepared(prepared){
+      if(typeof options.navigate!=='function')throw new Error('Browser navigation is unavailable in this host.');
+      // Do not defer: the actual browser operation must retain the caller's
+      // user-activation context. Popup/sandbox policy belongs to that browser.
+      options.navigate(prepared);
+    }
+    function navigateToURL(request,target=null){navigatePrepared(prepareNavigation(request,target));}
+    function getURL(owner,url,target='_self',method=null){
+      open();const request=new URLRequest(url);
+      if(method!==null&&method!==undefined&&method!==''){
+        request.method=method;
+        const values=typeof options.legacyVariables==='function'?options.legacyVariables(owner):owner;
+        if(values===null||typeof values!=='object')throw new TypeError('getURL with a method requires an enumerable source-variable object.');
+        request.data=formString(values);
+      }
+      navigatePrepared(prepareNavigation(request,target===null||target===undefined||target===''?'_self':target));
+    }
+    async function runSend(operation,prepared){
+      try{
+        const response=await fetchTransport(prepared.url,{method:prepared.method,headers:prepared.headers,body:prepared.body,signal:operation.controller.signal,credentials:'same-origin',mode:'cors'});
+        // Success/error HTTP status and response bytes are deliberately ignored.
+        // Cancel the stream without allocating an ArrayBuffer/ByteArray.
+        try{await response.body?.cancel();}catch(_){}
+      }catch(error){
+        if(current(operation)){
+          try{if(options.onSendError)options.onSendError(error);else global.console?.warn?.('sendToURL transport failed; no response is exposed.',error);}
+          catch(callbackError){report(callbackError);}
+        }
+      }finally{operation.controller.abort();release(operation);}
+    }
+    function sendToURL(request){
+      open();const prepared=snapshot(request);prepared.url=httpURL(prepared.url);
+      if(!fetchTransport)throw new Error('This browser does not provide fetch.');
+      if(active.size>=MAX_OPERATIONS)throw new RangeError('At most 32 resource/network operations may run concurrently.');
+      const record={generation,operation:null},operation={record,generation,controller:new AbortController(),retained:0,reader:null};
+      // Sending retains the request bytes until the browser accepts/completes
+      // its request, within the same shared in-flight byte budget as loaders.
+      retained(operation,prepared.body?.byteLength||0);record.operation=operation;active.add(operation);
+      try{schedule(()=>{if(current(operation))void runSend(operation,prepared);});}catch(error){cancel(record);throw error;}
+    }
     function resourceFor(url){
       if(/^[A-Za-z][A-Za-z0-9+.-]*:/.test(url)||url.startsWith('/'))return null;
       let path;try{path=decodeURIComponent(url.split(/[?#]/,1)[0]).replace(/^(?:\.\/)+/,'');}catch(_){throw new TypeError('Resource URL contains an invalid percent escape.');}
@@ -287,12 +361,19 @@
         request.data=formString(this,legacyReserved);request.contentType=source.contentType;request.requestHeaders=source.headers.slice();start(destination,request,true);return true;
       }
       addRequestHeader(name,value){const record=state(this,legacy),next=record.headers.slice();if(Array.isArray(name)){if(name.length%2)throw new TypeError('Header array requires alternating names and values.');for(let i=0;i<name.length;i+=2)next.push(new URLRequestHeader(name[i],name[i+1]));}else next.push(new URLRequestHeader(name,value));headerPairs(next);record.headers=next;}
-      send(){unsupported('LoadVars.send browser navigation');}
+      send(url,target,method='POST'){
+        const record=state(this,legacy);
+        if(arguments.length===0)return false;
+        if(target===undefined)return true; // Documented AS2 missing-target no-op.
+        const request=new URLRequest(url);request.method=method;request.data=formString(this,legacyReserved);
+        request.contentType=record.contentType;request.requestHeaders=record.headers.slice();
+        navigateToURL(request,target);return true;
+      }
     }
     noBase(LoadVars,'LoadVars',value=>legacy.has(value));
     function reset(){open();for(const operation of [...active])cancel(operation.record);generation++;hub.clear();resourceCache.clear();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({URLRequest,URLRequestHeader,URLRequestMethod,URLVariables,URLLoader,URLLoaderDataFormat,ProgressEvent,IOErrorEvent,HTTPStatusEvent,LoadVars,loadBytes,mediaSource,reset,dispose});
+    return Object.freeze({URLRequest,URLRequestHeader,URLRequestMethod,URLVariables,URLLoader,URLLoaderDataFormat,ProgressEvent,IOErrorEvent,HTTPStatusEvent,LoadVars,loadBytes,mediaSource,prepareNavigation,navigateToURL,sendToURL,getURL,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashNet=api;
 })(globalThis);

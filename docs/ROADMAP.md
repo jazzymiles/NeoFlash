@@ -1,6 +1,8 @@
 # Roadmap
 
-Independent f42ad94 acceptance (`VIDEO-HTML5-20261027T1042Z`) confirms real embedded AS3/AS2 MP4 playback, pre-completion pause/seek/resume, natural completion, post-completion Close retention, one-view clear and active HTTP Restart. The silent short file does not establish audible output, precise synchronization, broad codecs/transport or active-close races. See [the independent record](VERIFICATION.md#independent-video-verification-of-f42ad94). Pointer/drag/hit-test integration is already in development and retains separate delivery evidence.
+Independent 01f2261 acceptance (`POINTER-HTML5-20261027T1113Z`) confirms the observed AS3 donor-margin and AS2 −4-degree-parent drags, child/disabled targeting, bounded geometry/rectangle refusals, outside release and fresh Restart. AS3 is unrotated and both parents use unit scale; cursor effects and the first unresolved nested linked-target miss remain outside the accepted scope. See [the independent record](VERIFICATION.md#independent-pointer-verification-of-01f2261). ExternalInterface/page integration is already active and retains separate verification.
+
+Independent f42ad94 acceptance (`VIDEO-HTML5-20261027T1042Z`) confirms real embedded AS3/AS2 MP4 playback, pre-completion pause/seek/resume, natural completion, post-completion Close retention, one-view clear and active HTTP Restart. The silent short file does not establish audible output, precise synchronization, broad codecs/transport or active-close races. See [the independent record](VERIFICATION.md#independent-video-verification-of-f42ad94). The later 01f2261 pointer family has its own bounded independent record.
 
 Independent 6687ced acceptance (`CLASSES-HTML5-20261027T1007Z`) confirms separate private owner state, protected/package collaboration, bounded dynamic metadata/JSON and sealed refusals, positive imports/final declarations, distinct AS2 inherited-private behavior and Restart. Final rejection, wildcard ambiguity and full reflection/initialization are not inferred. See [the independent record](VERIFICATION.md#independent-classpackage-verification-of-6687ced). The later f42ad94 Video family has its own bounded independent record.
 
@@ -107,3 +109,8 @@ File-video playback now connects a Rust-owned Video display leaf to native brows
 ### Pointer-driven components
 
 The pointer family connects transformed dragging, collision queries, hit-area ownership and event targeting for interactive applications and games. One shared display model serves AS2 and AS3; capture/release and Restart are checked as a complete component workflow. Multi-touch, exact historical input behavior and richer native interaction authoring remain subsequent work.
+
+
+### Web page integration
+
+A coordinated ExternalInterface/navigation family connects authored AS2/AS3 projects to ordinary HTML applications. Callback ownership, synchronous return values, native GET/form POST navigation and response-free sends share publication lifetime. Browser-native transport and same-page JavaScript are the initial profile; arbitrary plugin security domains, executable marshalling and desktop/AIR channels remain later work. See ADR 0033.

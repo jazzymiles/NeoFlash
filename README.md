@@ -88,6 +88,8 @@ For object editing, **Selection (V)** moves objects; Shift-click toggles objects
 
 **Pointer interaction:** AS2/AS3 scripts can drag MovieClips in parent-space bounds, inspect local mouse coordinates and test bounds or supported shapes. Input flags and hitArea connect picking to the same display graph; legacy release/outside-release callbacks and Restart share the browser pointer lifecycle. Exact limits are in [the compatibility record](docs/COMPATIBILITY.md#pointer-dragging-and-hit-tests).
 
+**Web page integration:** AS2/AS3 ExternalInterface connects project callbacks to HTML controls and calls named page functions synchronously. Browser navigation and form submission use navigateToURL, getURL and LoadVars.send; sendToURL sends data without exposing the response. The bounded profile follows browser origin, activation and popup rules; see [compatibility](docs/COMPATIBILITY.md#web-page-integration).
+
 **Data in scripts:** Date works in AS2 and AS3; AS3 adds JSON and constructor-based RegExp with String matching/replacement. The data-processing example loads embedded JSON, computes UTC dates and serializes a project class including its public getter. These are bounded modern browser profiles; historical Flash parser/locale/regex parity remains unfinished.
 
 Example frame script:
@@ -196,7 +198,9 @@ There is one source tree. Version history belongs in Git, build outputs in ignor
 
 Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Contributions are accepted under the same terms. Third-party dependencies and public corpus fixtures retain their respective licenses; fixture provenance and notices are recorded alongside their source files. This independent project does not include Adobe application code or branding assets.
 
-[drag-drop.nflash](examples/drag-drop.nflash) combines transformed AS3/AS2 cards, drag limits, hit/drop readouts and input-mode controls in one pointer workflow.
+[web-integration.nflash](examples/web-integration.nflash) connects page buttons to AS2/AS3 callbacks and project controls back to named page functions. Optional HTTP controls use `/__neoflash_web_receipt__`; the two-way callback example is self-contained.
+
+[drag-drop.nflash](examples/drag-drop.nflash) combines transformed AS3/AS2 cards, drag limits, hit/drop readouts and input-mode controls in one pointer workflow. Independent `POINTER-HTML5-20261027T1113Z` on frozen 01f2261 verifies real donor-margin/rotated-AS2 drags, child/disabled input, outside release and fresh Restart within the actual zero-degree AS3/−4-degree AS2, unit-scale setup. Cursor effects, arbitrary transforms and every nested hit target remain unverified. See [the independent record](docs/VERIFICATION.md#independent-pointer-verification-of-01f2261).
 
 [video-playback.nflash](examples/video-playback.nflash) combines AS3-created and AS2-authored Video views with an original silent four-second clip. Play/Pause/Seek/Resume/Close operate both views; the optional HTTP control expects `/video-fixture.mp4` on the hosting server. Both default sources are embedded and portable.
  Independent `VIDEO-HTML5-20261027T1042Z` on frozen f42ad94 confirms real decoding, paused-frame retention, seek/resume/completion, post-completion Close and AS3-only clear, plus active HTTP Restart. Silent media and the short complete file do not establish audible output, exact timing, broad transport or native editor UI. See [the independent record](docs/VERIFICATION.md#independent-video-verification-of-f42ad94).

@@ -71,8 +71,13 @@ const BUILTINS: &[&str] = &[
     "flash.events.FocusEvent",
     "flash.events.TextEvent",
     "flash.events.EventPhase",
+    "flash.external.ExternalInterface",
 ];
-const BUILTIN_FUNCTIONS: &[&str] = &["flash.utils.getTimer"];
+const BUILTIN_FUNCTIONS: &[&str] = &[
+    "flash.utils.getTimer",
+    "flash.net.navigateToURL",
+    "flash.net.sendToURL",
+];
 pub(super) fn is_graphics_constants(name: &str) -> bool {
     matches!(
         name,
@@ -100,6 +105,7 @@ fn is_display_method(name: &str) -> bool {
             | "hitTest"
             | "startDrag"
             | "stopDrag"
+            | "getURL"
             | "getChildAt"
             | "getChildByName"
             | "getChildIndex"
@@ -138,6 +144,8 @@ pub(super) fn is_host_method(name: &str) -> bool {
         || matches!(
             name,
             "clone"
+                | "addCallback"
+                | "send"
                 | "cubicCurveTo"
                 | "drawRect"
                 | "drawRoundRect"
@@ -337,6 +345,7 @@ fn visible_names(
                         || (name.starts_with("flash.filters.")
                             && name.as_str() != "flash.filters.BitmapFilterQuality")
                         || *name == "flash.display.BitmapData"
+                        || *name == "flash.external.ExternalInterface"
                 },
                 |owner| {
                     *owner == language
@@ -716,6 +725,13 @@ fn parse_class(
             })
         })
         .transpose()?;
+    if base.as_deref() == Some("flash.external.ExternalInterface") {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "ExternalInterface supplies static browser integration methods and cannot be subclassed.",
+        ));
+    }
     if base
         .as_ref()
         .is_some_and(|name| interface_names.contains(name))

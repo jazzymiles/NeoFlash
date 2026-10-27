@@ -487,6 +487,7 @@ impl<'a> Analysis<'a> {
             Expr::NewClass(name, args, offset) if name == "flash.net.NetConnection" && !args.is_empty() => return Err(self.error(*offset,"NetConnection construction takes no arguments; call connect(null) for local file playback.")),
             Expr::NewClass(name, args, offset) if name == "flash.net.NetStream" && args.len()!=1 => return Err(self.error(*offset,"NetStream requires one local NetConnection; remote streaming constructor options are unsupported.")),
             Expr::NewClass(name, args, offset) if name == "flash.media.Video" && args.len()>2 => return Err(self.error(*offset,"Video construction accepts optional width and height only.")),
+            Expr::NewClass(name, _, offset) if name == "flash.external.ExternalInterface" => return Err(self.error(*offset,"ExternalInterface supplies static methods and cannot be constructed. Use addCallback and call.")),
             Expr::NewClass(name, args, offset) if name == "flash.events.NetStatusEvent" && (args.is_empty()||args.len()>4) => return Err(self.error(*offset,"NetStatusEvent requires a type and accepts optional bubbles, cancelable and info.")),
             Expr::NewBuiltin(name, args, offset) if name == "LoadVars" && !args.is_empty() => return Err(self.error(*offset,"AS2 LoadVars construction takes no arguments in this profile.")),
             Expr::NewBuiltin(name, args, offset) if name == "MovieClipLoader" && !args.is_empty() => return Err(self.error(*offset,"AS2 MovieClipLoader construction takes no arguments. Pass a URL and target to loadClip().")),
@@ -546,7 +547,8 @@ impl<'a> Analysis<'a> {
                     _ => false,
                 };
                 let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"|"loadClip"|"unloadClip"|"getProgress"|"getLocal"|"getSize"|"flush"|"clear"|"setFocus"|"getFocus"|"getBeginIndex"|"getEndIndex"|"getCaretIndex"|"setSelection"|"connect"|"attachVideo"|"play"|"pause"|"seek"|"close"));
-                let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_api||matches!(callee.as_ref(),Expr::Name(name)if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)));
+                let legacy_get_url=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Name(name) if name=="getURL" && !self.context.types.contains_key(name));
+                let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_api||legacy_get_url||matches!(callee.as_ref(),Expr::Name(name)if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)));
                 // AS2 permits a later frame or a parent script to install a
                 // function on this timeline. The host checks the actual value
                 // when the call executes; arbitrary member APIs stay blocked.

@@ -1,0 +1,702 @@
+{
+  "format_version": 2,
+  "name": "Web integration and browser requests",
+  "width": 1040,
+  "height": 700,
+  "fps": 24,
+  "background": [
+    16,
+    23,
+    39,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 33,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / WEB INTEGRATION / AS2 + AS3",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 78,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "The page is part of the application.",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        235,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 48,
+                      "y": 117,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Use the HTML buttons below the player to add points. Then ask HTML for a synchronous reply.\nRestart replaces the callbacks and resets both ActionScript receivers.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel3",
+                    "name": "panel3",
+                    "transform": {
+                      "x": 48,
+                      "y": 174,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 454,
+                      "height": 226,
+                      "fill": [
+                        25,
+                        38,
+                        57,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel2",
+                    "name": "panel2",
+                    "transform": {
+                      "x": 538,
+                      "y": 174,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 454,
+                      "height": 226,
+                      "fill": [
+                        25,
+                        38,
+                        57,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "heading3",
+                    "name": "heading3",
+                    "transform": {
+                      "x": 70,
+                      "y": 212,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "01   AS3 / BOUND METHOD",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        111,
+                        232,
+                        195,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "heading2",
+                    "name": "heading2",
+                    "transform": {
+                      "x": 560,
+                      "y": 212,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "02   AS2 / EXPLICIT RECEIVER",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        126,
+                        177,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status3",
+                    "name": "status3",
+                    "transform": {
+                      "x": 70,
+                      "y": 256,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Ready",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        235,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status2",
+                    "name": "status2",
+                    "transform": {
+                      "x": 560,
+                      "y": 256,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Ready",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        235,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "httpTitle",
+                    "name": "httpTitle",
+                    "transform": {
+                      "x": 48,
+                      "y": 449,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "A real request, in a named HTML frame.",
+                      "font_family": "Arial",
+                      "font_size": 22,
+                      "color": [
+                        235,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "httpNote",
+                    "name": "httpNote",
+                    "transform": {
+                      "x": 48,
+                      "y": 487,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Optional HTTP workflow",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 657,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Default startup is offline. HTTP buttons need the optional local receipt server.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-panel-placement",
+                    "name": "legacyPanel",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "legacy-panel",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "ask3",
+                    "name": "ask3",
+                    "transform": {
+                      "x": 70,
+                      "y": 331,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "button",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.askHost();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Ask HTML from AS3",
+                      "description": "Ask HTML from AS3",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "ask2",
+                    "name": "ask2",
+                    "transform": {
+                      "x": 560,
+                      "y": 331,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "button",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.legacyPanel.askHost();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Ask HTML from AS2",
+                      "description": "Ask HTML from AS2",
+                      "role": "button",
+                      "tab_order": 1,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "get-button",
+                    "name": "getButton",
+                    "transform": {
+                      "x": 48,
+                      "y": 558,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "button",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.getReceipt();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "GET receipt",
+                      "description": "GET receipt",
+                      "role": "button",
+                      "tab_order": 2,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "post-button",
+                    "name": "postButton",
+                    "transform": {
+                      "x": 292,
+                      "y": 558,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "button",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.legacyPanel.submitReceipt();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "POST receipt with LoadVars",
+                      "description": "POST receipt with LoadVars",
+                      "role": "button",
+                      "tab_order": 3,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "send-button",
+                    "name": "sendButton",
+                    "transform": {
+                      "x": 536,
+                      "y": 558,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "button",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.sendReceipt();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Send request and ignore response",
+                      "description": "Send request and ignore response",
+                      "role": "button",
+                      "tab_order": 4,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "legacy-button",
+                    "name": "legacyButton",
+                    "transform": {
+                      "x": 780,
+                      "y": 558,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "button",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.legacyPanel.openLegacy();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Legacy getURL receipt",
+                      "description": "Legacy getURL receipt",
+                      "role": "button",
+                      "tab_order": 5,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "java_script",
+              "source": "// Ordinary authored JavaScript: the exported player needs no manual host patch.\nif (typeof document !== \"undefined\") {\n  const movie=document.getElementById(\"stage\");\n  const old=document.getElementById(\"web-host-panel\");if(old)old.remove();\n  const panel=document.createElement(\"section\");panel.id=\"web-host-panel\";\n  panel.style.cssText=\"flex:1 0 100%;display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-top:1px solid #4b6078;padding-top:10px\";\n  const title=document.createElement(\"strong\");title.textContent=\"HTML host controls\";panel.append(title);\n  const output=document.createElement(\"output\");output.id=\"web-host-output\";output.setAttribute(\"aria-live\",\"polite\");output.style.cssText=\"min-width:260px;color:#b8eedb\";\n  window.NeoFlashExampleHost={calls:0,quote(dialect,score){this.calls++;output.textContent=\"From \"+dialect+\": \"+score+\" \u2192 HTML reply #\"+this.calls;return {caption:\"HTML reply #\"+this.calls,score:score*10};}};\n  function control(id,label,method,amount){const button=document.createElement(\"button\");button.id=id;button.type=\"button\";button.textContent=label;button.addEventListener(\"click\",()=>{try{const reply=movie[method](amount);output.textContent=\"Returned \"+reply.dialect+\": score \"+reply.total+\", calls \"+reply.calls;}catch(error){output.textContent=\"Bridge error: \"+error.message;}});panel.append(button);}\n  control(\"html-to-as3\",\"HTML \u2192 AS3 +3\",\"addPoints\",3);control(\"html-to-as2\",\"HTML \u2192 AS2 +2\",\"addLegacy\",2);\n  output.textContent=\"Callbacks are methods on the stage canvas. No network is needed.\";panel.append(output);\n  const receipt=document.createElement(\"iframe\");receipt.id=\"web-receipt\";receipt.name=\"neoflashReceipt\";receipt.title=\"Optional HTTP receipt\";\n  receipt.style.cssText=\"width:100%;height:64px;border:1px solid #415975;border-radius:5px;background:#142131\";\n  receipt.srcdoc=\"<!doctype html><html><body style='background:#142131;color:#b6c8df;font:13px system-ui'>Optional receipt: run the local HTTP example server, then use GET or POST above.</body></html>\";\n  panel.append(receipt);document.querySelector(\"footer\").append(panel);\n}"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "legacy-panel",
+      "name": "legacy-panel",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "legacy-panel-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import flash.external.ExternalInterface;\nstop();\nvar value:Number=0;\nfunction addLegacy(amount:Number):Object{this.value+=amount;_root.legacyTotal=this.value;_root.legacyCalls++;_root.refresh();return {dialect:\"AS2\",total:this.value,calls:_root.legacyCalls};}\nfunction askHost():Void{var reply:Object=ExternalInterface.call(\"NeoFlashExampleHost.quote\",\"AS2\",this.value);_root.legacyReply=reply==null?\"HTML bridge unavailable\":reply.caption+\" / score \"+reply.score;_root.refresh();}\nfunction submitReceipt():Void{var form:LoadVars=new LoadVars();form.source=\"AS2-LoadVars\";form.score=this.value;form.send(\"/__neoflash_web_receipt__\",\"neoflashReceipt\");_root.webState=\"AS2 form POST requested in the HTML receipt frame\";_root.refresh();}\nfunction openLegacy():Void{getURL(\"/__neoflash_web_receipt__?source=AS2-getURL\",\"neoflashReceipt\");_root.webState=\"AS2 getURL requested the named HTML frame\";_root.refresh();}\n_root.legacyReady=ExternalInterface.addCallback(\"addLegacy\",this,addLegacy);\n_root.legacyReply=\"Explicit receiver: legacyPanel.value\";\n_root.refresh();"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "button",
+      "name": "button",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 218,
+                      "height": 48,
+                      "fill": [
+                        47,
+                        68,
+                        94,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 15,
+                      "y": 30,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Control",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        235,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\nimport flash.display.MovieClip;\nimport flash.external.ExternalInterface;\nimport flash.net.URLRequest;\nimport flash.net.URLVariables;\nimport flash.net.navigateToURL;\nimport flash.net.sendToURL;\npublic dynamic class Main extends MovieClip {\n    public var total:int=0;\n    public var calls:int=0;\n    public var quoteScore:int=0;\n    public var hostReply:String=\"Press Ask HTML after startup\";\n    public var legacyTotal:int=0;\n    public var legacyCalls:int=0;\n    public var legacyReply:String=\"Waiting for AS2 callback registration\";\n    public var legacyReady:Boolean=false;\n    public var webState:String=\"HTTP controls are optional: serve with the receipt endpoint.\";\n    public function Main(){\n        stop();\n        title.selectable=false;eyebrow.selectable=false;intro.selectable=false;status3.selectable=false;status2.selectable=false;\n        heading3.selectable=false;heading2.selectable=false;httpTitle.selectable=false;httpNote.selectable=false;footer.selectable=false;\n        ask3.caption.selectable=false;ask3.caption.text=\"Ask HTML / AS3\";\n        ask2.caption.selectable=false;ask2.caption.text=\"Ask HTML / AS2\";\n        getButton.caption.selectable=false;getButton.caption.text=\"GET receipt\";\n        postButton.caption.selectable=false;postButton.caption.text=\"POST / LoadVars\";\n        sendButton.caption.selectable=false;sendButton.caption.text=\"Send, ignore reply\";\n        legacyButton.caption.selectable=false;legacyButton.caption.text=\"Legacy getURL\";\n        if(ExternalInterface.available){ExternalInterface.addCallback(\"addPoints\",addPoints);ExternalInterface.marshallExceptions=true;}\n        refresh();\n    }\n    public function addPoints(amount:int):Object{\n        total+=amount;calls++;refresh();\n        return {dialect:\"AS3\",total:total,calls:calls,objectID:ExternalInterface.objectID};\n    }\n    public function askHost():void{\n        var reply:Object=ExternalInterface.call(\"NeoFlashExampleHost.quote\",\"AS3\",total);\n        if(reply==null){hostReply=\"HTML bridge unavailable\";}else{quoteScore=reply.score;hostReply=reply.caption+\" / score \"+quoteScore;}\n        refresh();\n    }\n    public function getReceipt():void{\n        var data:URLVariables=new URLVariables();data.source=\"AS3-navigation\";data.score=total;\n        var request:URLRequest=new URLRequest(\"/__neoflash_web_receipt__\");request.data=data;\n        navigateToURL(request,\"neoflashReceipt\");webState=\"GET requested in the HTML receipt frame\";refresh();\n    }\n    public function sendReceipt():void{\n        var data:URLVariables=new URLVariables();data.source=\"AS3-sendToURL\";data.score=total;\n        var request:URLRequest=new URLRequest(\"/__neoflash_web_receipt__\");request.method=\"POST\";request.data=data;\n        sendToURL(request);webState=\"POST sent; sendToURL deliberately ignores the response\";refresh();\n    }\n    public function refresh():void{\n        status3.text=\"HTML calls \"+calls+\" / score \"+total+\"\\n\"+hostReply;\n        status2.text=\"Registered \"+legacyReady+\" / HTML calls \"+legacyCalls+\" / score \"+legacyTotal+\"\\n\"+legacyReply;\n        httpNote.text=webState+\"\\nLocal endpoint: /__neoflash_web_receipt__ (GET + URL-encoded POST).\";\n    }\n}\n}"
+    }
+  ]
+}

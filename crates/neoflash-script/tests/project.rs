@@ -43,6 +43,8 @@ fn module_resolution_fails_with_original_source_path() {
 fn class_syntax_outside_profile_is_never_erased() {
     for source in [
         "package { public class A {public private var secret:int;} }",
+        "package { import flash.external.ExternalInterface; public class A extends ExternalInterface {} }",
+        "package { import flash.external.ExternalInterface; public class A {public function A(){new ExternalInterface();}} }",
         "package {import flash.media.Video;public class A extends Video {}}",
         "package {import flash.net.NetConnection;public class A extends NetConnection {}}",
         "package {import flash.net.NetStream;public class A extends NetStream {}}",
@@ -162,6 +164,9 @@ fn class_syntax_outside_profile_is_never_erased() {
     );
     for source in [
         "class A {public function A(value:Number=0){}}",
+        "import flash.external.ExternalInterface;class A extends ExternalInterface {}",
+        "import flash.external.ExternalInterface;class A {public function A(){new ExternalInterface();}}",
+        "import flash.net.navigateToURL;class A {}",
         "class A {public function run(...values):Void{}}",
         "interface A {function value():Number;}",
         "class A {public function A(){new Video();}}",
@@ -549,6 +554,31 @@ fn class_syntax_outside_profile_is_never_erased() {
     let legacy_drag=neoflash_core::Script{language:ScriptLanguage::ActionScript2,source:"card.onPress=function():Void{this.startDrag(false,20,20,250,145);localX=this._xmouse;};card.onReleaseOutside=function():Void{this.stopDrag();hit=this.hitTest(zone);pointHit=this.hitTest(300,200,true);drop=this._droptarget;};card.onRollOver=function():Void{rolls++;};card.onRollOut=function():Void{rolls--;};".into()};
     let drag_code = neoflash_script::compile(&legacy_drag).expect("legacy drag callbacks compile");
     assert!(drag_code.contains("setLegacyCallback"));
+    let web_project = project(&[(
+        "Web.as",
+        r#"package {
+        import flash.external.ExternalInterface;import flash.net.navigateToURL;import flash.net.sendToURL;import flash.net.URLRequest;
+        public class Web {public function Web(){ExternalInterface.addCallback("echo",echo);}public function echo(value:Object):Object{return value;}
+            public function send(request:URLRequest):Object{var local:Function=navigateToURL;local(request,"preview");sendToURL(request);return ExternalInterface.call("Host.reply",{value:7});}
+        }}"#,
+    )]);
+    let web_result = neoflash_script::compile_project(&web_project);
+    assert!(web_result.is_ok(), "{:?}", web_result.err());
+    let legacy_web=neoflash_core::Script{language:ScriptLanguage::ActionScript2,source:"import flash.external.ExternalInterface;function echo(value:Object):Object{return value;}var ok:Boolean=ExternalInterface.addCallback(\"legacy\",this,echo);var reply:Object=ExternalInterface.call(\"Host.reply\",7);getURL(\"/receipt\",\"preview\");this.getURL(\"/receipt\",\"preview\",\"GET\");var form:LoadVars=new LoadVars();form.send(\"/receipt\",\"preview\");".into()};
+    let web_code = neoflash_script::compile_with_program(&legacy_web, &web_result.unwrap())
+        .expect("AS2 web interface compiles");
+    assert!(web_code.contains("__nfLegacy.ExternalInterface"));
+    assert!(web_code.contains("__nfLegacy.getURL.call(__nfFrame"));
+    let shadow_web = neoflash_core::Script {
+        language: ScriptLanguage::ActionScript2,
+        source: "function getURL(value:String):String{return value;}result=getURL(\"custom\");"
+            .into(),
+    };
+    assert!(
+        !neoflash_script::compile(&shadow_web)
+            .unwrap()
+            .contains("__nfLegacy.getURL")
+    );
     let mut shadow_video = project(&[
         (
             "NetConnection.as",

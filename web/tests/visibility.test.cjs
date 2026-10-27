@@ -148,18 +148,14 @@ test('published AS2/AS3 fixture filters drawing, click targets and semantics whi
     }
     assert.equal(legacy.clicks, 2); assert.equal(modern.clicks, 2);
 
-    // Use the real host hitAt implementation, including reverse painter order.
-    const runtime = fs.readFileSync(resolve(root, 'web/runtime.js'), 'utf8');
-    const start = runtime.indexOf('    function hitAt(event) {');
-    const end = runtime.indexOf("    canvas.addEventListener('click'", start);
-    const matrixStart = runtime.indexOf('    function bitmapMatrix(item){');
-    const matrixEnd = runtime.indexOf('    function render() {', matrixStart);
-    assert.ok(start >= 0 && end > start && matrixStart >= 0 && matrixEnd > matrixStart);
-    const { localPoint, hitShape } = require('../runtime.js');
-    const hitAt = new Function('player', 'canvas', 'project', 'localPoint', 'hitShape', 'context', 'global', 'paths', 'bitmapHost', 'textHost',
-      'let scene; const graphMode = true;\n' + runtime.slice(matrixStart, matrixEnd) + runtime.slice(start, end) + '\nreturn event => { const ref = hitAt(event); if (!ref) return null; return JSON.parse(player.runtime_snapshot_json()).objects.find(node => node.object_ref.id === ref.id && node.object_ref.generation === ref.generation).authored_path; };')(
-      player, { width:800, height:480, getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 480 }) }, bundle.project,
-      localPoint, hitShape, measureContext, {}, {}, host.bitmap(), host.text());
+    // hitAt now delegates graph picking to the shared display controller.
+    // Use that real entry point instead of extracting its former inline body.
+    // Client and Stage coordinates coincide in this 800×480 fixture; retain
+    // the authored leaf owner used by Click dispatch, not its retargeted parent.
+    const hitAt = event => {
+      const hit = host.display().pickDetails(event.clientX, event.clientY);
+      return hit ? host.display().descriptor(hit.owner).authored_path : null;
+    };
     modern.x = legacy.x;
     assert.deepEqual(hitAt({ clientX: 100, clientY: 145 }), ['modern', 'face']);
     activate('hide-as3');

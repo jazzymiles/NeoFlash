@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Independently checked frozen 01f2261 pointer/drag (`POINTER-HTML5-20261027T1113Z`): real donor-margin and rotated-AS2 dragging, child/disabled targeting, outside release, bounded negative/positive geometry controls and fresh Restart. The actual transforms, unmeasured cursor effects and unresolved first linked-target miss are retained explicitly; body and semantic controls pass within that scope.
+
+- Added a coordinated web-container family: AS2/AS3 ExternalInterface, page callbacks with synchronous results, browser GET/form POST navigation and response-free sends. Ordinary authored JavaScript supplies the HTML controls; generation ownership and native browser policies remain explicit.
+
 - Independently checked frozen f42ad94 file video (`VIDEO-HTML5-20261027T1042Z`): actual AS3/AS2 MP4 decoding, metadata, pause/seek/resume/completion, post-completion retained frames and AS3 clear, plus HTTP playback interrupted by Restart and fresh playback. Audio quality, exact timing, active-close races and native authoring remain outside this evidence.
 
 - Added a coordinated pointer family: AS2/AS3 dragging in transformed containers, script hit tests, input targeting flags and hitArea identities, cursor preferences and legacy release/rollover callbacks. Rust owns input state; the browser owns pointer capture and drag lifetime.

@@ -1570,6 +1570,9 @@ impl<'a> Frontend<'a> {
                             | "hitTest"
                             | "startDrag"
                             | "stopDrag"
+                            | "getURL"
+                            | "addCallback"
+                            | "send"
                     )
             }
             Expr::Index(base, index) => literal_property_name(index)
@@ -1939,6 +1942,13 @@ impl Emitter<'_> {
         if name == "arguments" {
             return "__nfArgumentsValue".into();
         }
+        if !self.as3
+            && name == "getURL"
+            && self.analysis.resolve(self.scope, name).is_none()
+            && !self.analysis.context.types.contains_key(name)
+        {
+            return "__nfLegacy.getURL.bind(__nfFrame)".into();
+        }
         if self.analysis.resolve(self.scope, name).is_none() && (!self.as3 && name == "getTimer") {
             return "__nfProgram.type(\"flash.utils.getTimer\")".into();
         }
@@ -1992,6 +2002,9 @@ impl Emitter<'_> {
         if self.analysis.resolve(self.scope, name).is_none()
             && let Some(qname) = self.analysis.context.types.get(name)
         {
+            if !self.as3 && qname == "flash.external.ExternalInterface" {
+                return "__nfLegacy.ExternalInterface".into();
+            }
             return format!("__nfProgram.type({qname:?})");
         }
         if name == "parseInt" && self.analysis.resolve(self.scope, name).is_none() {
@@ -2270,6 +2283,9 @@ impl Emitter<'_> {
                 .get(&name)
                 .or_else(|| self.analysis.context.functions.get(&name))
         {
+            if !self.as3 && qname == "flash.external.ExternalInterface" {
+                return "__nfLegacy.ExternalInterface".into();
+            }
             return format!("__nfProgram.type({qname:?})");
         }
         match expr {
@@ -2615,6 +2631,16 @@ impl Emitter<'_> {
                 self.expression(no)
             ),
             Expr::Call(callee, args, _) => {
+                if !self.as3
+                    && matches!(callee.as_ref(),Expr::Name(name) if name=="getURL" && self.analysis.resolve(self.scope,name).is_none() && !self.analysis.context.types.contains_key(name))
+                {
+                    return format!(
+                        "__nfLegacy.getURL.call(__nfFrame{})",
+                        args.iter()
+                            .map(|arg| format!(", {}", self.expression(arg)))
+                            .collect::<String>()
+                    );
+                }
                 if let Some(name) = qualified_name(callee)
                     && self
                         .analysis

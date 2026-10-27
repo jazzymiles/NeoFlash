@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "web-integration",
+      "path": "examples/web-integration.nflash",
+      "title": "HTML page callbacks, navigation and request dispatch",
+      "checks": [
+        "Call AS3 and AS2 callbacks from the HTML controls, then call the page from both project controls; confirm synchronous returned values and visible counters.",
+        "With the optional local receipt server, exercise named-frame GET/form POST navigation and response-free sending; inspect actual HTTP receipts.",
+        "Restart resets callbacks/state; fresh page and project actions execute once."
+      ]
+    },
+    {
       "id": "drag-drop",
       "path": "examples/drag-drop.nflash",
       "title": "Dragging, hit tests and pointer targeting",
@@ -77,7 +87,7 @@
       "checks": [
         "ByteArray AMF0/AMF3 round trips retain references/cycles, Date, named arrays and trailing records.",
         "Collect saves both dialects; browser reload and publication Restart retain scores and shared identities.",
-        "Clear only this example\u2019s named saves, reload to zero, then save once again; no callbacks or saves leak between publication sessions."
+        "Clear only this example’s named saves, reload to zero, then save once again; no callbacks or saves leak between publication sessions."
       ]
     },
     {

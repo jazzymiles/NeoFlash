@@ -21,6 +21,7 @@ const GEOMETRY: &str = include_str!("../../../web/geom.js");
 const TIMERS: &str = include_str!("../../../web/timers.js");
 const BYTE_ARRAY: &str = include_str!("../../../web/byte-array.js");
 const NET: &str = include_str!("../../../web/net.js");
+const EXTERNAL: &str = include_str!("../../../web/external.js");
 const BITMAP: &str = include_str!("../../../web/bitmap.js");
 const TEXT: &str = include_str!("../../../web/text.js");
 const TEXT_INPUT: &str = include_str!("../../../web/text-input.js");
@@ -264,6 +265,7 @@ pub fn export_project(
         ("timers.js", TIMERS),
         ("byte-array.js", BYTE_ARRAY),
         ("net.js", NET),
+        ("external.js", EXTERNAL),
         ("bitmap.js", BITMAP),
         ("text.js", TEXT),
         ("text-input.js", TEXT_INPUT),
@@ -352,6 +354,7 @@ fn html_document(title: &str) -> String {
   <script defer src="timers.js"></script>
   <script defer src="byte-array.js"></script>
   <script defer src="net.js"></script>
+  <script defer src="external.js"></script>
   <script defer src="bitmap.js"></script>
   <script defer src="text.js"></script>
   <script defer src="text-input.js"></script>
@@ -425,6 +428,9 @@ mod tests {
         assert!(!html.contains("https://"));
         assert!(html.find("src=\"path.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         assert!(html.find("src=\"net.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
+        assert!(
+            html.find("src=\"external.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap()
+        );
         assert!(html.find("src=\"bitmap.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         assert!(html.find("src=\"text.js\"").unwrap() < html.find("src=\"display.js\"").unwrap());
         assert!(
@@ -454,6 +460,11 @@ mod tests {
             fs::read_to_string(output.join("net.js"))
                 .unwrap()
                 .contains("NeoFlashNet")
+        );
+        assert!(
+            fs::read_to_string(output.join("external.js"))
+                .unwrap()
+                .contains("NeoFlashExternal")
         );
         assert!(
             fs::read_to_string(output.join("path.js"))

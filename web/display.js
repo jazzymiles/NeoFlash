@@ -57,7 +57,7 @@
   const unsupportedText=new Set(['htmlText','styleSheet','type','selectable','autoSize','embedFonts','displayAsPassword','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','background','backgroundColor','border','borderColor','antiAliasType','gridFitType','sharpness','thickness','condenseWhite','getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineMetrics','getParagraphLength','getFirstCharInParagraph','setSelection','replaceSelectedText']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{}}) {
+  function create({player,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{}}) {
     const legacy = new Map();
     const graph=typeof player.runtime_snapshot_json==='function';
     const refKey=ref=>JSON.stringify(ref);
@@ -445,6 +445,7 @@
       if(dragOwners.has(descriptor(target).owner)){result.startDrag=(lockCenter=false,bounds=null)=>startDrag(target,lockCenter,bounds);result.stopDrag=()=>stopDrag(target);if(as2)as2.register(result.startDrag,target,'startDrag',(lockCenter=false,...limits)=>{if(limits.length!==0&&limits.length!==4)throw new TypeError('AS2 startDrag requires lockCenter and optional left,top,right,bottom.');let bounds=null;if(limits.length){const[left,top,right,bottom]=limits;if(!limits.every(Number.isFinite)||right<left||bottom<top)throw new RangeError('AS2 drag bounds require ordered finite coordinates.');bounds=new Rectangle(left,top,right-left,bottom-top);}startDrag(target,lockCenter,bounds);});}
       if(graph&&['movie_clip','sprite','graphic','button'].includes(descriptor(target).owner))Object.assign(result,containerMethods(target));
       if(graph&&descriptor(target).owner==='movie_clip')Object.assign(result,legacyDrawing(target));
+      if(descriptor(target).owner==='movie_clip')result.getURL=(url,window,method)=>{descriptor(target);const net=getNet();if(!net)throw new Error('Browser navigation requires the publication network service.');return net.getURL(target,url,window,method);};
       if(graph&&descriptor(target).owner==='loader')Object.assign(result,getLoader().methods(target));
       if(graph&&descriptor(target).owner==='video'&&getVideo())Object.assign(result,getVideo().methods(target));
       if(descriptor(target).owner==='text'&&getText())Object.assign(result,getText().methods(referenceOf(target).key));

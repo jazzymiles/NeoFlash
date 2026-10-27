@@ -29,6 +29,7 @@ import { verifyImagePipeline } from './image-pipeline.mjs';
 import { verifyClassPackages } from './class-packages.mjs';
 import { verifyVideoPlayback } from './video-playback.mjs';
 import { verifyDragDrop } from './drag-drop.mjs';
+import { verifyWebIntegration } from './web-integration.mjs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
@@ -191,6 +192,7 @@ const workflows=[
   ['class-packages',verifyClassPackages],
   ['video-playback',verifyVideoPlayback],
   ['drag-drop',verifyDragDrop],
+  ['web-integration',verifyWebIntegration],
 ];
 let selected=workflows;
 if(process.env.NEOFLASH_WORKFLOWS!==undefined){
