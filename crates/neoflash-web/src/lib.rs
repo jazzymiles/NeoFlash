@@ -71,6 +71,12 @@ fn filter_specs(value: &str) -> Result<Vec<neoflash_core::FilterSpec>, JsValue> 
     }
     serde_json::from_str(value).map_err(display_error)
 }
+fn single_filter(value: &str) -> Result<neoflash_core::FilterSpec, JsValue> {
+    if value.len() > 65536 {
+        return Err(JsValue::from_str("Filter specification exceeds 64 KiB"));
+    }
+    serde_json::from_str(value).map_err(display_error)
+}
 fn command(name: &str, frame: u32) -> Result<PlaybackCommand, JsValue> {
     match name {
         "play" => Ok(PlaybackCommand::Play),
@@ -431,6 +437,207 @@ impl WebPlayer {
         self.player
             .bitmap_pixels_transformed(&pixel_ref(target)?, color_transform(color)?)
             .map_err(display_error)
+    }
+    pub fn bitmap_get_pixels(
+        &self,
+        target: &str,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        little: bool,
+    ) -> Result<Vec<u8>, JsValue> {
+        self.player
+            .bitmap_get_pixels(
+                &pixel_ref(target)?,
+                neoflash_core::BitmapRect {
+                    x,
+                    y,
+                    width,
+                    height,
+                },
+                little,
+            )
+            .map_err(display_error)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn bitmap_set_pixels(
+        &mut self,
+        target: &str,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        bytes: &[u8],
+        little: bool,
+    ) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .bitmap_set_pixels(
+                    &pixel_ref(target)?,
+                    neoflash_core::BitmapRect {
+                        x,
+                        y,
+                        width,
+                        height,
+                    },
+                    bytes,
+                    little,
+                )
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn bitmap_color_transform(
+        &mut self,
+        target: &str,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        color: &str,
+    ) -> Result<(), JsValue> {
+        self.player
+            .bitmap_color_transform(
+                &pixel_ref(target)?,
+                neoflash_core::BitmapRect {
+                    x,
+                    y,
+                    width,
+                    height,
+                },
+                color_transform(color)?,
+            )
+            .map_err(display_error)
+    }
+    pub fn bitmap_generate_filter_rect(
+        &self,
+        target: &str,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        filter: &str,
+    ) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .bitmap_generate_filter_rect(
+                    &pixel_ref(target)?,
+                    neoflash_core::BitmapRect {
+                        x,
+                        y,
+                        width,
+                        height,
+                    },
+                    &single_filter(filter)?,
+                )
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn bitmap_apply_filter(
+        &mut self,
+        target: &str,
+        source: &str,
+        sx: i32,
+        sy: i32,
+        width: i32,
+        height: i32,
+        dx: i32,
+        dy: i32,
+        filter: &str,
+    ) -> Result<(), JsValue> {
+        self.player
+            .bitmap_apply_filter(
+                &pixel_ref(target)?,
+                &pixel_ref(source)?,
+                neoflash_core::BitmapRect {
+                    x: sx,
+                    y: sy,
+                    width,
+                    height,
+                },
+                dx,
+                dy,
+                &single_filter(filter)?,
+            )
+            .map_err(display_error)
+    }
+    pub fn bitmap_encode_png(
+        &self,
+        target: &str,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        fast: bool,
+    ) -> Result<Vec<u8>, JsValue> {
+        self.player
+            .bitmap_encode_png(
+                &pixel_ref(target)?,
+                neoflash_core::BitmapRect {
+                    x,
+                    y,
+                    width,
+                    height,
+                },
+                fast,
+            )
+            .map_err(display_error)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn bitmap_draw_rgba(
+        &mut self,
+        target: &str,
+        width: u32,
+        height: u32,
+        bytes: &[u8],
+        clip_rect: &str,
+        expected_revision: &str,
+    ) -> Result<(), JsValue> {
+        if clip_rect.len() > 4096 || expected_revision.len() > 32 {
+            return Err(JsValue::from_str(
+                "BitmapData draw arguments exceed their input bounds",
+            ));
+        }
+        let rect: Option<neoflash_core::BitmapRect> =
+            serde_json::from_str(clip_rect).map_err(display_error)?;
+        self.player
+            .bitmap_draw_rgba(
+                &pixel_ref(target)?,
+                width,
+                height,
+                bytes,
+                rect,
+                expected_revision,
+            )
+            .map_err(display_error)
+    }
+    pub fn bitmap_draw_snapshot(
+        &self,
+        source: &str,
+        matrix: &str,
+        color: &str,
+    ) -> Result<String, JsValue> {
+        if matrix.len() > 4096 {
+            return Err(JsValue::from_str("Matrix input exceeds 4096 bytes"));
+        }
+        let matrix: [f64; 6] = serde_json::from_str(matrix).map_err(display_error)?;
+        serde_json::to_string(
+            &self
+                .player
+                .bitmap_draw_snapshot(
+                    &self.project,
+                    &object_ref(source)?,
+                    matrix,
+                    color_transform(color)?,
+                )
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
     }
     pub fn bitmap_get_pixel(
         &self,

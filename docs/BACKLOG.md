@@ -1,6 +1,8 @@
 # Backlog
 
-Independent 5395375 acceptance (`FILTERS-HTML5-20261027T0844Z`) confirms representative Blur/Glow/DropShadow/ColorMatrix effects over whole vector/text/bitmap cards, copied settings, unchanged shared pixels, bounded source/halo input and clear/restore/Restart. Filtered native editing, mask/scroll composition, HiDPI/cache limits and exact Flash kernels remain unverified. See [the independent record](VERIFICATION.md#independent-filter-verification-of-5395375). Later Function work has separate delivery evidence and inherits no filter pass.
+Independent 11a59df acceptance (`FUNCTIONS-HTML5-20261027T0914Z`) confirms the corrected command workflow: optional/rest/supplied arguments, tested bound and ordinary receivers, arity refusals and Restart. An initial added arguments.length trace changed the probe's allow-extra contract; that altered result is preserved, with only the family re-exported after removing the trace. See [the independent record](VERIFICATION.md#independent-function-verification-of-11a59df). Later BitmapData filter/color/transfer/PNG work has separate evidence and inherits no function pass.
+
+Independent 5395375 acceptance (`FILTERS-HTML5-20261027T0844Z`) confirms representative Blur/Glow/DropShadow/ColorMatrix effects over whole vector/text/bitmap cards, copied settings, unchanged shared pixels, bounded source/halo input and clear/restore/Restart. Filtered native editing, mask/scroll composition, HiDPI/cache limits and exact Flash kernels remain unverified. See [the independent record](VERIFICATION.md#independent-filter-verification-of-5395375). The later 11a59df Function family has its own independent record; it does not inherit the filter pass.
 
 Independent eddcc30 acceptance (`STORAGE-AMF-HTML5-20261027T0728Z`) confirms bounded AS2/AS3 saved graphs through reload/Restart/path isolation/clear and AMF packet values in a separate catch(*) positive control. The original batch remains four ready/one runtime error: P1 AMF-TYPED-CATCH-001 records malformed readObject throwing a raw string past catch(Error). Full error/codec/storage semantics are not inferred. See [the independent record](VERIFICATION.md#independent-storage-and-amf-verification-of-eddcc30). The later c10e19e Forms workflow has a separate bounded verification record.
 
@@ -184,3 +186,7 @@ Blur, Glow, DropShadow and ColorMatrix now share copied state, bounded Rust pixe
 ## Source function family
 
 A combined function/command workflow covers optional/rest AS3 source parameters, supplied arguments, indirect calls and shared constructor/interface checks, with AS2 argument/receiver behavior kept separate. Complete AVM global-scope lookup, prototype/reflection, arguments.caller, runtime-built Function code and generalized compile-time defaults remain follow-ups. One shared regression and one representative publication are the delivery boundary; individual methods do not each get a browser cycle. See ADR 0028 and the source-function verification record.
+
+## BitmapData image pipeline
+
+Bulk pixels, color transforms, shared filter kernels, current subtree capture and PNG-to-Loader form one integrated family. Remaining work includes drawWithQuality/non-normal blends, external mask dependencies, alpha-mask copies, other encoders and native authoring. Keep arithmetic, controlled Canvas adapter and real browser evidence distinct; use the existing grouped tests and one pipeline example.

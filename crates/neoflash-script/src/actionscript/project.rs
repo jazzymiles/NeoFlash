@@ -21,6 +21,7 @@ const BUILTINS: &[&str] = &[
     "flash.display.Bitmap",
     "flash.display.BitmapData",
     "flash.display.PixelSnapping",
+    "flash.display.PNGEncoderOptions",
     "flash.display.Loader",
     "flash.display.LoaderInfo",
     "flash.display.Stage",
@@ -183,6 +184,14 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "setPixel32"
                 | "fillRect"
                 | "copyPixels"
+                | "draw"
+                | "applyFilter"
+                | "generateFilterRect"
+                | "colorTransform"
+                | "getPixels"
+                | "setPixels"
+                | "copyPixelsToByteArray"
+                | "encode"
                 | "scroll"
                 | "dispose"
                 | "appendText"
@@ -618,12 +627,17 @@ fn parse_class(
     }
     if matches!(
         base.as_deref(),
-        Some("flash.display.Bitmap" | "flash.display.BitmapData" | "flash.display.PixelSnapping")
+        Some(
+            "flash.display.Bitmap"
+                | "flash.display.BitmapData"
+                | "flash.display.PixelSnapping"
+                | "flash.display.PNGEncoderOptions"
+        )
     ) {
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "Bitmap and BitmapData native subclass initialization is outside this profile; construct the native facade and use composition. PixelSnapping provides constants and cannot be a base class.",
+            "Bitmap and BitmapData native subclass initialization is outside this profile; construct the native facade and use composition. PixelSnapping provides constants; PNGEncoderOptions is final. Neither can be a base class.",
         ));
     }
     if matches!(

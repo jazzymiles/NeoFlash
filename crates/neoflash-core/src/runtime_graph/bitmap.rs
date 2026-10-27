@@ -103,6 +103,76 @@ impl Player {
     pub fn bitmap_pixels(&self, reference: &PixelRef) -> Result<Vec<u8>, BitmapError> {
         self.graph.pixels.pixels(reference)
     }
+    pub fn bitmap_get_pixels(
+        &self,
+        reference: &PixelRef,
+        rect: crate::BitmapRect,
+        little: bool,
+    ) -> Result<Vec<u8>, BitmapError> {
+        self.graph.pixels.get_pixels(reference, rect, little)
+    }
+    pub fn bitmap_set_pixels(
+        &mut self,
+        reference: &PixelRef,
+        rect: crate::BitmapRect,
+        bytes: &[u8],
+        little: bool,
+    ) -> Result<crate::PixelWrite, BitmapError> {
+        self.graph.pixels.set_pixels(reference, rect, bytes, little)
+    }
+    pub fn bitmap_color_transform(
+        &mut self,
+        reference: &PixelRef,
+        rect: crate::BitmapRect,
+        color: ColorTransform,
+    ) -> Result<(), BitmapError> {
+        self.graph.pixels.color_transform(reference, rect, color)
+    }
+    pub fn bitmap_generate_filter_rect(
+        &self,
+        reference: &PixelRef,
+        rect: crate::BitmapRect,
+        filter: &FilterSpec,
+    ) -> Result<crate::BitmapRect, BitmapError> {
+        self.graph
+            .pixels
+            .generate_filter_rect(reference, rect, filter)
+    }
+    pub fn bitmap_apply_filter(
+        &mut self,
+        dst: &PixelRef,
+        src: &PixelRef,
+        rect: crate::BitmapRect,
+        dx: i32,
+        dy: i32,
+        filter: &FilterSpec,
+    ) -> Result<(), BitmapError> {
+        self.graph
+            .pixels
+            .apply_filter(dst, src, rect, dx, dy, filter)
+    }
+    pub fn bitmap_encode_png(
+        &self,
+        reference: &PixelRef,
+        rect: crate::BitmapRect,
+        fast: bool,
+    ) -> Result<Vec<u8>, BitmapError> {
+        self.graph.pixels.encode_png(reference, rect, fast)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn bitmap_draw_rgba(
+        &mut self,
+        reference: &PixelRef,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        clip_rect: Option<crate::BitmapRect>,
+        expected_revision: &str,
+    ) -> Result<(), BitmapError> {
+        self.graph
+            .pixels
+            .draw_rgba(reference, width, height, rgba, clip_rect, expected_revision)
+    }
     pub fn bitmap_get_pixel(
         &self,
         reference: &PixelRef,

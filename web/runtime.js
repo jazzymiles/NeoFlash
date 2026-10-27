@@ -109,7 +109,107 @@
     }
     try { return String(value); } catch (_) { return '<unprintable thrown value>'; }
   }
-  const helpers = { localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow };
+  // The Stage and BitmapData.draw share this exact painter. Rust supplies
+  // the authoritative snapshot; this adapter never reconstructs a scene graph.
+  function createScenePainter({global,paths,gradients,clippings,bitmapHost,textHost,filterHost,context,matrix=item=>item.transform,hidden=()=>false,snapBitmaps=true}) {
+    const bitmapMatrix=matrix;
+    const font=kind=>`${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`;
+    function paintItem(context,item) {
+        const kind = item.kind;
+        if(kind.type==='text_field'&&hidden(item.owner_ref))return;
+        context.save();
+        try {
+        context.transform(...bitmapMatrix(item));
+        context.globalAlpha = Math.max(0, Math.min(1, item.alpha));
+        if (kind.type === 'rectangle' || kind.type === 'ellipse') {
+          context.beginPath();
+          if (kind.type === 'rectangle') context.rect(0, 0, kind.width, kind.height);
+          else context.ellipse(kind.width / 2, kind.height / 2, Math.max(0, kind.width / 2), Math.max(0, kind.height / 2), 0, 0, Math.PI * 2);
+          context.fillStyle = color(kind.fill);
+          context.fill();
+          if (kind.stroke_width > 0 && kind.stroke[3]) {
+            context.strokeStyle = color(kind.stroke);
+            context.lineWidth = kind.stroke_width;
+            context.stroke();
+          }
+        } else if (kind.type === 'path' || kind.type === 'gradient_path') {
+          gradients.draw(context,kind,paths.get(kind.commands));
+        } else if (kind.type === 'bitmap_pixels') {
+          if(!bitmapHost)throw new Error('Bitmap runtime is missing. Re-export this project.');
+          bitmapHost.cache.draw(context,snapBitmaps?kind:{...kind,pixel_snapping:'never'});
+        } else if (kind.type === 'text_field') {
+          if(!textHost)throw new Error('Text layout runtime is missing. Re-export this project.');
+          textHost.draw(context,kind.field);
+        } else if (kind.type === 'text') {
+          context.font = font(kind);
+          context.textBaseline = 'top';
+          context.fillStyle = color(kind.color);
+          kind.text.split('\n').forEach((line, index) => context.fillText(line, 0, index * kind.font_size * 1.2));
+        } else throw new Error(`Unsupported display primitive: ${kind.type}`);
+        } finally { context.restore(); }
+    }
+    function paintBounds(item,geometry=false) {
+      let kind=item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind;
+      if(geometry){
+        const opaque=rgba=>[...(rgba||[0,0,0,0]).slice(0,3),255];
+        if(['rectangle','ellipse','path','gradient_path'].includes(kind.type))kind={...kind,type:kind.type==='gradient_path'?'path':kind.type,fill:opaque(kind.fill),stroke:opaque(kind.stroke)};
+        else if(kind.type==='bitmap_pixels')kind={...kind,alpha_bounds:{left:0,top:0,right:kind.width,bottom:kind.height}};
+        else if(kind.type==='text_field')kind={...kind,field:{...kind.field,alpha:255},text_bounds:kind.field.box?{left:0,top:0,right:kind.field.box.width,bottom:kind.field.box.height}:textHost.bounds({...kind.field,alpha:255},true)};
+        else if(kind.type==='text')kind={...kind,color:opaque(kind.color)};
+      }
+      let bounded=global.NeoFlashAccessibility.itemBounds({...item,alpha:geometry?1:item.alpha,kind,transform:bitmapMatrix(item)},(line,textKind)=>{context.font=font(textKind);return context.measureText(line).width;});
+      // Scratch bounds also include actual glyph overhang; layout advance
+      // widths alone could crop italic text before applying the real mask.
+      if((kind.type==='text_field'&&kind.field.alpha>0)||(kind.type==='text'&&kind.color[3]>0)){
+        const field=kind.type==='text_field'?kind.field:null,lines=field?textHost.layout(field).lines:kind.text.split('\n').map((text,index)=>({text,x:0,y:index*kind.font_size*1.2})),m=bitmapMatrix(item);
+        context.save();try{context.font=field?global.NeoFlashText.cssFont(field.format):font(kind);context.textAlign='left';context.textBaseline='top';
+          for(const line of lines){if(!line.text.trim())continue;const metric=context.measureText(line.text),values=[metric.actualBoundingBoxLeft,metric.actualBoundingBoxRight,metric.actualBoundingBoxAscent,metric.actualBoundingBoxDescent];if(!values.every(Number.isFinite))continue;
+            let left=line.x-values[0],right=line.x+values[1],top=line.y-values[2],bottom=line.y+values[3];if(field?.box){left=Math.max(0,left);top=Math.max(0,top);right=Math.min(field.box.width,right);bottom=Math.min(field.box.height,bottom);}if(right<=left||bottom<=top)continue;
+            for(const[x,y]of [[left,top],[right,top],[right,bottom],[left,bottom]]){const px=m[0]*x+m[2]*y+m[4],py=m[1]*x+m[3]*y+m[5];bounded=bounded?{left:Math.min(bounded.left,px),top:Math.min(bounded.top,py),right:Math.max(bounded.right,px),bottom:Math.max(bounded.bottom,py)}:{left:px,top:py,right:px,bottom:py};}
+          }
+        }finally{context.restore();}
+      }
+      return bounded;
+    }
+    function draw(context,snapshot,{width=context.canvas.width,height=context.canvas.height,semantic=true}={}) {
+      const scene=snapshot.draws;
+      clippings.beginFrame();
+      const clips=global.NeoFlashPaths.clipTable(snapshot?.clips||[]),objects=snapshot?new Map((snapshot.objects||[]).map(node=>[JSON.stringify(node.object_ref),node])):null;
+      const semanticOwners=new Set((semantic?snapshot?.semantics||[]:[]).map(node=>JSON.stringify(node.owner_ref))),needsCoverage=new Map(),clippedBounds=new Map();
+      const semanticCoverage=item=>{const key=JSON.stringify(item.owner_ref);if(needsCoverage.has(key))return needsCoverage.get(key);let needed=false;for(let node=objects?.get(key);node;node=objects.get(JSON.stringify(node.parent_ref)))if(semanticOwners.has(JSON.stringify(node.object_ref))){needed=true;break;}needsCoverage.set(key,needed);return needed;};
+      const paintBoundsCache=new Map(),geometryBoundsCache=new Map();
+      const bounded=(item,geometry=false)=>{const cache=geometry?geometryBoundsCache:paintBoundsCache;if(!cache.has(item))cache.set(item,paintBounds(item,geometry));return cache.get(item);};
+      const paintLeaf=(target,item,deferred=[])=>{
+        const clip_ids=(item.clip_ids||[]).filter(id=>!deferred.includes(id));
+        if(!clip_ids.length){paintItem(target,item);return;}
+        const readBounds=!item.filter_id&&semanticCoverage(item);
+        const visible=clippings.draw(target,{...item,clip_ids},clips,paths,canvas=>paintItem(canvas,item),{bounds:bounded(item),readBounds});
+        if(readBounds)clippedBounds.set(item,visible||null);
+      };
+      const composite=(target,surface,bounds,clip_ids)=>{
+        const draw=canvas=>canvas.drawImage(surface,bounds.left,bounds.top);
+        if(clip_ids.length)clippings.draw(target,{clip_ids},clips,paths,draw,{bounds});else draw(target);
+      };
+      if(snapshot?.filter_groups?.length){
+        if(!filterHost)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
+        filterHost.renderer.draw(context,snapshot,{bounds:item=>bounded(item,true),paint:paintLeaf,composite});
+        // Filter effects are not new interaction geometry. Read the original
+        // fully clipped source only for semantic ancestors, even on cache hits.
+        for(const item of scene)if(item.filter_id&&item.clip_ids?.length&&semanticCoverage(item)){
+          const area=bounded(item),visible=area&&{left:Math.max(0,area.left),top:Math.max(0,area.top),right:Math.min(width,area.right),bottom:Math.min(height,area.bottom)};
+          const result=filterHost.renderer.coverage(visible,target=>clippings.draw(target,item,clips,paths,canvas=>paintItem(canvas,item),{bounds:visible,readBounds:true}));
+          clippedBounds.set(item,result||null);
+        }
+      }else{
+        filterHost?.renderer.clear();
+        for(const item of scene)paintLeaf(context,item);
+      }
+      return {clippedBounds,objects};
+    }
+    function clear(){gradients.clear();clippings.clear();}
+    return {draw,paintItem,paintBounds,clear};
+  }
+  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow };
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
   if (typeof document === 'undefined') return;
 
@@ -173,7 +273,7 @@
     const references = new WeakMap();
     const attachedClasses = new Map();
     let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, program = null;
-    let timerRenderGeneration=0;
+    let timerRenderGeneration=0, capturePainter=null;
     let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
     function updateCursor() {
@@ -222,7 +322,16 @@
     }
     function initializeFamily() {
       if (!global.NeoFlashDisplay || typeof player.display_nodes_json !== 'function') return;
-      if(global.NeoFlashBitmap)bitmapHost=global.NeoFlashBitmap.create({player,geometry:global.NeoFlashGeom});
+      if(global.NeoFlashBitmap)bitmapHost=global.NeoFlashBitmap.create({player,geometry:global.NeoFlashGeom,as2,
+        getBinary:()=>binaryHost,getFilters:()=>filterHost,
+        displayRef:source=>{const ref=references.get(source);if(!ref)return null;display.descriptor(source);return ref.objectRef;},
+        paintScene:(target,snapshot)=>{
+          if(!global.NeoFlashPaths)throw new Error('BitmapData.draw requires the shared path renderer.');
+          if(!capturePainter)capturePainter=createScenePainter({global,paths:new global.NeoFlashPaths.PathCache(),
+            gradients:new global.NeoFlashPaths.GradientRenderer({createCanvas:()=>bitmapHost.createCanvas(1,1)}),
+            clippings:new global.NeoFlashPaths.ClipRenderer({createCanvas:()=>bitmapHost.createCanvas(1,1)}),bitmapHost,textHost,filterHost,context:target,snapBitmaps:false});
+          bitmapHost.cache.beginFrame();try{capturePainter.draw(target,snapshot,{semantic:false});}finally{bitmapHost.cache.endFrame();}
+        }});
       if(global.NeoFlashFilters&&typeof player.filter_rgba==='function')filterHost=global.NeoFlashFilters.create({player});
       if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,onUpdate:ref=>textInputHost?.sync(ref),measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.font=global.NeoFlashText.cssFont(format);return context.measureText(text).width;}});
       display=global.NeoFlashDisplay.create({player,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getLoader:()=>loaderHost,getFilters:()=>filterHost,beforeFilters:(target,specs)=>{if(specs.length)assertUnfilteredEditing(stageHost?.stage.focus,target);},referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
@@ -296,7 +405,7 @@
       if(global.NeoFlashEvents)for(const name of ['Event','MouseEvent','KeyboardEvent','FocusEvent','TextEvent','EventDispatcher','EventPhase'])builtins['flash.events.'+name]=global.NeoFlashEvents[name];
       if(global.NeoFlashStage)builtins['flash.display.Stage']=global.NeoFlashStage.Stage;
       if(timerHost){builtins['flash.utils.Timer']=timerHost.Timer;builtins['flash.events.TimerEvent']=timerHost.TimerEvent;builtins['flash.utils.getTimer']=timerHost.getTimer;}
-      if(bitmapHost){builtins['flash.display.BitmapData']=bitmapHost.BitmapData;builtins['flash.display.PixelSnapping']=bitmapHost.PixelSnapping;}
+      if(bitmapHost){builtins['flash.display.BitmapData']=bitmapHost.BitmapData;builtins['flash.display.PixelSnapping']=bitmapHost.PixelSnapping;builtins['flash.display.PNGEncoderOptions']=bitmapHost.PNGEncoderOptions;}
       if(textHost){builtins['flash.text.TextFormat']=textHost.TextFormat;builtins['flash.text.TextFormatAlign']=textHost.TextFormatAlign;builtins['flash.text.TextFieldType']=textHost.TextFieldType;}
       if(filterHost)for(const name of ['BitmapFilter','BlurFilter','GlowFilter','DropShadowFilter','ColorMatrixFilter','BitmapFilterQuality'])builtins['flash.filters.'+name]=filterHost[name];
       if(storageHost)for(const name of ['SharedObject','SharedObjectFlushStatus','ObjectEncoding'])builtins['flash.net.'+name]=storageHost[name];
@@ -313,6 +422,7 @@
       };
     }
     function resetProject() {
+      capturePainter?.clear();capturePainter=null;
       filterHost?.renderer.clear();
       textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
       proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();lastTrace = '';
@@ -321,6 +431,7 @@
       dispatchScripts();
     }
     function disposeFamily() {
+      capturePainter?.clear();capturePainter=null;
       filterHost?.renderer.clear();
       textInputHost?.dispose();storageHost?.dispose();loaderHost?.dispose();xmlHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
       legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
@@ -576,63 +687,6 @@
       const m=bitmapHost.cache.transform([a*sx,b*sy,c*sx,d*sy,e*sx,f*sy],item.kind.pixel_snapping);
       return [m[0]/sx,m[1]/sy,m[2]/sx,m[3]/sy,m[4]/sx,m[5]/sy];
     }
-    function paintItem(context,item) {
-        const kind = item.kind;
-        if(kind.type==='text_field'&&textInputHost?.hidden(item.owner_ref))return;
-        context.save();
-        try {
-        context.transform(...bitmapMatrix(item));
-        context.globalAlpha = Math.max(0, Math.min(1, item.alpha));
-        if (kind.type === 'rectangle' || kind.type === 'ellipse') {
-          context.beginPath();
-          if (kind.type === 'rectangle') context.rect(0, 0, kind.width, kind.height);
-          else context.ellipse(kind.width / 2, kind.height / 2, Math.max(0, kind.width / 2), Math.max(0, kind.height / 2), 0, 0, Math.PI * 2);
-          context.fillStyle = color(kind.fill);
-          context.fill();
-          if (kind.stroke_width > 0 && kind.stroke[3]) {
-            context.strokeStyle = color(kind.stroke);
-            context.lineWidth = kind.stroke_width;
-            context.stroke();
-          }
-        } else if (kind.type === 'path' || kind.type === 'gradient_path') {
-          gradients.draw(context,kind,paths.get(kind.commands));
-        } else if (kind.type === 'bitmap_pixels') {
-          if(!bitmapHost)throw new Error('Bitmap runtime is missing. Re-export this project.');
-          bitmapHost.cache.draw(context,kind);
-        } else if (kind.type === 'text_field') {
-          if(!textHost)throw new Error('Text layout runtime is missing. Re-export this project.');
-          textHost.draw(context,kind.field);
-        } else if (kind.type === 'text') {
-          context.font = font(kind);
-          context.textBaseline = 'top';
-          context.fillStyle = color(kind.color);
-          kind.text.split('\n').forEach((line, index) => context.fillText(line, 0, index * kind.font_size * 1.2));
-        } else throw new Error(`Unsupported display primitive: ${kind.type}`);
-        } finally { context.restore(); }
-    }
-    function paintBounds(item,geometry=false) {
-      let kind=item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind;
-      if(geometry){
-        const opaque=rgba=>[...(rgba||[0,0,0,0]).slice(0,3),255];
-        if(['rectangle','ellipse','path','gradient_path'].includes(kind.type))kind={...kind,type:kind.type==='gradient_path'?'path':kind.type,fill:opaque(kind.fill),stroke:opaque(kind.stroke)};
-        else if(kind.type==='bitmap_pixels')kind={...kind,alpha_bounds:{left:0,top:0,right:kind.width,bottom:kind.height}};
-        else if(kind.type==='text_field')kind={...kind,field:{...kind.field,alpha:255},text_bounds:kind.field.box?{left:0,top:0,right:kind.field.box.width,bottom:kind.field.box.height}:textHost.bounds({...kind.field,alpha:255},true)};
-        else if(kind.type==='text')kind={...kind,color:opaque(kind.color)};
-      }
-      let bounded=global.NeoFlashAccessibility.itemBounds({...item,alpha:geometry?1:item.alpha,kind,transform:bitmapMatrix(item)},(line,textKind)=>{context.font=font(textKind);return context.measureText(line).width;});
-      // Scratch bounds also include actual glyph overhang; layout advance
-      // widths alone could crop italic text before applying the real mask.
-      if((kind.type==='text_field'&&kind.field.alpha>0)||(kind.type==='text'&&kind.color[3]>0)){
-        const field=kind.type==='text_field'?kind.field:null,lines=field?textHost.layout(field).lines:kind.text.split('\n').map((text,index)=>({text,x:0,y:index*kind.font_size*1.2})),m=bitmapMatrix(item);
-        context.save();try{context.font=field?global.NeoFlashText.cssFont(field.format):font(kind);context.textAlign='left';context.textBaseline='top';
-          for(const line of lines){if(!line.text.trim())continue;const metric=context.measureText(line.text),values=[metric.actualBoundingBoxLeft,metric.actualBoundingBoxRight,metric.actualBoundingBoxAscent,metric.actualBoundingBoxDescent];if(!values.every(Number.isFinite))continue;
-            let left=line.x-values[0],right=line.x+values[1],top=line.y-values[2],bottom=line.y+values[3];if(field?.box){left=Math.max(0,left);top=Math.max(0,top);right=Math.min(field.box.width,right);bottom=Math.min(field.box.height,bottom);}if(right<=left||bottom<=top)continue;
-            for(const[x,y]of [[left,top],[right,top],[right,bottom],[left,bottom]]){const px=m[0]*x+m[2]*y+m[4],py=m[1]*x+m[3]*y+m[5];bounded=bounded?{left:Math.min(bounded.left,px),top:Math.min(bounded.top,py),right:Math.max(bounded.right,px),bottom:Math.max(bounded.bottom,py)}:{left:px,top:py,right:px,bottom:py};}
-          }
-        }finally{context.restore();}
-      }
-      return bounded;
-    }
     function render() {
       const snapshot=graphMode?JSON.parse(player.runtime_snapshot_json()):null;
       scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
@@ -643,37 +697,8 @@
       context.fillStyle = color(project.background);
       context.fillRect(0, 0, project.width, project.height);
       bitmapHost?.cache.beginFrame();
-      clippings.beginFrame();
-      const clips=global.NeoFlashPaths.clipTable(snapshot?.clips||[]),objects=snapshot?new Map(snapshot.objects.map(node=>[JSON.stringify(node.object_ref),node])):null;
-      const semanticOwners=new Set((snapshot?.semantics||[]).map(node=>JSON.stringify(node.owner_ref))),needsCoverage=new Map(),clippedBounds=new Map();
-      const semanticCoverage=item=>{const key=JSON.stringify(item.owner_ref);if(needsCoverage.has(key))return needsCoverage.get(key);let needed=false;for(let node=objects?.get(key);node;node=objects.get(JSON.stringify(node.parent_ref)))if(semanticOwners.has(JSON.stringify(node.object_ref))){needed=true;break;}needsCoverage.set(key,needed);return needed;};
-      const paintBoundsCache=new Map(),geometryBoundsCache=new Map();
-      const bounded=(item,geometry=false)=>{const cache=geometry?geometryBoundsCache:paintBoundsCache;if(!cache.has(item))cache.set(item,paintBounds(item,geometry));return cache.get(item);};
-      const paintLeaf=(target,item,deferred=[])=>{
-        const clip_ids=(item.clip_ids||[]).filter(id=>!deferred.includes(id));
-        if(!clip_ids.length){paintItem(target,item);return;}
-        const readBounds=!item.filter_id&&semanticCoverage(item);
-        const visible=clippings.draw(target,{...item,clip_ids},clips,paths,canvas=>paintItem(canvas,item),{bounds:bounded(item),readBounds});
-        if(readBounds)clippedBounds.set(item,visible||null);
-      };
-      const composite=(target,surface,bounds,clip_ids)=>{
-        const draw=canvas=>canvas.drawImage(surface,bounds.left,bounds.top);
-        if(clip_ids.length)clippings.draw(target,{clip_ids},clips,paths,draw,{bounds});else draw(target);
-      };
-      if(snapshot?.filter_groups?.length){
-        if(!filterHost)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
-        filterHost.renderer.draw(context,snapshot,{bounds:item=>bounded(item,true),paint:paintLeaf,composite});
-        // Filter effects are not new interaction geometry. Read the original
-        // fully clipped source only for semantic ancestors, even on cache hits.
-        for(const item of scene)if(item.filter_id&&item.clip_ids?.length&&semanticCoverage(item)){
-          const area=bounded(item),visible=area&&{left:Math.max(0,area.left),top:Math.max(0,area.top),right:Math.min(project.width,area.right),bottom:Math.min(project.height,area.bottom)};
-          const result=filterHost.renderer.coverage(visible,target=>clippings.draw(target,item,clips,paths,canvas=>paintItem(canvas,item),{bounds:visible,readBounds:true}));
-          clippedBounds.set(item,result||null);
-        }
-      }else{
-        filterHost?.renderer.clear();
-        for(const item of scene)paintLeaf(context,item);
-      }
+      const painter=createScenePainter({global,paths,gradients,clippings,bitmapHost,textHost,filterHost,context,matrix:bitmapMatrix,hidden:ref=>Boolean(textInputHost?.hidden(ref))});
+      const {clippedBounds,objects}=painter.draw(context,snapshot||{draws:scene,objects:[],semantics:[],clips:[],filter_groups:[]},{width:project.width,height:project.height});
       const semanticScene=snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,...(clippedBounds.has(item)?{clipped_bounds:clippedBounds.get(item)}:{}),transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};}):scene;
       const targetCount = semanticLayer.update(snapshot?snapshot.semantics:JSON.parse(player.accessibility_json()), semanticScene, project, preview.view.scale, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
       bitmapHost?.cache.endFrame();

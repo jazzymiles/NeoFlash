@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Independently checked frozen 11a59df Functions (`FUNCTIONS-HTML5-20261027T0914Z`): corrected real commands, optional/rest/supplied arguments, bound versus ordinary receivers, arity refusals and Restart. An arguments.length instrumentation change altered the original probe contract; only that family was corrected/re-exported, with original evidence retained. No complete VM invocation or reflection claim follows.
+
+- Added a shared BitmapData image pipeline: bulk ARGB/ByteArray transfer, colorTransform, applyFilter/generateFilterRect, PNG encoding and read-only source-subtree draw through the same scene painter. Rust retains pixel ownership, partial setPixels EOF follows consumed complete words, and one palette workflow connects PNG to Loader and Restart.
+
 - Independently verified frozen 5395375 filters (`FILTERS-HTML5-20261027T0844Z`): visible whole-card styles, copied settings and bounded refusals, unchanged shared bitmap pixels, observed source hits/halo exclusion and clear/restore/Restart, with one common browser regression. Native/filtered editing, clip composition, HiDPI/cache bounds and exact Flash raster behavior remain unverified.
 
 - Added a coordinated source-function family: AS3 scalar optional defaults and rest, supplied arguments, Function.call/apply and shared project signatures; AS2 retains separate argument and receiver behavior. One command workflow connects callbacks to visible scene state and Restart. Full VM global scope, reflection and generalized default expressions remain separate work.

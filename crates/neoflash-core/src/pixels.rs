@@ -4,6 +4,8 @@
 //! Copy/scroll snapshots at most one 64 MiB clipped rectangle for overlap safety;
 //! this temporary memory is additional to the 128 MiB resident arena budget.
 use serde::{Deserialize, Serialize};
+mod pipeline;
+pub use pipeline::{BitmapRect, PixelWrite};
 use std::{
     collections::HashMap,
     sync::atomic::{AtomicU64, Ordering},

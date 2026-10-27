@@ -32,7 +32,8 @@ pub use geometry::{
 pub use history::History;
 pub use model::*;
 pub use pixels::{
-    BitmapError, MAX_BITMAP_BYTES, MAX_BITMAP_DIMENSION, PixelDescriptor, PixelRef, PixelSnapping,
+    BitmapError, BitmapRect, MAX_BITMAP_BYTES, MAX_BITMAP_DIMENSION, PixelDescriptor, PixelRef,
+    PixelSnapping, PixelWrite,
 };
 pub use resource_image::DecodedImage;
 pub use resources::{

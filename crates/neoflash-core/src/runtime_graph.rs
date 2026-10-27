@@ -469,6 +469,59 @@ impl Player {
     }
 
     pub fn runtime_snapshot(&self, project: &Project) -> RuntimeSnapshot {
+        self.snapshot_with_root(project, None)
+    }
+
+    /// Capture the current display subtree using the normal scene evaluator.
+    /// The source placement/ancestor transforms are ignored. No timelines,
+    /// scripts, references, buffers or display properties are mutated.
+    pub fn bitmap_draw_snapshot(
+        &self,
+        project: &Project,
+        source: &ObjectRef,
+        matrix: [f64; 6],
+        color: ColorTransform,
+    ) -> Result<RuntimeSnapshot, BitmapError> {
+        if !self.graph.alive(source) {
+            return Err(BitmapError("draw source is stale or foreign".into()));
+        }
+        if !matrix
+            .into_iter()
+            .enumerate()
+            .all(|(i, v)| v.is_finite() && v.abs() <= if i < 4 { 1e4 } else { 1e12 })
+        {
+            return Err(BitmapError(
+                "draw matrix exceeds finite affine bounds".into(),
+            ));
+        }
+        color.validate().map_err(|e| BitmapError(e.to_string()))?;
+        let included: BTreeSet<_> = self.graph.subtree(source).into_iter().collect();
+        if self
+            .graph
+            .masks
+            .iter()
+            .any(|(target, mask)| included.contains(target) && !included.contains(mask))
+        {
+            return Err(BitmapError("draw currently requires mask sources inside the captured subtree; external mask dependencies are unsupported".into()));
+        }
+        let result = self.snapshot_with_root(project, Some((source, matrix, color)));
+        if result
+            .objects
+            .iter()
+            .any(|node| node.bitmap.as_ref().is_some_and(|b| b.disposed))
+        {
+            return Err(BitmapError(
+                "draw subtree contains a disposed BitmapData".into(),
+            ));
+        }
+        Ok(result)
+    }
+
+    fn snapshot_with_root(
+        &self,
+        project: &Project,
+        capture: Option<(&ObjectRef, [f64; 6], ColorTransform)>,
+    ) -> RuntimeSnapshot {
         let mut authored: HashMap<_, _> = self
             .display_nodes(project)
             .into_iter()
@@ -514,14 +567,19 @@ impl Player {
         }
         let mut result = RuntimeSnapshot::default();
         let root = self.object_ref(&[]);
-        let mut roots: Vec<_> = root.iter().cloned().collect();
-        roots.extend(
-            self.graph
-                .dynamic
-                .iter()
-                .filter(|(_, node)| node.parent.is_none())
-                .map(|(id, _)| id.clone()),
+        let mut roots: Vec<_> = capture.map_or_else(
+            || root.iter().cloned().collect(),
+            |(source, _, _)| vec![source.clone()],
         );
+        if capture.is_none() {
+            roots.extend(
+                self.graph
+                    .dynamic
+                    .iter()
+                    .filter(|(_, node)| node.parent.is_none())
+                    .map(|(id, _)| id.clone()),
+            );
+        }
         let mut pending: Vec<_> = roots
             .into_iter()
             .rev()
@@ -612,18 +670,25 @@ impl Player {
                 .pixel_ref
                 .as_ref()
                 .and_then(|id| self.graph.pixels.info(id).ok());
-            let local_matrix = if let Some(affine) = self.graph.affines.get(&reference) {
+            let capture_root = capture.filter(|(source, _, _)| *source == &reference);
+            let local_matrix = if let Some((_, matrix, _)) = capture_root {
+                matrix
+            } else if let Some(affine) = self.graph.affines.get(&reference) {
                 affine.update_display(&mut display);
                 affine.matrix
             } else {
                 transform_matrix(display.transform)
             };
-            let color_transform = self
-                .graph
-                .color_transforms
-                .get(&reference)
-                .copied()
-                .unwrap_or_else(|| ColorTransform::from_alpha(display.transform.alpha));
+            let color_transform = capture_root.map_or_else(
+                || {
+                    self.graph
+                        .color_transforms
+                        .get(&reference)
+                        .copied()
+                        .unwrap_or_else(|| ColorTransform::from_alpha(display.transform.alpha))
+                },
+                |(_, _, color)| color,
+            );
             display.transform.alpha = color_transform.multipliers[3];
             let concatenated_color_transform = color_transform.then(parent_color);
             let scroll_rect = self.graph.scroll_rects.get(&reference).copied();
@@ -631,8 +696,10 @@ impl Player {
                 affine_multiply(local_matrix, [1., 0., 0., 1., -rect.x, -rect.y])
             });
             display.world = affine_multiply(parent_world, content_local_matrix);
-            display.effective_visible = parent_visible && display.visible;
-            let on_stage = parent_attached || root.as_ref() == Some(&reference);
+            display.effective_visible =
+                parent_visible && (capture_root.is_some() || display.visible);
+            let on_stage =
+                capture_root.is_some() || parent_attached || root.as_ref() == Some(&reference);
             let singular = parent_singular
                 || local_matrix[0] * local_matrix[3] - local_matrix[1] * local_matrix[2] == 0.;
             let own_accessibility = metadata.get(&reference);
@@ -777,7 +844,11 @@ impl Player {
             result.objects.push(RuntimeObject {
                 display,
                 object_ref: reference.clone(),
-                parent_ref: self.graph.parent(&reference),
+                parent_ref: if capture_root.is_some() {
+                    None
+                } else {
+                    self.graph.parent(&reference)
+                },
                 children,
                 on_stage,
                 authored_path,
@@ -793,12 +864,15 @@ impl Player {
                 scroll_rect,
                 mask_ref: self.graph.masks.get(&reference).cloned(),
                 clip_ids: vec![],
-                filters: self
-                    .graph
-                    .filters
-                    .get(&reference)
-                    .cloned()
-                    .unwrap_or_default(),
+                filters: if capture.is_some() {
+                    vec![]
+                } else {
+                    self.graph
+                        .filters
+                        .get(&reference)
+                        .cloned()
+                        .unwrap_or_default()
+                },
                 color_transform,
                 concatenated_color_transform,
             });

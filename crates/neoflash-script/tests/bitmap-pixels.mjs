@@ -94,7 +94,7 @@ export async function verifyBitmapPixels(root,cargo) {
     const doomed=scene.independent;
     doomed.dispose();assert.throws(()=>doomed.getPixel(0,0),/disposed/i);
     assert.equal(drawFor(scene.cloneView),undefined,'disposing displayed pixels removes their paint without crashing the scene');
-    assert.throws(()=>scene.shared.draw(scene.sourceImage),/not implemented/);
+    assert.throws(()=>scene.shared.drawWithQuality(scene.sourceImage),/not implemented/);
     const old=scene.shared;
     host.resetProject();const fresh=host.proxyFor([]);
     assert.equal(host.lastTrace(),'bitmaps ready 16 16 0');

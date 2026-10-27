@@ -97,6 +97,8 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { import flash.text.TextField; public class A { public function A(){new TextField(4);} } }",
         "package { import flash.display.BitmapData; public class A extends BitmapData {} }",
         "package { import flash.display.PixelSnapping; public class A { public function A(){new PixelSnapping();} } }",
+        "package { import flash.display.PNGEncoderOptions; public class A extends PNGEncoderOptions {} }",
+        "package { import flash.display.PNGEncoderOptions; public class A {public function A(){new PNGEncoderOptions(false,true);}} }",
         "package { import flash.net.URLLoader; public class A extends URLLoader {} }",
         "package { import flash.net.SharedObject; public class A extends SharedObject {} }",
         "package { import flash.net.ObjectEncoding; public class A extends ObjectEncoding {} }",
@@ -184,6 +186,7 @@ fn class_syntax_outside_profile_is_never_erased() {
         "import flash.display.LoaderInfo; class A {}",
         "import flash.media.Sound; class A {}",
         "import flash.display.GradientType; class A {}",
+        "import flash.display.PNGEncoderOptions; class A {}",
     ] {
         legacy.sources[0].source = source.into();
         assert!(
@@ -432,6 +435,8 @@ fn linked_classes_are_resolved_before_publication() {
             import flash.display.DisplayObject;
             import flash.display.Loader;
             import flash.display.LoaderInfo;
+            import flash.display.BitmapData;
+            import flash.display.PNGEncoderOptions;
             import flash.net.URLRequest;
             import flash.net.SharedObject;
             import flash.net.SharedObjectFlushStatus;
@@ -448,6 +453,18 @@ fn linked_classes_are_resolved_before_publication() {
             import flash.filters.DropShadowFilter;
             import flash.filters.ColorMatrixFilter;
             public class Model extends flash.display.MovieClip {
+                public function imagePipeline(source:BitmapData):ByteArray {
+                    var copy:BitmapData=source.clone();
+                    copy.colorTransform(copy.rect,new flash.geom.ColorTransform());
+                    copy.applyFilter(source,source.rect,new flash.geom.Point(),new BlurFilter());
+                    var affected:Rectangle=copy.generateFilterRect(copy.rect,new BlurFilter());
+                    copy.draw(source,new Matrix(),null,"normal",affected,false);
+                    var pixels:ByteArray=copy.getPixels(copy.rect);pixels.position=0;
+                    copy.setPixels(copy.rect,pixels);pixels.clear();
+                    copy.copyPixelsToByteArray(copy.rect,pixels);
+                    var options:PNGEncoderOptions=new PNGEncoderOptions(true);
+                    return copy.encode(copy.rect,options);
+                }
                 public var savedFilter:BitmapFilter;
                 public function applyFilters():BitmapFilter {
                     var blur:BlurFilter=new BlurFilter(4,6,BitmapFilterQuality.LOW);var glow:GlowFilter=new GlowFilter(0x336699,.5,4,4,2);

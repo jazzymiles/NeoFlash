@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "image-pipeline",
+      "path": "examples/image-pipeline.nflash",
+      "title": "Bitmap processing, source capture and PNG round-trip",
+      "checks": [
+        "Process the original image through independent color/filter edits, nested source capture and bulk ARGB transfer.",
+        "Check the PNG decoded by Loader matches the captured pixels and the original source stays unchanged.",
+        "AS2 bitmap operations share the pixel arena; palette cycles and Restart restore fresh owners and callbacks."
+      ]
+    },
+    {
       "id": "function-workflow",
       "path": "examples/function-workflow.nflash",
       "title": "Functions, callbacks and command dispatch",

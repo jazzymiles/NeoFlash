@@ -10,7 +10,7 @@ const require = createRequire(import.meta.url);
 export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const path = resolve(root, 'web/runtime.js');
   const runtime = readFileSync(path, 'utf8');
-  const { sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow } = require(path);
+  const { createScenePainter, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow } = require(path);
   const start = runtime.indexOf('    const propertyMap =');
   const end = runtime.indexOf('    function resize()', start);
   assert.ok(start >= 0 && end > start, 'host implementation boundaries changed');
@@ -23,6 +23,7 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const globals = { NeoFlashDisplay:require(resolve(root,'web/display.js')), NeoFlashEvents:require(resolve(root,'web/events.js')),
     NeoFlashStage:require(resolve(root,'web/stage.js')), NeoFlashLegacyInput:require(resolve(root,'web/legacy-input.js')), NeoFlashAccessibility:require(resolve(root,'web/accessibility.js')) };
   globals.NeoFlashByteArray=require(resolve(root,'web/byte-array.js'));
+  globals.NeoFlashPaths=require(resolve(root,'web/path.js'));
   const netModule=require(resolve(root,'web/net.js'));
   globals.NeoFlashNet={create:settings=>netModule.create({...settings,...options.net})};
   const bitmapModule=require(resolve(root,'web/bitmap.js'));
@@ -54,11 +55,11 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   globals.NeoFlashTimers={create:settings=>timerModule.create({...settings,...options.timers})};
   globals.requestAnimationFrame=options.requestAnimationFrame||(callback=>queueMicrotask(callback));
   if(options.keyTarget){globals.addEventListener=options.keyTarget.addEventListener.bind(options.keyTarget);globals.removeEventListener=options.keyTarget.removeEventListener.bind(options.keyTarget);}
-  const host = new Function('player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'traceSpy', 'global', 'bundle', 'project', 'context', 'font', 'canvas', 'viewport',
+  const host = new Function('createScenePainter', 'player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'traceSpy', 'global', 'bundle', 'project', 'context', 'font', 'canvas', 'viewport',
     'const proxies = new Map(); const render = () => {}; let lastTrace = "";\n' + runtime.slice(start, end) +
     '\nconst originalTrace = trace; trace = (...args) => { traceSpy(...args); return originalTrace(...args); };\n' +
     'initializeFamily(); return { proxyFor, proxyForRef, activateSemantic, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, disposeFamily, stopTimers, display:()=>display, stage:()=>stageHost, legacy:()=>legacyGlobals, timers:()=>timerHost, binary:()=>binaryHost, net:()=>netHost, bitmap:()=>bitmapHost, text:()=>textHost, filters:()=>filterHost, textInput:()=>textInputHost, audio:()=>audioHost, xml:()=>xmlHost, loader:()=>loaderHost, amf:()=>amfHost, storage:()=>storageHost, program:()=>program, lastTrace: () => lastTrace };'
-  )(player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args),
+  )(createScenePainter, player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args),
     globals, options.bundle, options.project || options.bundle?.project, options.context, kind=>`${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`, options.canvas, options.keyboardTarget);
   return { host, traceCalls, hostConsole, scriptConsole };
 }

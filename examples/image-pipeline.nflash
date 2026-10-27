@@ -1,0 +1,767 @@
+{
+  "format_version": 2,
+  "name": "BitmapData image pipeline",
+  "width": 1040,
+  "height": 816,
+  "fps": 24,
+  "background": [
+    16,
+    24,
+    38,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "BitmapData image pipeline",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 30,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / BITMAPDATA IMAGE PIPELINE / AS2 + AS3",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        155,
+                        180,
+                        203,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 65,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Pixels in. A portable image out.",
+                      "font_family": "Arial",
+                      "font_size": 34,
+                      "color": [
+                        232,
+                        240,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 112,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Process a copy, capture a nested composition, then encode PNG and reload it without a server.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        155,
+                        180,
+                        203,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "source-panel",
+                    "name": "source-panel",
+                    "transform": {
+                      "x": 48,
+                      "y": 160,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 288,
+                      "height": 236,
+                      "fill": [
+                        24,
+                        37,
+                        55,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "source-heading",
+                    "name": "source-heading",
+                    "transform": {
+                      "x": 68,
+                      "y": 180,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "01 / ORIGINAL",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        95,
+                        214,
+                        177,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "source-caption",
+                    "name": "source-caption",
+                    "transform": {
+                      "x": 68,
+                      "y": 366,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Immutable source · 96 × 64",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        155,
+                        180,
+                        203,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "processed-panel",
+                    "name": "processed-panel",
+                    "transform": {
+                      "x": 376,
+                      "y": 160,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 288,
+                      "height": 236,
+                      "fill": [
+                        24,
+                        37,
+                        55,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "processed-heading",
+                    "name": "processed-heading",
+                    "transform": {
+                      "x": 396,
+                      "y": 180,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "02 / TINT + GLOW",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        95,
+                        214,
+                        177,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "processed-caption",
+                    "name": "processed-caption",
+                    "transform": {
+                      "x": 396,
+                      "y": 366,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Copied pixels · expanded filter bounds",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        155,
+                        180,
+                        203,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "png-panel",
+                    "name": "png-panel",
+                    "transform": {
+                      "x": 704,
+                      "y": 160,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 288,
+                      "height": 236,
+                      "fill": [
+                        24,
+                        37,
+                        55,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "png-heading",
+                    "name": "png-heading",
+                    "transform": {
+                      "x": 724,
+                      "y": 180,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "03 / PNG RELOADED",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        95,
+                        214,
+                        177,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "png-caption",
+                    "name": "png-caption",
+                    "transform": {
+                      "x": 724,
+                      "y": 366,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ByteArray → Loader.loadBytes",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        155,
+                        180,
+                        203,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "composition-panel",
+                    "name": "composition-panel",
+                    "transform": {
+                      "x": 48,
+                      "y": 422,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 288,
+                      "height": 194,
+                      "fill": [
+                        24,
+                        37,
+                        55,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "roundtrip-panel",
+                    "name": "roundtrip-panel",
+                    "transform": {
+                      "x": 376,
+                      "y": 422,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 288,
+                      "height": 194,
+                      "fill": [
+                        24,
+                        37,
+                        55,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-panel",
+                    "name": "legacy-panel",
+                    "transform": {
+                      "x": 704,
+                      "y": 422,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 288,
+                      "height": 194,
+                      "fill": [
+                        24,
+                        37,
+                        55,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "composition-heading",
+                    "name": "composition-heading",
+                    "transform": {
+                      "x": 68,
+                      "y": 442,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "04 / NESTED LIVE SOURCE",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        125,
+                        184,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "roundtrip-heading",
+                    "name": "roundtrip-heading",
+                    "transform": {
+                      "x": 396,
+                      "y": 442,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "05 / DRAW + BULK COPY",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        125,
+                        184,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-heading",
+                    "name": "legacy-heading",
+                    "transform": {
+                      "x": 724,
+                      "y": 442,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 / DRAW + FILTER",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        125,
+                        184,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pipelineStatus",
+                    "name": "pipelineStatus",
+                    "transform": {
+                      "x": 48,
+                      "y": 648,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Preparing the pipeline…",
+                      "font_family": "Arial",
+                      "font_size": 20,
+                      "color": [
+                        232,
+                        240,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "byteStatus",
+                    "name": "byteStatus",
+                    "transform": {
+                      "x": 48,
+                      "y": 684,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Straight ARGB bytes and PNG output",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        155,
+                        180,
+                        203,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyStatus",
+                    "name": "legacyStatus",
+                    "transform": {
+                      "x": 704,
+                      "y": 590,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 pipeline preparing",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        155,
+                        180,
+                        203,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 366,
+                      "y": 752,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Source pixels stay unchanged. Restart rebuilds every buffer.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        155,
+                        180,
+                        203,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "process-button",
+                    "name": "process-button",
+                    "transform": {
+                      "x": 48,
+                      "y": 736,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "process-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.advance();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.processLegacy();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Process next palette",
+                      "description": "Rebuild tinted pixels, capture the composition and reload the encoded PNG; also update the AS2 image pipeline.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import flash.display.BitmapData;\nimport flash.geom.Rectangle;\nimport flash.geom.Point;\nimport flash.geom.Matrix;\nimport flash.geom.ColorTransform;\nimport flash.filters.BlurFilter;\nvar legacyPhase:Number=-1;\nvar legacySource:BitmapData=_root.source.clone();\nvar legacyFiltered:BitmapData=new BitmapData(112,80,true,0);\nvar legacyCanvas:BitmapData=new BitmapData(128,96,true,0);\nvar legacyClip:MovieClip=createEmptyMovieClip(\"legacyClip\",getNextHighestDepth());\nlegacyClip._x=776;legacyClip._y=480;legacyClip.attachBitmap(legacyCanvas,legacyClip.getNextHighestDepth());\nvar legacyResult:Number=0;\nfunction processLegacy():Void {\n    legacyPhase=(legacyPhase+1)%3;\n    legacySource.copyPixels(_root.source,_root.source.rectangle,new Point());\n    legacySource.colorTransform(legacySource.rectangle,new ColorTransform(1,legacyPhase==1?.6:1,.8,1,0,0,20,0));\n    legacyFiltered.fillRect(legacyFiltered.rectangle,0);\n    legacyResult=legacyFiltered.applyFilter(legacySource,legacySource.rectangle,new Point(8,8),new BlurFilter(3,3,1));\n    legacyCanvas.fillRect(legacyCanvas.rectangle,0);\n    legacyCanvas.draw(legacyFiltered,new Matrix(1,0,0,1,8,8),null,\"normal\");\n    legacyStatus.text=\"Palette \"+legacyPhase+\" / filter result \"+legacyResult;\n}\nprocessLegacy();"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "process-control",
+      "name": "Process next palette",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "process-control-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "process-face",
+                    "name": "process-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 288,
+                      "height": 48,
+                      "fill": [
+                        95,
+                        214,
+                        177,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "process-label",
+                    "name": "process-label",
+                    "transform": {
+                      "x": 20,
+                      "y": 13,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Process next palette",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        16,
+                        24,
+                        38,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "source-main",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n    import flash.display.MovieClip;\n    import flash.display.Sprite;\n    import flash.display.Bitmap;\n    import flash.display.BitmapData;\n    import flash.display.PNGEncoderOptions;\n    import flash.display.Loader;\n    import flash.geom.Rectangle;\n    import flash.geom.Point;\n    import flash.geom.Matrix;\n    import flash.geom.ColorTransform;\n    import flash.filters.GlowFilter;\n    import flash.utils.ByteArray;\n    import flash.events.Event;\n    import flash.events.IOErrorEvent;\n    public class Main extends MovieClip {\n        public var source:BitmapData;\n        public var tinted:BitmapData;\n        public var processed:BitmapData;\n        public var captured:BitmapData;\n        public var roundTrip:BitmapData;\n        public var composition:Sprite;\n        public var nested:Sprite;\n        public var picture:Loader;\n        public var raw:ByteArray;\n        public var png:ByteArray;\n        public var prefixed:ByteArray;\n        public var affected:Rectangle;\n        public var options:PNGEncoderOptions;\n        public var phase:int=0;\n        public var loads:int=0;\n        public var sourceStable:Boolean=true;\n        public var rejectionCaught:Boolean=false;\n        public var reloadedMatches:Boolean=false;\n        public var rawEnd:uint=0;\n        public var copiedEnd:uint=0;\n        public function Main() {\n            super();stop();\n            this[\"process-button\"][\"process-label\"].selectable=false;\n            source=new BitmapData(96,64,true,0);\n            source.fillRect(new Rectangle(4,4,88,56),0xff1d3557);\n            source.fillRect(new Rectangle(12,12,72,40),0xff48cfae);\n            source.fillRect(new Rectangle(20,20,56,24),0xfff4e8b8);\n            source.fillRect(new Rectangle(26,26,12,12),0xffea7b55);\n            source.fillRect(new Rectangle(44,26,26,6),0xff3462a2);\n            tinted=source.clone();processed=new BitmapData(112,80,true,0);\n            captured=new BitmapData(192,112,true,0);roundTrip=new BitmapData(192,112,true,0);\n            view(source,80,216,2);view(processed,408,204,2);\n            composition=new Sprite();composition.name=\"composition\";composition.x=80;composition.y=476;composition.alpha=.7;addChild(composition);\n            var first:Bitmap=new Bitmap(source);first.x=8;first.y=16;first.scaleX=.75;first.scaleY=.75;composition.addChild(first);\n            nested=new Sprite();nested.x=72;nested.y=8;composition.addChild(nested);\n            var second:Bitmap=new Bitmap(processed);second.scaleX=.9;second.scaleY=.9;nested.addChild(second);\n            view(roundTrip,408,478,1.15);\n            picture=new Loader();picture.x=720;picture.y=216;picture.scaleX=1.3;picture.scaleY=1.3;\n            picture.contentLoaderInfo.addEventListener(Event.COMPLETE,loaded);\n            picture.contentLoaderInfo.addEventListener(IOErrorEvent.IO_ERROR,failed);addChild(picture);\n            options=new PNGEncoderOptions(true);prefixed=new ByteArray();\n            process();\n        }\n        public function view(data:BitmapData,x:Number,y:Number,scale:Number):void {\n            var image:Bitmap=new Bitmap(data);image.x=x;image.y=y;image.scaleX=scale;image.scaleY=scale;addChild(image);\n        }\n        public function advance():void {phase=(phase+1)%3;process();}\n        public function process():void {\n            var before:uint=source.getPixel32(24,24);\n            try { source.colorTransform(source.rect,new ColorTransform(1,1,1,1,256,0,0,0)); }\n            catch(error:Error) { rejectionCaught=source.getPixel32(24,24)==before; }\n            tinted.copyPixels(source,source.rect,new Point());\n            var tint:ColorTransform=phase==0?new ColorTransform(.85,1,1,1,12,0,0,0):phase==1?new ColorTransform(1,.65,.7,1,16,12,0,0):new ColorTransform(.8,.7,1,1,20,0,20,0);\n            tinted.colorTransform(tinted.rect,tint);\n            var glow:GlowFilter=new GlowFilter(phase==0?0x48cfae:phase==1?0xea7b55:0xa78bfa,.8,6,6,1,1);\n            affected=tinted.generateFilterRect(tinted.rect,glow);\n            processed.fillRect(processed.rect,0);processed.applyFilter(tinted,tinted.rect,new Point(8,8),glow);\n            captured.fillRect(captured.rect,0);captured.draw(composition,new Matrix(),null,\"normal\",null,false);\n            if(raw!=null)raw.clear();raw=captured.getPixels(captured.rect);raw.position=0;\n            roundTrip.setPixels(roundTrip.rect,raw);rawEnd=raw.position;\n            prefixed.clear();prefixed.writeUnsignedInt(0x4e465049);captured.copyPixelsToByteArray(captured.rect,prefixed);copiedEnd=prefixed.position;\n            if(png!=null)png.clear();png=roundTrip.encode(roundTrip.rect,options);png.position=0;\n            if(picture.content!=null){var old:Bitmap=picture.content as Bitmap;picture.unload();old.bitmapData.dispose();}\n            reloadedMatches=false;sourceStable=source.getPixel32(24,24)==0xfff4e8b8;\n            pipelineStatus.text=\"Palette \"+phase+\" / waiting for PNG decode\";\n            byteStatus.text=\"ARGB \"+raw.length+\" bytes / cursor \"+rawEnd+\" / PNG \"+png.length+\" bytes\";\n            picture.loadBytes(png);\n        }\n        public function loaded(event:Event):void {\n            loads++;var image:Bitmap=picture.content as Bitmap;\n            reloadedMatches=image.bitmapData.getPixel32(32,32)==roundTrip.getPixel32(32,32);\n            pipelineStatus.text=\"Palette \"+phase+\" / PNG round-trip \"+reloadedMatches+\" / source unchanged \"+sourceStable;\n            trace(\"image pipeline\",phase,loads,sourceStable,reloadedMatches);\n        }\n        public function failed(event:IOErrorEvent):void {pipelineStatus.text=\"Image pipeline failed: \"+event.text;}\n    }\n}\n"
+    }
+  ]
+}

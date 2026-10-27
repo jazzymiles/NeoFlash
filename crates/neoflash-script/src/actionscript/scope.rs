@@ -452,6 +452,7 @@ impl<'a> Analysis<'a> {
             Expr::NewClass(name, _, offset) if name == "flash.events.EventPhase" => return Err(self.error(*offset,"EventPhase contains constants and is not constructible.")),
             Expr::NewClass(name, _, offset) if project::is_graphics_constants(name) => return Err(self.error(*offset,"Graphics enum classes supply constants and are not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.display.PixelSnapping" => return Err(self.error(*offset,"PixelSnapping contains constants and is not constructible.")),
+            Expr::NewClass(name, args, offset) if name == "flash.display.PNGEncoderOptions" && args.len() > 1 => return Err(self.error(*offset,"PNGEncoderOptions accepts only an optional fastCompression Boolean.")),
             Expr::NewClass(name, _, offset) if matches!(name.as_str(),"flash.text.TextFormatAlign"|"flash.text.TextFieldType") => return Err(self.error(*offset,"TextFormatAlign and TextFieldType contain constants and are not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.text.TextField" && self.script.language == ScriptLanguage::ActionScript2 => return Err(self.error(*offset,"AS2 TextField creation uses MovieClip.createTextField with an append-only depth, not new TextField().")),
             Expr::NewClass(name, args, offset) if name == "flash.text.TextField" && !args.is_empty() => return Err(self.error(*offset,"TextField construction takes no arguments in the bounded display-text profile.")),

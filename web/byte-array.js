@@ -253,9 +253,25 @@
     }
     function setObjectCodec(codec){if(!codec||typeof codec.encode!=='function'||typeof codec.decode!=='function')throw new TypeError('Expected the shared AMF value codec.');objectCodec=codec;}
     function toBytes(receiver){const record=state(receiver);return record.bytes.slice(0,record.length);}
+    // Trusted synchronous native adapters only. The callback receives a copy,
+    // never the backing allocation. A partial pixel read can commit its consumed
+    // prefix before reporting EOF; failed native calls leave the cursor intact.
+    function readAvailable(receiver,consume){
+      const record=state(receiver),start=record.position;
+      const result=consume(record.bytes.slice(Math.min(start,record.length),record.length),record.little);
+      const count=result?.consumed;
+      if(!Number.isSafeInteger(count)||count<0||count>Math.max(0,record.length-start))throw new Error('Invalid native ByteArray consumed length.');
+      record.position=start+count;return result;
+    }
+    function writeFromHost(receiver,produce){
+      const record=state(receiver),bytes=typeof produce==='function'?produce(record.little):produce;
+      if(!ArrayBuffer.isView(bytes)||bytes.BYTES_PER_ELEMENT!==1)throw new TypeError('Native ByteArray write requires a byte view.');
+      const end=writeEnd(record.position,bytes.byteLength);extend(record,end);
+      record.bytes.set(new Uint8Array(bytes.buffer,bytes.byteOffset,bytes.byteLength),record.position);record.position=end;
+    }
     function reset(){open();for(const record of records)free(record);records.clear();generation++;defaultEncoding=3;}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({ByteArray,Endian,fromBytes,fromByteArrays,toBytes,setObjectCodec,reset,dispose});
+    return Object.freeze({ByteArray,Endian,fromBytes,fromByteArrays,toBytes,readAvailable,writeFromHost,setObjectCodec,reset,dispose});
   }
   const api=Object.freeze({create});
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
