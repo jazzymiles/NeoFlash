@@ -71,6 +71,7 @@ struct Clock {
 pub struct Player {
     pub(crate) graph: crate::runtime_graph::RuntimeGraph,
     source_root: Option<Id>,
+    suppressed_content: HashMap<Vec<Id>, Option<Id>>,
     pub(crate) runtime_scripts: VecDeque<RuntimeScriptDispatch>,
     clocks: HashMap<Vec<Id>, Clock>,
     overrides: HashMap<Vec<Id>, DisplayPatch>,
@@ -92,6 +93,7 @@ impl Player {
         let mut player = Self {
             graph: crate::runtime_graph::RuntimeGraph::default(),
             source_root,
+            suppressed_content: HashMap::new(),
             runtime_scripts: VecDeque::new(),
             clocks: HashMap::new(),
             overrides: HashMap::new(),
@@ -113,6 +115,7 @@ impl Player {
 
     pub fn reset(&mut self, project: &Project) {
         self.graph.reset();
+        self.suppressed_content.clear();
         if self.source_root.is_none() {
             self.graph.prepare_bitmaps(project);
         }
@@ -176,6 +179,7 @@ impl Player {
     /// Explicit preview seek resets nested runtime state. Authoring scrub uses evaluate().
     pub fn seek(&mut self, project: &Project, frame: u32) {
         self.graph.reset();
+        self.suppressed_content.clear();
         self.clocks.clear();
         self.overrides.clear();
         self.previous.clear();
@@ -199,13 +203,42 @@ impl Player {
     }
 
     fn snapshot(&self, project: &Project) -> Evaluation {
-        snapshot(
+        let mut scene = snapshot(
             project,
             self.root_id(project),
             self.frame(),
             &|path| Some(self.clocks.get(path).map_or(0, |c| c.frame)),
             &|path| self.overrides.get(path).cloned(),
-        )
+        );
+        let blocked: HashSet<_> = scene
+            .nodes
+            .iter()
+            .filter(|node| self.suppressed_content.get(&node.path) == Some(&node.symbol_id))
+            .map(|node| node.path.clone())
+            .collect();
+        let descendant = |path: &[Id]| (0..path.len()).any(|n| blocked.contains(&path[..n]));
+        scene.nodes.retain_mut(|node| {
+            if descendant(&node.path) {
+                return false;
+            }
+            if blocked.contains(&node.path) {
+                node.scripts.clear();
+                node.independent = false;
+                node.frame = 0;
+            }
+            true
+        });
+        scene.items.retain(|item| !descendant(&item.instance_path));
+        scene
+    }
+    pub(crate) fn suppress_loaded_content(&mut self, project: &Project, path: &[Id]) {
+        if let Some(node) = self.previous.get(path) {
+            self.suppressed_content
+                .insert(path.to_vec(), node.symbol_id.clone());
+        }
+        self.scripts
+            .retain(|item| !item.target_path.starts_with(path));
+        self.refresh(project, false, &HashSet::new());
     }
 
     pub(crate) fn authored_snapshot(&self, project: &Project) -> Evaluation {
@@ -400,7 +433,9 @@ impl Player {
     }
 
     pub(crate) fn enqueue(&mut self, target_path: Vec<Id>, event: ScriptEvent, script: Script) {
-        if script.source.trim().is_empty() {
+        if (0..=target_path.len()).any(|n| self.suppressed_content.contains_key(&target_path[..n]))
+            || script.source.trim().is_empty()
+        {
             return;
         }
         if self.budget == 0 || self.scripts.len() >= SCRIPT_BUDGET {
@@ -418,6 +453,16 @@ impl Player {
 
     fn refresh(&mut self, project: &Project, enter_frame: bool, forced: &HashSet<Vec<Id>>) {
         let scene = self.stabilized(project);
+        let current_symbols: HashMap<_, _> = scene
+            .nodes
+            .iter()
+            .map(|node| (node.path.as_slice(), &node.symbol_id))
+            .collect();
+        self.suppressed_content.retain(|path, symbol| {
+            current_symbols
+                .get(path.as_slice())
+                .is_some_and(|current| *current == &*symbol)
+        });
         let mut created = HashSet::new();
         for node in &scene.nodes {
             let is_new = self

@@ -380,6 +380,7 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
     gradient_geometry_remains_shared_and_atomic(project.clone());
     affine_color_views_follow_the_display_lifecycle(project.clone());
     clipping_tracks_geometry_coordinates_and_lifetimes(project.clone());
+    image_loading_owns_content_and_replaces_timelines(project.clone());
     linked_timelines_are_independent_namespaces(project);
 }
 
@@ -1381,4 +1382,175 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
     player.reset(&project);
     assert!(!player.object_alive(&first));
     assert!(!player.object_alive(&recreated));
+}
+
+fn image_loading_owns_content_and_replaces_timelines(mut project: Project) {
+    use image::ImageEncoder;
+    let component = project.symbol_mut("component").unwrap();
+    component.timeline.frame_count = 2;
+    component.timeline.scripts = vec![FrameScript {
+        frame: 1,
+        script: Script {
+            language: ScriptLanguage::JavaScript,
+            source: "oldTimeline();".into(),
+        },
+    }];
+    component.timeline.layers[0].keyframes[0].elements = vec![Element {
+        id: "old-loaded-child".into(),
+        name: "oldArt".into(),
+        transform: Transform::default(),
+        scripts: vec![],
+        accessibility: None,
+        kind: ElementKind::Rectangle {
+            width: 10.,
+            height: 10.,
+            fill: [255; 4],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+    }];
+    let original = project.to_json().unwrap();
+    let mut png = vec![];
+    image::codecs::png::PngEncoder::new(&mut png)
+        .write_image(
+            &[200, 40, 80, 255, 20, 120, 240, 255],
+            2,
+            1,
+            image::ExtendedColorType::Rgba8,
+        )
+        .unwrap();
+    let mut jpeg = vec![];
+    image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+        .write_image(
+            &[200, 40, 80, 20, 120, 240],
+            2,
+            1,
+            image::ExtendedColorType::Rgb8,
+        )
+        .unwrap();
+    let mut player = Player::new(&project);
+    player.control(&project, &[], PlaybackCommand::Stop);
+    player.drain_runtime_scripts();
+    let root = player.object_ref(&[]).unwrap();
+    let loader = player.create_display(DynamicKind::Loader).unwrap();
+    add(&mut player, &project, &root, &loader);
+    let first = player.pixel_decode(&png).unwrap();
+    assert_eq!(
+        player.bitmap_get_pixel(&first, 0, 0, true).unwrap(),
+        0xffc82850
+    );
+    assert!(player.pixel_decode(&png[..20]).is_err());
+    let loaded = player
+        .loader_replace(&project, &loader, Some(first.clone()), false)
+        .unwrap();
+    let content = loaded.content_ref.unwrap();
+    assert_eq!(
+        loaded
+            .events
+            .iter()
+            .map(|event| event.kind.as_str())
+            .collect::<Vec<_>>(),
+        ["added", "added_to_stage"]
+    );
+    assert_eq!(
+        player.loader_content(&loader).unwrap(),
+        Some(content.clone())
+    );
+    assert!(player.pixel_release(&first).is_err());
+    assert!(
+        player
+            .display_mutate(
+                &project,
+                DisplayMutation::Remove {
+                    parent: loader.clone(),
+                    child: content.clone()
+                }
+            )
+            .is_err()
+    );
+    let second = player.pixel_decode(&jpeg).unwrap();
+    assert_eq!(player.bitmap_info(&second).unwrap().width, 2);
+    let swapped = player
+        .loader_replace(&project, &loader, Some(second.clone()), false)
+        .unwrap();
+    let next = swapped.content_ref.unwrap();
+    assert!(swapped.retired_refs.is_empty());
+    assert!(player.object_alive(&content));
+    assert_eq!(
+        object(&player.runtime_snapshot(&project), &content).parent_ref,
+        None
+    );
+    assert_eq!(
+        player.bitmap_get_pixel(&first, 0, 0, true).unwrap(),
+        0xffc82850
+    );
+    player
+        .loader_replace(&project, &loader, None, false)
+        .unwrap();
+    assert!(player.object_alive(&next));
+    assert_eq!(player.loader_content(&loader).unwrap(), None);
+    add(&mut player, &project, &root, &content); // Retained detached content is adoptable.
+    let abandoned = player.pixel_decode(&png).unwrap();
+    player.pixel_release(&abandoned).unwrap();
+    assert!(player.bitmap_info(&abandoned).is_err());
+
+    let holder = player.object_ref(&["authored-container".into()]).unwrap();
+    let old_child = player
+        .object_ref(&["authored-container".into(), "old-loaded-child".into()])
+        .unwrap();
+    let runtime_child = player.create_display(DynamicKind::MovieClip).unwrap();
+    add(&mut player, &project, &holder, &runtime_child);
+    let replaced = player
+        .loader_replace(&project, &holder, Some(first.clone()), true)
+        .unwrap();
+    let as2_content = replaced.content_ref.unwrap();
+    assert!(replaced.retired_refs.contains(&old_child));
+    assert!(replaced.retired_refs.contains(&runtime_child));
+    assert!(!player.object_alive(&old_child));
+    assert!(!player.object_alive(&runtime_child));
+    assert!(player.object_alive(&holder));
+    assert_eq!(player.object_frame_count(&project, &holder), Some(1));
+    assert_eq!(player.object_property(&project, &holder, "x"), Some(100.));
+    player.tick(&project);
+    assert!(
+        player
+            .drain_runtime_scripts()
+            .iter()
+            .all(|dispatch| dispatch.dispatch.script.source != "oldTimeline();")
+    );
+    assert_eq!(
+        object(&player.runtime_snapshot(&project), &holder)
+            .children
+            .as_slice(),
+        std::slice::from_ref(&as2_content)
+    );
+    player
+        .loader_replace(&project, &holder, None, true)
+        .unwrap();
+    player.tick(&project);
+    assert!(!player.object_alive(&as2_content));
+    assert!(
+        object(&player.runtime_snapshot(&project), &holder)
+            .children
+            .is_empty()
+    );
+    let again = player
+        .loader_replace(&project, &holder, Some(first.clone()), true)
+        .unwrap()
+        .content_ref
+        .unwrap();
+    player.control(&project, &[], PlaybackCommand::GotoAndStop(1));
+    assert!(!player.object_alive(&again));
+    player.control(&project, &[], PlaybackCommand::GotoAndStop(2));
+    let fresh_holder = player.object_ref(&["authored-container".into()]).unwrap();
+    assert_ne!(holder, fresh_holder);
+    assert!(
+        player
+            .object_ref(&["authored-container".into(), "old-loaded-child".into()])
+            .is_some()
+    );
+    assert_eq!(project.to_json().unwrap(), original);
+    player.reset(&project);
+    assert!(!player.object_alive(&loader));
+    assert!(player.bitmap_info(&first).is_err());
 }

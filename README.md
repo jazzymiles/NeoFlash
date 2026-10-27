@@ -13,8 +13,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 304 | 1,878 | 110 |
-| AS3 | 43,740 | 15 | 456 | 43,049 | 220 |
+| AS2 | 2,307 | 15 | 306 | 1,876 | 110 |
+| AS3 | 43,740 | 15 | 459 | 43,046 | 220 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -122,6 +122,8 @@ Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two indep
 [linked-movieclips.nflash](examples/linked-movieclips.nflash) creates two AS3 instances from one exported library MovieClip and a third with AS2 `attachMovie`. Each keeps its own frame controls, nested animation, fields and script targets. Click the cards, use Right to step frames, Space to detach/reattach the middle instance and Up to use frame labels. Explicit export identifiers and required program/library snapshots survive cross-document clipboard transfer.
 
 [interfaces-accessors.nflash](examples/interfaces-accessors.nflash) uses project interfaces, inherited getter/setter properties and two independent typed models. Click the stage to increase the bounded model; Restart restores instance and static state.
+
+[loader-gallery.nflash](examples/loader-gallery.nflash) combines AS3 Loader/LoaderInfo, ByteArray image loading and AS2 MovieClipLoader replacement. Cycle swaps, unloads and restores the gallery. PNG/JPEG use the shared Rust decoder; SWF/GIF loading and complete legacy loading semantics remain planned.
 
 [resource-loading.nflash](examples/resource-loading.nflash) loads embedded text, repeated form fields and a 50-byte binary packet through AS3 URLLoader and AS2 LoadVars, handles an absent file and cancels a load. When served over HTTP, **Load HTTP notes** reads the published README and displays the response status/size. Restart repeats the portable pipeline.
 

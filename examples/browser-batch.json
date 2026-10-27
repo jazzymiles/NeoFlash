@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "loader-gallery",
+      "path": "examples/loader-gallery.nflash",
+      "title": "Loaded images, LoaderInfo and legacy content replacement",
+      "checks": [
+        "Embedded Loader, ByteArray loadBytes and AS2 MovieClipLoader display the original two images; legacy placeholder disappears.",
+        "Cycle swaps the image resources, then unloads to empty containers, then restores; visible loaded images accept clicks.",
+        "AS3 INIT precedes COMPLETE, AS2 complete precedes init; cancelled and failed decode probes stay separate from the valid scene. Restart resets all counts and callbacks."
+      ]
+    },
+    {
       "id": "clipped-scene",
       "path": "examples/clipped-scene.nflash",
       "title": "Vector masks, scroll rectangles and linked identity",

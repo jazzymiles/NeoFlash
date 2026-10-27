@@ -71,6 +71,11 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { public class A { public function A(value:int=0){} } }",
         "package { public class A implements Missing {} }",
         "package { import flash.display.Bitmap; public class A extends Bitmap {} }",
+        "package { import flash.display.Loader; public class A extends Loader {} }",
+        "package { import flash.display.LoaderInfo; public class A extends LoaderInfo {} }",
+        "package { import flash.display.LoaderInfo; public class A { public function A(){new LoaderInfo();} } }",
+        "package { import flash.display.Loader; public class A { public function A(){new Loader(4);} } }",
+        "package { public class A { public function A(){var legacy=MovieClipLoader;} } }",
         "package { import flash.text.TextField; public class A extends TextField {} }",
         "package { import flash.media.Sound; public class A extends Sound {} }",
         "package { import flash.media.SoundChannel; public class A extends SoundChannel {} }",
@@ -98,6 +103,7 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { import flash.display.GraphicsPathCommand; public class A {public function A(){new GraphicsPathCommand();}} }",
         "package { import flash.display.MovieClip; public class A extends MovieClip {public function beginGradientFill():void{}} }",
         "package { import flash.display.Sprite; public class A extends Sprite {public var mask:Object;} }",
+        "package { import flash.display.MovieClip; public class A extends MovieClip {public var loaderInfo:Object;} }",
         "package { import flash.display.Shape; public class A extends Shape {public function get scrollRect():Object{return null;}} }",
         "package { import flash.display.MovieClip; public class A extends MovieClip {public function setMask(value:Object):void{}} }",
         "package { import flash.utils.Endian; public class A {public function A(){new Endian();}} }",
@@ -131,6 +137,10 @@ fn class_syntax_outside_profile_is_never_erased() {
         "class A extends TextFormat {}",
         "class A {public function A(){new TextField();}}",
         "class A {public function A(){new Sound(this);}}",
+        "class A {public function A(){new MovieClipLoader(this);}}",
+        "class A extends MovieClipLoader {}",
+        "import flash.display.Loader; class A {}",
+        "import flash.display.LoaderInfo; class A {}",
         "import flash.media.Sound; class A {}",
         "import flash.display.GradientType; class A {}",
     ] {
@@ -140,6 +150,8 @@ fn class_syntax_outside_profile_is_never_erased() {
             "{source}"
         );
     }
+    legacy.sources[0].source = "class A {public var images:MovieClipLoader; public function A(){images=new MovieClipLoader();} public function load(target:MovieClip):Boolean {images.addListener(this);return images.loadClip(\"image.png\",target);} public function progress(target:MovieClip):Object {return images.getProgress(target);} public function unload(target:MovieClip):Boolean {images.removeListener(this);return images.unloadClip(target);}}".into();
+    assert!(neoflash_script::compile_project(&legacy).is_ok());
     legacy.sources[0].source = "import flash.utils.ByteArray; class A {}".into();
     assert!(
         neoflash_script::compile_project(&legacy).is_err(),
@@ -299,7 +311,21 @@ fn linked_classes_are_resolved_before_publication() {
             import flash.geom.Matrix;
             import flash.geom.Rectangle;
             import flash.display.DisplayObject;
+            import flash.display.Loader;
+            import flash.display.LoaderInfo;
+            import flash.net.URLRequest;
+            import flash.utils.ByteArray;
             public class Model extends flash.display.MovieClip {
+                public var imageLoader:Loader;
+                public var imageInfo:LoaderInfo;
+                public function loadImage(request:URLRequest,bytes:ByteArray):LoaderInfo {
+                    imageLoader=new Loader();imageLoader.load(request);imageLoader.close();
+                    imageLoader.loadBytes(bytes);
+                    imageInfo=LoaderInfo(imageLoader.contentLoaderInfo);
+                    imageLoader.unload();
+                    if (imageInfo is LoaderInfo) {return imageInfo as LoaderInfo;}
+                    return null;
+                }
                 public function clip(source:DisplayObject,view:Rectangle):Rectangle {
                     mask=source; scrollRect=view;
                     var copy:Rectangle=scrollRect;copy.y+=1;scrollRect=copy;

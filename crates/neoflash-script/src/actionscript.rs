@@ -959,7 +959,11 @@ impl<'a> Frontend<'a> {
             "Number" | "String" | "Boolean" | "Function" | "Array" | "Object"
         ) || (as3 && matches!(name, "int" | "uint" | "*"))
             || self.context.intrinsic_type(name, as3)
-            || (!as3 && matches!(name, "LoadVars" | "TextFormat" | "Sound"))
+            || (!as3
+                && matches!(
+                    name,
+                    "LoadVars" | "TextFormat" | "Sound" | "MovieClipLoader"
+                ))
             || (self.context.project && self.context.types.contains_key(name))
             || (is_error_type(name) && (as3 || name == "Error"))
             || (returns && name == if as3 { "void" } else { "Void" });
@@ -1321,7 +1325,10 @@ impl<'a> Frontend<'a> {
                     && class.is_none()
                     && matches!(name.as_str(), "RegExp" | "JSON"))
                 || (self.script.language == ScriptLanguage::ActionScript2
-                    && matches!(name.as_str(), "LoadVars" | "TextFormat" | "Sound"));
+                    && matches!(name.as_str(), "LoadVars" | "TextFormat" | "Sound"))
+                || (self.script.language == ScriptLanguage::ActionScript2
+                    && class.is_none()
+                    && name == "MovieClipLoader");
             if !builtin
                 && vector_element(&name).is_none()
                 && class.is_none()
@@ -1856,10 +1863,10 @@ impl Emitter<'_> {
         }
         if !self.as3
             && self.analysis.resolve(self.scope, name).is_none()
-            && matches!(
+            && (matches!(
                 name,
                 "Key" | "Mouse" | "Stage" | "LoadVars" | "TextFormat" | "Sound"
-            )
+            ) || (name == "MovieClipLoader" && !self.analysis.context.types.contains_key(name)))
         {
             return format!("__nfLegacy.{name}");
         }
@@ -2170,7 +2177,10 @@ impl Emitter<'_> {
                 )
             }
             Expr::NewBuiltin(name, args, _)
-                if matches!(name.as_str(), "LoadVars" | "TextFormat" | "Sound") =>
+                if matches!(
+                    name.as_str(),
+                    "LoadVars" | "TextFormat" | "Sound" | "MovieClipLoader"
+                ) =>
             {
                 format!(
                     "new __nfLegacy.{name}({})",

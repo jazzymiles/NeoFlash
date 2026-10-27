@@ -80,7 +80,7 @@
     function current(operation){return !disposed&&operation.generation===generation&&operation.record.operation===operation;}
     function notify(operation,event){
       if(!current(operation))return false;
-      try {hub.dispatch(operation.record.receiver,event);if(current(operation))options.onAfterDispatch?.();}
+      try {if(operation.record.raw)operation.record.raw.onEvent?.(event);else hub.dispatch(operation.record.receiver,event);if(current(operation)&&!operation.record.raw)options.onAfterDispatch?.();}
       catch(error){throw new CallbackFailure(error);}
       return current(operation);
     }
@@ -222,7 +222,9 @@
     async function run(operation,request){
       try{
         const bytes=await read(operation,request);if(bytes===null||!current(operation))return;
-        if(operation.legacy)legacyData(operation,decoder.decode(bytes));
+        if(operation.record.raw){
+          try {operation.record.raw.onComplete(bytes);}catch(error){throw new CallbackFailure(error);}
+        }else if(operation.legacy)legacyData(operation,decoder.decode(bytes));
         else{
           const record=operation.record;
           record.data=operation.format==='binary'?binary.fromBytes(bytes):operation.format==='variables'?new URLVariables(decoder.decode(bytes)):decoder.decode(bytes);
@@ -252,6 +254,14 @@
       close(){cancel(state(this));}
     }
     noBase(URLLoader,'URLLoader',value=>loaders.has(value));
+    // Host-only shared transport: consume complete bytes without allocating a
+    // user ByteArray record. The same URL validation, budgets and cancellation
+    // govern URLLoader, image loaders and any future binary consumers.
+    function loadBytes(request,callbacks){
+      open();if(!callbacks||typeof callbacks.onComplete!=='function')throw new TypeError('Raw transport requires an onComplete callback.');
+      const record={receiver:null,generation,operation:null,data:null,format:'binary',loadedBytes:0,total:0,raw:callbacks};
+      start(record,request);return Object.freeze({close:()=>cancel(record)});
+    }
     const legacyReserved=new Set(['onLoad','onData','onHTTPStatus','loaded','contentType']);
     class LoadVars {
       constructor(){open();legacy.set(this,{receiver:this,generation,operation:null,loaded:undefined,loadedBytes:undefined,total:undefined,contentType:'application/x-www-form-urlencoded',headers:[]});}
@@ -271,7 +281,7 @@
     noBase(LoadVars,'LoadVars',value=>legacy.has(value));
     function reset(){open();for(const operation of [...active])cancel(operation.record);generation++;hub.clear();resourceCache.clear();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({URLRequest,URLRequestHeader,URLRequestMethod,URLVariables,URLLoader,URLLoaderDataFormat,ProgressEvent,IOErrorEvent,HTTPStatusEvent,LoadVars,reset,dispose});
+    return Object.freeze({URLRequest,URLRequestHeader,URLRequestMethod,URLVariables,URLLoader,URLLoaderDataFormat,ProgressEvent,IOErrorEvent,HTTPStatusEvent,LoadVars,loadBytes,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashNet=api;
 })(globalThis);

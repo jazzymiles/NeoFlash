@@ -86,6 +86,29 @@ impl PixelArena {
         self.bytes = 0;
         self.buffers.clear();
     }
+    pub(crate) fn reserve_import(&self, w: u32, h: u32) -> Result<(), BitmapError> {
+        if w == 0 || h == 0 || w > MAX_BITMAP_DIMENSION || h > MAX_BITMAP_DIMENSION {
+            return Err(error("dimensions must be in 1..=4096"));
+        }
+        if self.buffers.len() >= MAX_BUFFERS
+            || self.bytes + w as usize * h as usize * 4 > MAX_BITMAP_BYTES
+        {
+            return Err(error(
+                "buffer budget exceeded (256 records / 128 MiB live pixels)",
+            ));
+        }
+        Ok(())
+    }
+    pub(crate) fn release(&mut self, reference: &PixelRef) -> Result<(), BitmapError> {
+        let buffer = self
+            .buffers
+            .remove(reference)
+            .ok_or_else(|| error("stale or foreign buffer reference"))?;
+        if let Some(pixels) = buffer.pixels {
+            self.bytes -= pixels.len();
+        }
+        Ok(())
+    }
     pub(crate) fn create(
         &mut self,
         w: u32,

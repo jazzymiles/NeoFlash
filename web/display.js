@@ -57,7 +57,7 @@
   const unsupportedText=new Set(['htmlText','styleSheet','type','selectable','autoSize','embedFonts','displayAsPassword','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','background','backgroundColor','border','borderColor','antiAliasType','gridFitType','sharpness','thickness','condenseWhite','getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineMetrics','getParagraphLength','getFirstCharInParagraph','setSelection','replaceSelectedText']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null}) {
+  function create({player,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null}) {
     const legacy = new Map();
     const graph=typeof player.runtime_snapshot_json==='function';
     const refKey=ref=>JSON.stringify(ref);
@@ -172,7 +172,7 @@
     function transform(target){descriptor(target);if(!transformCache.has(target))transformCache.set(target,new Transform(target));return transformCache.get(target);}
     function parentSpace(target) {const list=nodes(),node=descriptor(target,list),parent=parentNode(node,list);return parent?nodeProxy(parent):node.on_stage===false?null:getStage();}
     function children(target) {const list=nodes(),parent=descriptor(target,list);return graph?parent.children.map(ref=>list.find(node=>nodeKey(node)===refKey(ref))).filter(Boolean):list.filter(node=>node.path.length===parent.path.length+1&&within(node.path,parent.path));}
-    function requireContainer(target) {const node=descriptor(target);if(!['movie_clip','sprite','graphic','button'].includes(node.owner))throw new TypeError('Child traversal requires a display container.');return node;}
+    function requireContainer(target) {const node=descriptor(target);if(!['movie_clip','sprite','graphic','button','loader'].includes(node.owner))throw new TypeError('Child traversal requires a display container.');return node;}
     function convert(target,value,toGlobal) {
       if(!value || !Number.isFinite(value.x)||!Number.isFinite(value.y))throw new TypeError('Coordinate conversion requires finite point.x and point.y.');
       const m=descriptor(target).world,p=point(toGlobal?m:inverse(m),value.x,value.y);return new Point(p.x,p.y);
@@ -360,6 +360,7 @@
       };
       if(graph&&['movie_clip','sprite','graphic','button'].includes(descriptor(target).owner))Object.assign(result,containerMethods(target));
       if(graph&&descriptor(target).owner==='movie_clip')Object.assign(result,legacyDrawing(target));
+      if(graph&&descriptor(target).owner==='loader')Object.assign(result,getLoader().methods(target));
       if(descriptor(target).owner==='text'&&getText())Object.assign(result,getText().methods(referenceOf(target).key));
       else if(descriptor(target).owner==='text')Object.assign(result,{
         appendText:value=>{if(typeof value!=='string')throw new TypeError('appendText currently requires a string.');writeText(target,textValue(textKind(target).text)+value);},
@@ -375,6 +376,8 @@
       return result;
     }
     function get(target,name) {
+      if(name==='loaderInfo'){descriptor(target);return getLoader()?.infoForDisplay(target)||null;}
+      if(['content','contentLoaderInfo'].includes(name)&&descriptor(target).owner==='loader')return getLoader().get(target,name);
       if(name==='transform')return transform(target);
       if(name==='mask'){
         descriptor(target);const value=JSON.parse(player.object_mask(referenceOf(target).key));
@@ -416,6 +419,7 @@
       return UNHANDLED;
     }
     function set(target,name,value) {
+      if(name==='loaderInfo'||(['content','contentLoaderInfo'].includes(name)&&descriptor(target).owner==='loader'))throw new TypeError(`Display ${name} is read-only.`);
       if(name==='transform')throw new TypeError('Replacing DisplayObject.transform is not supported; set transform.matrix or transform.colorTransform.');
       if(name==='mask'){
         descriptor(target);if(value!==null)descriptor(value);
@@ -509,7 +513,7 @@
     function initializeBitmap(receiver,args){const [data,snap,smooth]=bitmapArguments(args);set(receiver,'bitmapData',data);set(receiver,'pixelSnapping',snap);set(receiver,'smoothing',smooth);}
     const builtins={'flash.display.Graphics':Graphics,'flash.geom.Point':Point,'flash.geom.Rectangle':Rectangle,'flash.geom.Matrix':Matrix,'flash.geom.ColorTransform':ColorTransform,'flash.geom.Transform':Transform};
     for(const[name,type]of Object.entries(graphicsEnums))builtins['flash.display.'+name]=type;
-    for(const[name,owners]of Object.entries({DisplayObject:null,DisplayObjectContainer:['movie_clip','sprite','graphic','button'],MovieClip:['movie_clip'],Sprite:['movie_clip','sprite','graphic','button'],Shape:['shape'],Bitmap:['bitmap'],TextField:['text']})) {
+    for(const[name,owners]of Object.entries({DisplayObject:null,DisplayObjectContainer:['movie_clip','sprite','graphic','button','loader'],MovieClip:['movie_clip'],Sprite:['movie_clip','sprite','graphic','button'],Shape:['shape'],Bitmap:['bitmap'],TextField:['text']})) {
       const allocation={Sprite:'sprite',Shape:'shape',MovieClip:'movie_clip',Bitmap:'bitmap',TextField:'text_field'}[name];
       function allocate(){if(!graph||!allocation)throw new TypeError(`Dynamic new ${name}() is not supported. Use an authored instance for this owner.`);return proxyForRef(JSON.parse(player.create_display(allocation)));}
       function NativeDisplay(...args){if(name==='Bitmap'){bitmapArguments(args);const receiver=allocate();initializeBitmap(receiver,args);return receiver;}if(args.length)throw new TypeError(`${name} construction requires no arguments.`);return allocate();}

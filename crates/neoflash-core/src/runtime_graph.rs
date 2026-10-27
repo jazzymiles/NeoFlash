@@ -8,6 +8,8 @@ mod bitmap;
 mod clipping;
 pub use clipping::{ClipComponent, RuntimeClip, ScrollRect};
 mod linked;
+mod loader;
+pub use loader::LoaderMutation;
 mod text;
 mod transform;
 pub use transform::ColorTransform;
@@ -31,6 +33,7 @@ pub enum DynamicKind {
     MovieClip,
     Bitmap,
     TextField,
+    Loader,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -208,6 +211,7 @@ pub(crate) struct RuntimeGraph {
     text_bytes: usize,
     affines: HashMap<ObjectRef, transform::AffineState>,
     color_transforms: HashMap<ObjectRef, ColorTransform>,
+    loaders: BTreeMap<ObjectRef, loader::LoaderState>,
     masks: BTreeMap<ObjectRef, ObjectRef>,
     scroll_rects: BTreeMap<ObjectRef, ScrollRect>,
     authored: BTreeMap<Vec<Id>, Authored>,
@@ -239,6 +243,7 @@ impl RuntimeGraph {
         self.text_bytes = 0;
         self.affines.clear();
         self.color_transforms.clear();
+        self.loaders.clear();
         self.masks.clear();
         self.scroll_rects.clear();
         self.authored.clear();
@@ -271,6 +276,7 @@ impl RuntimeGraph {
             .filter(|(path, node)| active.get(path.as_slice()) != Some(&node.lifetime))
             .map(|(_, node)| node.reference.clone())
             .collect();
+        self.retire_loader_children(&retired);
         for parent in &retired {
             let children = self.suffix.get(parent).cloned().unwrap_or_default();
             for child in children {
@@ -557,6 +563,7 @@ impl Player {
                         DynamicKind::MovieClip => "movie_clip",
                         DynamicKind::Bitmap => "bitmap",
                         DynamicKind::TextField => "text",
+                        DynamicKind::Loader => "loader",
                     };
                     let linked = linked_roots.get(&reference);
                     let movie = node.kind == DynamicKind::MovieClip;
@@ -585,6 +592,11 @@ impl Player {
                 } else {
                     continue;
                 };
+            if self.graph.loaded_as2(&reference) {
+                display.frame = 0;
+                display.total_frames = 1;
+                display.kind = None;
+            }
             let text = self.graph.text_state(&reference, display.kind.as_ref());
             let bitmap_state = self.graph.bitmap_state(&reference, display.kind.as_ref());
             let bitmap = bitmap_state
@@ -859,6 +871,7 @@ impl Player {
                 "Display reference is stale or belongs to another player",
             ));
         }
+        self.graph.validate_loader_mutation(&mutation)?;
         let snapshot = self.runtime_snapshot(project);
         let container = snapshot
             .objects
@@ -1074,7 +1087,10 @@ impl Player {
         let object = self.graph.dynamic.get(reference).ok_or_else(|| {
             error("Graphics currently requires a live runtime-created Sprite, Shape or MovieClip")
         })?;
-        if matches!(object.kind, DynamicKind::Bitmap | DynamicKind::TextField) {
+        if matches!(
+            object.kind,
+            DynamicKind::Bitmap | DynamicKind::TextField | DynamicKind::Loader
+        ) {
             return Err(error("Bitmap and TextField do not own Graphics"));
         }
         if operations.len() > MAX_GRAPHICS_OPS {
@@ -1126,7 +1142,10 @@ impl Player {
         source: &ObjectRef,
     ) -> Result<(), DisplayError> {
         let valid = |node: &DynamicObject| {
-            !matches!(node.kind, DynamicKind::Bitmap | DynamicKind::TextField)
+            !matches!(
+                node.kind,
+                DynamicKind::Bitmap | DynamicKind::TextField | DynamicKind::Loader
+            )
         };
         let destination = self
             .graph
@@ -1297,6 +1316,15 @@ impl Player {
         reference: &ObjectRef,
         command: PlaybackCommand,
     ) -> bool {
+        if self.graph.loaded_as2(reference) {
+            return matches!(
+                command,
+                PlaybackCommand::Play
+                    | PlaybackCommand::Stop
+                    | PlaybackCommand::GotoAndPlay(0)
+                    | PlaybackCommand::GotoAndStop(0)
+            );
+        }
         if let Some(address) = self.graph.source_address(reference) {
             let result = self
                 .graph
@@ -1330,6 +1358,9 @@ impl Player {
         true
     }
     pub fn object_frame(&self, reference: &ObjectRef) -> Option<u32> {
+        if self.graph.loaded_as2(reference) {
+            return Some(0);
+        }
         if let Some(address) = self.graph.source_address(reference) {
             return self
                 .graph
@@ -1348,6 +1379,9 @@ impl Player {
             .map(|_| 0)
     }
     pub fn object_frame_count(&self, project: &Project, reference: &ObjectRef) -> Option<u32> {
+        if self.graph.loaded_as2(reference) {
+            return Some(1);
+        }
         if let Some(address) = self.graph.source_address(reference) {
             return self
                 .graph
@@ -1368,6 +1402,9 @@ impl Player {
         label: &str,
         as2: bool,
     ) -> Option<u32> {
+        if self.graph.loaded_as2(reference) {
+            return None;
+        }
         if let Some(address) = self.graph.source_address(reference) {
             let scope = &self.graph.namespaces.get(&address.namespace)?.player;
             return if as2 {

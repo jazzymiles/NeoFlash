@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Independently verified the 05d5d43 clipping delivery: vector masks/even-odd holes, copied integral AS2/AS3 scroll rectangles, real positive/excluded pointer hits, linked-instance continuity and Restart, with adjacent self-mask/fractional-scroll diagnostics and one shared browser regression. Parent right-edge intersection, source retirement, clipping budgets and full accessibility remain unverified.
+
+- Added bounded runtime image loading with AS3 Loader/LoaderInfo and AS2 MovieClipLoader, shared resource/HTTP transport, PNG/JPEG decoding, owned content, asynchronous events, cancellation and unload. Retained AS3 Bitmap references survive unload; AS2 loading replaces original MovieClip artwork. One gallery workflow covers the family.
+
 - Added runtime vector mask assignment and copied scrollRect state, shared clip tables, clipped Canvas/pointer/semantic paths and AS2 setMask/undefined absence handling. One linked-scene workflow combines scrolling, compound mask unions, nested viewport intersections and Restart. Integer immediate scroll rectangles and vector sources are the first profile; native mask tools and bitmap-alpha masking remain pending.
 
 - Independently verified the 08f1d9c Graphics delivery: representative linear/radial paints and gradient stroke, independent copied paint, Vector/cubic paths, real pointer/keyboard lifecycle and Restart, with adjacent reflect/incomplete-path diagnostics and one shared browser regression. Unequal-corner drawRoundRectComplex is a NeoFlash extension; exact rasterization, alpha edges, budgets and full coercion are not inferred.

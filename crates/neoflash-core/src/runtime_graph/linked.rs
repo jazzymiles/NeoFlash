@@ -173,6 +173,7 @@ impl Player {
             .filter(|(address, node)| active.get(address) != Some(&node.lifetime))
             .map(|(_, node)| node.reference.clone())
             .collect();
+        self.graph.retire_loader_children(&retired);
         for parent in &retired {
             for child in self.graph.suffix.get(parent).cloned().unwrap_or_default() {
                 let mut events = vec![DisplayEvent {
@@ -311,6 +312,9 @@ impl Player {
             })
             .collect();
         result.extend(self.runtime_scripts.drain(..));
+        result.retain(|item| {
+            self.graph.alive(&item.target_ref) && !self.graph.loaded_as2(&item.target_ref)
+        });
         if result.len() > SCRIPT_LIMIT {
             result.truncate(SCRIPT_LIMIT);
             self.overflowed = true;
@@ -322,6 +326,9 @@ impl Player {
         project: &Project,
         item: &RuntimeScriptDispatch,
     ) -> bool {
+        if self.graph.loaded_as2(&item.target_ref) {
+            return false;
+        }
         if let Some(namespace) = &item.namespace_ref {
             self.graph
                 .linked_ref(namespace, &item.dispatch.target_path)
@@ -367,6 +374,9 @@ impl Player {
         self.overflowed = false;
         self.collect_main_scripts();
         for id in route {
+            if self.graph.loaded_as2(&id) {
+                continue;
+            }
             if let Some(address) = self.graph.source_address(&id) {
                 let scoped = &mut self
                     .graph

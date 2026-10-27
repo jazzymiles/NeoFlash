@@ -38,9 +38,9 @@ pub use runtime::{
 };
 pub use runtime_graph::{
     ClipComponent, ColorTransform, DisplayError, DisplayEvent, DisplayMutation, DynamicKind,
-    MAX_DYNAMIC_OBJECTS, MutationResult, ObjectRef, RuntimeAccessibleNode, RuntimeClip,
-    RuntimeDrawItem, RuntimeDrawKind, RuntimeObject, RuntimeScriptDispatch, RuntimeSnapshot,
-    ScrollRect,
+    LoaderMutation, MAX_DYNAMIC_OBJECTS, MutationResult, ObjectRef, RuntimeAccessibleNode,
+    RuntimeClip, RuntimeDrawItem, RuntimeDrawKind, RuntimeObject, RuntimeScriptDispatch,
+    RuntimeSnapshot, ScrollRect,
 };
 pub use runtime_graphics::{
     GradientKind, GradientPaint, GradientSpec, GradientStop, GraphicsOp, MAX_GRAPHICS_COMMANDS,

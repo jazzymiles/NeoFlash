@@ -320,6 +320,44 @@ impl WebPlayer {
     ) -> Result<String, JsValue> {
         text_layout_json(field_json, measure)
     }
+    pub fn pixel_decode(&mut self, encoded: &[u8]) -> Result<String, JsValue> {
+        serde_json::to_string(&self.player.pixel_decode(encoded).map_err(display_error)?)
+            .map_err(display_error)
+    }
+    pub fn pixel_release(&mut self, pixels: &str) -> Result<(), JsValue> {
+        self.player
+            .pixel_release(&pixel_ref(pixels)?)
+            .map_err(display_error)
+    }
+    pub fn loader_content(&self, target: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .loader_content(&object_ref(target)?)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn loader_replace(
+        &mut self,
+        target: &str,
+        pixels: &str,
+        as2_replace: bool,
+    ) -> Result<String, JsValue> {
+        if pixels.len() > 4096 {
+            return Err(JsValue::from_str(
+                "Loader pixel reference exceeds input limit",
+            ));
+        }
+        let pixels: Option<PixelRef> = serde_json::from_str(pixels).map_err(display_error)?;
+        serde_json::to_string(
+            &self
+                .player
+                .loader_replace(&self.project, &object_ref(target)?, pixels, as2_replace)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
     pub fn bitmap_create(
         &mut self,
         width: u32,
@@ -503,6 +541,7 @@ impl WebPlayer {
             "bitmap" => DynamicKind::Bitmap,
             "text_field" => DynamicKind::TextField,
             "movie_clip" => DynamicKind::MovieClip,
+            "loader" => DynamicKind::Loader,
             _ => {
                 return Err(JsValue::from_str(
                     "Only empty Sprite, Shape and MovieClip creation is supported; linked dynamic timelines are pending",

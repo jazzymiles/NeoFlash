@@ -1,0 +1,713 @@
+{
+  "format_version": 3,
+  "name": "Image loading and owned display content",
+  "width": 1080,
+  "height": 725,
+  "fps": 24,
+  "background": [
+    16,
+    23,
+    32,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Image gallery",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 60,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / LOADER + LOADERINFO + MOVIECLIPLOADER",
+                      "font_family": "Arial",
+                      "font_size": 12,
+                      "color": [
+                        145,
+                        190,
+                        197,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 60,
+                      "y": 77,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Load into the scene.",
+                      "font_family": "Arial",
+                      "font_size": 34,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 60,
+                      "y": 128,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "One image pipeline for resources, bytes and legacy movie clips.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "url-label",
+                    "name": "url-label",
+                    "transform": {
+                      "x": 60,
+                      "y": 177,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 / URL → LOADER",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        145,
+                        202,
+                        195,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "bytes-label",
+                    "name": "bytes-label",
+                    "transform": {
+                      "x": 390,
+                      "y": 177,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 / BYTEARRAY → LOADBYTES",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        145,
+                        202,
+                        195,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-label",
+                    "name": "legacy-label",
+                    "transform": {
+                      "x": 720,
+                      "y": 177,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 / REPLACE MOVIECLIP CONTENT",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        145,
+                        202,
+                        195,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "url-back",
+                    "name": "url-back",
+                    "transform": {
+                      "x": 60,
+                      "y": 205,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 270,
+                      "height": 192,
+                      "fill": [
+                        30,
+                        45,
+                        56,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "bytes-back",
+                    "name": "bytes-back",
+                    "transform": {
+                      "x": 390,
+                      "y": 205,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 270,
+                      "height": 192,
+                      "fill": [
+                        30,
+                        45,
+                        56,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-back",
+                    "name": "legacy-back",
+                    "transform": {
+                      "x": 720,
+                      "y": 205,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 270,
+                      "height": 192,
+                      "fill": [
+                        30,
+                        45,
+                        56,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-target",
+                    "name": "legacyTarget",
+                    "transform": {
+                      "x": 735,
+                      "y": 220,
+                      "scale_x": 2.5,
+                      "scale_y": 2.5,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "legacy-placeholder",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "url-status",
+                    "name": "urlStatus",
+                    "transform": {
+                      "x": 60,
+                      "y": 420,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Loading URL...",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "bytes-status",
+                    "name": "bytesStatus",
+                    "transform": {
+                      "x": 390,
+                      "y": 420,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Loading bytes...",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-status",
+                    "name": "legacyStatus",
+                    "transform": {
+                      "x": 720,
+                      "y": 420,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Loading AS2...",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 60,
+                      "y": 490,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Preparing images...",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "details",
+                    "name": "details",
+                    "transform": {
+                      "x": 60,
+                      "y": 524,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Event and lifecycle results appear here.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "input-status",
+                    "name": "inputStatus",
+                    "transform": {
+                      "x": 60,
+                      "y": 557,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Click any loaded image.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "cycle-button",
+                    "name": "cycleButton",
+                    "transform": {
+                      "x": 60,
+                      "y": 625,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "gallery-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.cycle();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "this._root.cycleLegacy();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Cycle image gallery",
+                      "description": "Swap all images, unload them, then restore.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 295,
+                      "y": 640,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "The same loader containers are reused. Restart starts a fresh session.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        159,
+                        182,
+                        197,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "this.legacyPhase=0;this.legacyLoads=0;this.legacyClicks=0;this.legacyOrder=\"\";\nthis.imageLoader=new MovieClipLoader();this.imageListener={};\nimageListener.onLoadComplete=function(target:MovieClip,status:Number){_root.legacyOrder+=\"C\";};\nimageListener.onLoadInit=function(target:MovieClip){\n _root.legacyOrder+=\"I\";_root.legacyLoads++;\n var progress:Object=_root.imageLoader.getProgress(target);\n _root.legacyStatus.text=\"AS2 loaded \"+progress.bytesLoaded+\" bytes\\nOrder \"+_root.legacyOrder;\n target.onPress=function(){this._root.legacyClicks++;this._root.inputStatus.text=\"AS2 image clicks \"+this._root.legacyClicks;trace(\"gallery AS2 click\",this._root.legacyClicks);};\n trace(\"gallery AS2\",_root.legacyLoads,_root.legacyOrder,progress.bytesLoaded);\n};\nimageLoader.addListener(imageListener);imageLoader.loadClip(\"images/first.png\",legacyTarget);\nthis.cycleLegacy=function(){this.legacyPhase=(this.legacyPhase+1)%3;if(this.legacyPhase==2){this.imageLoader.unloadClip(this.legacyTarget);this.legacyStatus.text=\"AS2 unloaded / placeholder stays removed\";}else{this.imageLoader.loadClip(this.legacyPhase==1?\"images/second.png\":\"images/first.png\",this.legacyTarget);}};\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "legacy-placeholder",
+      "name": "Legacy image placeholder",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "legacy-placeholder-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "obsolete-face",
+                    "name": "obsolete-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 96,
+                      "height": 64,
+                      "fill": [
+                        175,
+                        60,
+                        96,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "obsolete-caption",
+                    "name": "obsolete-caption",
+                    "transform": {
+                      "x": 5,
+                      "y": 25,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "PLACEHOLDER",
+                      "font_family": "Arial",
+                      "font_size": 9,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "gallery-control",
+      "name": "Cycle gallery",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "gallery-control-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "gallery-face",
+                    "name": "gallery-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 210,
+                      "height": 42,
+                      "fill": [
+                        62,
+                        152,
+                        128,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "gallery-caption",
+                    "name": "gallery-caption",
+                    "transform": {
+                      "x": 13,
+                      "y": 12,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Swap / unload / restore",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip; import flash.display.Loader; import flash.display.LoaderInfo;\n import flash.net.URLLoader; import flash.net.URLRequest; import flash.net.URLLoaderDataFormat;\n import flash.events.Event; import flash.events.MouseEvent; import flash.events.ProgressEvent; import flash.events.IOErrorEvent;\n import flash.utils.ByteArray;\n public class Main extends MovieClip {\n  public var picture:Loader; public var bytesPicture:Loader; public var source:URLLoader;\n  public var errorProbe:Loader; public var cancelledProbe:Loader;\n  public var phase:int=0; public var loads:int=0; public var byteLoads:int=0; public var inits:int=0; public var errors:int=0; public var cancelled:int=0; public var progress:int=0; public var hits:int=0;\n  public var order:String=\"\"; public var cancelledInfo:LoaderInfo;\n  public function Main(){\n   super();stop();picture=new Loader();picture.name=\"urlPicture\";picture.x=75;picture.y=220;picture.scaleX=2.5;picture.scaleY=2.5;addChild(picture);\n   bytesPicture=new Loader();bytesPicture.name=\"bytesPicture\";bytesPicture.x=405;bytesPicture.y=220;bytesPicture.scaleX=2.5;bytesPicture.scaleY=2.5;addChild(bytesPicture);\n   picture.contentLoaderInfo.addEventListener(Event.INIT,onInit);picture.contentLoaderInfo.addEventListener(Event.COMPLETE,onComplete);picture.contentLoaderInfo.addEventListener(ProgressEvent.PROGRESS,onProgress);\n   bytesPicture.contentLoaderInfo.addEventListener(Event.COMPLETE,onBytesComplete);\n   picture.addEventListener(MouseEvent.CLICK,onImageClick);bytesPicture.addEventListener(MouseEvent.CLICK,onImageClick);\n   source=new URLLoader();source.dataFormat=URLLoaderDataFormat.BINARY;source.addEventListener(Event.COMPLETE,onSource);\n   cancelledProbe=new Loader();cancelledInfo=cancelledProbe.contentLoaderInfo;cancelledInfo.addEventListener(Event.COMPLETE,onCancelled);cancelledProbe.load(new URLRequest(\"images/first.png\"));cancelledProbe.close();\n   errorProbe=new Loader();errorProbe.contentLoaderInfo.addEventListener(IOErrorEvent.IO_ERROR,onError);var invalid:ByteArray=new ByteArray();invalid.writeUTFBytes(\"not an image\");errorProbe.loadBytes(invalid);\n   loadImages();report();\n  }\n  public function loadImages():void{picture.load(new URLRequest(phase==1?\"images/second.png\":\"images/first.png\"));source.load(new URLRequest(phase==1?\"images/first.png\":\"images/second.png\"));}\n  public function onSource(event:Event):void{bytesPicture.loadBytes(ByteArray(source.data));}\n  public function onInit(event:Event):void{inits++;order+=\"I\";}\n  public function onComplete(event:Event):void{loads++;order+=\"C\";urlStatus.text=\"Loaded \"+picture.contentLoaderInfo.width+\" × \"+picture.contentLoaderInfo.height+\" / \"+picture.contentLoaderInfo.bytesLoaded+\" bytes\";report();trace(\"gallery URL\",loads,inits,order);}\n  public function onBytesComplete(event:Event):void{byteLoads++;bytesStatus.text=\"Decoded \"+bytesPicture.contentLoaderInfo.width+\" × \"+bytesPicture.contentLoaderInfo.height+\" / \"+bytesPicture.contentLoaderInfo.contentType;report();trace(\"gallery bytes\",byteLoads);}\n  public function onProgress(event:ProgressEvent):void{progress++;}\n  public function onError(event:IOErrorEvent):void{errors++;report();trace(\"gallery refusal\",errors);}\n  public function onCancelled(event:Event):void{cancelled++;report();}\n  public function onImageClick(event:MouseEvent):void{hits++;inputStatus.text=\"AS3 image clicks \"+hits;trace(\"gallery click\",hits);}\n  public function cycle():void{phase=(phase+1)%3;if(phase==2){picture.unload();bytesPicture.unload();urlStatus.text=\"Unloaded / children \"+picture.numChildren;bytesStatus.text=\"Unloaded / content \"+(bytesPicture.content==null);}else{loadImages();}report();trace(\"gallery phase\",phase,loads,byteLoads);}\n  public function report():void{status.text=\"Phase \"+phase+\" / URL loads \"+loads+\" / byte loads \"+byteLoads+\" / clicks \"+hits;details.text=\"INIT before COMPLETE: \"+order+\" / decode errors \"+errors+\" / cancelled callbacks \"+cancelled;}\n }\n}"
+    }
+  ],
+  "resources": [
+    {
+      "id": "gallery-0",
+      "path": "images/first.png",
+      "media_type": "image/png",
+      "data_base64": "iVBORw0KGgoAAAANSUhEUgAAAGAAAABACAYAAADlNHIOAAABYklEQVR4nO3cuw3CQBCEYZdBC0TUQGlUQwnUQk4LJgUJyZIF+J57t7u+39JkDmbni5x4miLP4XR+Wctjfm5Gu1tuYvsDAAAA6iUBMBYAAAAAAABkAGIvHG9XcwkBaHf7DgAAAAAAAAAAAAAA7gHm++WTEMDyjnbX3QAsg66TArAOAILjlwBoIrgE2BqxBkALwh1AbMBagN4IrgBSxpMA6IngBiB1OCmAXggAACA7viRADwTzALmDSQO0RgAAAADMApSM1QKgJQIA1gFCx5D2AQCAsQMAAGMHAADGDt8B2t8BAAwMUIogDdDyPgAAAMA0QAmCJEDr21wA5CJIAfS4CwAA5BEkAHrd5AogFaEWoOc97gBSEGoAet/iEiAGUQKgdYNrgC2EXADN/u4B/mGkAGh33SXAkhCAdjcADPQDwFAAAAAAADwDWEwIQLvbz8Ae/4gFgPEAAAAAAAAAAAAAVAO8AURVzN9/ie7eAAAAAElFTkSuQmCC"
+    },
+    {
+      "id": "gallery-1",
+      "path": "images/second.png",
+      "media_type": "image/png",
+      "data_base64": "iVBORw0KGgoAAAANSUhEUgAAAGAAAABACAYAAADlNHIOAAABZElEQVR4nO3cuw3CQBCEYXdCCVRACVREIVRBM1RAQAuQgoRkyQJ8z73bXd9vaTIHs/NFTjxNkWe/O7ys5f54rka7W25i+wMAAADqJQEwFgAAAAAAAGQAYi/czkdzCQFod/sOAAAAAAAAAAAAAADuAS6n6ychgPkd7a6bAZgHXSYFYBkABMcvAdBEcAmwNmINgBaEO4DYgLUAvRFcAaSMJwHQE8ENQOpwUgC9EAAAQHZ8SYAeCOYBcgeTBmiNAAAAAJgFKBmrBUBLBACsA4SOIe0DAABjBwAAxg4AAIwdvgO0vwMAGBigFEEaoOV9AAAAgGmAEgRJgNa3uQDIRZAC6HEXAADII0gA9LrJFUAqQi1Az3vcAaQg1AD0vsUlQAyiBEDrBtcAawi5AJr93QP8w0gB0O66SYA5IQDtbgAY6AeAoQAAAAAAeAawmBCAdrefgT3+EQsA4wEAAAAAAAAAAACoBngDib1rYo4utZgAAAAASUVORK5CYII="
+    }
+  ]
+}

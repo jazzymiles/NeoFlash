@@ -26,6 +26,7 @@ const TEXT: &str = include_str!("../../../web/text.js");
 const AUDIO_FORMATS: &str = include_str!("../../../web/audio-formats.js");
 const AUDIO: &str = include_str!("../../../web/audio.js");
 const XML: &str = include_str!("../../../web/xml.js");
+const LOADER: &str = include_str!("../../../web/loader.js");
 const DISPLAY: &str = include_str!("../../../web/display.js");
 const MARKER: &str = "neoflash-export.json";
 
@@ -263,6 +264,7 @@ pub fn export_project(
         ("audio-formats.js", AUDIO_FORMATS),
         ("audio.js", AUDIO),
         ("xml.js", XML),
+        ("loader.js", LOADER),
         ("display.js", DISPLAY),
         ("bundle.js", bundle_js.as_str()),
         ("README.txt", readme.as_str()),
@@ -345,6 +347,7 @@ fn html_document(title: &str) -> String {
   <script defer src="audio-formats.js"></script>
   <script defer src="audio.js"></script>
   <script defer src="xml.js"></script>
+  <script defer src="loader.js"></script>
   <script defer src="display.js"></script>
   <script defer src="runtime.js"></script>
 </head>
@@ -414,6 +417,7 @@ mod tests {
         );
         assert!(html.find("src=\"audio.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         assert!(html.find("src=\"xml.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
+        assert!(html.find("src=\"loader.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         let bundle = fs::read_to_string(output.join("bundle.js")).unwrap();
         assert!(bundle.contains("PC9zY3JpcHQ+cG9ydGFibGUgZGF0YQ=="));
         assert!(

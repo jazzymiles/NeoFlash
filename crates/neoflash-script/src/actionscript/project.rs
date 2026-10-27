@@ -21,6 +21,8 @@ const BUILTINS: &[&str] = &[
     "flash.display.Bitmap",
     "flash.display.BitmapData",
     "flash.display.PixelSnapping",
+    "flash.display.Loader",
+    "flash.display.LoaderInfo",
     "flash.display.Stage",
     "flash.text.TextField",
     "flash.text.TextFormat",
@@ -153,6 +155,8 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "reset"
                 | "updateAfterEvent"
                 | "load"
+                | "loadBytes"
+                | "unload"
                 | "close"
                 | "decode"
                 | "getPixel"
@@ -600,6 +604,16 @@ fn parse_class(
             "Bitmap and BitmapData native subclass initialization is outside this profile; construct the native facade and use composition. PixelSnapping provides constants and cannot be a base class.",
         ));
     }
+    if matches!(
+        base.as_deref(),
+        Some("flash.display.Loader" | "flash.display.LoaderInfo")
+    ) {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "Loader and LoaderInfo native subclass initialization is outside this profile; construct Loader() and use its contentLoaderInfo through composition.",
+        ));
+    }
     if base
         .as_ref()
         .is_some_and(|base| base.starts_with("flash.text."))
@@ -1000,6 +1014,7 @@ fn native_member(base: &str, name: &str) -> bool {
                     | "transform"
                     | "mask"
                     | "scrollRect"
+                    | "loaderInfo"
                     | "stage"
                     | "root"
                     | "parent"
