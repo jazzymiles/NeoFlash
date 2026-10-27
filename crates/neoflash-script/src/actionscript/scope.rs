@@ -373,8 +373,12 @@ impl<'a> Analysis<'a> {
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && self.resolve(scope, name).is_none() && self.as2_catch_names.contains_key(name) && !is_global(name) => return Err(self.error(self.as2_catch_names[name], "AS2 catch parameters used outside their catch need verified variable/register scope semantics; this form is unsupported.")),
             Expr::Function(f) => {self.function(scope,f)?; return Ok(());},
             Expr::Name(name) if name=="this" && !self.scopes[&scope].allow_this => return Err(self.error(self.scopes[&scope].offset,"Explicit this in an AS2 or nested/expression function needs receiver/global semantics not implemented yet. Use lexical locals or bare timeline fields; AS3 top-level declared methods support bound this.")),
-            Expr::Call(callee,_,offset) => {
+            Expr::Call(callee,args,offset) => {
                 let binding=if let Expr::Name(name)=callee.as_ref() {self.resolve(scope,name)}else{None};
+                if self.script.language == ScriptLanguage::ActionScript3 && binding.is_none()
+                    && matches!(callee.as_ref(), Expr::Name(name) if name == "parseInt") && args.len() > 2 {
+                    return Err(self.error(*offset, "AS3 parseInt excess-argument semantics are not verified. Pass at most two arguments."));
+                }
                 if self.script.language == ScriptLanguage::ActionScript3
                     && binding.is_some_and(|(_,b)| b.ty.as_deref().is_some_and(|t|matches!(t,"Number"|"String"|"Boolean"|"int"|"uint"))) {
                     return Err(self.error(*offset,"An AS3 primitive binding cannot be called as a function."));

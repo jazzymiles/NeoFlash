@@ -1,0 +1,1155 @@
+{
+  "format_version": 1,
+  "name": "Same-path symbol replacement",
+  "width": 800,
+  "height": 480,
+  "fps": 12,
+  "background": [
+    17,
+    24,
+    35,
+    255
+  ],
+  "root": "Scene",
+  "symbols": [
+    {
+      "id": "Scene",
+      "name": "Scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 2,
+        "layers": [
+          {
+            "id": "Scene-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 56,
+                      "y": 36,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Symbol replacement resets one subtree",
+                      "font_family": "Arial",
+                      "font_size": 25,
+                      "color": [
+                        235,
+                        240,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "subtitle",
+                    "name": "subtitle",
+                    "transform": {
+                      "x": 56,
+                      "y": 78,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "A new symbol on the same placement ID creates a new instance.",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        235,
+                        240,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "left-label",
+                    "name": "left-label",
+                    "transform": {
+                      "x": 80,
+                      "y": 112,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Replacement target",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        235,
+                        240,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "right-label",
+                    "name": "right-label",
+                    "transform": {
+                      "x": 470,
+                      "y": 112,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Unchanged sibling",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        235,
+                        240,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 56,
+                      "y": 392,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Arm hides both squares. Swap restores the left square at its authored position.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        235,
+                        240,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "restart-note",
+                    "name": "restart-note",
+                    "transform": {
+                      "x": 56,
+                      "y": 420,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Use Restart before repeating. Inspect shows the new clocks advancing.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        235,
+                        240,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card",
+                    "name": "card",
+                    "transform": {
+                      "x": 80,
+                      "y": 140,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "Original",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "load",
+                        "script": {
+                          "language": "java_script",
+                          "source": "this.root.cardLoads = (this.root.cardLoads || 0) + 1;"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Replaced card",
+                      "role": "button",
+                      "description": "",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "sibling",
+                    "name": "sibling",
+                    "transform": {
+                      "x": 470,
+                      "y": 140,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "Original",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "load",
+                        "script": {
+                          "language": "java_script",
+                          "source": "this.root.cardLoads = (this.root.cardLoads || 0) + 1;"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Unchanged sibling",
+                      "role": "button",
+                      "description": "",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "arm",
+                    "name": "arm",
+                    "transform": {
+                      "x": 80,
+                      "y": 310,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "arm-button",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "const root = this.root;\nroot.savedCard = root.card;\nroot.savedNested = root.card.nested;\nroot.savedLeaf = root.card.nested.leaf;\nroot.card.gotoAndStop(7);\nroot.card.nested.gotoAndStop(9);\nroot.card.visible = false; root.card.x = 330; root.card.score = 99;\nroot.card.nested.visible = false; root.card.nested.x = 77; root.card.nested.score = 98;\nroot.card.nested.leaf.visible = false; root.card.nested.leaf.x = 55; root.card.nested.leaf.score = 97;\nroot.sibling.score = 8; root.sibling.nested.visible = false; root.sibling.nested.x = 31;\ntrace(\"armed\", \"V=\" + [root.card.visible, root.card.nested.visible, root.card.nested.leaf.visible].join(\"/\"), \"X=\" + [root.card.x, root.card.nested.x, root.card.nested.leaf.x].join(\"/\"), \"F=\" + [root.card.currentFrame, root.card.nested.currentFrame].join(\"/\"), \"sibling=false/31/8\");"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "1. Arm old state",
+                      "role": "button",
+                      "description": "",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "swap",
+                    "name": "swap",
+                    "transform": {
+                      "x": 290,
+                      "y": 310,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "swap-button",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "this.root.gotoAndStop(2);"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "2. Swap symbol",
+                      "role": "button",
+                      "description": "",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "inspect",
+                    "name": "inspect",
+                    "transform": {
+                      "x": 500,
+                      "y": 310,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "inspect-button",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "trace(\"running\", \"F=\" + [this.root.card.currentFrame, this.root.card.nested.currentFrame].join(\"/\"), \"customClear=\" + (this.root.card.score === undefined), \"sibling=\" + [this.root.sibling.nested.visible, this.root.sibling.nested.x, this.root.sibling.score].join(\"/\"));"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "3. Inspect clocks",
+                      "role": "button",
+                      "description": "",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 1,
+                "elements": [
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 56,
+                      "y": 36,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Symbol replacement resets one subtree",
+                      "font_family": "Arial",
+                      "font_size": 25,
+                      "color": [
+                        235,
+                        240,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "subtitle",
+                    "name": "subtitle",
+                    "transform": {
+                      "x": 56,
+                      "y": 78,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "A new symbol on the same placement ID creates a new instance.",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        235,
+                        240,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "left-label",
+                    "name": "left-label",
+                    "transform": {
+                      "x": 80,
+                      "y": 112,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Replacement target",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        235,
+                        240,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "right-label",
+                    "name": "right-label",
+                    "transform": {
+                      "x": 470,
+                      "y": 112,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Unchanged sibling",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        235,
+                        240,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 56,
+                      "y": 392,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Arm hides both squares. Swap restores the left square at its authored position.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        235,
+                        240,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "restart-note",
+                    "name": "restart-note",
+                    "transform": {
+                      "x": 56,
+                      "y": 420,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Use Restart before repeating. Inspect shows the new clocks advancing.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        235,
+                        240,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card",
+                    "name": "card",
+                    "transform": {
+                      "x": 80,
+                      "y": 140,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "Replacement",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "load",
+                        "script": {
+                          "language": "java_script",
+                          "source": "this.root.cardLoads = (this.root.cardLoads || 0) + 1;"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Replaced card",
+                      "role": "button",
+                      "description": "",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "sibling",
+                    "name": "sibling",
+                    "transform": {
+                      "x": 470,
+                      "y": 140,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "Original",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "load",
+                        "script": {
+                          "language": "java_script",
+                          "source": "this.root.cardLoads = (this.root.cardLoads || 0) + 1;"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Unchanged sibling",
+                      "role": "button",
+                      "description": "",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "arm",
+                    "name": "arm",
+                    "transform": {
+                      "x": 80,
+                      "y": 310,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "arm-button",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "const root = this.root;\nroot.savedCard = root.card;\nroot.savedNested = root.card.nested;\nroot.savedLeaf = root.card.nested.leaf;\nroot.card.gotoAndStop(7);\nroot.card.nested.gotoAndStop(9);\nroot.card.visible = false; root.card.x = 330; root.card.score = 99;\nroot.card.nested.visible = false; root.card.nested.x = 77; root.card.nested.score = 98;\nroot.card.nested.leaf.visible = false; root.card.nested.leaf.x = 55; root.card.nested.leaf.score = 97;\nroot.sibling.score = 8; root.sibling.nested.visible = false; root.sibling.nested.x = 31;\ntrace(\"armed\", \"V=\" + [root.card.visible, root.card.nested.visible, root.card.nested.leaf.visible].join(\"/\"), \"X=\" + [root.card.x, root.card.nested.x, root.card.nested.leaf.x].join(\"/\"), \"F=\" + [root.card.currentFrame, root.card.nested.currentFrame].join(\"/\"), \"sibling=false/31/8\");"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "1. Arm old state",
+                      "role": "button",
+                      "description": "",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "swap",
+                    "name": "swap",
+                    "transform": {
+                      "x": 290,
+                      "y": 310,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "swap-button",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "this.root.gotoAndStop(2);"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "2. Swap symbol",
+                      "role": "button",
+                      "description": "",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "inspect",
+                    "name": "inspect",
+                    "transform": {
+                      "x": 500,
+                      "y": 310,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "inspect-button",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "trace(\"running\", \"F=\" + [this.root.card.currentFrame, this.root.card.nested.currentFrame].join(\"/\"), \"customClear=\" + (this.root.card.score === undefined), \"sibling=\" + [this.root.sibling.nested.visible, this.root.sibling.nested.x, this.root.sibling.score].join(\"/\"));"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "3. Inspect clocks",
+                      "role": "button",
+                      "description": "",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "java_script",
+              "source": "this.stop(); trace(\"ready loads\", this.cardLoads, this.nestedLoads, this.leafLoads);"
+            }
+          },
+          {
+            "frame": 1,
+            "script": {
+              "language": "java_script",
+              "source": "let stale = false;\ntry { this.savedCard.x; } catch (error) { stale = true; }\nconst card = this.card, nested = card.nested, leaf = nested.leaf;\ntrace(\"swap\", \"V=\" + [card.visible, nested.visible, leaf.visible].join(\"/\"), \"X=\" + [card.x, nested.x, leaf.x].join(\"/\"), \"customClear=\" + (card.score === undefined && nested.score === undefined && leaf.score === undefined), \"F=\" + [card.currentFrame, nested.currentFrame].join(\"/\"), \"newRefs=\" + (card !== this.savedCard && nested !== this.savedNested && leaf !== this.savedLeaf), \"stale=\" + stale, \"loads=\" + [this.cardLoads, this.nestedLoads, this.leafLoads].join(\"/\"), \"sibling=\" + [this.sibling.nested.visible, this.sibling.nested.x, this.sibling.score].join(\"/\"));"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "Original",
+      "name": "Original",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 120,
+        "layers": [
+          {
+            "id": "Original-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "nested-old",
+                    "name": "nested",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "Shared",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "load",
+                        "script": {
+                          "language": "java_script",
+                          "source": "this.root.nestedLoads = (this.root.nestedLoads || 0) + 1;"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "Replacement",
+      "name": "Replacement",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 120,
+        "layers": [
+          {
+            "id": "Replacement-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "nested-new",
+                    "name": "nested",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "Shared",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "load",
+                        "script": {
+                          "language": "java_script",
+                          "source": "this.root.nestedLoads = (this.root.nestedLoads || 0) + 1;"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "Shared",
+      "name": "Shared",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 120,
+        "layers": [
+          {
+            "id": "Shared-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "leaf",
+                    "name": "leaf",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 90,
+                      "height": 90,
+                      "fill": [
+                        28,
+                        160,
+                        191,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": [
+                      {
+                        "event": "load",
+                        "script": {
+                          "language": "java_script",
+                          "source": "this.root.leafLoads = (this.root.leafLoads || 0) + 1;"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              },
+              {
+                "frame": 119,
+                "elements": [
+                  {
+                    "id": "leaf",
+                    "name": "leaf",
+                    "transform": {
+                      "x": 80,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 90,
+                      "height": 90,
+                      "fill": [
+                        28,
+                        160,
+                        191,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": [
+                      {
+                        "event": "load",
+                        "script": {
+                          "language": "java_script",
+                          "source": "this.root.leafLoads = (this.root.leafLoads || 0) + 1;"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "arm-button",
+      "name": "arm-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "arm-button-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "arm-face",
+                    "name": "arm-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 190,
+                      "height": 44,
+                      "fill": [
+                        47,
+                        65,
+                        91,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "arm-label",
+                    "name": "arm-label",
+                    "transform": {
+                      "x": 12,
+                      "y": 13,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "1. Arm old state",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        235,
+                        240,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "swap-button",
+      "name": "swap-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "swap-button-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "swap-face",
+                    "name": "swap-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 190,
+                      "height": 44,
+                      "fill": [
+                        47,
+                        65,
+                        91,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "swap-label",
+                    "name": "swap-label",
+                    "transform": {
+                      "x": 12,
+                      "y": 13,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "2. Swap symbol",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        235,
+                        240,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "inspect-button",
+      "name": "inspect-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "inspect-button-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "inspect-face",
+                    "name": "inspect-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 190,
+                      "height": 44,
+                      "fill": [
+                        47,
+                        65,
+                        91,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "inspect-label",
+                    "name": "inspect-label",
+                    "transform": {
+                      "x": 12,
+                      "y": 13,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "3. Inspect clocks",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        235,
+                        240,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ]
+}

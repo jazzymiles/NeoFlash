@@ -236,12 +236,18 @@
       "id": "as3-primitive-globals",
       "title": "Примитивы и глобальные преобразования",
       "status": "partial",
-      "scope": "Number, String, Boolean, parseInt, parseFloat, isNaN и isFinite доступны через JavaScript.",
-      "limitations": "Специфические правила Flash/версий, boxed values и полная стандартная библиотека не реализованы.",
+      "scope": "Number, String, Boolean, parseFloat, isNaN и isFinite остаются JavaScript-backed; parseInt получил отдельный ограниченный AS3 профиль с pinned references и проверкой обычного HTML5 в Chrome/IAB. Независимая IAB-приёмка на frozen 0a01ec54 + dirty hashes записана отдельно в P0-TRACKER; более поздние правки её не наследуют.",
+      "limitations": "Ожидания documented_only: оригинальный Flash Player не запускался. Полные исторические преобразования, whitespace/rounding, boxed values и стандартная библиотека не реализованы.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-script/tests/INTRINSICS.md",
+        "crates/neoflash-script/tests/intrinsic-fixtures.mjs",
+        "examples/as-intrinsics.nflash",
+        "docs/VERIFICATION.md",
+        "docs/actionscript-reference/P0-TRACKER.md",
+        "docs/actionscript-reference/implementation-evidence.json"
       ]
     },
     {
@@ -259,12 +265,17 @@
       "id": "as3-collections",
       "title": "Array, String и Number methods",
       "status": "partial",
-      "scope": "Выбранные push/pop/shift/unshift/join/slice/indexOf/substring/charAt/charCodeAt/toString/toFixed/split/concat/reverse.",
-      "limitations": "Список ограничен; используется JavaScript-поведение, включая возможные различия диапазонов, преобразований и ошибок.",
+      "scope": "Выбранные push/pop/shift/unshift/join/slice/indexOf/substring/charAt/charCodeAt/toString/toFixed/split/concat/reverse. AS3 primitive toFixed применяет int precision 0–20, RangeError1002 и fixed integral output >=1e21; обычный HTML5 проверен в Chrome/IAB. Независимая IAB-приёмка на frozen 0a01ec54 + dirty hashes записана отдельно в P0-TRACKER; более поздние правки её не наследуют.",
+      "limitations": "Остальные методы используют JavaScript. Историческое округление Flash, boxed Number и method closures не реализованы; native toFixed extraction диагностируется. Ожидания documented_only.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-script/tests/INTRINSICS.md",
+        "crates/neoflash-script/tests/intrinsic-fixtures.mjs",
+        "docs/VERIFICATION.md",
+        "docs/actionscript-reference/P0-TRACKER.md",
+        "docs/actionscript-reference/implementation-evidence.json"
       ]
     },
     {
@@ -296,12 +307,16 @@
       "id": "as3-display",
       "title": "Свойства отображения",
       "status": "partial",
-      "scope": "x/y, rotation, alpha, scaleX/scaleY, root/parent в ограниченном host facade.",
-      "limitations": "Нет полного DisplayObject API, visible, width/height, mask и filters; произвольные custom fields не доказывают изменение изображения.",
+      "scope": "x/y, rotation, alpha, scaleX/scaleY, root/parent в ограниченном host facade. Boolean visible для authored MovieClip проверен в HTML5 Chrome/IAB; скрытые клипы сохраняют clocks/Load/custom fields.",
+      "limitations": "Нет полного DisplayObject API, width/height, mask и filters. Полные TextField/Button contracts, conversion profiles и rotation semantics требуют отдельной работы. Успех MovieClip не распространяется на все классы; custom fields не доказывают изменение изображения.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-core/tests/visibility.rs",
+        "web/tests/visibility.test.cjs",
+        "examples/visibility.nflash",
+        "docs/VERIFICATION.md"
       ]
     },
     {

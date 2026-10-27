@@ -1214,6 +1214,14 @@ impl Emitter<'_> {
             .is_some_and(|(_, b)| b.ty.is_some())
     }
     fn name(&self, name: &str) -> String {
+        if name == "parseInt" && self.analysis.resolve(self.scope, name).is_none() {
+            return if self.as3 {
+                "__nfParseInt3"
+            } else {
+                "__nfParseInt2"
+            }
+            .into();
+        }
         if self
             .analysis
             .resolve(self.scope, name)
@@ -1302,6 +1310,16 @@ impl Emitter<'_> {
         output.push_str(&self.statements(body));
         output
     }
+    fn lvalue(&self, expr: &Expr) -> String {
+        match expr {
+            Expr::Name(name) => self.name(name),
+            Expr::Member(base, name) => format!("({}).{name}", self.expression(base)),
+            Expr::Index(base, index) => {
+                format!("({})[{}]", self.expression(base), self.expression(index))
+            }
+            _ => unreachable!("The parser only accepts assignable expression targets"),
+        }
+    }
     fn expression(&self, expr: &Expr) -> String {
         match expr {
             Expr::Literal(value) => value.clone(),
@@ -1315,9 +1333,23 @@ impl Emitter<'_> {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Expr::Member(base, name) => format!("({}).{name}", self.expression(base)),
+            Expr::Member(base, name) => {
+                if self.as3 {
+                    format!("__nfPropertyValue({}, {name:?})", self.expression(base))
+                } else {
+                    format!("({}).{name}", self.expression(base))
+                }
+            }
             Expr::Index(base, index) => {
-                format!("({})[{}]", self.expression(base), self.expression(index))
+                if self.as3 {
+                    format!(
+                        "__nfPropertyValue({}, {})",
+                        self.expression(base),
+                        self.expression(index)
+                    )
+                } else {
+                    format!("({})[{}]", self.expression(base), self.expression(index))
+                }
             }
             Expr::Array(values) => format!(
                 "[{}]",
@@ -1342,7 +1374,7 @@ impl Emitter<'_> {
                 self.expression(right)
             ),
             Expr::Assign(op, left, right) => {
-                let target = self.expression(left);
+                let target = self.lvalue(left);
                 let value = self.expression(right);
                 if let Expr::Name(name) = left.as_ref()
                     && self.as3
@@ -1362,10 +1394,17 @@ impl Emitter<'_> {
                     };
                     return format!("({target} = {})", self.coerce(name, value));
                 }
-                format!("({target} {op} {value})")
+                let assignment = format!("({target} {op} {value})");
+                if self.as3 && matches!(op.as_str(), "&&=" | "||=") {
+                    // A short-circuited indexed ||= may itself extract the old
+                    // function value without passing through an ordinary read.
+                    format!("__nfMethodValue({assignment})")
+                } else {
+                    assignment
+                }
             }
             Expr::Update(op, value, prefix) => {
-                let target = self.expression(value);
+                let target = self.lvalue(value);
                 if let Expr::Name(name) = value.as_ref()
                     && self.as3
                     && self.typed(name)
@@ -1394,6 +1433,19 @@ impl Emitter<'_> {
                 self.expression(no)
             ),
             Expr::Call(callee, args, _) => {
+                if self.as3
+                    && let Expr::Member(base, name) = callee.as_ref()
+                    && name == "toFixed"
+                {
+                    return format!(
+                        "__nfFixedMethod({})({})",
+                        self.expression(base),
+                        args.iter()
+                            .map(|arg| self.expression(arg))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
                 let as2_method = if self.as3 {
                     None
                 } else {
@@ -1428,7 +1480,16 @@ impl Emitter<'_> {
                                 if owner == 0 { "__nfFrame" } else { "undefined" }
                             );
                         }
-                        self.expression(callee)
+                        // A direct member call retains the receiver. Ordinary
+                        // value reads use the native-method identity guard, but
+                        // calling a helper result here would erase this binding.
+                        if self.as3
+                            && let Expr::Member(base, name) = callee.as_ref()
+                        {
+                            format!("({}).{name}", self.expression(base))
+                        } else {
+                            self.expression(callee)
+                        }
                     },
                     |(receiver, name)| format!("__nfAs2Method({receiver}, {name:?})"),
                 );
@@ -1622,8 +1683,9 @@ pub(crate) fn compile(script: &Script) -> Result<String, Diagnostic> {
     }
     .body(&statements);
     let output = format!(
-        "const __nfFrame = this, __nfNumber = Number, __nfString = String, __nfBoolean = Boolean, __nfTypeError = TypeError;\nconst __nfTrace = trace;\n{}\n{body}",
-        include_str!("actionscript/exceptions.js")
+        "const __nfFrame = this, __nfNumber = Number, __nfString = String, __nfBoolean = Boolean, __nfTypeError = TypeError;\nconst __nfTrace = trace;\n{}\n{}\n{body}",
+        include_str!("actionscript/exceptions.js"),
+        include_str!("actionscript/intrinsics.js")
     );
     // Validate literal spelling and the generated function body with an independent parser.
     let generated = Script {

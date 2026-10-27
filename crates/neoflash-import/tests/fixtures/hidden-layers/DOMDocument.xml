@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Original NeoFlash regression fixture: authoring-hidden root and nested layers. -->
+<DOMDocument width="360" height="200" frameRate="24" backgroundColor="#FFFFFF">
+  <symbols><Include href="Nested.xml"/></symbols>
+  <timelines><DOMTimeline name="Hidden layer publishing"><layers>
+    <DOMLayer name="Hidden red root square" visible="false"><frames><DOMFrame index="0" duration="12"><elements>
+      <DOMRectangleObject name="rootRed" x="30" y="45" objectWidth="90" objectHeight="90"><fill><SolidColor color="#E54949"/></fill></DOMRectangleObject>
+    </elements></DOMFrame></frames></DOMLayer>
+    <DOMLayer name="Published background and nested clip"><frames><DOMFrame index="0" duration="12">
+      <Actionscript><script><![CDATA[trace("root: published layer");]]></script></Actionscript>
+      <elements>
+        <DOMRectangleObject objectWidth="360" objectHeight="200"><fill><SolidColor color="#EDEFF2"/></fill></DOMRectangleObject>
+        <DOMSymbolInstance name="nested" libraryItemName="Nested"><matrix><Matrix tx="200" ty="45"/></matrix></DOMSymbolInstance>
+      </elements>
+    </DOMFrame></frames></DOMLayer>
+  </layers></DOMTimeline></timelines>
+</DOMDocument>

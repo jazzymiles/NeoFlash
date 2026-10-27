@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Original animated symbol, shared by two independent placements. -->
+<DOMSymbolItem name="Counter"><timeline><DOMTimeline name="Counter"><layers><DOMLayer name="Color frames"><frames>
+  <DOMFrame index="0"><elements><DOMRectangleObject objectWidth="90" objectHeight="75"><fill><SolidColor color="#3478C7"/></fill></DOMRectangleObject></elements></DOMFrame>
+  <DOMFrame index="1"><elements><DOMRectangleObject objectWidth="90" objectHeight="75"><fill><SolidColor color="#E49B35"/></fill></DOMRectangleObject></elements></DOMFrame>
+  <DOMFrame index="2"><elements><DOMRectangleObject objectWidth="90" objectHeight="75"><fill><SolidColor color="#43A271"/></fill></DOMRectangleObject></elements></DOMFrame>
+</frames></DOMLayer></layers></DOMTimeline></timeline></DOMSymbolItem>

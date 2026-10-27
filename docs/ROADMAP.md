@@ -17,4 +17,6 @@ The initial commit addresses M0 and part of M1, with an initial importer and com
 
 The immediate priority is HTML5 correctness: eliminate silently ignored built-in APIs, preserve XFL publish policy and instance lifetimes, and isolate AS2/AS3 value semantics from JavaScript. Every fix requires an ordinary publish and an actual browser check in addition to regression tests. Further UI refinements follow these P0 items.
 
+The first P0 increment covers Boolean MovieClip visibility, fresh replacement state, bounded hidden-layer policy/placement guards, distinct parseInt profiles and AS3 toFixed precision limits. Chrome and in-app browser observations accompany the tests. Owner-aware API diagnostics, typed slots, rotation and void-return semantics remain immediate work; this does not complete M5 or M6.
+
 Progress is tracked in the [reviewed capability ledger](progress/README.md), with a [compact public coverage page](https://jazzymiles.github.io/NeoFlash/progress.html) and [daily history](https://jazzymiles.github.io/NeoFlash/history.html). Its per-category percentages measure completed bounded registry entries, not overall Flash parity or milestones completed.

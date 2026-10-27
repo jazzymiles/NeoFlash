@@ -1,0 +1,616 @@
+{
+  "format_version": 1,
+  "name": "ActionScript intrinsic profiles",
+  "width": 960,
+  "height": 580,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    34,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Intrinsic profiles",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-content",
+            "name": "scene-content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "edition",
+                    "name": "edition",
+                    "transform": {
+                      "x": 48,
+                      "y": 48,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / ACTIONSCRIPT INTRINSICS",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        164,
+                        182,
+                        208,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 96,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Two languages. Explicit profiles.",
+                      "font_family": "Arial",
+                      "font_size": 36,
+                      "color": [
+                        217,
+                        227,
+                        243,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 48,
+                      "y": 134,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Open the browser console to compare typed traces and caught RangeErrors.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        217,
+                        227,
+                        243,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "note",
+                    "name": "note",
+                    "transform": {
+                      "x": 48,
+                      "y": 536,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Expected values: documented_only · pinned Adobe / Ruffle sources · no Flash differential claim",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        164,
+                        182,
+                        208,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2",
+                    "name": "as2",
+                    "transform": {
+                      "x": 48,
+                      "y": 186,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "as2-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3",
+                    "name": "as3",
+                    "transform": {
+                      "x": 504,
+                      "y": 186,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "as3-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "java_script",
+              "source": "this.stop();"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "as2-symbol",
+      "name": "AS2 / AVM1 reference",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "as2-card-content",
+            "name": "as2-card-content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "as2-card-plate",
+                    "name": "as2-card-plate",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 408,
+                      "height": 300,
+                      "fill": [
+                        26,
+                        35,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        112,
+                        211,
+                        224,
+                        255
+                      ],
+                      "stroke_width": 2
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2-card-title",
+                    "name": "as2-card-title",
+                    "transform": {
+                      "x": 24,
+                      "y": 48,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 / parseInt",
+                      "font_family": "Arial",
+                      "font_size": 28,
+                      "color": [
+                        112,
+                        211,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2-card-subtitle",
+                    "name": "as2-card-subtitle",
+                    "transform": {
+                      "x": 24,
+                      "y": 80,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Pinned AVM1 parsing profile",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        217,
+                        227,
+                        243,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2-card-line0",
+                    "name": "as2-card-line0",
+                    "transform": {
+                      "x": 24,
+                      "y": 128,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "0777 → 511",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        217,
+                        227,
+                        243,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2-card-line1",
+                    "name": "as2-card-line1",
+                    "transform": {
+                      "x": 24,
+                      "y": 160,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "08 → 8 · 0x10 → 16",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        217,
+                        227,
+                        243,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2-card-line2",
+                    "name": "as2-card-line2",
+                    "transform": {
+                      "x": 24,
+                      "y": 192,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Explicit radix 0 → NaN",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        217,
+                        227,
+                        243,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2-card-line3",
+                    "name": "as2-card-line3",
+                    "transform": {
+                      "x": 24,
+                      "y": 224,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Local/custom functions preserved",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        217,
+                        227,
+                        243,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop();\ntrace(\"AS2 octal\", typeof parseInt(\"0777\"), parseInt(\"0777\"));\ntrace(\"AS2 edge\", parseInt(\"08\"), parseInt(\"0x10\"), isNaN(parseInt(\"10\",0)), typeof parseInt(), 1/parseInt(\"-0\"));\nvar parse:Function=parseInt;\nfunction shadow(parseInt:Function) { return parseInt(\"0777\"); }\nvar tools={parseInt:function(value) { return \"custom:\"+value; }};\ntrace(\"AS2 binding\", parse(\"0777\"), shadow(function(value) { return \"local:\"+value; }), tools.parseInt(\"0777\"));\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "as3-symbol",
+      "name": "AS3 / Number reference",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "as3-card-content",
+            "name": "as3-card-content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "as3-card-plate",
+                    "name": "as3-card-plate",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 408,
+                      "height": 300,
+                      "fill": [
+                        26,
+                        35,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        238,
+                        181,
+                        104,
+                        255
+                      ],
+                      "stroke_width": 2
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-card-title",
+                    "name": "as3-card-title",
+                    "transform": {
+                      "x": 24,
+                      "y": 48,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 / Number",
+                      "font_family": "Arial",
+                      "font_size": 28,
+                      "color": [
+                        238,
+                        181,
+                        104,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-card-subtitle",
+                    "name": "as3-card-subtitle",
+                    "transform": {
+                      "x": 24,
+                      "y": 80,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Pinned AVMplus conversion profile",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        217,
+                        227,
+                        243,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-card-line0",
+                    "name": "as3-card-line0",
+                    "transform": {
+                      "x": 24,
+                      "y": 128,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "0777 → 777",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        217,
+                        227,
+                        243,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-card-line1",
+                    "name": "as3-card-line1",
+                    "transform": {
+                      "x": 24,
+                      "y": 160,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Precision 0–20 accepted",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        217,
+                        227,
+                        243,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-card-line2",
+                    "name": "as3-card-line2",
+                    "transform": {
+                      "x": 24,
+                      "y": 192,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Precision 21 → RangeError 1002",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        217,
+                        227,
+                        243,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-card-line3",
+                    "name": "as3-card-line3",
+                    "transform": {
+                      "x": 24,
+                      "y": 224,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Custom toFixed methods preserved",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        217,
+                        227,
+                        243,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script3",
+              "source": "stop();\ntrace(\"AS3 decimal\", typeof parseInt(\"0777\"), parseInt(\"0777\"));\ntrace(\"AS3 edge\", parseInt(\"08\"), parseInt(\"-0x10\"), parseInt(\"10\",0), 1/parseInt(\"-0\"));\nvar n:Number=1;\ntrace(\"AS3 precision20\", typeof n.toFixed(20), n.toFixed(20));\ntry { n.toFixed(21); } catch(e:RangeError) { trace(\"AS3 precision21\", e.name, e.errorID); }\ntry { NaN.toFixed(-1); } catch(e:RangeError) { trace(\"AS3 NaN range\", e.name, e.errorID); }\ntrace(\"AS3 convert\", (7.25).toFixed(1.9), n.toFixed(4294967296), (-0).toFixed(2), Infinity.toFixed(2));\nvar parse:Function=parseInt;\nfunction shadow(parseInt:Function) { return parseInt(\"0777\"); }\nvar tools={toFixed:function(value) {return \"custom:\"+value;}};\nvar custom:Function=tools.toFixed;\ntrace(\"AS3 binding\", parse(\"0777\"), shadow(function(value) {return \"local:\"+value;}), tools.toFixed(21), custom(22));\nvar plain={toFixed:17};\ntrace(\"AS3 custom field\", plain.toFixed === 17);\nvar key:String=\"toFixed\";\ntry { var unsupportedMethod:Function=n[key]; unsupportedMethod(21); } catch(e:Error) { trace(\"AS3 dynamic method\", e.message.indexOf(\"Unsupported AS3 Number.toFixed method value\") == 0); }\n"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

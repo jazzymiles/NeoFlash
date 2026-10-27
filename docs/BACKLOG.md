@@ -9,6 +9,14 @@ Priority is based on the stated product goal, with explicit evidence required fo
 - Separate AS2/AS3 value profiles: parseInt radix behavior, Number.toFixed limits, typed slot writes/defaults through every access path, rotation normalization and public void return values.
 - For each fix, retain a minimal source project, ordinary HTML5 publish, actual browser trace/scene/image or input result, build/runtime hashes and a regression test. Mark documented expectations separately from original Flash measurements; record tested browser engines explicitly.
 
+Delivered bounded portions, with actual Chrome/in-app browser checks in VERIFICATION.md:
+
+- [x] Boolean MovieClip visibility, inherited hiding, hidden clocks/Load, semantic target removal/restoration and fresh subtree state on same-path symbol replacement.
+- [x] Explicit XFL hidden-layer publish policy, fresh IDs after blank gaps and diagnostic rejection of ambiguous adjacent continuity. Unsupported excluded-layer scripts/labels/duration are refused, not discarded.
+- [x] Separate documented AS2/AS3 parseInt profiles and AS3 primitive toFixed precision 0–20/range behavior. Full primitive conversion and historical formatting are still open.
+
+Still P0: owner-aware unsupported API diagnostics (including TextField text, dimensions and callback assignments), typed slots/defaults across handlers and aliases, rotation normalization and public void results. Visibility conversion beyond Boolean and broader class/lifecycle conformance need separate evidence.
+
 ## Completed foundation
 
 - [x] Complete recorded desktop and browser smoke checks; fix discovered defects.
@@ -20,6 +28,7 @@ Priority is based on the stated product goal, with explicit evidence required fo
 - [x] D-003–D-007 implementation: bounded tween arrows, original vector icons, Light/Dark palette, visibility/F9/reset, native Tools/Timeline/Actions windows, synchronized timeline rows and compact-panel scrolling. Automated layout/state/input tests pass; native acceptance is recorded separately in VERIFICATION.md.
 - Drag-to-dock/tab/split layouts, named workspace presets and broader VoiceOver/IME/multi-monitor acceptance.
 - After HTML5 P0: contextual Document/Tool/Shape/Instance/Frame/Tween Properties, frame-state distinctions beyond color, restored breadcrumb context, library type/preview and explicit pivots. These are workflow refinements from the classic Flash reference review, not claimed completed features.
+- D-008: display Check Script success/error directly inside docked and detached Actions, with source position and accessible text; clear stale results on target/source changes. Independent native QA reproduced missing feedback in detached AS3 frame editing; verify both themes and frame/object targets after fixing.
 
 - [x] Cross-layer multi-selection, Shift/marquee/Select All, whole-selection duplicate/delete and V/Q object editing, with automated native-input regression coverage. Live native visual checks of this increment remain pending.
 - Custom registration points/pivots, skew, nonuniform multi-object transforms and groups.

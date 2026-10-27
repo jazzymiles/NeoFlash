@@ -1,8 +1,9 @@
 use crate::{ImportReport, Statistics, source};
 use neoflash_core::*;
 use roxmltree::{Document, Node, ParsingOptions};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+mod publish;
 mod shape;
 
 pub(crate) fn convert(
@@ -21,15 +22,17 @@ pub(crate) fn convert(
         return None;
     }
     report.version = root.attribute("xflVersion").map(str::to_owned);
-    let language = files
+    let publish = files
         .get("PublishSettings.xml")
         .and_then(|text| parse(text, "PublishSettings.xml", report))
-        .and_then(|doc| publish_language(&doc, report));
+        .map(|doc| publish::read(&doc, report))
+        .unwrap_or_default();
 
     let mut parser = Parser {
         report,
         symbols: HashMap::new(),
-        language,
+        language: publish.language,
+        include_hidden_layers: publish.include_hidden_layers,
         text_warning: false,
     };
     parser.audit(
@@ -103,12 +106,15 @@ pub(crate) fn convert(
         parser.report.warning("editor_metadata", "DOMDocument.xml/publishHistory", "Previous Flash publish timestamps and output sizes are not retained; authored content is unchanged.");
     }
     for tag in ["media", "fonts"] {
-        if child(root, tag).is_some_and(|n| n.children().any(|c| c.is_element())) {
-            parser.report.error(
-                "unsupported_assets",
-                format!("DOMDocument.xml/{tag}"),
-                "Media/font library assets are not imported yet.",
-            );
+        if let Some(assets) = child(root, tag) {
+            parser.audit(assets, "DOMDocument.xml", &[], &[]);
+            if elements(assets).next().is_some() {
+                parser.report.error(
+                    "unsupported_assets",
+                    format!("DOMDocument.xml/{tag}"),
+                    "Media/font library assets are not imported yet.",
+                );
+            }
         }
     }
     for tag in ["folders", "swatchLists", "swatches"] {
@@ -344,14 +350,18 @@ fn publish_value(node: Node<'_, '_>, report: &mut ImportReport) -> Option<String
     )
 }
 
-fn publish_language(doc: &Document<'_>, report: &mut ImportReport) -> Option<ScriptLanguage> {
-    report.warning("publish_settings", "PublishSettings.xml", "Only ActionScriptVersion is read; Flash publishing options are not carried into HTML5 export.");
+fn publish_language(properties: Node<'_, '_>, report: &mut ImportReport) -> Option<ScriptLanguage> {
+    report.warning("publish_settings", "PublishSettings.xml", "ActionScriptVersion and hidden-layer publishing are read from the current profile; other Flash publishing options are not carried into HTML5 export.");
     let mut versions = std::collections::BTreeSet::new();
     let mut valid = true;
-    for node in doc
+    for node in properties
         .descendants()
         .filter(|n| n.is_element() && n.tag_name().name() == "ActionScriptVersion")
     {
+        if node.parent() != Some(properties) {
+            report.error("invalid_script_configuration", "PublishSettings.xml", "ActionScriptVersion must be a direct child of the selected PublishFlashProperties container.");
+            valid = false;
+        }
         match publish_value(node, report) {
             Some(value) => {
                 versions.insert(value);
@@ -375,7 +385,7 @@ fn publish_language(doc: &Document<'_>, report: &mut ImportReport) -> Option<Scr
             "Publish settings must identify one unambiguous ActionScriptVersion, 2 or 3.",
         );
     }
-    for node in doc.descendants().filter(|n| n.is_element()) {
+    for node in properties.descendants().filter(|n| n.is_element()) {
         let name = node.tag_name().name();
         if !matches!(
             name,
@@ -388,6 +398,9 @@ fn publish_language(doc: &Document<'_>, report: &mut ImportReport) -> Option<Scr
                 | "AS3ConfigConst"
         ) {
             continue;
+        }
+        if node.parent() != Some(properties) {
+            report.error("invalid_script_configuration", "PublishSettings.xml", format!("{name} must be a direct child of the selected PublishFlashProperties container."));
         }
         let Some(value) = publish_value(node, report) else {
             continue;
@@ -417,7 +430,23 @@ fn parse<'a>(xml: &'a str, path: &str, report: &mut ImportReport) -> Option<Docu
             ..Default::default()
         },
     ) {
-        Ok(doc) => Some(doc),
+        Ok(doc) => {
+            // Local-name lookup deliberately supports Adobe's default namespace
+            // and the original unnamespaced fixtures. Validate every node first,
+            // including empty asset/metadata containers that need no conversion.
+            for node in doc.descendants().filter(Node::is_element) {
+                if node.tag_name().namespace().is_some_and(|namespace| {
+                    path == "PublishSettings.xml" || namespace != "http://ns.adobe.com/xfl/2008/"
+                }) {
+                    report.error(
+                        "unknown_namespace",
+                        format!("{path}:{} <{}>", doc.text_pos_at(node.range().start).row, node.tag_name().name()),
+                        "Unknown XML element namespace; matching an XFL local name does not establish supported semantics.",
+                    );
+                }
+            }
+            Some(doc)
+        }
         Err(error) => {
             report.error("xml_parse", path, error.to_string());
             None
@@ -446,6 +475,7 @@ struct Parser<'a> {
     report: &'a mut ImportReport,
     symbols: HashMap<String, Id>,
     language: Option<ScriptLanguage>,
+    include_hidden_layers: bool,
     text_warning: bool,
 }
 
@@ -639,6 +669,10 @@ impl Parser<'_> {
         };
         self.audit(layers, file, &[], &["DOMLayer"]);
         let mut spans = vec![];
+        let mut instance_starts: BTreeMap<u32, Vec<(Id, String)>> = BTreeMap::new();
+        let mut instance_ends: BTreeMap<u32, BTreeSet<Id>> = BTreeMap::new();
+        let mut published_end = 0;
+        let mut excluded_end = 0;
         for (li, layer_node) in elements(layers).enumerate() {
             self.audit(
                 layer_node,
@@ -667,10 +701,23 @@ impl Parser<'_> {
                     "Mask, guide and folder layers need a dedicated importer.",
                 );
             }
+            let authoring_visible = self.boolean(layer_node, "visible", true, file);
+            let excluded = !authoring_visible && !self.include_hidden_layers;
+            if !authoring_visible {
+                self.report.warning(
+                    "hidden_layer_publish_policy",
+                    self.location(layer_node, file),
+                    if excluded {
+                        "InvisibleLayer disables publishing hidden layers. Artwork is retained on a hidden NeoFlash layer and excluded from playback; hidden-layer actions/labels require unsupported layer-owned script/label semantics."
+                    } else {
+                        "Flash includes hidden layers in publishing (the default). This layer is made visible in NeoFlash to preserve published artwork/playback; the original authoring eye-toggle state is not retained."
+                    },
+                );
+            }
             let mut layer = Layer {
                 id: new_id("layer"),
                 name: layer_node.attribute("name").unwrap_or("Layer").into(),
-                visible: self.boolean(layer_node, "visible", true, file),
+                visible: !excluded,
                 locked: self.boolean(layer_node, "locked", false, file),
                 keyframes: vec![],
             };
@@ -717,6 +764,17 @@ impl Parser<'_> {
                         );
                     }
                     let end = frame.saturating_add(duration.max(1));
+                    if excluded {
+                        excluded_end = excluded_end.max(end);
+                        if frame_node
+                            .attribute("name")
+                            .is_some_and(|name| !name.is_empty())
+                        {
+                            self.report.error("excluded_layer_label", self.location(frame_node, file), "A label on an excluded hidden layer cannot be retained with its publication ownership in the current model. Move the label to a published layer before importing.");
+                        }
+                    } else {
+                        published_end = published_end.max(end);
+                    }
                     timeline.frame_count = timeline.frame_count.max(end);
                     ends.push((frame, end));
                     let mut key = Keyframe {
@@ -739,8 +797,25 @@ impl Parser<'_> {
                             ],
                         );
                         for (ei, element_node) in elements(container).enumerate() {
-                            let identity = format!("xfl-{id}-{li}-{ei}");
+                            let mut identity = format!("xfl-{id}-{li}-{ei}");
+                            // A later authored instance span never inherits an earlier
+                            // XML slot's state, including direct goto across a blank gap.
+                            // Adjacent same-symbol spans are rejected below: referenceID
+                            // has no verified lifetime semantics in this adapter.
+                            if element_node.has_tag_name("DOMSymbolInstance") && frame != 0 {
+                                identity.push_str(&format!("-placement-{frame}"));
+                            }
                             if let Some(element) = self.element(element_node, identity, file) {
+                                if let ElementKind::Instance { symbol_id, .. } = &element.kind {
+                                    instance_starts.entry(frame).or_default().push((
+                                        symbol_id.clone(),
+                                        self.location(element_node, file),
+                                    ));
+                                    instance_ends
+                                        .entry(end)
+                                        .or_default()
+                                        .insert(symbol_id.clone());
+                                }
                                 key.elements.push(element);
                             }
                         }
@@ -751,6 +826,9 @@ impl Parser<'_> {
                             self.audit(script, file, &[], &[]);
                             let source = immediate_text(script);
                             if !source.trim().is_empty() {
+                                if excluded {
+                                    self.report.error("excluded_layer_script", self.location(script, file), "A frame script on an excluded hidden layer cannot retain its publication ownership in the current model. Import is blocked rather than executing or discarding that source.");
+                                }
                                 if let Some(language) = self.language {
                                     timeline.scripts.push(FrameScript {
                                         frame,
@@ -779,6 +857,18 @@ impl Parser<'_> {
             }
             spans.push(ends);
             timeline.layers.push(layer);
+        }
+        for (frame, starts) in instance_starts {
+            if let Some(ends) = instance_ends.get(&frame) {
+                for (symbol, location) in starts {
+                    if ends.contains(&symbol) {
+                        self.report.error("ambiguous_instance_continuity", location, "An adjacent key ends and places the same library symbol. XML order, name and referenceID do not establish whether the Flash instance continues, is reordered or is replaced. Use a held placement span or an explicit blank-frame gap; this importer does not guess instance lifetimes.");
+                    }
+                }
+            }
+        }
+        if excluded_end > published_end {
+            self.report.error("excluded_layer_duration", self.location(node, file), "An excluded hidden layer defines a longer timeline than the published layers. Published duration cannot yet be established without dropping authored frame structure; align the visible timeline extent before importing.");
         }
         for (layer, ends) in timeline.layers.iter_mut().zip(spans) {
             for (_, end) in ends {

@@ -162,6 +162,28 @@
     };
     const as2 = createAs2Methods();
     const percentage = new Set(['_alpha', '_xscale', '_yscale']);
+    function as2Visibility(value) {
+      // AVM1's legacy display-property setter uses a number, not ToBoolean.
+      // Evidence: Ruffle fe6cfc545405b888ebb478ce1c211d63147ca49b,
+      // core/src/avm1/object/stage_object.rs (set_visible / property_coerce_to_number).
+      // null means preserve the current value. Never invoke object conversion
+      // hooks: their AVM1 semantics differ from JavaScript's Number(value).
+      if (value === null || value === undefined) return null;
+      if (typeof value === 'boolean') return value;
+      if (typeof value === 'string') {
+        // Bounded ordinary decimal mantissas; legacy radix, exponent, whitespace
+        // and other parser quirks require their own compatibility implementation.
+        if (value === '' || /^[+-]?[A-Za-z]+$/.test(value)) return null;
+        if (!/^[+-]?(?:(?:0|[1-9][0-9]*)(?:\.[0-9]*)?|\.[0-9]+)$/.test(value)) {
+          throw new TypeError('AS2 _visible string conversion currently supports plain signed decimal strings without exponent, radix, extra leading zeroes or whitespace. Pass a number or Boolean for other forms.');
+        }
+        value = Number(value);
+      }
+      if (typeof value !== 'number') {
+        throw new TypeError('AS2 _visible object, function, Symbol and BigInt conversions are not supported. Pass a Boolean, number, or supported decimal string explicitly.');
+      }
+      return Number.isNaN(value) ? null : value !== 0;
+    }
     function proxyFor(path) {
       const key = JSON.stringify(path);
       const lifetime = player.lifetime_id(key);
@@ -206,6 +228,10 @@
           if (name === '_currentframe' || name === 'currentFrame') return player.clip_frame(key) + 1;
           if (name === '_totalframes' || name === 'totalFrames') return player.clip_frame_count(key);
           if (Object.hasOwn(methods, name)) return methods[name];
+          if (name === 'visible' || name === '_visible') {
+            assertAlive();
+            return player.visible(key);
+          }
           if (Object.hasOwn(propertyMap, name)) {
             assertAlive();
             const value = player.property(key, propertyMap[name]);
@@ -217,7 +243,14 @@
         },
         set(_target, name, value) {
           if (typeof name !== 'string') return false;
-          if (Object.hasOwn(propertyMap, name)) {
+          if (name === 'visible' || name === '_visible') {
+            assertAlive();
+            const visible = name === '_visible' ? as2Visibility(value) : Boolean(value);
+            if (visible === null) return true;
+            if (!player.set_visible(key, visible)) {
+              throw new Error(`Cannot change ${name} on inactive display object ${key}.`);
+            }
+          } else if (Object.hasOwn(propertyMap, name)) {
             assertAlive();
             if (name.startsWith('_')) value = Number(value);
             if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`${name} must be a finite number.`);

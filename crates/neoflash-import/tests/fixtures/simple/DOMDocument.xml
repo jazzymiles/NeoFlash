@@ -4,7 +4,7 @@
   <symbols><Include href="Badge.xml" /></symbols>
   <timelines><DOMTimeline name="Scene 1"><layers>
     <DOMLayer name="Foreground"><frames>
-      <DOMFrame index="0" duration="2" name="start" labelType="name">
+      <DOMFrame index="0" duration="1" name="start" labelType="name">
         <Actionscript><script><![CDATA[stop();]]></script></Actionscript>
         <elements><DOMSymbolInstance name="badge" libraryItemName="Badge" symbolType="movie clip"><matrix><Matrix tx="40" ty="60" /></matrix></DOMSymbolInstance></elements>
       </DOMFrame>

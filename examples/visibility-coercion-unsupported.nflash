@@ -1,0 +1,443 @@
+{
+  "format_version": 1,
+  "name": "Visibility coercion boundary",
+  "width": 800,
+  "height": 420,
+  "fps": 12,
+  "background": [
+    19,
+    27,
+    40,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 28,
+                      "y": 30,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Unsupported visibility conversion",
+                      "font_family": "Arial",
+                      "font_size": 26,
+                      "color": [
+                        233,
+                        240,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "subtitle",
+                    "name": "subtitle",
+                    "transform": {
+                      "x": 28,
+                      "y": 80,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Each button must show a diagnostic. Restart before the next check.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        233,
+                        240,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 28,
+                      "y": 120,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "The AS2 card starts hidden; rejection must preserve it.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        233,
+                        240,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card",
+                    "name": "card",
+                    "transform": {
+                      "x": 112,
+                      "y": 164,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "card-art",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "AS2 card",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "object",
+                    "name": "object",
+                    "transform": {
+                      "x": 150,
+                      "y": 318,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "object-art",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "try { _root.card._visible = {}; } catch (error) { trace(\"unexpected AS2 catch\"); } finally { trace(\"AS2 finally\", _root.card._visible); } trace(\"unexpected continuation\");"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Unsupported object",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "numeric-text",
+                    "name": "numeric-text",
+                    "transform": {
+                      "x": 420,
+                      "y": 318,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "numeric-text-art",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "try { _root.card._visible = \"00\"; } catch (error) { trace(\"unexpected AS2 catch\"); } finally { trace(\"AS2 finally\", _root.card._visible); } trace(\"unexpected continuation\");"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Unsupported string",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop(); _root.card._visible = false; trace(\"ready; card hidden\");"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "card-art",
+      "name": "card-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "card-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "card-face",
+                    "name": "card-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 150,
+                      "height": 100,
+                      "fill": [
+                        58,
+                        208,
+                        216,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "object-art",
+      "name": "object-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "object-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "object-back",
+                    "name": "object-back",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 230,
+                      "height": 44,
+                      "fill": [
+                        49,
+                        66,
+                        92,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "object-caption",
+                    "name": "object-caption",
+                    "transform": {
+                      "x": 12,
+                      "y": 13,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Unsupported object",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        233,
+                        240,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "numeric-text-art",
+      "name": "numeric-text-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "numeric-text-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "numeric-text-back",
+                    "name": "numeric-text-back",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 230,
+                      "height": 44,
+                      "fill": [
+                        49,
+                        66,
+                        92,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "numeric-text-caption",
+                    "name": "numeric-text-caption",
+                    "transform": {
+                      "x": 12,
+                      "y": 13,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Unsupported string",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        233,
+                        240,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ]
+}

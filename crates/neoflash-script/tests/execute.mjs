@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { verifyHostIntegration } from './host-integration.mjs';
 import { controlFlowFixtures } from './control-flow-fixtures.mjs';
+import { intrinsicFixtures } from './intrinsic-fixtures.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const { createAs2Methods } = createRequire(import.meta.url)(resolve(root, 'web/runtime.js'));
@@ -17,6 +18,7 @@ const localCargo = resolve(homedir(), '.cargo/bin/cargo');
 const cargo = process.env.CARGO || (existsSync(localCargo) ? localCargo : 'cargo');
 const fixtures = [
   ...controlFlowFixtures,
+  ...intrinsicFixtures,
   {
     language: 'action_script3',
     source: 'var count:int; function increment():int { count += 1; return count; } trace("Blue", increment());',

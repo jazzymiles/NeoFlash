@@ -1,0 +1,887 @@
+{
+  "format_version": 1,
+  "name": "Visibility coercion",
+  "width": 800,
+  "height": 420,
+  "fps": 12,
+  "background": [
+    19,
+    27,
+    40,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 28,
+                      "y": 30,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Visibility coercion",
+                      "font_family": "Arial",
+                      "font_size": 28,
+                      "color": [
+                        233,
+                        240,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "subtitle",
+                    "name": "subtitle",
+                    "transform": {
+                      "x": 28,
+                      "y": 76,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 numeric property and modern Boolean property",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        233,
+                        240,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "left-label",
+                    "name": "left-label",
+                    "transform": {
+                      "x": 112,
+                      "y": 126,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 _visible",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        233,
+                        240,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "right-label",
+                    "name": "right-label",
+                    "transform": {
+                      "x": 536,
+                      "y": 126,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 visible",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        233,
+                        240,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card",
+                    "name": "card",
+                    "transform": {
+                      "x": 112,
+                      "y": 164,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "card-art",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "trace(\"AS2 card clicked\");"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "AS2 card",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "modern",
+                    "name": "modern",
+                    "transform": {
+                      "x": 536,
+                      "y": 164,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "card-art",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "trace(\"AS3 card clicked\");"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "AS3 card",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "zero",
+                    "name": "zero",
+                    "transform": {
+                      "x": 24,
+                      "y": 318,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "zero-art",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.card._visible = true; _root.card._visible = \"0\"; trace(\"AS2 zero\", _root.card._visible);"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "AS2 zero",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "invalid",
+                    "name": "invalid",
+                    "transform": {
+                      "x": 178,
+                      "y": 318,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "invalid-art",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "var card = _root.card; card._visible = false; card._visible = \"false\"; var a = card._visible; card._visible = \"\"; var b = card._visible; card._visible = \"true\"; var c = card._visible; card._visible = \"NaN\"; var d = card._visible; card._visible = \"Infinity\"; var e = card._visible; trace(\"AS2 invalid\", a, b, c, d, e);"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "AS2 invalid",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "primitives",
+                    "name": "primitives",
+                    "transform": {
+                      "x": 332,
+                      "y": 318,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "primitives-art",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "var card = _root.card; card._visible = false; card._visible = true; var a = card._visible; card._visible = 0; var b = card._visible; card._visible = -2; var c = card._visible; card._visible = null; var d = card._visible; card._visible = undefined; var e = card._visible; card._visible = NaN; var f = card._visible; card._visible = Infinity; var g = card._visible; card._visible = -Infinity; var h = card._visible; trace(\"AS2 primitives\", a, b, c, d, e, f, g, h);"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "AS2 primitives",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "decimals",
+                    "name": "decimals",
+                    "transform": {
+                      "x": 486,
+                      "y": 318,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "decimals-art",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "var card = _root.card; card._visible = \"-0\"; var a = card._visible; card._visible = \"+0\"; var b = card._visible; card._visible = \"1\"; var c = card._visible; card._visible = \"-.5\"; var d = card._visible; trace(\"AS2 decimals\", a, b, c, d);"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "AS2 decimals",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "modern-check",
+                    "name": "modern-check",
+                    "transform": {
+                      "x": 640,
+                      "y": 318,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "modern-check-art",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "var card = this.root.modern; card.visible = \"0\"; var a = card.visible; card.visible = \"false\"; var b = card.visible; card.visible = null; var c = card.visible; card.visible = undefined; var d = card.visible; card.visible = NaN; var e = card.visible; trace(\"AS3 Boolean\", a, b, c, d, e);"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "AS3 Boolean",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "instruction",
+                    "name": "instruction",
+                    "transform": {
+                      "x": 28,
+                      "y": 382,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Read the exact trace below the stage. Each check can be repeated.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        233,
+                        240,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop(); trace(\"ready\");"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "card-art",
+      "name": "card-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "card-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "card-face",
+                    "name": "card-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 150,
+                      "height": 100,
+                      "fill": [
+                        58,
+                        208,
+                        216,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "zero-art",
+      "name": "zero-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "zero-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "zero-back",
+                    "name": "zero-back",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 144,
+                      "height": 44,
+                      "fill": [
+                        49,
+                        66,
+                        92,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "zero-caption",
+                    "name": "zero-caption",
+                    "transform": {
+                      "x": 12,
+                      "y": 13,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 zero",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        233,
+                        240,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "invalid-art",
+      "name": "invalid-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "invalid-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "invalid-back",
+                    "name": "invalid-back",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 144,
+                      "height": 44,
+                      "fill": [
+                        49,
+                        66,
+                        92,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "invalid-caption",
+                    "name": "invalid-caption",
+                    "transform": {
+                      "x": 12,
+                      "y": 13,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 invalid",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        233,
+                        240,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "primitives-art",
+      "name": "primitives-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "primitives-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "primitives-back",
+                    "name": "primitives-back",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 144,
+                      "height": 44,
+                      "fill": [
+                        49,
+                        66,
+                        92,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "primitives-caption",
+                    "name": "primitives-caption",
+                    "transform": {
+                      "x": 12,
+                      "y": 13,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 primitives",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        233,
+                        240,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "decimals-art",
+      "name": "decimals-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "decimals-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "decimals-back",
+                    "name": "decimals-back",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 144,
+                      "height": 44,
+                      "fill": [
+                        49,
+                        66,
+                        92,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "decimals-caption",
+                    "name": "decimals-caption",
+                    "transform": {
+                      "x": 12,
+                      "y": 13,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 decimals",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        233,
+                        240,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "modern-check-art",
+      "name": "modern-check-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "modern-check-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "modern-check-back",
+                    "name": "modern-check-back",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 144,
+                      "height": 44,
+                      "fill": [
+                        49,
+                        66,
+                        92,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modern-check-caption",
+                    "name": "modern-check-caption",
+                    "transform": {
+                      "x": 12,
+                      "y": 13,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 Boolean",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        233,
+                        240,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ]
+}

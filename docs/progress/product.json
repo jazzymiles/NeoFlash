@@ -289,12 +289,17 @@
       "category": "animation",
       "title": "Полный lifecycle Flash-таймлайна",
       "status": "partial",
-      "scope": "Удаление/повторное создание экземпляра получает новую жизнь; устаревшие dispatch отклоняются, goto имеет защиту от бесконечной очереди.",
+      "scope": "Удаление/повторное создание экземпляра получает новую жизнь; устаревшие dispatch отклоняются, goto имеет защиту от бесконечной очереди. Замена symbol на том же placement path сбрасывает subtree overrides/custom fields/clocks; stale proxies отвергаются, соседние instances сохраняются. Проверено обычным HTML5 в Chrome/IAB. Независимая IAB-приёмка на frozen 0a01ec54 + dirty hashes записана отдельно в P0-TRACKER; более поздние правки её не наследуют.",
       "limitations": "Порядок construction/re-entry, сложные nested goto, сцены и вся семантика Flash Player ещё требуют conformance.",
       "evidence": [
         "crates/neoflash-core/tests/core.rs",
         "web/tests/wasm.test.cjs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-core/tests/visibility.rs",
+        "examples/symbol-replacement.nflash",
+        "docs/VERIFICATION.md",
+        "docs/actionscript-reference/P0-TRACKER.md",
+        "docs/actionscript-reference/implementation-evidence.json"
       ]
     },
     {
@@ -469,14 +474,18 @@
       "category": "imports",
       "title": "XFL и ZIP-FLA → проект",
       "status": "partial",
-      "scope": "Один scene, библиотека, held keys, метки, вложенные instances, TRS/alpha, primitives, простой static text и ограниченные выпуклые straight DOMShape с solid fill/round stroke.",
-      "limitations": "Один неизменённый CS6 FLA проверен через HTML5; общий DOMShape/masks/media/rich text/skew не поддержан. Publish policy скрытых слоёв и placement continuity остаются P0.",
+      "scope": "Один scene, библиотека, held keys, метки, вложенные instances, TRS/alpha, primitives, простой static text и ограниченные выпуклые straight DOMShape с solid fill/round stroke. Учитывается InvisibleLayer выбранного publish profile, fresh IDs после blank gaps; XML wrappers/namespace и неоднозначная continuity дают диагностику. Независимая IAB-приёмка на frozen 0a01ec54 + dirty hashes записана отдельно в P0-TRACKER; более поздние правки её не наследуют.",
+      "limitations": "Один неизменённый CS6 FLA проверен через HTML5; общий DOMShape/masks/media/rich text/skew не поддержан. Adjacent same-symbol continuity отклоняется как неоднозначная; исключённые hidden scripts/labels/extended duration блокируют импорт вместо потери данных.",
       "evidence": [
         "crates/neoflash-import/src/xfl.rs",
         "crates/neoflash-import/src/xfl/shape.rs",
         "crates/neoflash-import/tests/public_fla.rs",
         "crates/neoflash-import/tests/xfl_semantic_guards.rs",
-        "docs/IMPORTS.md"
+        "docs/IMPORTS.md",
+        "crates/neoflash-import/tests/xfl_publish_identity.rs",
+        "docs/VERIFICATION.md",
+        "docs/actionscript-reference/P0-TRACKER.md",
+        "docs/actionscript-reference/implementation-evidence.json"
       ]
     },
     {

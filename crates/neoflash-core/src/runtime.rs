@@ -1,4 +1,4 @@
-use crate::evaluate::{Evaluation, Node, TransformPatch, snapshot};
+use crate::evaluate::{DisplayPatch, Evaluation, Node, snapshot};
 use crate::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -51,7 +51,7 @@ struct Clock {
 /// leaf through its ancestors. These are NeoFlash's defined initial semantics.
 pub struct Player {
     clocks: HashMap<Vec<Id>, Clock>,
-    overrides: HashMap<Vec<Id>, TransformPatch>,
+    overrides: HashMap<Vec<Id>, DisplayPatch>,
     previous: HashMap<Vec<Id>, Node>,
     lifetimes: HashMap<Vec<Id>, u64>,
     next_lifetime: u64,
@@ -195,7 +195,8 @@ impl Player {
             .filter_map(|node| {
                 let mut accessibility = node.accessibility.clone()?;
                 let lifetime_id = self.lifetime_id(&node.path)?.to_string();
-                if node.alpha <= 0.
+                if !node.effective_visible
+                    || node.alpha <= 0.
                     || (1..=node.path.len()).any(|length| singular.contains(&node.path[..length]))
                     || (node.world[0] * node.world[3] - node.world[1] * node.world[2]).abs() < 1e-12
                 {
@@ -234,10 +235,30 @@ impl Player {
     }
 
     fn stabilized(&mut self, project: &Project) -> Evaluation {
+        let mut invalidated = HashSet::new();
         // At most one pass per nesting level is required when a key swaps a symbol.
         for _ in 0..=crate::evaluate::MAX_DEPTH {
             let scene = self.snapshot(project);
-            let mut changed = false;
+            let replacements: HashSet<_> = scene
+                .nodes
+                .iter()
+                .filter(|node| {
+                    self.previous
+                        .get(&node.path)
+                        .is_some_and(|old| old.symbol_id != node.symbol_id)
+                        && invalidated.insert(node.path.clone())
+                })
+                .map(|node| node.path.clone())
+                .collect();
+            let replaced =
+                |path: &[Id]| (0..=path.len()).any(|n| replacements.contains(&path[..n]));
+            // Same path does not imply the same object after a library-symbol
+            // replacement. Descendants also belong to the new placement lifetime.
+            if !replacements.is_empty() {
+                self.overrides.retain(|path, _| !replaced(path));
+                self.clocks.retain(|path, _| !replaced(path));
+            }
+            let mut changed = !replacements.is_empty();
             let mut alive = HashSet::new();
             for node in &scene.nodes {
                 if !node.independent {
@@ -271,8 +292,8 @@ impl Player {
                 }
             }
             self.clocks.retain(|path, _| alive.contains(path));
-            let visible: HashSet<_> = scene.nodes.iter().map(|n| n.path.clone()).collect();
-            self.overrides.retain(|path, _| visible.contains(path));
+            let active_paths: HashSet<_> = scene.nodes.iter().map(|n| n.path.clone()).collect();
+            self.overrides.retain(|path, _| active_paths.contains(path));
             if !changed {
                 return scene;
             }
@@ -299,12 +320,15 @@ impl Player {
 
     fn refresh(&mut self, project: &Project, enter_frame: bool, forced: &HashSet<Vec<Id>>) {
         let scene = self.stabilized(project);
+        let mut created = HashSet::new();
         for node in &scene.nodes {
             let is_new = self
                 .previous
                 .get(&node.path)
-                .is_none_or(|old| old.symbol_id != node.symbol_id);
+                .is_none_or(|old| old.symbol_id != node.symbol_id)
+                || (0..node.path.len()).any(|n| created.contains(&node.path[..n]));
             if is_new {
+                created.insert(node.path.clone());
                 self.lifetimes.insert(node.path.clone(), self.next_lifetime);
                 self.next_lifetime = self.next_lifetime.wrapping_add(1);
                 for handler in &node.scripts {
@@ -317,6 +341,7 @@ impl Player {
         for node in &scene.nodes {
             if let Some(symbol_id) = &node.symbol_id {
                 let entered = forced.contains(&node.path)
+                    || created.contains(&node.path)
                     || self.previous.get(&node.path).is_none_or(|old| {
                         old.frame != node.frame || old.symbol_id != node.symbol_id
                     });
@@ -389,7 +414,11 @@ impl Player {
         self.budget = SCRIPT_BUDGET;
         self.overflowed = false;
         let scene = self.snapshot(project);
-        if !scene.nodes.iter().any(|n| n.path == path) {
+        if !scene
+            .nodes
+            .iter()
+            .any(|n| n.path == path && n.effective_visible)
+        {
             return;
         }
         if scene.nodes.iter().any(|node| {
@@ -462,6 +491,25 @@ impl Player {
                     .any(|handler| handler.event == event && handler.script == dispatch.script)
             }
         }
+    }
+
+    /// Visibility does not remove a placement or stop its timeline/scripts.
+    /// The root path is supported so `_root._visible` hides the whole scene.
+    pub fn set_visible(&mut self, path: &[Id], visible: bool) -> bool {
+        if !self.previous.contains_key(path) {
+            return false;
+        }
+        self.overrides.entry(path.to_vec()).or_default().visible = Some(visible);
+        true
+    }
+
+    /// Returns the local property, even if a hidden ancestor prevents rendering.
+    pub fn visible(&self, project: &Project, path: &[Id]) -> Option<bool> {
+        self.snapshot(project)
+            .nodes
+            .iter()
+            .find(|node| node.path == path)
+            .map(|node| node.visible)
     }
 
     pub fn set_property(&mut self, path: &[Id], property: &str, value: f64) -> bool {

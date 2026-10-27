@@ -86,6 +86,8 @@ The [public FLA corpus](examples/fla-corpus/README.md) contains 15 licensed, pin
 
 Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two independent AS3 counter instances, [script-recovery.nflash](examples/script-recovery.nflash) for AS2/AS3 exceptions and cleanup on animated instances, or [vector-paths.nflash](examples/vector-paths.nflash) for curved strokes and compound fills. HTML5 previews provide Fit, 100% and fixed zoom levels with scrolling and a Pan tool.
 
+[visibility.nflash](examples/visibility.nflash) exercises hidden AS2/AS3 clips that keep running, [symbol-replacement.nflash](examples/symbol-replacement.nflash) checks fresh nested state after replacement, and [as-intrinsics.nflash](examples/as-intrinsics.nflash) demonstrates the documented `parseInt`/`toFixed` profiles. These are bounded compatibility examples, not complete Flash API support.
+
 ## Project layout
 
 ```text

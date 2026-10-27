@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added runtime `visible` / `_visible`: hidden subtrees retain clocks, scripts and instance state while rendering, pointer hits and semantic controls agree. Replacing a symbol at the same placement resets its subtree and preserves unrelated instances.
+- Read XFL hidden-layer publication policy from the selected profile, keep artwork when included, and reject unsupported hidden scripts/labels or ambiguous adjacent placement continuity. Blank-gap re-entry receives fresh identities. Tightened XML wrapper/namespace auditing.
+- Added separate bounded AS2/AS3 `parseInt` profiles and AS3 primitive `toFixed` precision/range handling, with explicit unsupported method-extraction boundaries. Ordinary published examples were exercised in Chrome and the in-app browser; original Flash runtime conformance is not claimed.
+
 - Added a licensed public FLA regression corpus: 15 unchanged external source files with pinned provenance, plus three original XFL/FLA projects with exact native imports and actual-WASM behavior checks.
 - Imported one real Adobe CS6 FLA from the pinned Ruffle corpus and verified its original 17-line AS2 trace in published HTML5, including Restart. Added bounded convex straight-edge DOMShape conversion, source-script retention and audited metadata handling; 14 external cases still refuse unsupported content.
 - Added bounded AS2 label resolution and dynamically assigned timeline callbacks, with explicit native goto-alias diagnostics and independent strict AS3/JS behavior. Preserved split XML text/CDATA fragments and rejected namespaced attributes and unchecked metadata subtrees.

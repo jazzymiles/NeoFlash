@@ -7,9 +7,9 @@ Date: 2026-10-27. This record covers the development preview, vector/object tool
 `./scripts/check.sh` passes on Apple Silicon, macOS 15.8, Rust 1.99.1:
 
 - Formatting and Clippy (`--workspace --all-targets -- -D warnings`).
-- 279 workspace Rust tests: 46 core, 121 editor, 28 script, 80 importer and 4 exporter; four additional tests exercise the pinned egui-winit paste adapter.
-- 41 browser-host/actual-WASM/cache and public-example tests in Node, including semantic bounds, DOM identity, focus restoration, pan/zoom, lifetime-checked activation, recovery and failure reporting.
-- 62 execution fixtures using JavaScript emitted by the script compiler, plus an integration check using the actual host proxy/dispatch code with a lifecycle stub.
+- 303 workspace Rust tests: 52 core, 121 editor, 32 script, 94 importer and 4 exporter; four additional tests exercise the pinned egui-winit paste adapter.
+- 47 browser-host/actual-WASM/cache and public-example tests in Node, including semantic bounds, DOM identity, focus restoration, pan/zoom, lifetime-checked activation, recovery and failure reporting.
+- 86 execution fixtures using JavaScript emitted by the script compiler, plus an integration check using the actual host proxy/dispatch code with a lifecycle stub.
 - 21 public-corpus CLI cases: seven successful imports and 14 explicit refusals, with source integrity and no-overwrite checks.
 - Release WebAssembly build and standalone demo export.
 
@@ -160,7 +160,27 @@ Independent review found and fixed three XML acceptance holes: fragmented script
 
 The integrated optimized macOS bundle also built successfully: executable SHA-256 `d2614307f6539ef4c82e9a4bf422c8cf2a860f3ec2820c65dda6dd43941597c3`, packaged WASM `6888aff20b6ab0e4b73d3f953e45592907754609a4ae4fd0e1aeb4e22b657d2d`. The detailed workspace acceptance above identifies its earlier UI-only binary separately.
 
-This proves one real FLA workflow. General AS2/AS3 semantics, binary FLA conversion, broader geometry and the newly prioritized hidden-layer/placement/API correctness cases remain open.
+This proves one real FLA workflow. General AS2/AS3 semantics, binary FLA conversion and broader geometry remain open. The bounded hidden-layer/placement increment below is separate evidence.
+
+## HTML5 correctness: visibility, placement and numeric profiles — 27 October
+
+Original sources: `examples/visibility.nflash`, `examples/symbol-replacement.nflash`, `examples/as-intrinsics.nflash`, and importer fixtures `hidden-layers` / `instance-gap`. The hidden-off source changes only PublishSettings.xml InvisibleLayer from 1 to 0. All were published with the ordinary CLI exporter and served only from `dist/p0` over loopback HTTP. No test-only runtime globals or direct application-state evaluation were used for browser acceptance.
+
+Actual checks in **Chrome** and the **Codex in-app browser**:
+
+- Boolean AS2/AS3 visibility removes both card pixels and semantic buttons; showing restores them. Hidden clips continue EnterFrame ticks, independent clocks and new-child Load. Click counters and custom state survive hiding. In-app pointer clicks on the formerly painted blank area did not dispatch; local child visibility remained false when its parent was shown again.
+- Same-path symbol replacement resets transforms, visibility, custom state and nested clocks at three levels. The visible trace reported `V=true/true/true X=80/0/0 customClear=true F=1/1 newRefs=true stale=true loads=3/3/3 sibling=false/31/8`; subsequent frames advanced while the sibling retained its hidden state, transform and field. Restart reproduced the result in the in-app browser.
+- The imported blank-gap source stopped at frame 4/5 and displayed `fresh placements undefined undefined 1 1`, including after Restart in both browsers. The in-app console transport renders raw undefined arguments as `[object]`; assertions use the actual authored visible trace, which correctly says undefined.
+- With InvisibleLayer=1, hidden root and nested artwork appeared as red and blue squares; with 0 both were absent and their visible backdrops remained. Runtime errors were absent.
+- AS2 parseInt returned numeric 511 for `0777`; AS3 returned 777. AS3 toFixed accepted precision 20 and produced catchable RangeError1002 for 21, including NaN. Shadowed/local/custom functions retained their behavior. Reference expectations are **documented_only**, pinned to the implementations listed in the intrinsic test record; no original Flash runtime was executed.
+
+A further Chrome run accepted all twelve lines of the final numeric fixture, including ordinary custom data fields and the explicit native-method extraction diagnostic; Restart repeated them exactly in Chrome and the in-app browser. The new visibility-coercion fixture exercised zero strings, invalid/null/undefined/NaN, numbers/booleans, signed decimals and modern Boolean conversion. Unsupported object and ambiguous string inputs showed contextual error overlays; AS2 finally ran without swallowing the host failure. These additional coercion cases were checked in Chrome, not separately in the in-app browser.
+
+The automated suite supplements these observations with actual WASM/host activation, inherited visibility, reset, replacement lifetimes and strict importer diagnostics. Import refusal cases include ambiguous adjacent placement continuity, unsupported excluded-layer scripts/labels/duration, nested publish-profile impostors, foreign namespace/attribute shadowing, and nonempty media/fonts wrappers. A refused source does not produce a partial HTML5 project; the matching accepted source is exercised above.
+
+Browser console errors were zero in the accepted fixtures. Named Arial references produce the expected nonembedded-font warning. In-app engine identity was not established; it is not counted as another independently named engine. These new P0 cases have not been accepted in Safari or Firefox. Screenshots, DOM traces, exact comparisons, source/runtime/export SHA-256 records and logs remain under ignored `target/verification/p0-browser/`.
+
+Owner-aware unsupported API diagnostics, full visibility coercion/class contracts, cross-handler typed slots/defaults, rotation normalization and public void returns remain P0. The separate native review of executable d2614307… confirmed bounded arrows, readable themes, detached panels and synchronized scroll, and found missing Check Script feedback in detached Actions (D-008). That review does not verify this new HTML5 increment or complete native accessibility.
 
 ## Legacy corpus
 

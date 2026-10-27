@@ -30,6 +30,9 @@ pub(crate) struct Node {
     pub accessibility: Option<Accessibility>,
     pub world: [f64; 6],
     pub alpha: f64,
+    /// Local script property; inherited visibility must not change readback.
+    pub visible: bool,
+    pub effective_visible: bool,
 }
 
 #[derive(Default)]
@@ -39,16 +42,17 @@ pub(crate) struct Evaluation {
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct TransformPatch {
+pub(crate) struct DisplayPatch {
     pub x: Option<f64>,
     pub y: Option<f64>,
     pub scale_x: Option<f64>,
     pub scale_y: Option<f64>,
     pub rotation: Option<f64>,
     pub alpha: Option<f64>,
+    pub visible: Option<bool>,
 }
 
-impl TransformPatch {
+impl DisplayPatch {
     pub fn apply(&self, value: &mut Transform) {
         if let Some(v) = self.x {
             value.x = v;
@@ -308,13 +312,14 @@ pub(crate) fn snapshot(
     symbol_id: &str,
     frame: u32,
     clock: &dyn Fn(&[Id]) -> Option<u32>,
-    patch: &dyn Fn(&[Id]) -> Option<TransformPatch>,
+    patch: &dyn Fn(&[Id]) -> Option<DisplayPatch>,
 ) -> Evaluation {
     let mut result = Evaluation::default();
     let Some(root) = project.symbol(symbol_id) else {
         return result;
     };
     let frame = frame.min(root.timeline.frame_count.saturating_sub(1));
+    let visible = patch(&[]).and_then(|p| p.visible).unwrap_or(true);
     result.nodes.push(Node {
         path: vec![],
         name: root.name.clone(),
@@ -326,6 +331,8 @@ pub(crate) fn snapshot(
         accessibility: None,
         world: IDENTITY,
         alpha: 1.,
+        visible,
+        effective_visible: visible,
     });
     let mut walker = Walker {
         project,
@@ -333,15 +340,32 @@ pub(crate) fn snapshot(
         patch,
         result: &mut result,
     };
-    walker.walk(root, frame, &[], IDENTITY, 1., 0);
+    walker.walk(
+        root,
+        frame,
+        &[],
+        InheritedDisplay {
+            matrix: IDENTITY,
+            alpha: 1.,
+            visible,
+        },
+        0,
+    );
     result
 }
 
 struct Walker<'a> {
     project: &'a Project,
     clock: &'a dyn Fn(&[Id]) -> Option<u32>,
-    patch: &'a dyn Fn(&[Id]) -> Option<TransformPatch>,
+    patch: &'a dyn Fn(&[Id]) -> Option<DisplayPatch>,
     result: &'a mut Evaluation,
+}
+
+#[derive(Clone, Copy)]
+struct InheritedDisplay {
+    matrix: [f64; 6],
+    alpha: f64,
+    visible: bool,
 }
 
 impl Walker<'_> {
@@ -350,8 +374,7 @@ impl Walker<'_> {
         symbol: &Symbol,
         frame: u32,
         parent: &[Id],
-        matrix: [f64; 6],
-        alpha: f64,
+        inherited: InheritedDisplay,
         depth: usize,
     ) {
         if depth >= MAX_DEPTH || self.result.nodes.len() >= MAX_NODES {
@@ -368,11 +391,14 @@ impl Walker<'_> {
                 }
                 let mut path = parent.to_vec();
                 path.push(e.id.clone());
-                if let Some(patch) = (self.patch)(&path) {
+                let patch = (self.patch)(&path);
+                let visible = patch.as_ref().and_then(|p| p.visible).unwrap_or(true);
+                if let Some(patch) = patch {
                     patch.apply(&mut e.transform);
                 }
-                let world = affine_multiply(matrix, transform_matrix(e.transform));
-                let opacity = alpha * e.transform.alpha.clamp(0., 1.);
+                let world = affine_multiply(inherited.matrix, transform_matrix(e.transform));
+                let opacity = inherited.alpha * e.transform.alpha.clamp(0., 1.);
+                let effective_visible = inherited.visible && visible;
                 let mut node = Node {
                     path: path.clone(),
                     name: e.name.clone(),
@@ -384,6 +410,8 @@ impl Walker<'_> {
                     accessibility: e.accessibility.clone(),
                     world,
                     alpha: opacity,
+                    visible,
+                    effective_visible,
                 };
                 if let ElementKind::Instance {
                     symbol_id,
@@ -407,18 +435,31 @@ impl Walker<'_> {
                     node.frame = child_frame;
                     node.independent = matches!(playback, InstancePlayback::Independent);
                     self.result.nodes.push(node);
-                    self.walk(child, child_frame, &path, world, opacity, depth + 1);
+                    // Invisible clips still exist and advance their timelines.
+                    self.walk(
+                        child,
+                        child_frame,
+                        &path,
+                        InheritedDisplay {
+                            matrix: world,
+                            alpha: opacity,
+                            visible: effective_visible,
+                        },
+                        depth + 1,
+                    );
                 } else {
                     self.result.nodes.push(node);
-                    self.result.items.push(DrawItem {
-                        element_id: e.id,
-                        name: e.name,
-                        instance_path: path,
-                        layer_id: layer.id.clone(),
-                        transform: world,
-                        alpha: opacity,
-                        kind: e.kind,
-                    });
+                    if effective_visible {
+                        self.result.items.push(DrawItem {
+                            element_id: e.id,
+                            name: e.name,
+                            instance_path: path,
+                            layer_id: layer.id.clone(),
+                            transform: world,
+                            alpha: opacity,
+                            kind: e.kind,
+                        });
+                    }
                 }
             }
         }

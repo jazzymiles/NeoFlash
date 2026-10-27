@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Original fixture; blue artwork is hidden only in the Flash authoring view. -->
+<DOMSymbolItem name="Nested"><timeline><DOMTimeline name="Nested"><layers>
+  <DOMLayer name="Hidden blue child square" visible="false"><frames><DOMFrame index="0" duration="12"><elements>
+    <DOMRectangleObject name="nestedBlue" objectWidth="90" objectHeight="90"><fill><SolidColor color="#3478C7"/></fill></DOMRectangleObject>
+  </elements></DOMFrame></frames></DOMLayer>
+  <DOMLayer name="Published child backdrop"><frames><DOMFrame index="0" duration="12">
+    <Actionscript><script><![CDATA[trace("nested: published layer");]]></script></Actionscript>
+    <elements><DOMRectangleObject x="-5" y="-5" objectWidth="100" objectHeight="100"><fill><SolidColor color="#FFFFFF"/></fill></DOMRectangleObject></elements>
+  </DOMFrame></frames></DOMLayer>
+</layers></DOMTimeline></timeline></DOMSymbolItem>

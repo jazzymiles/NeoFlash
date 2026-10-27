@@ -109,6 +109,16 @@ impl WebPlayer {
             .unwrap_or(f64::NAN))
     }
 
+    pub fn visible(&self, target: &str) -> Result<bool, JsValue> {
+        self.player
+            .visible(&self.project, &path(target)?)
+            .ok_or_else(|| JsValue::from_str("Display object is no longer active."))
+    }
+
+    pub fn set_visible(&mut self, target: &str, visible: bool) -> Result<bool, JsValue> {
+        Ok(self.player.set_visible(&path(target)?, visible))
+    }
+
     pub fn set_property(&mut self, target: &str, name: &str, value: f64) -> Result<bool, JsValue> {
         Ok(self.player.set_property(&path(target)?, name, value))
     }
