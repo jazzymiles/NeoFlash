@@ -10,6 +10,7 @@ fn measure(strings: &[String], _: &TextFormat) -> Result<Vec<f64>, TextError> {
 fn uniform_fields_share_layout_but_keep_runtime_formats_and_placement_lifetimes_independent() {
     let mut project = Project::blank();
     input_transaction_workflow(&project);
+    viewport_layout_workflow(&project);
     let legacy = Element {
         id: "heading".into(),
         name: "heading".into(),
@@ -351,6 +352,15 @@ fn input_transaction_workflow(project: &Project) {
         "selection_begin",
         "selection_end",
         "caret",
+        "auto_size",
+        "scroll_h",
+        "scroll_v",
+        "background",
+        "background_color",
+        "background_alpha",
+        "border",
+        "border_color",
+        "border_alpha",
     ] {
         old.as_object_mut().unwrap().remove(key);
     }
@@ -603,5 +613,252 @@ fn input_transaction_workflow(project: &Project) {
     assert_eq!(
         player.object_text_info(project, &input).unwrap().text,
         "detached😀A\nB"
+    );
+}
+
+fn viewport_layout_workflow(project: &Project) {
+    let mut player = Player::new(project);
+    let root = player.object_ref(&[]).unwrap();
+    let field = player.create_display(DynamicKind::TextField).unwrap();
+    player
+        .object_set_matrix(&field, [2., 1., 0.3, 1., 10., 20.])
+        .unwrap();
+    let sized = player
+        .object_text_update_layout(
+            project,
+            &field,
+            &TextPatch {
+                text: Some("abcd".into()),
+                auto_size: Some(TextAutoSize::Right),
+                format: Some(TextFormatPatch {
+                    size: Some(10.),
+                    ..Default::default()
+                }),
+                default_format: Some(TextFormatPatch {
+                    size: Some(10.),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            measure,
+        )
+        .unwrap();
+    assert_eq!(
+        sized.field.box_size,
+        Some(TextBoxSize {
+            width: 24.,
+            height: 16.
+        })
+    );
+    assert_eq!(
+        player.object_matrix(project, &field).unwrap(),
+        [2., 1., 0.3, 1., 162., 96.]
+    );
+    let repeat = player.object_text_reflow(project, &field, measure).unwrap();
+    assert_eq!(
+        repeat.field, sized.field,
+        "reflow is stable, including revision"
+    );
+    assert_eq!(
+        player.object_matrix(project, &field).unwrap(),
+        [2., 1., 0.3, 1., 162., 96.]
+    );
+    assert!(
+        player
+            .object_text_update_layout(
+                project,
+                &field,
+                &TextPatch {
+                    text: Some("must not commit".into()),
+                    ..Default::default()
+                },
+                |_, _| Err(TextError("font unavailable".into()))
+            )
+            .is_err()
+    );
+    assert_eq!(
+        player.object_text_info(project, &field).unwrap(),
+        sized.field
+    );
+    assert_eq!(
+        player.object_matrix(project, &field).unwrap(),
+        [2., 1., 0.3, 1., 162., 96.]
+    );
+
+    let scrolled = player
+        .object_text_update_layout(
+            project,
+            &field,
+            &TextPatch {
+                text: Some("ab😀\ncd\nef".into()),
+                auto_size: Some(TextAutoSize::None),
+                multiline: Some(true),
+                width: Some(14.),
+                height: Some(16.),
+                scroll_h: Some(2),
+                scroll_v: Some(2),
+                background: Some(true),
+                background_color: Some(0x123456),
+                border: Some(true),
+                border_color: Some(0xabcdef),
+                ..Default::default()
+            },
+            measure,
+        )
+        .unwrap();
+    assert!(scrolled.scroll_changed);
+    assert_eq!(
+        (
+            scrolled.layout.max_scroll_h,
+            scrolled.layout.max_scroll_v,
+            scrolled.layout.bottom_scroll_v
+        ),
+        (10, 3, 2)
+    );
+    assert_eq!(
+        query_text(
+            &scrolled.field,
+            &scrolled.layout,
+            &TextQuery::CharBounds { index: 5 }
+        )
+        .unwrap(),
+        TextQueryResult::Rectangle(TextRectangle {
+            x: 0.,
+            y: 2.,
+            width: 5.,
+            height: 12.
+        })
+    );
+    assert_eq!(
+        query_text(
+            &scrolled.field,
+            &scrolled.layout,
+            &TextQuery::CharAtPoint { x: 1., y: 3. }
+        )
+        .unwrap(),
+        TextQueryResult::Index(5)
+    );
+    assert_eq!(
+        query_text(
+            &scrolled.field,
+            &scrolled.layout,
+            &TextQuery::LineAtPoint { x: 1., y: 3. }
+        )
+        .unwrap(),
+        TextQueryResult::Index(1)
+    );
+    assert_eq!(
+        query_text(
+            &scrolled.field,
+            &scrolled.layout,
+            &TextQuery::FirstCharInParagraph { index: 5 }
+        )
+        .unwrap(),
+        TextQueryResult::Index(5)
+    );
+    assert_eq!(
+        query_text(
+            &scrolled.field,
+            &scrolled.layout,
+            &TextQuery::ParagraphLength { index: 5 }
+        )
+        .unwrap(),
+        TextQueryResult::Index(3)
+    );
+    let clamped = player
+        .object_text_update_layout(
+            project,
+            &field,
+            &TextPatch {
+                scroll_h: Some(i32::MAX),
+                scroll_v: Some(i32::MAX),
+                ..Default::default()
+            },
+            measure,
+        )
+        .unwrap();
+    assert_eq!(
+        (
+            clamped.field.scroll_h,
+            clamped.field.scroll_v,
+            clamped.layout.bottom_scroll_v
+        ),
+        (10, 3, 3)
+    );
+    player
+        .display_mutate(
+            project,
+            DisplayMutation::Add {
+                parent: root,
+                child: field.clone(),
+                index: None,
+            },
+        )
+        .unwrap();
+    player
+        .object_set_color_transform(
+            &field,
+            ColorTransform {
+                multipliers: [1., 1., 1., 0.5],
+                offsets: [0.; 4],
+            },
+        )
+        .unwrap();
+    let snapshot = player.runtime_snapshot(project);
+    let RuntimeDrawKind::TextField { field: painted } = &snapshot
+        .draws
+        .iter()
+        .find(|draw| draw.owner_ref == field)
+        .unwrap()
+        .item
+        .kind
+    else {
+        panic!("text draw");
+    };
+    assert_eq!(
+        (
+            painted.background_color,
+            painted.border_color,
+            painted.background_alpha,
+            painted.border_alpha
+        ),
+        (0x123456, 0xabcdef, 128, 128)
+    );
+    assert_eq!(
+        player
+            .object_text_info(project, &field)
+            .unwrap()
+            .background_alpha,
+        255,
+        "painting never mutates the source style"
+    );
+
+    // Legacy unboxed text uses boxed padding from the first autoSize layout.
+    let legacy = ElementKind::Text {
+        text: "abcd".into(),
+        font_family: "Arial".into(),
+        font_size: 10.,
+        color: [0, 0, 0, 255],
+    };
+    let mut converted = TextFieldState::from_kind(&legacy).unwrap();
+    converted.auto_size = TextAutoSize::Left;
+    let first = layout_text(&converted, measure).unwrap();
+    converted.box_size = first.viewport;
+    let second = layout_text(&converted, measure).unwrap();
+    assert_eq!(first, second);
+    assert_eq!(first.lines[0].x, 2.);
+    let long = TextFieldState {
+        text: "a".repeat(100_000),
+        ..Default::default()
+    };
+    let compact = layout_text(&long, measure).unwrap();
+    assert_eq!(
+        (
+            compact.lines.len(),
+            compact.glyphs.len(),
+            compact.paragraphs.len()
+        ),
+        (1, 1, 1),
+        "query geometry is compact for repeated long text"
     );
 }

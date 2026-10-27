@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "text-viewport",
+      "path": "examples/text-viewport.nflash",
+      "title": "TextField sizing, viewport and geometry",
+      "checks": [
+        "Scroll AS3 and AS2 readers and confirm visible text, top/bottom indicators and scroll callbacks agree.",
+        "Change automatic sizing/anchor modes and decorations; inspect line and character feedback driven by the shared layout.",
+        "Restart restores document, viewport and listener state; repeat an action once."
+      ]
+    },
+    {
       "id": "web-integration",
       "path": "examples/web-integration.nflash",
       "title": "HTML page callbacks, navigation and request dispatch",

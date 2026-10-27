@@ -1,0 +1,883 @@
+{
+  "format_version": 2,
+  "name": "Text viewport: a window into the story",
+  "width": 1040,
+  "height": 760,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    34,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Text viewport",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 32,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / TEXT VIEWPORTS",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 67,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "A window into a longer story.",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        238,
+                        247,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 118,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Scroll two readers, grow anchored labels, then inspect a visible character.",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "anchorLeft",
+                    "name": "anchorLeft",
+                    "transform": {
+                      "x": 80,
+                      "y": 153,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "LEFT ANCHOR",
+                      "font_family": "Arial",
+                      "font_size": 11,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "anchorCenter",
+                    "name": "anchorCenter",
+                    "transform": {
+                      "x": 450,
+                      "y": 153,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "CENTER ANCHOR",
+                      "font_family": "Arial",
+                      "font_size": 11,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "anchorRight",
+                    "name": "anchorRight",
+                    "transform": {
+                      "x": 850,
+                      "y": 153,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RIGHT ANCHOR",
+                      "font_family": "Arial",
+                      "font_size": 11,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "headingAS3",
+                    "name": "headingAS3",
+                    "transform": {
+                      "x": 48,
+                      "y": 236,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 / WRAPPED READER",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "headingAS2",
+                    "name": "headingAS2",
+                    "transform": {
+                      "x": 548,
+                      "y": 236,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 / WIDE CATALOG",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 48,
+                      "y": 468,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 viewport ready",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyStatus",
+                    "name": "legacyStatus",
+                    "transform": {
+                      "x": 548,
+                      "y": 468,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 viewport ready",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "geometryStatus",
+                    "name": "geometryStatus",
+                    "transform": {
+                      "x": 48,
+                      "y": 510,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 706,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Uniform text \u2022 viewport-local geometry \u2022 system font metrics \u2022 Restart clears the session",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "scroll-button",
+                    "name": "scrollButton",
+                    "transform": {
+                      "x": 48,
+                      "y": 620,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "scroll-button-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.stepScroll();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.legacyPanel.scrollReader();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Scroll panels",
+                      "description": "Text viewport control",
+                      "role": "button",
+                      "tab_order": 1,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "grow-button",
+                    "name": "growButton",
+                    "transform": {
+                      "x": 292,
+                      "y": 620,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "grow-button-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.growLabels();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.legacyPanel.growTag();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Grow labels",
+                      "description": "Text viewport control",
+                      "role": "button",
+                      "tab_order": 2,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "inspect-button",
+                    "name": "inspectButton",
+                    "transform": {
+                      "x": 536,
+                      "y": 620,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "inspect-button-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.inspectText();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Inspect text",
+                      "description": "Text viewport control",
+                      "role": "button",
+                      "tab_order": 3,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "reset-button",
+                    "name": "resetButton",
+                    "transform": {
+                      "x": 780,
+                      "y": 620,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "reset-button-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.resetViewport();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.legacyPanel.resetReader();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Reset viewport",
+                      "description": "Text viewport control",
+                      "role": "button",
+                      "tab_order": 4,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "legacy-panel",
+                    "name": "legacyPanel",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "legacy-panel-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "scroll-button-symbol",
+      "name": "Scroll panels",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scroll-button-symbol-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "scroll-surface",
+                    "name": "scroll-surface",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 208,
+                      "height": 50,
+                      "fill": [
+                        29,
+                        64,
+                        78,
+                        255
+                      ],
+                      "stroke": [
+                        66,
+                        135,
+                        150,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "scroll-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 22,
+                      "y": 15,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Scroll panels",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        238,
+                        247,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "grow-button-symbol",
+      "name": "Grow labels",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "grow-button-symbol-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "grow-surface",
+                    "name": "grow-surface",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 208,
+                      "height": 50,
+                      "fill": [
+                        29,
+                        64,
+                        78,
+                        255
+                      ],
+                      "stroke": [
+                        66,
+                        135,
+                        150,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "grow-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 22,
+                      "y": 15,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Grow labels",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        238,
+                        247,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "inspect-button-symbol",
+      "name": "Inspect text",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "inspect-button-symbol-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "inspect-surface",
+                    "name": "inspect-surface",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 208,
+                      "height": 50,
+                      "fill": [
+                        29,
+                        64,
+                        78,
+                        255
+                      ],
+                      "stroke": [
+                        66,
+                        135,
+                        150,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "inspect-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 22,
+                      "y": 15,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Inspect text",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        238,
+                        247,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "reset-button-symbol",
+      "name": "Reset viewport",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "reset-button-symbol-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "reset-surface",
+                    "name": "reset-surface",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 208,
+                      "height": 50,
+                      "fill": [
+                        29,
+                        64,
+                        78,
+                        255
+                      ],
+                      "stroke": [
+                        66,
+                        135,
+                        150,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "reset-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 22,
+                      "y": 15,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Reset viewport",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        238,
+                        247,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "legacy-panel-symbol",
+      "name": "AS2 catalog",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "legacy-panel-symbol-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop();\n_root.legacyScrolls=0;_root.legacyListenerScrolls=0;\nvar format=new TextFormat(\"Arial\",17,0xa4d4f5);format.leading=5;\nvar reader=this.createTextField(\"reader\",this.getNextHighestDepth(),548,264,440,180);\nreader.setNewTextFormat(format);reader.multiline=true;reader.wordWrap=false;reader.selectable=false;\nreader.background=true;reader.backgroundColor=0x172333;reader.border=true;reader.borderColor=0x4b728b;\nreader.autoSize=false;\nreader.text=\"A01  Observatory / night map / Northern sky / catalog entry 0042\\nA02  Workshop / tools and materials / shelf inventory 0117\\nA03  Orchard / spring planting / regional field notebook\\nA04  Library / stories and journals / archive room index\\nA05  Harbor / boats and weather / morning travel notes\\nA06  Studio / colors and shapes / design collection\\nA07  Garden / paths and ponds / summer survey register\\nA08  Valley / rivers and ridges / walking route markers\\nA09  Museum / objects and people / discovery journal\\nA10  Station / arrivals and departures / evening timetable\\nA11  Laboratory / patterns and measurements / sample log\\nA12  Home / ideas and experiments / a small useful catalog\";\n_root.legacyReader=reader;\nreader.onScroller=function(scrolled){_root.legacyScrolls++;_root.legacyPanel.updateStatus();};\nvar listener={onScroller:function(scrolled){_root.legacyListenerScrolls++;}};\nreader.addListener(listener);\nvar tag=this.createTextField(\"legacyTag\",this.getNextHighestDepth(),548,538,180,26);\ntag.setNewTextFormat(new TextFormat(\"Arial\",16,0xa4d4f5));tag.selectable=false;tag.text=\"AS2 / true = left\";\ntag.background=true;tag.backgroundColor=0x183249;tag.border=true;tag.borderColor=0x4b728b;\n_root.legacyAutoResult=(tag.autoSize=true);_root.legacyTag=tag;\nvar ordinary={};ordinary.autoSize=true;_root.ordinaryAutoResult=ordinary.autoSize;\nthis.updateStatus=function(){var r=_root.legacyReader;_root.legacyStatus.text=\"AS2 lines \"+r.scroll+\"\u2013\"+r.bottomScroll+\" / max \"+r.maxscroll+\" | horizontal \"+r.hscroll+\" / \"+r.maxhscroll+\" | callbacks \"+_root.legacyScrolls;};\nthis.scrollReader=function(){var r=_root.legacyReader;r.scroll=r.scroll+2;r.hscroll=r.hscroll+50;this.updateStatus();};\nthis.growTag=function(){_root.legacyTag.text=\"AS2 Boolean auto-size keeps the left anchor\";};\nthis.resetReader=function(){_root.legacyReader.scroll=1;_root.legacyReader.hscroll=0;_root.legacyTag.text=\"AS2 / true = left\";this.updateStatus();};\nthis.updateStatus();"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;\n import flash.display.Shape;\n import flash.events.Event;\n import flash.geom.Rectangle;\n import flash.text.TextField;\n import flash.text.TextFormat;\n import flash.text.TextFieldAutoSize;\n import flash.text.TextLineMetrics;\n public dynamic class Main extends MovieClip {\n  public var reader:TextField;\n  public var leftTag:TextField;\n  public var centerTag:TextField;\n  public var rightTag:TextField;\n  public var marker:Shape;\n  public var metrics:TextLineMetrics;\n  public var character:Rectangle;\n  public var inspectIndex:int=0;\n  public var inspectLine:int=0;\n  public var paragraphStart:int=0;\n  public var paragraphLength:int=0;\n  public var scrollEvents:int=0;\n  public var grows:int=0;\n  public var inspectCount:int=0;\n  public function Main() {\n   stop();\n   eyebrow.selectable=false;title.selectable=false;instructions.selectable=false;\n   headingAS3.selectable=false;headingAS2.selectable=false;anchorLeft.selectable=false;anchorCenter.selectable=false;anchorRight.selectable=false;\n   status.selectable=false;legacyStatus.selectable=false;geometryStatus.selectable=false;footer.selectable=false;\n   scrollButton.caption.selectable=false;growButton.caption.selectable=false;inspectButton.caption.selectable=false;resetButton.caption.selectable=false;\n   leftTag=badge(\"leftTag\",80,140,\"LEFT\",TextFieldAutoSize.LEFT);\n   centerTag=badge(\"centerTag\",450,140,\"CENTER\",TextFieldAutoSize.CENTER);\n   rightTag=badge(\"rightTag\",810,140,\"RIGHT\",TextFieldAutoSize.RIGHT);\n   reader=new TextField();reader.name=\"reader\";reader.x=48;reader.y=264;reader.width=440;reader.height=180;\n   reader.multiline=true;reader.wordWrap=true;reader.selectable=false;\n   var f:TextFormat=new TextFormat(\"Arial\",18,0xeef7ff);f.leading=5;reader.defaultTextFormat=f;\n   reader.background=true;reader.backgroundColor=0x172333;reader.border=true;reader.borderColor=0x4b728b;\n   reader.text=\"01  A reader is a window into a longer story.\\n02  Scroll moves the viewport, not the field.\\n03  Each line keeps its place in the source.\\n04  A long sentence wraps within this box so changing its width remains separate from scaling the display object.\\n05  Paragraph queries use UTF-16 indices.\\n06  Format and text stay independent.\\n07  Background and border belong to this field.\\n08  The mint outline marks one visible character.\\n09  Line metrics are returned as a copy.\\n10  Shared layout feeds native and browser views.\\n11  Small controls make the story easy to explore.\\n12  Restart restores the original viewport.\";\n   addChild(reader);reader.addEventListener(Event.SCROLL,onScroll);\n   marker=new Shape();marker.name=\"characterMarker\";addChild(marker);\n   updateStatus();geometryStatus.text=\"Inspect text: character, line and paragraph geometry appear here.\";\n   trace(\"text viewport ready\",reader.scrollV,reader.scrollH);\n  }\n  public function badge(name:String,x:Number,width:Number,label:String,mode:String):TextField {\n   var field:TextField=new TextField();field.name=name;field.x=x;field.y=176;field.width=width;field.height=28;\n   field.selectable=false;field.defaultTextFormat=new TextFormat(\"Arial\",16,0x2ad4a5);\n   field.background=true;field.backgroundColor=0x17372f;field.border=true;field.borderColor=0x2ad4a5;\n   field.text=label;field.autoSize=mode;addChild(field);return field;\n  }\n  public function onScroll(event:Event):void {scrollEvents++;marker.graphics.clear();updateStatus();}\n  public function stepScroll():void {reader.scrollV=reader.scrollV+2;updateStatus();}\n  public function growLabels():void {grows++;leftTag.text=\"LEFT / more words\";centerTag.text=\"CENTER / more words\";rightTag.text=\"RIGHT / more words\";updateStatus();}\n  public function inspectText():void {\n   inspectIndex=reader.getLineOffset(reader.scrollV-1)+1;\n   character=reader.getCharBoundaries(inspectIndex);\n   if(character!=null){\n    inspectLine=reader.getLineIndexAtPoint(character.x+character.width/2,character.y+character.height/2);\n    inspectIndex=reader.getCharIndexAtPoint(character.x+character.width/2,character.y+character.height/2);\n    metrics=reader.getLineMetrics(inspectLine);paragraphStart=reader.getFirstCharInParagraph(inspectIndex);paragraphLength=reader.getParagraphLength(inspectIndex);\n    marker.graphics.clear();marker.graphics.lineStyle(2,0x2ad4a5);marker.graphics.drawRect(reader.x+character.x,reader.y+character.y,character.width,character.height);\n    inspectCount++;geometryStatus.text=\"Char \"+inspectIndex+\" / line \"+inspectLine+\" / paragraph \"+paragraphStart+\" + \"+paragraphLength+\" | line width \"+metrics.width;\n   }\n  }\n  public function resetViewport():void {reader.scrollV=1;reader.scrollH=0;leftTag.text=\"LEFT\";centerTag.text=\"CENTER\";rightTag.text=\"RIGHT\";grows=0;marker.graphics.clear();geometryStatus.text=\"Viewport reset. Inspect a visible character again.\";updateStatus();}\n  public function updateStatus():void {status.text=\"AS3 lines \"+reader.scrollV+\"\u2013\"+reader.bottomScrollV+\" / max \"+reader.maxScrollV+\" | scroll events \"+scrollEvents;}\n }\n}"
+    }
+  ]
+}

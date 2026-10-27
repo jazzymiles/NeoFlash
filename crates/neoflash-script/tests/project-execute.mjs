@@ -30,6 +30,7 @@ import { verifyClassPackages } from './class-packages.mjs';
 import { verifyVideoPlayback } from './video-playback.mjs';
 import { verifyDragDrop } from './drag-drop.mjs';
 import { verifyWebIntegration } from './web-integration.mjs';
+import { verifyTextViewport } from './text-viewport.mjs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
@@ -193,6 +194,7 @@ const workflows=[
   ['video-playback',verifyVideoPlayback],
   ['drag-drop',verifyDragDrop],
   ['web-integration',verifyWebIntegration],
+  ['text-viewport',verifyTextViewport],
 ];
 let selected=workflows;
 if(process.env.NEOFLASH_WORKFLOWS!==undefined){

@@ -1,5 +1,7 @@
 # NeoFlash
 
+**Paused by the project owner.** This branch preserves unfinished TextField viewport work. The last completed delivery is `51e0f98` on `main`; this checkpoint has a failing focused test and has not passed integration or browser acceptance. See [pause status and resume notes](docs/PAUSE-STATUS.md).
+
 Open-source authoring environment inspired by classic Macromedia/Adobe Flash, built in Rust for macOS 15+. The goal is one comfortable workspace for interactive websites, applications, games and animation, publishing to HTML5.
 
 **Status: development preview, 0.1.0. This is a working foundation, not a complete Flash replacement.** Full AS2/AS3 compatibility, general FLA/SWF import, a complete vector toolset and DOM-based web layouts remain substantial work. See the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
@@ -13,8 +15,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 352 | 1,831 | 109 |
-| AS3 | 43,740 | 15 | 568 | 42,937 | 220 |
+| AS2 | 2,307 | 15 | 367 | 1,816 | 109 |
+| AS3 | 43,740 | 15 | 596 | 42,906 | 223 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -66,7 +68,7 @@ Project workflow checks report all family failures together. After a concrete fa
 7. **⌘Enter / Test Movie** exports and opens a browser preview with scripts. **File → Publish HTML5** writes a self-contained folder. The editor's Enter playback is a side-effect-free authoring preview.
 8. Save a `.nflash` project with **⌘S**. Source files are versioned JSON and round-trip through validation.
 
-**Text (T)** creates a text box with a separate width and height, word wrap and multiline content. Properties edits its installed font, bold/italic style, size, color, leading and alignment. Resizing the box reflows the text; scaling the object transforms it. Older unboxed text keeps its appearance and can be converted with **Use text box**. AS3 TextField/TextFormat and AS2 createTextField use the shared Rust layout in HTML5. Browser fonts still depend on the visitor’s installed fonts or fallback; embedding and mixed formatting remain planned. HTML5 input, focus and selection have the separate scripted text-form profile.
+**Text (T)** creates a text box with a separate width and height, word wrap and multiline content. Properties edits its installed font, bold/italic style, size, color, leading and alignment. Resizing the box reflows the text; scaling the object transforms it. Older unboxed text keeps its appearance and can be converted with **Use text box**. AS3 TextField/TextFormat and AS2 createTextField use the shared Rust layout in HTML5. Browser fonts still depend on the visitor’s installed fonts or fallback; embedding and mixed formatting remain planned. HTML5 input, focus and selection have the separate scripted text-form profile. TextField viewport scripts add automatic sizing, horizontal/vertical scrolling, background/border decoration and line/character queries; see the bounded [viewport profile](docs/COMPATIBILITY.md#textfield-viewport-and-geometry).
 
 The independent `FORMS-HTML5-20261027T0811Z` check of [text-form.nflash](examples/text-form.nflash) confirms real typing/paste, bounded restriction and length limits, focus/selection, cancellable input, and saved values across reload/Restart. Restart also discards the observed unsaved edit and removes its editing control. Password/selectable behavior, IME, arbitrary transformed/clipped editing, full accessibility and native authoring still need acceptance; see [the verification record](docs/VERIFICATION.md#independent-forms-verification-of-c10e19e).
 
@@ -198,7 +200,9 @@ There is one source tree. Version history belongs in Git, build outputs in ignor
 
 Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Contributions are accepted under the same terms. Third-party dependencies and public corpus fixtures retain their respective licenses; fixture provenance and notices are recorded alongside their source files. This independent project does not include Adobe application code or branding assets.
 
-[web-integration.nflash](examples/web-integration.nflash) connects page buttons to AS2/AS3 callbacks and project controls back to named page functions. Optional HTTP controls use `/__neoflash_web_receipt__`; the two-way callback example is self-contained.
+[text-viewport.nflash](examples/text-viewport.nflash) combines two dialects of scrolling readers, automatic label anchors, decorations and geometry-driven feedback.
+
+[web-integration.nflash](examples/web-integration.nflash) connects page buttons to AS2/AS3 callbacks and project controls back to named page functions. Optional HTTP controls use `/__neoflash_web_receipt__`; the two-way callback example is self-contained. Independent `WEB-INTEGRATION-HTML5-20261027T1130Z` on frozen 51e0f98 confirms real callback receivers/results, named-iframe GET/form POST, a separate sendToURL server receipt and fresh Restart registrations. Exception marshalling, retained old wrappers, broader browser policies and native authoring remain unverified. See [the independent record](docs/VERIFICATION.md#independent-web-integration-verification-of-51e0f98).
 
 [drag-drop.nflash](examples/drag-drop.nflash) combines transformed AS3/AS2 cards, drag limits, hit/drop readouts and input-mode controls in one pointer workflow. Independent `POINTER-HTML5-20261027T1113Z` on frozen 01f2261 verifies real donor-margin/rotated-AS2 drags, child/disabled input, outside release and fresh Restart within the actual zero-degree AS3/−4-degree AS2, unit-scale setup. Cursor effects, arbitrary transforms and every nested hit target remain unverified. See [the independent record](docs/VERIFICATION.md#independent-pointer-verification-of-01f2261).
 

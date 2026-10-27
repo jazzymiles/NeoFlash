@@ -15,6 +15,7 @@ mod linked;
 mod loader;
 pub use loader::LoaderMutation;
 mod text;
+pub use text::TextReflow;
 mod video;
 pub use video::VideoState;
 mod transform;
@@ -959,7 +960,11 @@ impl Player {
                         ..
                     },
                 ) => fill[3] > 0 || (*stroke_width > 0. && stroke[3] > 0),
-                RuntimeDrawKind::TextField { field } => field.alpha > 0 && !field.text.is_empty(),
+                RuntimeDrawKind::TextField { field } => {
+                    field.alpha > 0 && !field.text.is_empty()
+                        || field.background && field.background_alpha > 0
+                        || field.border && field.border_alpha > 0
+                }
                 RuntimeDrawKind::GradientPath {
                     fill,
                     stroke,

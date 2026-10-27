@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Work in progress, paused before validation: the shared TextField viewport family: automatic sizing with anchored display transforms, scrolling and metrics, background/border decoration, line/character/paragraph queries and AS2 scroll listeners. Rust owns measured mutations and the browser editing overlay follows the resulting viewport.
+
+- Independently checked frozen 51e0f98 web integration (`WEB-INTEGRATION-HTML5-20261027T1130Z`): real HTML/AS2/AS3 callback results and receivers, native named-frame navigation and response-free send receipts, safe-name refusal and fresh Restart behavior. Exception marshalling, stale saved callbacks and broad cross-origin/popup policy are not inferred.
+
 - Independently checked frozen 01f2261 pointer/drag (`POINTER-HTML5-20261027T1113Z`): real donor-margin and rotated-AS2 dragging, child/disabled targeting, outside release, bounded negative/positive geometry controls and fresh Restart. The actual transforms, unmeasured cursor effects and unresolved first linked-target miss are retained explicitly; body and semantic controls pass within that scope.
 
 - Added a coordinated web-container family: AS2/AS3 ExternalInterface, page callbacks with synchronous results, browser GET/form POST navigation and response-free sends. Ordinary authored JavaScript supplies the HTML controls; generation ownership and native browser policies remain explicit.

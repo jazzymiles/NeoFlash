@@ -94,31 +94,59 @@ pub fn text_layout_json(field_json: &str, measure: &js_sys::Function) -> Result<
     }
     let field: TextFieldState = serde_json::from_str(field_json).map_err(display_error)?;
     let layout = layout_text(&field, |strings, format| {
-        let strings = serde_json::to_string(strings).map_err(|e| TextError(e.to_string()))?;
-        let format = serde_json::to_string(format).map_err(|e| TextError(e.to_string()))?;
-        let result = measure
-            .call2(
-                &JsValue::NULL,
-                &JsValue::from_str(&strings),
-                &JsValue::from_str(&format),
-            )
-            .map_err(|e| {
-                TextError(format!(
-                    "font measurement failed: {}",
-                    e.as_string()
-                        .unwrap_or_else(|| "host callback error".into())
-                ))
-            })?;
-        let json = result
-            .as_string()
-            .ok_or_else(|| TextError("font measurement must return JSON widths".into()))?;
-        if json.len() > 4 * 1024 * 1024 {
-            return Err(TextError("font measurement result exceeds 4 MiB".into()));
-        }
-        serde_json::from_str(&json).map_err(|e| TextError(format!("invalid font measurement: {e}")))
+        measure_text(measure, strings, format)
     })
     .map_err(display_error)?;
     serde_json::to_string(&layout).map_err(display_error)
+}
+fn measure_text(
+    measure: &js_sys::Function,
+    strings: &[String],
+    format: &neoflash_core::TextFormat,
+) -> Result<Vec<f64>, TextError> {
+    let strings = serde_json::to_string(strings).map_err(|e| TextError(e.to_string()))?;
+    let format = serde_json::to_string(format).map_err(|e| TextError(e.to_string()))?;
+    let result = measure
+        .call2(
+            &JsValue::NULL,
+            &JsValue::from_str(&strings),
+            &JsValue::from_str(&format),
+        )
+        .map_err(|e| {
+            TextError(format!(
+                "font measurement failed: {}",
+                e.as_string()
+                    .unwrap_or_else(|| "host callback error".into())
+            ))
+        })?;
+    let json = result
+        .as_string()
+        .ok_or_else(|| TextError("font measurement must return JSON widths".into()))?;
+    if json.len() > 4 * 1024 * 1024 {
+        return Err(TextError("font measurement result exceeds 4 MiB".into()));
+    }
+    serde_json::from_str(&json).map_err(|e| TextError(format!("invalid font measurement: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn text_query_json(
+    field_json: &str,
+    layout_json: &str,
+    query_json: &str,
+) -> Result<String, JsValue> {
+    if field_json.len() > 8 * 1024 * 1024
+        || layout_json.len() > 16 * 1024 * 1024
+        || query_json.len() > 4096
+    {
+        return Err(JsValue::from_str("Text query exceeds input budgets"));
+    }
+    let field = serde_json::from_str(field_json).map_err(display_error)?;
+    let layout = serde_json::from_str(layout_json).map_err(display_error)?;
+    let query = serde_json::from_str(query_json).map_err(display_error)?;
+    serde_json::to_string(
+        &neoflash_core::query_text(&field, &layout, &query).map_err(display_error)?,
+    )
+    .map_err(display_error)
 }
 
 #[wasm_bindgen]
@@ -364,6 +392,69 @@ impl WebPlayer {
         self.player
             .object_text_update(&self.project, &object_ref(target)?, &patch)
             .map_err(display_error)
+    }
+    pub fn object_text_reflow(
+        &mut self,
+        target: &str,
+        measure: &js_sys::Function,
+    ) -> Result<String, JsValue> {
+        let result = self
+            .player
+            .object_text_reflow(&self.project, &object_ref(target)?, |strings, format| {
+                measure_text(measure, strings, format)
+            })
+            .map_err(display_error)?;
+        serde_json::to_string(&result).map_err(display_error)
+    }
+    pub fn object_text_update_layout(
+        &mut self,
+        target: &str,
+        patch_json: &str,
+        measure: &js_sys::Function,
+    ) -> Result<String, JsValue> {
+        if patch_json.len() > 8 * 1024 * 1024 {
+            return Err(JsValue::from_str("Text update exceeds 8 MiB"));
+        }
+        let patch = serde_json::from_str(patch_json).map_err(display_error)?;
+        let result = self
+            .player
+            .object_text_update_layout(
+                &self.project,
+                &object_ref(target)?,
+                &patch,
+                |strings, format| measure_text(measure, strings, format),
+            )
+            .map_err(display_error)?;
+        serde_json::to_string(&result).map_err(display_error)
+    }
+    pub fn object_text_input_layout(
+        &mut self,
+        target: &str,
+        edit_json: &str,
+        measure: &js_sys::Function,
+    ) -> Result<String, JsValue> {
+        if edit_json.len() > 8 * 1024 * 1024 {
+            return Err(JsValue::from_str("Text input exceeds 8 MiB"));
+        }
+        let edit = serde_json::from_str(edit_json).map_err(display_error)?;
+        let result = self
+            .player
+            .object_text_input_layout(
+                &self.project,
+                &object_ref(target)?,
+                &edit,
+                |strings, format| measure_text(measure, strings, format),
+            )
+            .map_err(display_error)?;
+        serde_json::to_string(&result).map_err(display_error)
+    }
+    pub fn text_query_json(
+        &self,
+        field_json: &str,
+        layout_json: &str,
+        query_json: &str,
+    ) -> Result<String, JsValue> {
+        text_query_json(field_json, layout_json, query_json)
     }
     pub fn object_text_input(&mut self, target: &str, edit_json: &str) -> Result<String, JsValue> {
         if edit_json.len() > 8 * 1024 * 1024 {

@@ -1,11 +1,14 @@
 # NeoFlash — working agreement
 
+The owner paused this project on 2026-10-27 until an explicit resume command. This checkpoint preserves unfinished work; do not resume development or monitoring automatically. See docs/PAUSE-STATUS.md. A later explicit user resume command supersedes this pause.
+
 - Product: open-source Rust authoring environment for macOS 15+, inspired by classic Flash before Animate. HTML5 is the primary publishing target.
 - User requirements include websites/apps, games and animation; AS2/AS3 plus JavaScript/TypeScript; nested timelines, instances, frame/object scripts; system fonts; eventual FLA/XFL/SWF import.
 - Do not reduce the product goal to a video animator or silently redefine partial scripting support as full AS2/AS3 compatibility.
 - Current user priority: breadth first. Bring the main subsystems to useful working partial support in large coherent batches, then deepen conformance. Do not let one method or rare edge case monopolize an iteration.
 - Validate feature batches with representative integration/browser scenarios and one shared regression pass. Do not create a separate lengthy HTML5 acceptance cycle for each API. Record non-blocking failures for a later batch; only shared breakage, crashes or content/data loss block the whole delivery.
 - Keep verification cost controlled: extend coherent family scenarios before adding new test cases, avoid duplicating the same behavior across many harnesses, and rerun the shared suite only for a delivery batch or a concrete regression. While the user is away or the screen is locked, continue compiler/runtime work in the background and leave UI-only acceptance explicitly pending.
+- Keep live browser batches bounded: use the new family plus a few affected neighboring workflows, with one meaningful interaction pass. The shared automated suite already exercises every family; an ever-growing set of simultaneously animated iframes is not required for each delivery. Expand browser coverage only for a concrete shared risk or failure, and distinguish startup observations from accepted behavior.
 - Project workflow checks collect all family failures in one pass. After a concrete failure, use `NEOFLASH_WORKFLOWS=id1,id2 node crates/neoflash-script/tests/project-execute.mjs` to rerun only affected families; the default still runs every family and its common prelude. Do not use a focused selection to claim a complete delivery check.
 - Keep one source tree. Versions belong in Git tags/history, never in nested v1/v2 copies. No asset-folder chains. Build outputs go under ignored `target/` and `dist/`.
 - `crates/` contains Rust modules, `web/` the browser host, `examples/` small source projects, `scripts/` build/check tasks, `docs/` product and engineering records.

@@ -27,6 +27,14 @@ function __nfContainerRef(receiver,key,as3,caller){
         },
         set(value){
             const name=__nfContainerKey(key);
+            // AVM1's Boolean autoSize aliases apply only to native text fields.
+            // Keep the original RHS as the assignment result and leave ordinary
+            // records, lexical variables and AS3 strict setters untouched.
+            if(!as3&&name==='autoSize'&&typeof value==='boolean'&&typeof __nfDisplay!=='undefined'&&__nfDisplay?.alive(receiver)&&__nfDisplay.descriptor(receiver).owner==='text'){
+                const mapped=value?'left':'none',scoped=program?.ref?.(receiver,name,caller);
+                if(scoped)scoped.set(mapped);else if(!Reflect.set(object,name,mapped,receiver))throw new __nfTypeError('Cannot write this property.');
+                return value;
+            }
             const scoped=program?.ref?.(receiver,name,caller);if(scoped)return scoped.set(value);
             if(__nfArrayIsArray(receiver)){
                 if(name==='length')__nfArrayBound(value);

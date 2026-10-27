@@ -353,7 +353,7 @@
           bitmapHost.cache.beginFrame();try{capturePainter.draw(target,snapshot,{semantic:false});}finally{bitmapHost.cache.endFrame();}
         }});
       if(global.NeoFlashFilters&&typeof player.filter_rgba==='function')filterHost=global.NeoFlashFilters.create({player});
-      if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,onUpdate:ref=>textInputHost?.sync(ref),measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.font=global.NeoFlashText.cssFont(format);return context.measureText(text).width;}});
+      if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,geometry:global.NeoFlashGeom,onUpdate:ref=>textInputHost?.sync(ref),receiverFor:ref=>proxyForRef(JSON.parse(ref)),isAlive:value=>!references.has(value)||display?.alive(value),onScroll:ref=>{const receiver=proxyForRef(JSON.parse(ref));if(display?.alive(receiver)&&eventHub)eventHub.dispatch(receiver,new global.NeoFlashEvents.Event(global.NeoFlashEvents.Event.SCROLL,false,false));},measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.font=global.NeoFlashText.cssFont(format);return context.measureText(text).width;}});
       display=global.NeoFlashDisplay.create({player,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,as2,
         shapeContains:(kind,x,y)=>{if(typeof context==='undefined'||typeof context.isPointInPath!=='function')throw new Error('Shape hit testing requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(context,kind,x,y,inputPaths.get(kind.commands));},
         clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[]),x,y,inputPaths);},
@@ -374,7 +374,7 @@
           hitTest:event=>{if(typeof canvas==='undefined')return null;const rect=canvas.getBoundingClientRect(),x=(event.clientX-rect.left)*project.width/rect.width,y=(event.clientY-rect.top)*project.height/rect.height;return x>=0&&y>=0&&x<=project.width&&y<=project.height?display.pick(x,y):null;},
           coordinates:event=>{if(typeof canvas==='undefined')return null;const r=canvas.getBoundingClientRect();return[(event.clientX-r.left)*project.width/r.width,(event.clientY-r.top)*project.height/r.height];},
           isInputEnabled:()=>typeof failed==='undefined'||(!failed&&!preview.panMode&&!preview.suppressClick),
-          onLegacyInput:(type,target,event)=>display.pointer(type,target,event),
+          onLegacyInput:(type,target,event)=>{display.pointer(type,target,event);if(type==='mouseWheel'&&target!==stageHost.stage&&display.alive(target)&&display.descriptor(target).owner==='text')textHost?.wheel(references.get(target).key,event);},
           afterInput:()=>{dispatchScripts();if(typeof context!=='undefined')render();},onError:inputFailure});
         if(global.NeoFlashLegacyInput){
           legacyHost=global.NeoFlashLegacyInput.create({stage:stageHost.stage,
@@ -441,7 +441,7 @@
       if(global.NeoFlashStage)builtins['flash.display.Stage']=global.NeoFlashStage.Stage;
       if(timerHost){builtins['flash.utils.Timer']=timerHost.Timer;builtins['flash.events.TimerEvent']=timerHost.TimerEvent;builtins['flash.utils.getTimer']=timerHost.getTimer;}
       if(bitmapHost){builtins['flash.display.BitmapData']=bitmapHost.BitmapData;builtins['flash.display.PixelSnapping']=bitmapHost.PixelSnapping;builtins['flash.display.PNGEncoderOptions']=bitmapHost.PNGEncoderOptions;}
-      if(textHost){builtins['flash.text.TextFormat']=textHost.TextFormat;builtins['flash.text.TextFormatAlign']=textHost.TextFormatAlign;builtins['flash.text.TextFieldType']=textHost.TextFieldType;}
+      if(textHost)for(const name of ['TextFormat','TextFormatAlign','TextFieldType','TextFieldAutoSize','TextLineMetrics'])builtins['flash.text.'+name]=textHost[name];
       if(filterHost)for(const name of ['BitmapFilter','BlurFilter','GlowFilter','DropShadowFilter','ColorMatrixFilter','BitmapFilterQuality'])builtins['flash.filters.'+name]=filterHost[name];
       if(storageHost)for(const name of ['SharedObject','SharedObjectFlushStatus','ObjectEncoding'])builtins['flash.net.'+name]=storageHost[name];
       if(loaderHost)for(const name of ['Loader','LoaderInfo'])builtins['flash.display.'+name]=loaderHost[name];
@@ -751,6 +751,7 @@
     }
     function render() {
       let snapshot=graphMode?JSON.parse(player.runtime_snapshot_json()):null;
+      if(snapshot&&textHost)snapshot=textHost.prepareSnapshot(snapshot);
       if(snapshot&&typeof videoHost!=='undefined'&&videoHost)snapshot=videoHost.prepareSnapshot(snapshot);
       scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
       assertUnfilteredEditing(stageHost?.stage.focus);
@@ -772,6 +773,7 @@
     }
     function hitAt(event,details=false) {
       let snapshot=graphMode?JSON.parse(player.runtime_snapshot_json()):null;
+      if(snapshot&&typeof textHost!=='undefined'&&textHost)snapshot=textHost.prepareSnapshot(snapshot);
       if(snapshot&&typeof videoHost!=='undefined'&&videoHost)snapshot=videoHost.prepareSnapshot(snapshot);
       scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
       const clips=snapshot?.clips?.length?global.NeoFlashPaths.clipTable(snapshot.clips):new Map();

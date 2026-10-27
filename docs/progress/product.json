@@ -154,8 +154,8 @@
       "category": "editor",
       "title": "Authored text",
       "status": "partial",
-      "scope": "Editable authored TextBox with logical dimensions, multiline/wrapping, installed regular/bold/italic fonts, size/color/leading and left/center/right alignment. Old unboxed Text retains its appearance until explicit conversion. AS3 TextField/TextFormat and AS2 createTextField share Rust state and line layout, with separate current/insertion formats and bounded whole-field/string editing. Scripted HTML5 input adds native browser editing, Rust revision-checked user transactions, UTF-16 selection/replacement, user-only restrict/maxChars and password masking. AS3 TextFieldType/TextEvent/FocusEvent and AS2 Selection/onChanged/focus callbacks share Stage focus and publication lifetime.",
-      "limitations": "Mixed character runs, HTML/CSS, auto-size, advanced paragraphs and full shaping/Flash metrics remain pending. Host font measurements may produce different line breaks and pixels; portable fonts are separate work. Native headless layout/clipping/Undo and in-app-browser reflow/alignment, independent fields and Restart passed. Native interactive editing remains pending; VERIFICATION.md preserves the exact scope separately from earlier plain-text evidence. Independent fba17ae evidence (TEXT-LAYOUT-HTML5-20261027T0409Z) covers only the actual uniform layout/format/refusal/Restart workflow in VERIFICATION.md. Native live editing, other fonts/engines, mixed runs and input/IME do not inherit the browser pass. The separate text-form delivery records current scripted input evidence; earlier layout evidence is unchanged. The active DOM field follows affine/vector clipping but is above foreground Canvas artwork. Native input-field authoring, full IME/locale/grapheme/original-player behavior, rich text and cross-engine metrics remain pending; AS2 general string target resolution is unsupported.",
+      "scope": "Editable authored TextBox with logical dimensions, multiline/wrapping, installed regular/bold/italic fonts, size/color/leading and left/center/right alignment. Old unboxed Text retains its appearance until explicit conversion. AS3 TextField/TextFormat and AS2 createTextField share Rust state and line layout, with separate current/insertion formats and bounded whole-field/string editing. Scripted HTML5 input adds native browser editing, Rust revision-checked user transactions, UTF-16 selection/replacement, user-only restrict/maxChars and password masking. AS3 TextFieldType/TextEvent/FocusEvent and AS2 Selection/onChanged/focus callbacks share Stage focus and publication lifetime. Unfinished paused implementation, not yet accepted: shared runtime viewport state adds automatic sizing/anchoring, horizontal and vertical scrolling with limits, background/border colors, bounded line/character/paragraph geometry and AS2 scroll listeners. Native input and Canvas share committed layout coordinates.",
+      "limitations": "Mixed character runs, HTML/CSS, auto-size, advanced paragraphs and full shaping/Flash metrics remain pending. Host font measurements may produce different line breaks and pixels; portable fonts are separate work. Native headless layout/clipping/Undo and in-app-browser reflow/alignment, independent fields and Restart passed. Native interactive editing remains pending; VERIFICATION.md preserves the exact scope separately from earlier plain-text evidence. Independent fba17ae evidence (TEXT-LAYOUT-HTML5-20261027T0409Z) covers only the actual uniform layout/format/refusal/Restart workflow in VERIFICATION.md. Native live editing, other fonts/engines, mixed runs and input/IME do not inherit the browser pass. The separate text-form delivery records current scripted input evidence; earlier layout evidence is unchanged. The active DOM field follows affine/vector clipping but is above foreground Canvas artwork. Native input-field authoring, full IME/locale/grapheme/original-player behavior, rich text and cross-engine metrics remain pending; AS2 general string target resolution is unsupported. The viewport profile is an unfinished checkpoint: focused core verification is failing, integration/browser acceptance is pending, and previous text evidence does not apply to its new behavior. Character geometry uses normalized scalar advances and synthetic uniform ascent/descent; horizontal-scroll queries differ from pinned Flash32 behavior. Authored viewport UI, exact native input shaping and original-player equivalence remain unverified.",
       "evidence": [
         "crates/neoflash-core/src/model.rs",
         "crates/neoflash-editor/src/fonts.rs",
@@ -182,7 +182,10 @@
         "web/events.js",
         "examples/text-form.nflash",
         "crates/neoflash-script/tests/text-form.mjs",
-        "docs/decisions/0026-text-input-and-focus.md"
+        "docs/decisions/0026-text-input-and-focus.md",
+        "examples/text-viewport.nflash",
+        "crates/neoflash-script/tests/text-viewport.mjs",
+        "docs/decisions/0034-text-field-viewport-layout.md"
       ]
     },
     {
@@ -418,7 +421,7 @@
       "title": "JavaScript frame and object handlers",
       "status": "implemented",
       "scope": "Oxc parses synchronous frame/object function bodies, which the HTML5 host executes with the specified owner. The web-container family connects AS2/AS3 ExternalInterface callbacks and named page calls to this same browser publication, with ordinary authored JavaScript for HTML controls.",
-      "limitations": "Project modules/imports and top-level await are outside this item. Code has the privileges of its containing browser page.",
+      "limitations": "Project modules/imports and top-level await are outside this item. Code has the privileges of its containing browser page. Independent 51e0f98 evidence (WEB-INTEGRATION-HTML5-20261027T1130Z) covers the actual authored HTML/AS2/AS3 callbacks, owning receivers, plain returned records, real same-origin named-iframe GET/form POST and fresh Restart registrations in VERIFICATION.md. Returned values do not establish deep-copy/alias isolation. No retained old wrapper was invoked; pending cancellation, popup/default targets, cross-origin variations, arbitrary headers/binary bodies and native authoring remain outside the independent evidence. The ordinary authored bootstrap creates one HTML panel and the visible bidirectional callback workflow, recreated after Restart. The unsafe-name refusal does not prove host-exception marshalling, and request receipts do not establish every response/error/discard/abort behavior.",
       "evidence": [
         "crates/neoflash-script/src/lib.rs",
         "web/runtime.js",
@@ -426,7 +429,8 @@
         "web/external.js",
         "web/net.js",
         "examples/web-integration.nflash",
-        "docs/decisions/0033-web-container-integration.md"
+        "docs/decisions/0033-web-container-integration.md",
+        "docs/VERIFICATION.md"
       ]
     },
     {

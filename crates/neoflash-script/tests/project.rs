@@ -98,6 +98,10 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { import flash.text.TextFormat; public class A extends TextFormat {} }",
         "package { import flash.text.TextFormatAlign; public class A extends TextFormatAlign {} }",
         "package { import flash.text.TextFieldType; public class A extends TextFieldType {} }",
+        "package { import flash.text.TextFieldAutoSize; public class A extends TextFieldAutoSize {} }",
+        "package { import flash.text.TextFieldAutoSize; public class A {public function A(){new TextFieldAutoSize();}} }",
+        "package { import flash.text.TextLineMetrics; public class A extends TextLineMetrics {} }",
+        "package { import flash.text.TextLineMetrics; public class A {public function A(){new TextLineMetrics(1,2);}} }",
         "package { import flash.text.TextFieldType; public class A {public function A(){new TextFieldType();}} }",
         "package { import flash.events.FocusEvent; public class A extends FocusEvent {} }",
         "package { import flash.events.TextEvent; public class A extends TextEvent {} }",
@@ -667,6 +671,8 @@ fn linked_classes_are_resolved_before_publication() {
             import flash.utils.ByteArray;
             import flash.text.TextField;
             import flash.text.TextFieldType;
+            import flash.text.TextFieldAutoSize;
+            import flash.text.TextLineMetrics;
             import flash.events.TextEvent;
             import flash.events.FocusEvent;
             import flash.filters.BitmapFilter;
@@ -697,6 +703,19 @@ fn linked_classes_are_resolved_before_publication() {
                     var copy:Array=filters;copy[0].blurX=8;filters=copy;filters=null;
                     if (savedFilter is BlurFilter){return savedFilter as BlurFilter;}
                     return null;
+                }
+                public function viewport(field:TextField):TextLineMetrics {
+                    field.autoSize=TextFieldAutoSize.CENTER;field.background=true;field.border=true;
+                    field.backgroundColor=0x112233;field.borderColor=0x334455;
+                    field.scrollV=2;field.scrollH=4;
+                    var bounds:Rectangle=field.getCharBoundaries(3);
+                    var index:int=field.getCharIndexAtPoint(4,8);
+                    var line:int=field.getLineIndexAtPoint(4,8);
+                    var begin:int=field.getFirstCharInParagraph(index);
+                    var length:int=field.getParagraphLength(index);
+                    var metric:TextLineMetrics=field.getLineMetrics(line);
+                    if (metric is TextLineMetrics){return metric as TextLineMetrics;}
+                    return new TextLineMetrics(0,1,2,3,4,5);
                 }
                 public var input:TextField;
                 public var lastInput:TextEvent;

@@ -64,7 +64,8 @@
     const nodeKey=node=>graph?refKey(node.object_ref):JSON.stringify(node.path);
     const nodeProxy=node=>graph?proxyForRef(node.object_ref):proxyFor(node.path);
     const invoke=(target,name,...args)=>player[(graph?'object_':'')+name](referenceOf(target).key,...args);
-    function nodes() { return graph?JSON.parse(player.runtime_snapshot_json()).objects:JSON.parse(player.display_nodes_json()); }
+    function runtimeScene(){const scene=JSON.parse(player.runtime_snapshot_json());return getText()?.prepareSnapshot(scene)||scene;}
+    function nodes() { return graph?runtimeScene().objects:JSON.parse(player.display_nodes_json()); }
     function descriptor(target, list=nodes()) {
       const ref=referenceOf(target);
       if (!ref || !alive(target)) throw new ReferenceError('Display object was removed, replaced, or belongs to another player.');
@@ -371,7 +372,7 @@
       }
       return false;
     }
-    function shapeHit(target,x,y,snapshot=JSON.parse(player.runtime_snapshot_json()),respectVisibility=false){
+    function shapeHit(target,x,y,snapshot=runtimeScene(),respectVisibility=false){
       const list=snapshot.objects,source=descriptor(target,list);
       for(const node of list)if(descendant(node,source,list)&&(!respectVisibility||node.effective_visible)&&(!node.clip_ids?.length||clipsContain?.(snapshot,node.clip_ids,x,y))&&leafHit(node,x,y))return true;
       return false;
@@ -399,7 +400,7 @@
     }
     function pickDetails(x,y,exclude=null){
       if(!Number.isFinite(x)||!Number.isFinite(y))return null;
-      const snapshot=JSON.parse(player.runtime_snapshot_json()),list=snapshot.objects,painted=new Set(snapshot.draws.map(item=>refKey(item.owner_ref))),excluded=exclude&&alive(exclude)?descriptor(exclude,list):null;
+      const snapshot=runtimeScene(),list=snapshot.objects,painted=new Set(snapshot.draws.map(item=>refKey(item.owner_ref))),excluded=exclude&&alive(exclude)?descriptor(exclude,list):null;
       // Runtime objects are emitted in display preorder; reversing it tests the
       // foremost child before its container and earlier siblings.
       for(let i=list.length-1;i>=0;i--){const node=list[i];if(node.on_stage===false||node.effective_visible===false||(excluded&&descendant(node,excluded,list)))continue;
@@ -448,7 +449,10 @@
       if(descriptor(target).owner==='movie_clip')result.getURL=(url,window,method)=>{descriptor(target);const net=getNet();if(!net)throw new Error('Browser navigation requires the publication network service.');return net.getURL(target,url,window,method);};
       if(graph&&descriptor(target).owner==='loader')Object.assign(result,getLoader().methods(target));
       if(graph&&descriptor(target).owner==='video'&&getVideo())Object.assign(result,getVideo().methods(target));
-      if(descriptor(target).owner==='text'&&getText())Object.assign(result,getText().methods(referenceOf(target).key));
+      if(descriptor(target).owner==='text'&&getText()){
+        Object.assign(result,getText().methods(referenceOf(target).key));
+        if(as2)for(const name of ['getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineMetrics','getFirstCharInParagraph','getParagraphLength'])as2.register(result[name],target,name,()=>{throw new TypeError(`TextField.${name} requires AS3; this API is not part of the AS2 TextField surface.`);});
+      }
       else if(descriptor(target).owner==='text')Object.assign(result,{
         appendText:value=>{if(typeof value!=='string')throw new TypeError('appendText currently requires a string.');writeText(target,textValue(textKind(target).text)+value);},
         replaceText:(begin,end,value)=>{

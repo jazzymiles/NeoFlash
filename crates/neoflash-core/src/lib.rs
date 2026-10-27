@@ -47,16 +47,17 @@ pub use runtime_graph::{
     ClipComponent, ColorTransform, DisplayError, DisplayEvent, DisplayInputState, DisplayMutation,
     DynamicKind, LoaderMutation, MAX_DYNAMIC_OBJECTS, MutationResult, ObjectRef,
     RuntimeAccessibleNode, RuntimeClip, RuntimeDrawItem, RuntimeDrawKind, RuntimeFilterGroup,
-    RuntimeObject, RuntimeScriptDispatch, RuntimeSnapshot, ScrollRect, VideoState,
+    RuntimeObject, RuntimeScriptDispatch, RuntimeSnapshot, ScrollRect, TextReflow, VideoState,
 };
 pub use runtime_graphics::{
     GradientKind, GradientPaint, GradientSpec, GradientStop, GraphicsOp, MAX_GRAPHICS_COMMANDS,
     MAX_GRAPHICS_OPS,
 };
 pub use text::{
-    MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextError, TextFieldState, TextFieldType, TextFormat,
-    TextFormatPatch, TextInputEdit, TextLayout, TextLine, TextPatch, TextReplacement,
-    TextRestrictPatch, TextSelection, layout_text,
+    MAX_TEXT_BYTES, TextAlign, TextAutoSize, TextBoxSize, TextError, TextFieldState, TextFieldType,
+    TextFormat, TextFormatPatch, TextGlyph, TextInputEdit, TextLayout, TextLine, TextParagraph,
+    TextPatch, TextQuery, TextQueryResult, TextRectangle, TextReplacement, TextRestrictPatch,
+    TextSelection, layout_text, query_text,
 };
 pub use validation::{ProjectError, ValidationIssue, validate};
 pub use xml::{

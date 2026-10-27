@@ -162,10 +162,21 @@ pub(crate) fn layout(p: &egui::Painter, kind: &ElementKind) -> Result<Arc<TextLa
         .map_err(|error| error.to_string())?,
     );
     let bytes = field.text.len()
+        + field.format.font.len()
+        + std::mem::size_of::<ElementKind>()
+        + std::mem::size_of::<TextLayout>()
+        + retained_vector_bytes(&result.lines)
+        + retained_vector_bytes(&result.glyphs)
+        + retained_vector_bytes(&result.paragraphs)
         + result
             .lines
             .iter()
-            .map(|line| line.text.len() + 80)
+            .map(|line| line.text.capacity())
+            .sum::<usize>()
+        + result
+            .glyphs
+            .iter()
+            .map(|glyph| glyph.text.capacity())
             .sum::<usize>();
     if bytes <= CACHE_BYTES {
         let mut cache = cache.lock().unwrap_or_else(|error| error.into_inner());
@@ -185,6 +196,12 @@ pub(crate) fn layout(p: &egui::Painter, kind: &ElementKind) -> Result<Arc<TextLa
         });
     }
     Ok(result)
+}
+
+// Layout now retains glyph and paragraph metadata as well as line strings.
+// Include vector capacity so long documents cannot bypass the cache budget.
+fn retained_vector_bytes<T>(values: &Vec<T>) -> usize {
+    values.capacity() * std::mem::size_of::<T>()
 }
 
 pub(crate) fn paint(

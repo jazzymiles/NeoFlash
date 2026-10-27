@@ -1560,6 +1560,12 @@ impl<'a> Frontend<'a> {
                             | "getLineLength"
                             | "getLineOffset"
                             | "getLineIndexOfChar"
+                            | "getCharBoundaries"
+                            | "getCharIndexAtPoint"
+                            | "getLineIndexAtPoint"
+                            | "getLineMetrics"
+                            | "getParagraphLength"
+                            | "getFirstCharInParagraph"
                             | "getTextFormat"
                             | "setTextFormat"
                             | "getNewTextFormat"
@@ -2198,6 +2204,7 @@ impl Emitter<'_> {
     }
     fn reference(&self, expr: &Expr) -> Option<String> {
         match expr {
+            Expr::Name(name) if !self.as3 && name=="autoSize" && self.analysis.resolve(self.scope,name).is_none_or(|(scope,_)|scope==0) && !self.analysis.context.types.contains_key(name) && !self.analysis.context.static_members.contains_key(name) => Some(format!("__nfContainerRef({}, {name:?}, false)",if self.scope==0{"this"}else{"__nfFrame"})),
             Expr::Name(name) => self.bare_member_receiver(name).map(|receiver| {
                 format!(
                     "__nfContainerRef({receiver}, {name:?}, {}{})",

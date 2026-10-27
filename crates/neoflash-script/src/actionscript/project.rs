@@ -29,6 +29,8 @@ const BUILTINS: &[&str] = &[
     "flash.text.TextFormat",
     "flash.text.TextFormatAlign",
     "flash.text.TextFieldType",
+    "flash.text.TextFieldAutoSize",
+    "flash.text.TextLineMetrics",
     "flash.media.Video",
     "flash.net.NetConnection",
     "flash.net.NetStream",
@@ -226,6 +228,12 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "getLineLength"
                 | "getLineOffset"
                 | "getLineIndexOfChar"
+                | "getCharBoundaries"
+                | "getCharIndexAtPoint"
+                | "getLineIndexAtPoint"
+                | "getLineMetrics"
+                | "getParagraphLength"
+                | "getFirstCharInParagraph"
                 | "getTextFormat"
                 | "setTextFormat"
                 | "getNewTextFormat"
@@ -1157,6 +1165,9 @@ fn check_accessor_pairs(
 // would therefore create a field/method that its author could never read back.
 // This bounded profile rejects those declarations instead of hiding them.
 fn native_member(base: &str, name: &str) -> bool {
+    if base == "flash.text.TextField" && matches!(name,"autoSize"|"scrollH"|"scrollV"|"maxScrollH"|"maxScrollV"|"bottomScrollV"|"background"|"backgroundColor"|"border"|"borderColor"|"getCharBoundaries"|"getCharIndexAtPoint"|"getLineIndexAtPoint"|"getLineMetrics"|"getParagraphLength"|"getFirstCharInParagraph") {
+        return true;
+    }
     let value_member = match base {
         "flash.utils.Timer" => matches!(
             name,

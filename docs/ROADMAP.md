@@ -1,6 +1,8 @@
 # Roadmap
 
-Independent 01f2261 acceptance (`POINTER-HTML5-20261027T1113Z`) confirms the observed AS3 donor-margin and AS2 −4-degree-parent drags, child/disabled targeting, bounded geometry/rectangle refusals, outside release and fresh Restart. AS3 is unrotated and both parents use unit scale; cursor effects and the first unresolved nested linked-target miss remain outside the accepted scope. See [the independent record](VERIFICATION.md#independent-pointer-verification-of-01f2261). ExternalInterface/page integration is already active and retains separate verification.
+Independent 51e0f98 acceptance (`WEB-INTEGRATION-HTML5-20261027T1130Z`) confirms real HTML↔AS2/AS3 callbacks with observed receivers/results, four same-origin GET/form-POST/sendToURL receipts and fresh registrations after Restart. Exception marshalling, retained old wrappers, arbitrary copy semantics and broader navigation policy remain unverified. See [the independent record](VERIFICATION.md#independent-web-integration-verification-of-51e0f98). TextField autoSize/scroll/background/border/line-geometry work is already active and retains separate verification.
+
+Independent 01f2261 acceptance (`POINTER-HTML5-20261027T1113Z`) confirms the observed AS3 donor-margin and AS2 −4-degree-parent drags, child/disabled targeting, bounded geometry/rectangle refusals, outside release and fresh Restart. AS3 is unrotated and both parents use unit scale; cursor effects and the first unresolved nested linked-target miss remain outside the accepted scope. See [the independent record](VERIFICATION.md#independent-pointer-verification-of-01f2261). The later 51e0f98 web-integration family has its own bounded independent record.
 
 Independent f42ad94 acceptance (`VIDEO-HTML5-20261027T1042Z`) confirms real embedded AS3/AS2 MP4 playback, pre-completion pause/seek/resume, natural completion, post-completion Close retention, one-view clear and active HTTP Restart. The silent short file does not establish audible output, precise synchronization, broad codecs/transport or active-close races. See [the independent record](VERIFICATION.md#independent-video-verification-of-f42ad94). The later 01f2261 pointer family has its own bounded independent record.
 
@@ -114,3 +116,8 @@ The pointer family connects transformed dragging, collision queries, hit-area ow
 ### Web page integration
 
 A coordinated ExternalInterface/navigation family connects authored AS2/AS3 projects to ordinary HTML applications. Callback ownership, synchronous return values, native GET/form POST navigation and response-free sends share publication lifetime. Browser-native transport and same-page JavaScript are the initial profile; arbitrary plugin security domains, executable marshalling and desktop/AIR channels remain later work. See ADR 0033.
+
+
+### TextField viewport and geometry
+
+Text readers and application panels gain automatic sizing, scrolling, decoration and queryable layout through the existing shared text engine. Scripted AS2/AS3 behavior is the current delivery surface; authored viewport UI, mixed formatting, HTML/CSS text and embedded fonts retain separate milestones. A bounded browser batch checks the new reader with adjacent text-input/display workflows, while the shared automated pass covers all families once. See ADR 0034.

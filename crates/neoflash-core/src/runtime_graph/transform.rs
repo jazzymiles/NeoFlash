@@ -81,6 +81,14 @@ impl ColorTransform {
         result.format.color =
             u32::from(color[0]) << 16 | u32::from(color[1]) << 8 | u32::from(color[2]);
         result.alpha = color[3];
+        for (rgb, alpha) in [
+            (&mut result.background_color, &mut result.background_alpha),
+            (&mut result.border_color, &mut result.border_alpha),
+        ] {
+            let color = self.apply([(*rgb >> 16) as u8, (*rgb >> 8) as u8, *rgb as u8, *alpha]);
+            *rgb = u32::from(color[0]) << 16 | u32::from(color[1]) << 8 | u32::from(color[2]);
+            *alpha = color[3];
+        }
         result
     }
 }
@@ -96,7 +104,7 @@ pub(super) struct AffineState {
     scale_x: f64,
     scale_y: f64,
 }
-fn validate_matrix(matrix: [f64; 6]) -> Result<(), DisplayError> {
+pub(super) fn validate_matrix(matrix: [f64; 6]) -> Result<(), DisplayError> {
     if matrix
         .into_iter()
         .enumerate()

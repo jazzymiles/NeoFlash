@@ -1,5 +1,11 @@
 use super::*;
 const MAX_RUNTIME_TEXT_BYTES: usize = 16 * 1024 * 1024;
+#[derive(Clone, Debug, Serialize)]
+pub struct TextReflow {
+    pub field: TextFieldState,
+    pub layout: TextLayout,
+    pub scroll_changed: bool,
+}
 impl RuntimeGraph {
     pub(super) fn text_state(
         &self,
@@ -52,6 +58,119 @@ impl RuntimeGraph {
     }
 }
 impl Player {
+    fn commit_text_layout<M>(
+        &mut self,
+        project: &Project,
+        reference: &ObjectRef,
+        original: TextFieldState,
+        mut next: TextFieldState,
+        measure: M,
+    ) -> Result<TextReflow, TextError>
+    where
+        M: FnMut(&[String], &TextFormat) -> Result<Vec<f64>, TextError>,
+    {
+        let layout = layout_text(&next, measure)?;
+        let old_width = next.box_size.map_or(layout.text_width, |b| b.width);
+        let shift = if next.word_wrap {
+            0.
+        } else {
+            match next.auto_size {
+                TextAutoSize::Right => 1.,
+                TextAutoSize::Center => 0.5,
+                _ => 0.,
+            }
+        } * (old_width - layout.viewport.map_or(old_width, |b| b.width));
+        next.box_size = layout.viewport;
+        next.scroll_h = layout.scroll_h;
+        next.scroll_v = layout.scroll_v;
+        let scroll_changed =
+            original.scroll_h != next.scroll_h || original.scroll_v != next.scroll_v;
+        let matrix = if shift != 0. {
+            let mut matrix = self
+                .object_matrix(project, reference)
+                .map_err(|e| TextError(e.to_string()))?;
+            matrix[4] += matrix[0] * shift;
+            matrix[5] += matrix[1] * shift;
+            transform::validate_matrix(matrix).map_err(|e| TextError(e.to_string()))?;
+            Some(matrix)
+        } else {
+            None
+        };
+        next.revision = original.revision.clone();
+        if next != original {
+            next.revision = original
+                .revision
+                .parse::<u64>()
+                .map_err(|_| TextError("invalid text revision".into()))?
+                .checked_add(1)
+                .ok_or_else(|| TextError("text revision exhausted".into()))?
+                .to_string();
+            self.graph.store_text(reference, next.clone())?;
+        }
+        if let Some(matrix) = matrix {
+            // All validation and memory reservations preceded this commit; the
+            // object cannot retire while the synchronous Rust call is active.
+            self.object_set_matrix(reference, matrix)
+                .map_err(|e| TextError(e.to_string()))?;
+        }
+        Ok(TextReflow {
+            field: next,
+            layout,
+            scroll_changed,
+        })
+    }
+    pub fn object_text_reflow<M>(
+        &mut self,
+        project: &Project,
+        reference: &ObjectRef,
+        measure: M,
+    ) -> Result<TextReflow, TextError>
+    where
+        M: FnMut(&[String], &TextFormat) -> Result<Vec<f64>, TextError>,
+    {
+        let original = self.object_text_info(project, reference)?;
+        self.commit_text_layout(project, reference, original.clone(), original, measure)
+    }
+    pub fn object_text_update_layout<M>(
+        &mut self,
+        project: &Project,
+        reference: &ObjectRef,
+        patch: &TextPatch,
+        measure: M,
+    ) -> Result<TextReflow, TextError>
+    where
+        M: FnMut(&[String], &TextFormat) -> Result<Vec<f64>, TextError>,
+    {
+        let original = self.object_text_info(project, reference)?;
+        let mut next = original.clone();
+        next.apply(patch)?;
+        self.commit_text_layout(project, reference, original, next, measure)
+    }
+    pub fn object_text_input_layout<M>(
+        &mut self,
+        project: &Project,
+        reference: &ObjectRef,
+        edit: &TextInputEdit,
+        measure: M,
+    ) -> Result<TextReflow, TextError>
+    where
+        M: FnMut(&[String], &TextFormat) -> Result<Vec<f64>, TextError>,
+    {
+        let original = self
+            .runtime_snapshot(project)
+            .objects
+            .into_iter()
+            .find(|node| {
+                &node.object_ref == reference && node.on_stage && node.display.effective_visible
+            })
+            .and_then(|node| node.text)
+            .ok_or_else(|| {
+                TextError("user editing requires an attached visible TextField".into())
+            })?;
+        let mut next = original.clone();
+        next.apply_input(edit)?;
+        self.commit_text_layout(project, reference, original, next, measure)
+    }
     pub fn object_text_info(
         &self,
         project: &Project,

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "14753e726aae7d5a8e8548268a712a0c95274c85a94cb0f34f1dc96789d85c02",
+  "catalogSha256": "fe825d4c3260b0eb04f1309197068f654935c757442d1f510b271dc7b8e8ce27",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -83,8 +83,8 @@
       }
     ],
     "inputHashes": {
-      "implementation-audit.json": "54d4ffe508d6b31700a9193fd26c884d15d36c063021a9d49b93e7a25a6ada60",
-      "implementation-evidence.json": "26557ea3bde8396a729f065b90fd2ea8fe9d5f57afbd594c319d00bfbda6e9f6",
+      "implementation-audit.json": "0418940c76f3561cb77ee67a7723a9660f6d70ce348ca258346fbae3f2bf4930",
+      "implementation-evidence.json": "2aea9e6a725217a6b15acbc6e80e450e80c14407b982e7e0867aa42372dc29fd",
       "as2.json": "160442a3ef962733440d4b187096b816398d5c4bc7fed87209e20bc157bf3791",
       "as2-components.json": "891666b00f6caf7c4bfc250187ab33cc19880715cb69468d8e0370a43a9aac82",
       "as2-components-supplement.json": "f7677e2c3a3e0f8baf899bdb4511de7bb14965bac4956b9de78a22be64eaa802",
@@ -557,30 +557,54 @@
         "originalFlashComparison": "documented_only",
         "decision": "accepted_partial_video_local_streaming_family",
         "currentSourceVerified": false
+      },
+      {
+        "id": "POINTER-HTML5-20261027T1113Z",
+        "recordedHead": "01f2261d9a15eecafc3d2efcdf629859adb01989",
+        "sourceCapturedAt": "2026-10-27T11:15:04.252627+00:00",
+        "verifiedAt": "2026-10-27T11:29:08.570000+00:00",
+        "sourceManifestSha256": "2c1a339dec720a4353b5cff4e93a34b66520e142c280bd3c1e439c912b1a7a8f",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified; no other engine tested.",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_partial_pointer_drag_hit_targeting_family",
+        "currentSourceVerified": false
+      },
+      {
+        "id": "WEB-INTEGRATION-HTML5-20261027T1130Z",
+        "recordedHead": "51e0f98b09f3e3f5d3a8a8d462ef61ddc55ef164",
+        "sourceCapturedAt": "2026-10-27T11:32:02.101580+00:00",
+        "verifiedAt": "2026-10-27T11:39:49.874124+00:00",
+        "sourceManifestSha256": "0fcef97e4112355b8f1eb7a4cb61d457be840690e216dabf50268d2eb5018b8f",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified; no other engine tested.",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_partial_web_container_calls_navigation_family",
+        "currentSourceVerified": false
       }
     ]
   },
   "summary": {
     "total": {
       "implemented_subset": 30,
-      "partial": 920,
-      "missing": 44768,
-      "needs_review": 329,
+      "partial": 963,
+      "missing": 44722,
+      "needs_review": 332,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
         "implemented_subset": 15,
-        "partial": 352,
-        "missing": 1831,
+        "partial": 367,
+        "missing": 1816,
         "needs_review": 109,
         "total": 2307
       },
       "AS3": {
         "implemented_subset": 15,
-        "partial": 568,
-        "missing": 42937,
-        "needs_review": 220,
+        "partial": 596,
+        "missing": 42906,
+        "needs_review": 223,
         "total": 43740
       }
     },
@@ -608,9 +632,9 @@
       },
       "language": {
         "implemented_subset": 28,
-        "partial": 176,
+        "partial": 177,
         "missing": 43,
-        "needs_review": 62,
+        "needs_review": 61,
         "total": 309
       },
       "platform_extension": {
@@ -622,9 +646,9 @@
       },
       "runtime": {
         "implemented_subset": 2,
-        "partial": 506,
-        "missing": 5644,
-        "needs_review": 6,
+        "partial": 548,
+        "missing": 5598,
+        "needs_review": 10,
         "total": 6158
       }
     },
@@ -653,9 +677,9 @@
         },
         "language": {
           "implemented_subset": 14,
-          "partial": 82,
+          "partial": 83,
           "missing": 30,
-          "needs_review": 59,
+          "needs_review": 58,
           "total": 185
         },
         "platform_extension": {
@@ -667,9 +691,9 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 181,
-          "missing": 723,
-          "needs_review": 3,
+          "partial": 195,
+          "missing": 708,
+          "needs_review": 4,
           "total": 908
         }
       },
@@ -711,9 +735,9 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 325,
-          "missing": 4921,
-          "needs_review": 3,
+          "partial": 353,
+          "missing": 4890,
+          "needs_review": 6,
           "total": 5250
         }
       }
@@ -13068,6 +13092,778 @@
       ]
     },
     {
+      "id": "POINTER-HTML5-20261027T1113Z",
+      "title": "Independent HTML5 acceptance: POINTER-HTML5-20261027T1113Z",
+      "reason": "accepted partial pointer drag hit targeting family",
+      "limitations": "Codex IAB only; engine/version not separately identified, original Flash documented_only. AS3 parent unrotated; AS2 rotation-4/scale1. No arbitrary transform, skew, singular parent, scale, reparent or scroll/mask/filter intersection profile. False lockCenter and supplied finite bounds only; no defaults/coercion/variadic matrix or general refusal atomicity. Scripts explicitly stop drags on release. No implicit API auto-stop claim. Cursor effect is unmeasured; buttonMode/useHandCursor remain needs_review despite assignment readback. No held-button Restart, pointercancel/windowblur, detach/hide/reparent cancellation, multi-pointer/touch/3D, full event capture/bubble/reentry or stale owner proof. One ellipse corner distinguishes shape testing from bounds; no full hit-testing or raster/alpha/text oracle. AS2 hitTest only object overload. First linked coordinate click has no established target; later explicit body and Enter succeed. No broad nested-shape assertion from that unresolved observation. Footer trace wrapping changes Fit viewport; saved coordinates/pixels belong only to this instrumented ordinary publication. Old AS2 rgb/defaults/Number/owner-aware/resource overlay/IMAGE-OBSERVATION-001/native D008 remain open or pending.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/Cargo.toml",
+          "sha256": "748c4a1fb26b503b86b1b57cb3aa277691c7011dd504b8aaf5891a0a6999144a"
+        },
+        {
+          "path": "crates/neoflash-core/src/amf.rs",
+          "sha256": "b9dccbdebe417a5254f5ac68780897e926d8234be98608cb96593282c415e27d"
+        },
+        {
+          "path": "crates/neoflash-core/src/clipboard.rs",
+          "sha256": "45ca958aa45830f8c10ffa45c629c9f625895b90f01c041343853e8140f28c60"
+        },
+        {
+          "path": "crates/neoflash-core/src/demo.rs",
+          "sha256": "0a714dc68bc8bea957b3352f17665d0e690ab77eb41a6cd2478fd4571301a591"
+        },
+        {
+          "path": "crates/neoflash-core/src/evaluate.rs",
+          "sha256": "4e5096940e88b5959e40936a7bf0d0019f261be6d3a892ebae7fa02dd35a48ed"
+        },
+        {
+          "path": "crates/neoflash-core/src/filters.rs",
+          "sha256": "575cddddde48d50aa6cc7f19c55b9b69b9ef3a62a0915b83877c16d412e00023"
+        },
+        {
+          "path": "crates/neoflash-core/src/geometry.rs",
+          "sha256": "94b9531d20975840a8a9c998832f090fee17cfa66c5dbe78c12a30b0a527b2f8"
+        },
+        {
+          "path": "crates/neoflash-core/src/history.rs",
+          "sha256": "662c5cd0855fa1cccccac432fb374a7f86db680ed476559c92fbe324fff88441"
+        },
+        {
+          "path": "crates/neoflash-core/src/lib.rs",
+          "sha256": "64506bad0f4058fd2951a6fb403e205f8ba0e6b079a33b3faab9c6aaec4311ac"
+        },
+        {
+          "path": "crates/neoflash-core/src/model.rs",
+          "sha256": "bdb05bac059810043a18d8a17f7164eb704a6c54ecce56f104611b12d35f524a"
+        },
+        {
+          "path": "crates/neoflash-core/src/pixels.rs",
+          "sha256": "078860eb01b599159269c1041a89f9d63d3aea791968b981f92ba48f4a82fc9b"
+        },
+        {
+          "path": "crates/neoflash-core/src/pixels/pipeline.rs",
+          "sha256": "7ca93f1ed1614f97e37ddf1a4ec05963aea4db46cad0bb42fd0d6127226d31fd"
+        },
+        {
+          "path": "crates/neoflash-core/src/resource_image.rs",
+          "sha256": "9b3fe39fa4e9ec92396c01d38800fb0fdd4610d33fe42382bc99c58045b9dda5"
+        },
+        {
+          "path": "crates/neoflash-core/src/resources.rs",
+          "sha256": "51964faf7747aa135a001f9939cd304edad394e3e05c12bec14ab51569a2924a"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime.rs",
+          "sha256": "5db6c7d04e986687f3d6ed059dc4724b0b6b408646a4f646d14d82cc8c289b64"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph.rs",
+          "sha256": "84a711ed76803d4dba200dc47668d9028c5e0688900f0900260a0bca9432b703"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/bitmap.rs",
+          "sha256": "d1dd747747c799ffa3c15cd6aef42e12690046b7bdf77cb12e1181c4880b5fa6"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/clipping.rs",
+          "sha256": "1811d4fea7afa50b3f10725f631b71cdd52b0e5f173bb0e3583d7b89902e376b"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/filters.rs",
+          "sha256": "5e69e3cd33a8f02e07102e699c8297af3096119dd5c457ca31228bb0a111a320"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/input.rs",
+          "sha256": "615c20e2cf180dad8960343e3b0f50e27af77fd50266fad52ae60ca81931edd1"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/linked.rs",
+          "sha256": "ff6fa8e7f037259f95959d8b54f9b35593c8f0717deecd9527e374befd91f1db"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/loader.rs",
+          "sha256": "9a7c2ee80c94be1724b5d6cd89e13b381c265becdeef99a7b3fea7b6cb311e96"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/text.rs",
+          "sha256": "b7f43acd26e1a1db47d248d7b4b47de62c9f7bde5707b674f0921bb50b60d215"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/transform.rs",
+          "sha256": "58acbec3e79f3cf2953196f1649386f0e8fe69606744d2c23f27cb4f8b17c45a"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/video.rs",
+          "sha256": "087870930dcfc008ec5dd2e80e0ed3774a5b46d82e13a09d9b76148fbb96cb1e"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graphics.rs",
+          "sha256": "d635425dfcd00d838f8083d8e758ce69f7aaa7f7cfe17fea7e5f77de196129b6"
+        },
+        {
+          "path": "crates/neoflash-core/src/text.rs",
+          "sha256": "118e1aea57041cc8f9668f1736f27485c4be665891aa67d2e416bee88d08d5a3"
+        },
+        {
+          "path": "crates/neoflash-core/src/validation.rs",
+          "sha256": "41a10dc1ec717ece6bf8d919cd850b9d9867dd8e5c2a381feb567cd85427c863"
+        },
+        {
+          "path": "crates/neoflash-core/src/xml.rs",
+          "sha256": "3dd8637ddd6d28bcf8f9fef0b9180c660fcdcac4e650fa26c003028f87d46ed7"
+        },
+        {
+          "path": "crates/neoflash-editor/Cargo.toml",
+          "sha256": "8549dc2d0d3b59abd1336bb322e2ca39e4198372b5f5cdf3ace861521e8741d9"
+        },
+        {
+          "path": "crates/neoflash-editor/src/accessibility.rs",
+          "sha256": "7b02f21d880283cdf480a6c0579f732abf19fbe317917e4e18faf9b11d069369"
+        },
+        {
+          "path": "crates/neoflash-editor/src/app.rs",
+          "sha256": "b5966a8a8cc4a370bebfddea27f95108d0fd78250c0e49a10b9d74e37ab01c32"
+        },
+        {
+          "path": "crates/neoflash-editor/src/bitmaps.rs",
+          "sha256": "ec7d1385f4e8e74fb32ab7d23d484dbecff848d1951d6f4f0acceff7b98ac32d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard.rs",
+          "sha256": "e3ffc6db4a9567d2de9194bfbc8a4715e3ddb0b206dc593002cce2ec9eb169fe"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard_tests.rs",
+          "sha256": "cd47a143e3954f0b664aa57df66d31175977a269f000a088ab7d136b854704ae"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached.rs",
+          "sha256": "4857ae64827f7818f7f159fff43b3e14a6ff784bcd0148d161a25e7765e59b3d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached_tests.rs",
+          "sha256": "e66b38262cd5cf6d0a1f64887b19ba86950233cc6fd77c16a977bcba16f14ceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/fonts.rs",
+          "sha256": "59e6bf607f4a074add517fe5fa1e29a09b65b8a51331ac6d5467e98e6064b988"
+        },
+        {
+          "path": "crates/neoflash-editor/src/main.rs",
+          "sha256": "a28169289b6e566c56f4d4c862a234724bf1d0d1fb1e476f34598f81dd2521ea"
+        },
+        {
+          "path": "crates/neoflash-editor/src/native_screens.rs",
+          "sha256": "b3eb6e6612dfd09c9ddfb206b82c3039343730bcf616c380cbee383b92664440"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panel_tests.rs",
+          "sha256": "1f30578675e958423af68ba50fc07ca5cc466f91f5f0a7fee9a56f65ee98dd11"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panels.rs",
+          "sha256": "7560c6068dbaa83333abc9fab14a6823c2aa976fe0d8abb765cf9f4e17e526fd"
+        },
+        {
+          "path": "crates/neoflash-editor/src/resources.rs",
+          "sha256": "8c1aad47de4850fd10a110d299970ddad9911e025597f42f9761db6ed123b4d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection.rs",
+          "sha256": "0c1ea7f8306eb81328d80672436993f0c4d270891d6c50ee81d6ef0243626859"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection_tests.rs",
+          "sha256": "5f0dd0cfcf2243aef8e82d4e7fbaba0f0fcae365abf86e5535b01ae112b8e080"
+        },
+        {
+          "path": "crates/neoflash-editor/src/sources.rs",
+          "sha256": "a41612c805421a92f4a49af70475dc7822d605d2060bc335ce1704a2b95a3ec9"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage.rs",
+          "sha256": "33e42f23cdb859896de68df4ecf6dd92de14fffc497d5a7277d6fefb867f85df"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_primitives.rs",
+          "sha256": "fe940d6123cb492a4c6a6a9e135b51da023fe4c47193a6c3cdc185bd679cfceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_selection.rs",
+          "sha256": "e7ca9975a795b79e376ad096bc440bc469b17247f66b166c801756e8bcaeed13"
+        },
+        {
+          "path": "crates/neoflash-editor/src/tests.rs",
+          "sha256": "a4b96abeb579c8d59014b974e97d883d8ff9802dfb5baca770340c60405c73d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/text_boxes.rs",
+          "sha256": "026d5cd1f800e39d70fa9a9e07d69d74363ddbc157c17ce35af8c2668cd4dcde"
+        },
+        {
+          "path": "crates/neoflash-editor/src/theme.rs",
+          "sha256": "98c946389cff79af8d415b3bd8a282633d097989e60d8643f2f8125f7f8c4936"
+        },
+        {
+          "path": "crates/neoflash-editor/src/timeline_paint.rs",
+          "sha256": "87a87535956dcfaa686e6222bb56f1953328b00be858a0b522094097759848d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_geometry.rs",
+          "sha256": "584f5b1d3d7cc50906d5fe647812678d97333fd8df4a7d31264e0b9f245c971f"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_gesture_tests.rs",
+          "sha256": "490e7e0df25c8ad6a7793109076100ea63c54b11d9469542f583b0cf4daf6ed6"
+        },
+        {
+          "path": "crates/neoflash-editor/src/ui_icons.rs",
+          "sha256": "532a69689f893cb6ad5bf82f4106b6472315fa1cea8af335b2d459ac0eaed74e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector.rs",
+          "sha256": "0d3ae90b25ab48e3228149b0b96920b8f1367e86a609f8d2c10176653ae35f1c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector_gesture_tests.rs",
+          "sha256": "6f54dd33ea9edf03f1c08383e932cffcc47a26cb2a54e2dfe0d8fed07e84d77e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace.rs",
+          "sha256": "e5adb69dad73eba07bc70ebed9d7907d837290df1bb80cae44f4fcd64d9f3b45"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace_editor_tests.rs",
+          "sha256": "6d26ab3e6be19b91b25fc13f27b9580b9810a8efbcb3892198de060216eb07af"
+        },
+        {
+          "path": "crates/neoflash-export/Cargo.toml",
+          "sha256": "577ab7bd07bb5614f4a0ef2e408b553befaad996024c65916121a52266cd0954"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "2d7ee3a4130740208ff2e193a4634774e0d381a3a36a1b6af139d3436c9f46be"
+        },
+        {
+          "path": "crates/neoflash-export/src/main.rs",
+          "sha256": "a174e11c87e970fc4ff37cb5966c525dd5435c744715b6ce93b0052c56bf89d8"
+        },
+        {
+          "path": "crates/neoflash-import/Cargo.toml",
+          "sha256": "ae07834a20cc84f4472c253088f5ce17127b137952daad3f066f34eca6ea96cc"
+        },
+        {
+          "path": "crates/neoflash-import/examples/contour_fixture.rs",
+          "sha256": "037f00320374630c556f0e45087b279071260e8de090fac6c81d059c362f3a59"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_binary_corpus.rs",
+          "sha256": "3ea8b650bcd5ced084b3c266f4f5865e2af96b43b3d3075588c6ae1414dea4d1"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_contour_candidates.rs",
+          "sha256": "9e6912139440480d7dee72ac4c6643c3690408f0ea19618df8f4d1276b20fe5e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy.rs",
+          "sha256": "9dfdb5573c5e1f63121cc4e7bc623bf151e55124ba47da8e688de153f65ccafa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents.rs",
+          "sha256": "adde25d4fa8736d8d47acbf215e78b054b9d31345fb80caef65009f2677cbffa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents/payload.rs",
+          "sha256": "b0c146ec3f5c56525f7e7c4e7b6a4bb28590e4711445b811766801caf685fedd"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours.rs",
+          "sha256": "f434f77c72359b53b18b42b137763d4d607b38b1f010a407b92f2575e7f7799e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours/certificate.rs",
+          "sha256": "fb4abe54a5984e47a05b1848e92f15adf61c4a35825edf7872e9103f8950caae"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/geometry.rs",
+          "sha256": "15797f76b2ed8a9b165b9f184ab8cf2d9439eefe702dcdc68e019c7ad9a191bf"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/mfc.rs",
+          "sha256": "2b79189ee7105947f7a18732860630e3f677ef82e55b2e91fcbde17959812021"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/timeline.rs",
+          "sha256": "7d5f4e1c0b44f6cc4e39628ed8f3724a99b81957394a0d8d07923ffd89f41f3a"
+        },
+        {
+          "path": "crates/neoflash-import/src/lib.rs",
+          "sha256": "3c54d4afecd01fde3e8f5db2bd9b42b0b0c5371be70d90ccc525027e2de53b8b"
+        },
+        {
+          "path": "crates/neoflash-import/src/main.rs",
+          "sha256": "2710f27ef30f4e62afb44537e56da44844aed04d4e8a864ccbda6edd75d4c2cc"
+        },
+        {
+          "path": "crates/neoflash-import/src/source.rs",
+          "sha256": "25662f5fd70d4e2cdafaf59518301dc8875fcf2f2e0636fd05e440823be5e9de"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl.rs",
+          "sha256": "17654ef592571a342b70eece359bb55e94a3281ac42baf8163dca72011706744"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/publish.rs",
+          "sha256": "0a631fa1a3c6b9c186eb76aef5115775b72b86e0d88462f3ea5028ee28b14c89"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/shape.rs",
+          "sha256": "2303fb011b22b32d56fccfe0505653af76057983da39540098b84be37abce1a5"
+        },
+        {
+          "path": "crates/neoflash-script/Cargo.toml",
+          "sha256": "73a29eb8d234c351f4fc2c8312f7924b2a365dddbd4b69ca86d6825b29c6b668"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_batch.rs",
+          "sha256": "c428fa1a84b3649229d9b8a6b33b3fa08ac274dd07679ca61de666b9bc069436"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_project.rs",
+          "sha256": "e7d780759bb4e62704d56c55e0d8e76c2ed9f5ae4a35f82e286aaea98a7c0ac6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "3b0c3bb045755ba473d0b30b9e9dd8ab22244f198e9c60f3eb3ebcfe239c8658"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/collections.js",
+          "sha256": "63d55193c51b297e35970684a20cf31d8608956aa1f87210af778f67c0ab8cd0"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/completion.rs",
+          "sha256": "cbc6f6492a8d998193e5c4e1166c17b7df02211ae15f77d9f96c249ece6f7dea"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/containers.js",
+          "sha256": "28a50e4845cb068a313ad50b02b50ead5703c7dd2a11bb5fc346e70a99aee905"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/control_tests.rs",
+          "sha256": "4536b47803d97d87584e8a84b14aa5f279f412ce15fe98def9f6f31f7c8d8365"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/dates.js",
+          "sha256": "d8e821a7e50e822b6af1a16e3d5462a25bba8f345dd1dec5490fe0f573ae5024"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/dictionary.js",
+          "sha256": "f218db23553d32593ed4bced084bb466c0644ff3719702ce9391ddfb613e3034"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/exceptions.js",
+          "sha256": "534534a37d9d0c48b1898847615e0581b20661341d24ded64ed355785e8e366e"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/functions.js",
+          "sha256": "d416e6da72b4e9acd49ce781a0603147f9ac90f3d1edb21b01ff5271186edae2"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/intrinsics.js",
+          "sha256": "65528ea334627dc829097e59627647382ffe716b39acb77e15c8bcbef68ebdb4"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/json.js",
+          "sha256": "f1d574087cb0c3174d63965bd35653d1add7da0b4462ae9950e37b39ae1b79c6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "f63e7c2fa1a411f03d148f21c0ea3f20a31bc2d7bdc54d093fbd59da2604ff52"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "e27304215a888181fb0a6bddab4f4499f0f47e849c17e829724ea137dfb50910"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/regexp.js",
+          "sha256": "2c0ed0066bd2894a6f78afce18ea718271d38d8b169fd728fee676b04dee9b07"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "366870d5ce74998ab410ff007c61ea9187cc204d53068c137fd6c427a053894b"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/strings.js",
+          "sha256": "11e60ba1f8e3204cab0b44a57089f70eb1fb022d94f55cc63300cf96e9a296e8"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/vectors.js",
+          "sha256": "b0eda4b41827889d9e676f4161b8c7bdb3cccd7724bebf42f84fa0502b7c93d1"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/xml_literals.rs",
+          "sha256": "53886e2a69ea84abf24c97ab91cc8e6ad2463e5bd8ac4ad8b534ff28a025bac3"
+        },
+        {
+          "path": "crates/neoflash-script/src/lib.rs",
+          "sha256": "3b7e634f008786775f3e8dd40dca84868b92e8af3e96f633ef28de5aa4464ec3"
+        },
+        {
+          "path": "crates/neoflash-web/Cargo.toml",
+          "sha256": "7658ff86ac02627a03ea66fe5c7c288333ff7c4d13e456b444e3b01fb0ea23f5"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "082c04305fcd264df2fa43fd179152978f5a8d3902bb819cf03d2950165d4e19"
+        },
+        {
+          "path": "web/accessibility.js",
+          "sha256": "617b6d3e5ccb7a66f044ffcb2bb46ab7bcbc704e81b2c12f0055a80053ac8373"
+        },
+        {
+          "path": "web/amf.js",
+          "sha256": "67749be93531e6f12f573ef41ee133c37c05de7367a9fd2623356e74ce0305ae"
+        },
+        {
+          "path": "web/audio-formats.js",
+          "sha256": "91d325e5508967d057b697cedc37090058b09f1f34a71c603a1f6a11bb9d3443"
+        },
+        {
+          "path": "web/audio.js",
+          "sha256": "0fdcec0a321ca69419f825a9512cfb57c92fb6a3c671f83fad70b59b64e0c63c"
+        },
+        {
+          "path": "web/bitmap.js",
+          "sha256": "5a871c3a99fc48576d2b03fd0edebebd360b6d04f9df860d937c48499d21c5b3"
+        },
+        {
+          "path": "web/byte-array.js",
+          "sha256": "fbaca0bfa72cbbda3f95269717c30865a17041df7827cff7d6e39fa5cbf6f1e9"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "e5e6b9dfcdbe2bce60e2fda404d742225842bb08b8e32906c150621867532429"
+        },
+        {
+          "path": "web/events.js",
+          "sha256": "138fae7ce853928dd0595c53d8188d2477d2c738272f75e33092e6029dd0e73d"
+        },
+        {
+          "path": "web/filters.js",
+          "sha256": "e0dee474f5611cf41d72fe2037b6bad156ca4153d17674e0590d7dded3eea462"
+        },
+        {
+          "path": "web/geom.js",
+          "sha256": "2aa4ec042d7ea8fa8a8b0f8519e23eca1ea722960f4bb43496ac814ddd1de2b6"
+        },
+        {
+          "path": "web/legacy-input.js",
+          "sha256": "14ac0086abbbb5b1de591ea5ae35fafdce9f65f101b6e942871c62dc9c7b4c35"
+        },
+        {
+          "path": "web/loader.js",
+          "sha256": "ac5ed0cc57722c79f918c9e0968542d3b0412e855908fa7805c3c9b0ee10ee76"
+        },
+        {
+          "path": "web/net.js",
+          "sha256": "4fbf7e71528c9a107156dc5da64f6c97d9d7dfc3d677aeba120b039610caca11"
+        },
+        {
+          "path": "web/path.js",
+          "sha256": "c80ae03439b58963ed6e35abef4d7fb99033224aa57b6ba486f4cf1d54de1243"
+        },
+        {
+          "path": "web/preview.js",
+          "sha256": "1278996d0f1c0a7efe974919a8c496bbefebd5a0b5707926de03a708f4ca51fa"
+        },
+        {
+          "path": "web/progress/app.js",
+          "sha256": "b5f78ad52e27e498e0020ae33f59e4e545ed2d83c4f4abe8f9c3bd8fbc098780"
+        },
+        {
+          "path": "web/progress/history.html",
+          "sha256": "612e7564f63569bc8ee5497a91c14666c813653b6b348837506dd91cd0ba43e2"
+        },
+        {
+          "path": "web/progress/index.html",
+          "sha256": "5bcbd13e811e7a0ce201d7460ea6e3aaa60c73c2f00073d06c5baf9b01b527ef"
+        },
+        {
+          "path": "web/progress/style.css",
+          "sha256": "078133fc916b8e2714e0a178c67bffadb99c11799c3af0250a4d3a911cb9d235"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "d02b884cd82e98a021e4f239c4b86def5dab4b61684e3cff574c054f39c55f94"
+        },
+        {
+          "path": "web/stage.js",
+          "sha256": "c75c6fbc5cb782359099b1a35430de28716d16e5e56a7dfe28312c00e2d2ed95"
+        },
+        {
+          "path": "web/storage.js",
+          "sha256": "5aac0405a81c8a88fdfd80d3da3d46b79d09acab027fd49c49d94f6778f04fbb"
+        },
+        {
+          "path": "web/text-input.js",
+          "sha256": "e88f975d57f8de6b85812ed7c06dc8b680abfffcaaaf80ba86ccb1145718db0b"
+        },
+        {
+          "path": "web/text.js",
+          "sha256": "b15c20311a2567671cea7dd29ea4e1c4cd4e60431e065422a577a97e3103a8b0"
+        },
+        {
+          "path": "web/timers.js",
+          "sha256": "d42569c79bcda28ffd1b3712facb73e45e78e3b7dc22a1f194527781c9cdb9b1"
+        },
+        {
+          "path": "web/video.js",
+          "sha256": "07cab96086e70cefe710113f6bfc7c809b96a5322bbe9c4340c8cd0695563aec"
+        },
+        {
+          "path": "web/xml.js",
+          "sha256": "936a72a3f85060a5f87e90615f4022cd202ded740d1504d128dd996d6799a3d2"
+        }
+      ],
+      "verification": {
+        "id": "POINTER-HTML5-20261027T1113Z",
+        "recordedHead": "01f2261d9a15eecafc3d2efcdf629859adb01989",
+        "sourceCapturedAt": "2026-10-27T11:15:04.252627+00:00",
+        "verifiedAt": "2026-10-27T11:29:08.570000+00:00",
+        "sourceManifestSha256": "2c1a339dec720a4353b5cff4e93a34b66520e142c280bd3c1e439c912b1a7a8f",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified; no other engine tested.",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_partial_pointer_drag_hit_targeting_family",
+        "currentSourceVerified": false
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:method:flash/display/Sprite.html#startDrag()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual MovieClip drags with lockCenter=false and supplied Rectangle(20,20,230,125) preserve the observed parent-space grab offset and clamp all four measured endpoints. AS3 parent is translation-only. Invalid negative-width Rectangle raises RangeError with starting x/y unchanged, initially and after Restart. No post-call Rectangle mutation, lockCenter=true or active-drag rollback was tested."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Sprite.html#stopDrag()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Called explicitly by each observed Stage mouse-up handler and Reset. The recorded released positions, subsequent controls and fresh post-Restart drag behave as expected. Release is not claimed to automatically stop AS3 dragging. No reparent/hide/active-capture cancellation acceptance."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#hitTestObject()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual card/dock Stage-bounds results are true on dock release and false on badge-local/outside release. This is an axis-aligned bounds contract, not exact shape overlap."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#hitTestPoint()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Observed dock shape query is true at the successful drop and false on outside release; disabled-card center geometry remains true. Existing circular badge corner yields bbox=true and precise shape=false initially and after Restart. No bitmap, glyph, video, filter or combined clipping coverage."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mouseX",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual margin/card/badge presses read card-local x; margin x=-5.0902083800134506 lies outside painted card and inside hitArea. Badge event-local x differs from card.mouseX by 72. Stage-to-card arithmetic is consistent for the translation-only AS3 parent."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mouseY",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual presses read card-local y; badge event-local y differs from card.mouseY by 10. Recorded Stage/parent/card values satisfy the fixture translation model. No arbitrary transformed AS3 parent coverage."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObjectContainer.html#mouseChildren",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Mode1 enables child input: a real badge press reports target=badge with currentTarget=card through bubbling. Mode0 positive margin/body presses report card, and mode2 sets mouseChildren=false with mouseEnabled=false. A controlled same-badge mode0/mode1 comparison was not performed."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#mouseEnabled",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "After mode2 sets card.mouseEnabled=false and mouseChildren=false, a parent-recorded physical attempt leaves press/release counts and full screenshot unchanged; scripted center hitTestPoint remains true. Reset and fresh positive interaction work. The combined mode configuration is accepted, not every flag interaction."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#dropTarget",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Measured dock drop returns the exact dock object (identity true); badge-local release reports as3Rig and outside release reports null/none. Fresh post-Restart dock result repeats. Other lifetimes/ownership policies are untested."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#hitArea",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The assigned invisible, mouse-disabled child Sprite is read back by identity. Real margin press at card-local(-5.0902083800134506,34.41130298273157), outside the painted rectangle, targets the card and drives a successful dock drag; repeated after Restart. No general donor reassignment or mask semantics."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#stageX",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Native down/up Stage x values satisfy independent translated-parent and grab-offset arithmetic. Outside release includes negative Stage x and targets Stage. No constructed event or exact device precision claim."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#stageY",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Native down/up Stage y values satisfy independent translated-parent and grab-offset arithmetic. Footer-induced Fit resizing changes down/up coordinates for the stationary badge gesture; the observed endpoint matches those recorded values."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_DOWN",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Registered constant selects the card listener for four observed native presses across original and Restart sessions, with card/badge target distinction."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_MOVE",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Registered constant selects Stage listener; actual dragged movement counts advance to 8 then 16 in the original session and 8 in the fresh session. No per-event timing/order equivalence claim."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_UP",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Registered constant selects Stage release listener for dock, badge-local, outside and fresh dock releases; explicit stopDrag and final counters occur once per observed gesture."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseDown",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual primary mouse presses reach card listener through grouped margin/body or badge bubbling. Counts 1/2/3 then fresh 1; disabled attempt produces no extra callback. No touch, pen or multipointer acceptance."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseMove",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual pointer motion reaches Stage listener while source dragging flag is true, with counts 8 then 16 and fresh 8. No exact browser-event frequency or scheduler guarantee."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseUp",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Native release bubbles to Stage for dock/badge gestures and arrives at Stage outside the authored scene. Each observed active drag releases once; currentTarget is Stage and source explicitly stops dragging."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#startDrag()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual callback invokes false,20,20,250,145 on the MovieClip under a -4 degree, scale1 parent. Parent-local grab-offset clamp predicts dock endpoint(250,122.3386873732403) and outside endpoint(250,145). Raw AS2 Stage points were not traced; transformed global projection remains model-only. No lockCenter=true."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#stopDrag()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Explicit stop calls in observed release, release-outside and Reset callbacks participate in the bounded positive drag workflow; fresh drag after Restart repeats the result. No automatic-release or active-capture cancellation claim."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#hitTest()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Only the object overload against the dock is exercised. It returns true at both dock release and outside release; the latter retains bounds intersection despite an empty drop path. No false, point-coordinate or shape overload case was observed."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_droptarget",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Observed dock release returns /legacyRig/dock; outside release returns empty string while bounds hit remains true. Fresh dock drag repeats the slash path. Arbitrary names, escaping and coercion remain untested."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onRelease",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual dock release invokes one callback with this equal to the original MovieClip, bounded coordinates and /legacyRig/dock. Counts 1/1 then fresh 1/1; no duplicate completion."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onReleaseOutside",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual outside gesture invokes release-outside once: presses 2/releases 1/outside 1, same receiver, position 250/145, empty drop path. No broader historical capture semantics inferred."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onRollOver",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Real pointer entry records counts 1 then 2 with this equal to the MovieClip; fresh session starts again at 1. Only this gesture order is accepted, not complete hover conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onRollOut",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Real pointer exit records counts 1 then 2 with the original MovieClip receiver. No synthetic/cross-engine or general hover-order equivalence."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#buttonMode",
+          "status": "needs_review",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Configured true in the original family; AS3 ready trace confirms true readback. Actual cursor appearance was not captured or compared. Remains needs_review; no visual cursor effect or isolated false/true behavior is accepted."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#useHandCursor",
+          "status": "needs_review",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Configured true in the original family; AS3 ready trace confirms true readback. Actual cursor appearance was not captured or compared. Remains needs_review; no visual cursor effect or isolated false/true behavior is accepted."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#useHandCursor",
+          "status": "needs_review",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Configured true in the AS2 source. Actual cursor appearance was not captured or compared, and no AS2 property readback was traced. Remains needs_review; no cursor-effect acceptance."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#target",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual mode1 badge press has target.name=badge and target!=card while currentTarget==card. Margin/body presses target card; outside release targets Stage. Earlier independent target scopes are preserved. Prior separately retained evidence FORMS-HTML5-20261027T0811Z: Text/focus callback target names and committed text identify the edited nickField or noteField. Native mutations then report the correct receiver text/length/selection. This does not establish all retargeting, bubbling or capture routes. That prior-build scope is preserved here and was not wholly revalidated on 01f2261d9a15eecafc3d2efcdf629859adb01989."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onPress",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual AS2 pointer press invokes one callback on the MovieClip and starts bounded dragging; counts 1 then 2, fresh1 after Restart. Earlier independent onPress scope remains preserved. Prior separately retained evidence LINKED-INTERFACES-HTML5-20261027T0243Z: Inherited onPress on the attached AS2 class invokes the exact instance and preserves its initObject tag while incrementing clicks and jumping its timeline. Other callbacks and initialization-order edge cases are unverified. That prior-build scope is preserved here and was not wholly revalidated on 01f2261d9a15eecafc3d2efcdf629859adb01989."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#currentTarget",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "All four card down callbacks report currentTarget==card, including badge bubbling; all four release callbacks report currentTarget==stage. Bounded native mouse route only."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#localX",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Badge down reports event-local 13.58530136679363 versus card.mouseX 85.58530136679363, a 72-unit offset matching authored badge placement. Card-target events have equal event/card x. No arbitrary transforms."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#localY",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Badge down reports event-local 13.67346938775512 versus card.mouseY 23.67346938775512, a 10-unit authored offset. Card-target events have equal event/card y. No arbitrary transforms."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#buttonDown",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "All four measured primary downs report true; all four ups report false. No multiple-button or synthesized event cases."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_xmouse",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Observed AS2 card/parent local x values satisfy parentX=card.x+card._xmouse on all press/release/outside traces and predict clamp endpoints. The parent is -4 degrees/scale1, but no independently measured raw Stage x was captured."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_ymouse",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Observed AS2 card/parent local y values satisfy parentY=card.y+card._ymouse on all press/release/outside traces and predict clamp endpoints. No arbitrary transformed-parent or raw Stage-coordinate oracle."
+        }
+      ]
+    },
+    {
       "id": "RESOURCES-HTML5-20261027T0323Z",
       "title": "Independent HTML5 acceptance: RESOURCES-HTML5-20261027T0323Z",
       "reason": "accepted bounded portable resource and AS2 AS3 HTTP workflow",
@@ -16992,6 +17788,662 @@
           "status": "partial",
           "evidenceKind": "independent_browser_bounded_profile",
           "scopeNote": "Ready trace reports literal null after local connect(null), initially and after Restart. This accepts only the local-profile URI getter return, not remote URI resolution."
+        }
+      ]
+    },
+    {
+      "id": "WEB-INTEGRATION-HTML5-20261027T1130Z",
+      "title": "Independent HTML5 acceptance: WEB-INTEGRATION-HTML5-20261027T1130Z",
+      "reason": "accepted partial web container calls navigation family",
+      "limitations": "Only Codex IAB tested, engine/version not separately identified. Original Flash documented_only. Synchronous named same-page calls with numeric arguments and simple plain-record returns only; no special values, deep-copy mutation/alias oracle, arrays, custom classes, executable/native values, cycles or bounds matrix. AS3 marshallExceptions true is configuration only; host/callback exception propagation and suppression were not exercised. No callback replacement/removal/collision, retained stale wrappers, reentry/recursion, budget limits or mid-call Restart acceptance. Requests are same-origin loopback named-frame GET/form POST and response-free form POST only. No default targets, popup blockers, sandbox/CORS/cross-origin matrix, headers/binary bodies, held pending cancellation or unload delivery. Startup needs no HTTP request, but no disconnected/offline network state was induced. No native editor authoring/UI acceptance, D008 remains pending. Late TextField changes inherit no passes. Historical rgb/defaults/AS2 Number/owner-aware/resource overlay and IMAGE-OBSERVATION-001 remain open; known aggregate observer issue persists.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/Cargo.toml",
+          "sha256": "748c4a1fb26b503b86b1b57cb3aa277691c7011dd504b8aaf5891a0a6999144a"
+        },
+        {
+          "path": "crates/neoflash-core/src/amf.rs",
+          "sha256": "b9dccbdebe417a5254f5ac68780897e926d8234be98608cb96593282c415e27d"
+        },
+        {
+          "path": "crates/neoflash-core/src/clipboard.rs",
+          "sha256": "45ca958aa45830f8c10ffa45c629c9f625895b90f01c041343853e8140f28c60"
+        },
+        {
+          "path": "crates/neoflash-core/src/demo.rs",
+          "sha256": "0a714dc68bc8bea957b3352f17665d0e690ab77eb41a6cd2478fd4571301a591"
+        },
+        {
+          "path": "crates/neoflash-core/src/evaluate.rs",
+          "sha256": "4e5096940e88b5959e40936a7bf0d0019f261be6d3a892ebae7fa02dd35a48ed"
+        },
+        {
+          "path": "crates/neoflash-core/src/filters.rs",
+          "sha256": "575cddddde48d50aa6cc7f19c55b9b69b9ef3a62a0915b83877c16d412e00023"
+        },
+        {
+          "path": "crates/neoflash-core/src/geometry.rs",
+          "sha256": "94b9531d20975840a8a9c998832f090fee17cfa66c5dbe78c12a30b0a527b2f8"
+        },
+        {
+          "path": "crates/neoflash-core/src/history.rs",
+          "sha256": "662c5cd0855fa1cccccac432fb374a7f86db680ed476559c92fbe324fff88441"
+        },
+        {
+          "path": "crates/neoflash-core/src/lib.rs",
+          "sha256": "64506bad0f4058fd2951a6fb403e205f8ba0e6b079a33b3faab9c6aaec4311ac"
+        },
+        {
+          "path": "crates/neoflash-core/src/model.rs",
+          "sha256": "bdb05bac059810043a18d8a17f7164eb704a6c54ecce56f104611b12d35f524a"
+        },
+        {
+          "path": "crates/neoflash-core/src/pixels.rs",
+          "sha256": "078860eb01b599159269c1041a89f9d63d3aea791968b981f92ba48f4a82fc9b"
+        },
+        {
+          "path": "crates/neoflash-core/src/pixels/pipeline.rs",
+          "sha256": "7ca93f1ed1614f97e37ddf1a4ec05963aea4db46cad0bb42fd0d6127226d31fd"
+        },
+        {
+          "path": "crates/neoflash-core/src/resource_image.rs",
+          "sha256": "9b3fe39fa4e9ec92396c01d38800fb0fdd4610d33fe42382bc99c58045b9dda5"
+        },
+        {
+          "path": "crates/neoflash-core/src/resources.rs",
+          "sha256": "51964faf7747aa135a001f9939cd304edad394e3e05c12bec14ab51569a2924a"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime.rs",
+          "sha256": "5db6c7d04e986687f3d6ed059dc4724b0b6b408646a4f646d14d82cc8c289b64"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph.rs",
+          "sha256": "84a711ed76803d4dba200dc47668d9028c5e0688900f0900260a0bca9432b703"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/bitmap.rs",
+          "sha256": "d1dd747747c799ffa3c15cd6aef42e12690046b7bdf77cb12e1181c4880b5fa6"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/clipping.rs",
+          "sha256": "1811d4fea7afa50b3f10725f631b71cdd52b0e5f173bb0e3583d7b89902e376b"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/filters.rs",
+          "sha256": "5e69e3cd33a8f02e07102e699c8297af3096119dd5c457ca31228bb0a111a320"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/input.rs",
+          "sha256": "615c20e2cf180dad8960343e3b0f50e27af77fd50266fad52ae60ca81931edd1"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/linked.rs",
+          "sha256": "ff6fa8e7f037259f95959d8b54f9b35593c8f0717deecd9527e374befd91f1db"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/loader.rs",
+          "sha256": "9a7c2ee80c94be1724b5d6cd89e13b381c265becdeef99a7b3fea7b6cb311e96"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/text.rs",
+          "sha256": "b7f43acd26e1a1db47d248d7b4b47de62c9f7bde5707b674f0921bb50b60d215"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/transform.rs",
+          "sha256": "58acbec3e79f3cf2953196f1649386f0e8fe69606744d2c23f27cb4f8b17c45a"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/video.rs",
+          "sha256": "087870930dcfc008ec5dd2e80e0ed3774a5b46d82e13a09d9b76148fbb96cb1e"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graphics.rs",
+          "sha256": "d635425dfcd00d838f8083d8e758ce69f7aaa7f7cfe17fea7e5f77de196129b6"
+        },
+        {
+          "path": "crates/neoflash-core/src/text.rs",
+          "sha256": "118e1aea57041cc8f9668f1736f27485c4be665891aa67d2e416bee88d08d5a3"
+        },
+        {
+          "path": "crates/neoflash-core/src/validation.rs",
+          "sha256": "41a10dc1ec717ece6bf8d919cd850b9d9867dd8e5c2a381feb567cd85427c863"
+        },
+        {
+          "path": "crates/neoflash-core/src/xml.rs",
+          "sha256": "3dd8637ddd6d28bcf8f9fef0b9180c660fcdcac4e650fa26c003028f87d46ed7"
+        },
+        {
+          "path": "crates/neoflash-editor/Cargo.toml",
+          "sha256": "8549dc2d0d3b59abd1336bb322e2ca39e4198372b5f5cdf3ace861521e8741d9"
+        },
+        {
+          "path": "crates/neoflash-editor/src/accessibility.rs",
+          "sha256": "7b02f21d880283cdf480a6c0579f732abf19fbe317917e4e18faf9b11d069369"
+        },
+        {
+          "path": "crates/neoflash-editor/src/app.rs",
+          "sha256": "b5966a8a8cc4a370bebfddea27f95108d0fd78250c0e49a10b9d74e37ab01c32"
+        },
+        {
+          "path": "crates/neoflash-editor/src/bitmaps.rs",
+          "sha256": "ec7d1385f4e8e74fb32ab7d23d484dbecff848d1951d6f4f0acceff7b98ac32d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard.rs",
+          "sha256": "e3ffc6db4a9567d2de9194bfbc8a4715e3ddb0b206dc593002cce2ec9eb169fe"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard_tests.rs",
+          "sha256": "cd47a143e3954f0b664aa57df66d31175977a269f000a088ab7d136b854704ae"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached.rs",
+          "sha256": "4857ae64827f7818f7f159fff43b3e14a6ff784bcd0148d161a25e7765e59b3d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached_tests.rs",
+          "sha256": "e66b38262cd5cf6d0a1f64887b19ba86950233cc6fd77c16a977bcba16f14ceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/fonts.rs",
+          "sha256": "59e6bf607f4a074add517fe5fa1e29a09b65b8a51331ac6d5467e98e6064b988"
+        },
+        {
+          "path": "crates/neoflash-editor/src/main.rs",
+          "sha256": "a28169289b6e566c56f4d4c862a234724bf1d0d1fb1e476f34598f81dd2521ea"
+        },
+        {
+          "path": "crates/neoflash-editor/src/native_screens.rs",
+          "sha256": "b3eb6e6612dfd09c9ddfb206b82c3039343730bcf616c380cbee383b92664440"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panel_tests.rs",
+          "sha256": "1f30578675e958423af68ba50fc07ca5cc466f91f5f0a7fee9a56f65ee98dd11"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panels.rs",
+          "sha256": "7560c6068dbaa83333abc9fab14a6823c2aa976fe0d8abb765cf9f4e17e526fd"
+        },
+        {
+          "path": "crates/neoflash-editor/src/resources.rs",
+          "sha256": "8c1aad47de4850fd10a110d299970ddad9911e025597f42f9761db6ed123b4d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection.rs",
+          "sha256": "0c1ea7f8306eb81328d80672436993f0c4d270891d6c50ee81d6ef0243626859"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection_tests.rs",
+          "sha256": "5f0dd0cfcf2243aef8e82d4e7fbaba0f0fcae365abf86e5535b01ae112b8e080"
+        },
+        {
+          "path": "crates/neoflash-editor/src/sources.rs",
+          "sha256": "a41612c805421a92f4a49af70475dc7822d605d2060bc335ce1704a2b95a3ec9"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage.rs",
+          "sha256": "33e42f23cdb859896de68df4ecf6dd92de14fffc497d5a7277d6fefb867f85df"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_primitives.rs",
+          "sha256": "fe940d6123cb492a4c6a6a9e135b51da023fe4c47193a6c3cdc185bd679cfceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_selection.rs",
+          "sha256": "e7ca9975a795b79e376ad096bc440bc469b17247f66b166c801756e8bcaeed13"
+        },
+        {
+          "path": "crates/neoflash-editor/src/tests.rs",
+          "sha256": "a4b96abeb579c8d59014b974e97d883d8ff9802dfb5baca770340c60405c73d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/text_boxes.rs",
+          "sha256": "026d5cd1f800e39d70fa9a9e07d69d74363ddbc157c17ce35af8c2668cd4dcde"
+        },
+        {
+          "path": "crates/neoflash-editor/src/theme.rs",
+          "sha256": "98c946389cff79af8d415b3bd8a282633d097989e60d8643f2f8125f7f8c4936"
+        },
+        {
+          "path": "crates/neoflash-editor/src/timeline_paint.rs",
+          "sha256": "87a87535956dcfaa686e6222bb56f1953328b00be858a0b522094097759848d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_geometry.rs",
+          "sha256": "584f5b1d3d7cc50906d5fe647812678d97333fd8df4a7d31264e0b9f245c971f"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_gesture_tests.rs",
+          "sha256": "490e7e0df25c8ad6a7793109076100ea63c54b11d9469542f583b0cf4daf6ed6"
+        },
+        {
+          "path": "crates/neoflash-editor/src/ui_icons.rs",
+          "sha256": "532a69689f893cb6ad5bf82f4106b6472315fa1cea8af335b2d459ac0eaed74e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector.rs",
+          "sha256": "0d3ae90b25ab48e3228149b0b96920b8f1367e86a609f8d2c10176653ae35f1c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector_gesture_tests.rs",
+          "sha256": "6f54dd33ea9edf03f1c08383e932cffcc47a26cb2a54e2dfe0d8fed07e84d77e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace.rs",
+          "sha256": "e5adb69dad73eba07bc70ebed9d7907d837290df1bb80cae44f4fcd64d9f3b45"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace_editor_tests.rs",
+          "sha256": "6d26ab3e6be19b91b25fc13f27b9580b9810a8efbcb3892198de060216eb07af"
+        },
+        {
+          "path": "crates/neoflash-export/Cargo.toml",
+          "sha256": "577ab7bd07bb5614f4a0ef2e408b553befaad996024c65916121a52266cd0954"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "b3ba2d95afb2d42b21231893d5de176a91dbaee9eb6fa45460c93256eea75908"
+        },
+        {
+          "path": "crates/neoflash-export/src/main.rs",
+          "sha256": "a174e11c87e970fc4ff37cb5966c525dd5435c744715b6ce93b0052c56bf89d8"
+        },
+        {
+          "path": "crates/neoflash-import/Cargo.toml",
+          "sha256": "ae07834a20cc84f4472c253088f5ce17127b137952daad3f066f34eca6ea96cc"
+        },
+        {
+          "path": "crates/neoflash-import/examples/contour_fixture.rs",
+          "sha256": "037f00320374630c556f0e45087b279071260e8de090fac6c81d059c362f3a59"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_binary_corpus.rs",
+          "sha256": "3ea8b650bcd5ced084b3c266f4f5865e2af96b43b3d3075588c6ae1414dea4d1"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_contour_candidates.rs",
+          "sha256": "9e6912139440480d7dee72ac4c6643c3690408f0ea19618df8f4d1276b20fe5e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy.rs",
+          "sha256": "9dfdb5573c5e1f63121cc4e7bc623bf151e55124ba47da8e688de153f65ccafa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents.rs",
+          "sha256": "adde25d4fa8736d8d47acbf215e78b054b9d31345fb80caef65009f2677cbffa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents/payload.rs",
+          "sha256": "b0c146ec3f5c56525f7e7c4e7b6a4bb28590e4711445b811766801caf685fedd"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours.rs",
+          "sha256": "f434f77c72359b53b18b42b137763d4d607b38b1f010a407b92f2575e7f7799e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours/certificate.rs",
+          "sha256": "fb4abe54a5984e47a05b1848e92f15adf61c4a35825edf7872e9103f8950caae"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/geometry.rs",
+          "sha256": "15797f76b2ed8a9b165b9f184ab8cf2d9439eefe702dcdc68e019c7ad9a191bf"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/mfc.rs",
+          "sha256": "2b79189ee7105947f7a18732860630e3f677ef82e55b2e91fcbde17959812021"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/timeline.rs",
+          "sha256": "7d5f4e1c0b44f6cc4e39628ed8f3724a99b81957394a0d8d07923ffd89f41f3a"
+        },
+        {
+          "path": "crates/neoflash-import/src/lib.rs",
+          "sha256": "3c54d4afecd01fde3e8f5db2bd9b42b0b0c5371be70d90ccc525027e2de53b8b"
+        },
+        {
+          "path": "crates/neoflash-import/src/main.rs",
+          "sha256": "2710f27ef30f4e62afb44537e56da44844aed04d4e8a864ccbda6edd75d4c2cc"
+        },
+        {
+          "path": "crates/neoflash-import/src/source.rs",
+          "sha256": "25662f5fd70d4e2cdafaf59518301dc8875fcf2f2e0636fd05e440823be5e9de"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl.rs",
+          "sha256": "17654ef592571a342b70eece359bb55e94a3281ac42baf8163dca72011706744"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/publish.rs",
+          "sha256": "0a631fa1a3c6b9c186eb76aef5115775b72b86e0d88462f3ea5028ee28b14c89"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/shape.rs",
+          "sha256": "2303fb011b22b32d56fccfe0505653af76057983da39540098b84be37abce1a5"
+        },
+        {
+          "path": "crates/neoflash-script/Cargo.toml",
+          "sha256": "73a29eb8d234c351f4fc2c8312f7924b2a365dddbd4b69ca86d6825b29c6b668"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_batch.rs",
+          "sha256": "c428fa1a84b3649229d9b8a6b33b3fa08ac274dd07679ca61de666b9bc069436"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_project.rs",
+          "sha256": "e7d780759bb4e62704d56c55e0d8e76c2ed9f5ae4a35f82e286aaea98a7c0ac6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "4c1b7fcc734507508c66d608a8a6a91cf90af3af790ff091ea30aaf74efb252f"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/collections.js",
+          "sha256": "63d55193c51b297e35970684a20cf31d8608956aa1f87210af778f67c0ab8cd0"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/completion.rs",
+          "sha256": "cbc6f6492a8d998193e5c4e1166c17b7df02211ae15f77d9f96c249ece6f7dea"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/containers.js",
+          "sha256": "28a50e4845cb068a313ad50b02b50ead5703c7dd2a11bb5fc346e70a99aee905"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/control_tests.rs",
+          "sha256": "4536b47803d97d87584e8a84b14aa5f279f412ce15fe98def9f6f31f7c8d8365"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/dates.js",
+          "sha256": "d8e821a7e50e822b6af1a16e3d5462a25bba8f345dd1dec5490fe0f573ae5024"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/dictionary.js",
+          "sha256": "f218db23553d32593ed4bced084bb466c0644ff3719702ce9391ddfb613e3034"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/exceptions.js",
+          "sha256": "534534a37d9d0c48b1898847615e0581b20661341d24ded64ed355785e8e366e"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/functions.js",
+          "sha256": "d416e6da72b4e9acd49ce781a0603147f9ac90f3d1edb21b01ff5271186edae2"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/intrinsics.js",
+          "sha256": "65528ea334627dc829097e59627647382ffe716b39acb77e15c8bcbef68ebdb4"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/json.js",
+          "sha256": "f1d574087cb0c3174d63965bd35653d1add7da0b4462ae9950e37b39ae1b79c6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "f63e7c2fa1a411f03d148f21c0ea3f20a31bc2d7bdc54d093fbd59da2604ff52"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "58450900626f43ad2cf494ff11b13de18022d01fb8d89bee7f552b3898171391"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/regexp.js",
+          "sha256": "2c0ed0066bd2894a6f78afce18ea718271d38d8b169fd728fee676b04dee9b07"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "4f0f683f2593ebfa66b452c934cedf14d6ddbc77b64e9fb7fa8902409ae7967e"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/strings.js",
+          "sha256": "11e60ba1f8e3204cab0b44a57089f70eb1fb022d94f55cc63300cf96e9a296e8"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/vectors.js",
+          "sha256": "b0eda4b41827889d9e676f4161b8c7bdb3cccd7724bebf42f84fa0502b7c93d1"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/xml_literals.rs",
+          "sha256": "53886e2a69ea84abf24c97ab91cc8e6ad2463e5bd8ac4ad8b534ff28a025bac3"
+        },
+        {
+          "path": "crates/neoflash-script/src/lib.rs",
+          "sha256": "3b7e634f008786775f3e8dd40dca84868b92e8af3e96f633ef28de5aa4464ec3"
+        },
+        {
+          "path": "crates/neoflash-web/Cargo.toml",
+          "sha256": "7658ff86ac02627a03ea66fe5c7c288333ff7c4d13e456b444e3b01fb0ea23f5"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "082c04305fcd264df2fa43fd179152978f5a8d3902bb819cf03d2950165d4e19"
+        },
+        {
+          "path": "web/accessibility.js",
+          "sha256": "617b6d3e5ccb7a66f044ffcb2bb46ab7bcbc704e81b2c12f0055a80053ac8373"
+        },
+        {
+          "path": "web/amf.js",
+          "sha256": "67749be93531e6f12f573ef41ee133c37c05de7367a9fd2623356e74ce0305ae"
+        },
+        {
+          "path": "web/audio-formats.js",
+          "sha256": "91d325e5508967d057b697cedc37090058b09f1f34a71c603a1f6a11bb9d3443"
+        },
+        {
+          "path": "web/audio.js",
+          "sha256": "0fdcec0a321ca69419f825a9512cfb57c92fb6a3c671f83fad70b59b64e0c63c"
+        },
+        {
+          "path": "web/bitmap.js",
+          "sha256": "5a871c3a99fc48576d2b03fd0edebebd360b6d04f9df860d937c48499d21c5b3"
+        },
+        {
+          "path": "web/byte-array.js",
+          "sha256": "fbaca0bfa72cbbda3f95269717c30865a17041df7827cff7d6e39fa5cbf6f1e9"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "cfbc6476680b4cd2894c2b0c5280da4e91819b6e62d4c73d581339a80976a561"
+        },
+        {
+          "path": "web/events.js",
+          "sha256": "138fae7ce853928dd0595c53d8188d2477d2c738272f75e33092e6029dd0e73d"
+        },
+        {
+          "path": "web/external.js",
+          "sha256": "1cb41c369db5363eeee0e98c348d804632217346f76262a011086df6b3016f81"
+        },
+        {
+          "path": "web/filters.js",
+          "sha256": "e0dee474f5611cf41d72fe2037b6bad156ca4153d17674e0590d7dded3eea462"
+        },
+        {
+          "path": "web/geom.js",
+          "sha256": "2aa4ec042d7ea8fa8a8b0f8519e23eca1ea722960f4bb43496ac814ddd1de2b6"
+        },
+        {
+          "path": "web/legacy-input.js",
+          "sha256": "14ac0086abbbb5b1de591ea5ae35fafdce9f65f101b6e942871c62dc9c7b4c35"
+        },
+        {
+          "path": "web/loader.js",
+          "sha256": "ac5ed0cc57722c79f918c9e0968542d3b0412e855908fa7805c3c9b0ee10ee76"
+        },
+        {
+          "path": "web/net.js",
+          "sha256": "0aed90d58e5101f96e1879ea68d86efd3aa230ba7600f43662fe883fe5a892eb"
+        },
+        {
+          "path": "web/path.js",
+          "sha256": "c80ae03439b58963ed6e35abef4d7fb99033224aa57b6ba486f4cf1d54de1243"
+        },
+        {
+          "path": "web/preview.js",
+          "sha256": "1278996d0f1c0a7efe974919a8c496bbefebd5a0b5707926de03a708f4ca51fa"
+        },
+        {
+          "path": "web/progress/app.js",
+          "sha256": "b5f78ad52e27e498e0020ae33f59e4e545ed2d83c4f4abe8f9c3bd8fbc098780"
+        },
+        {
+          "path": "web/progress/history.html",
+          "sha256": "612e7564f63569bc8ee5497a91c14666c813653b6b348837506dd91cd0ba43e2"
+        },
+        {
+          "path": "web/progress/index.html",
+          "sha256": "5bcbd13e811e7a0ce201d7460ea6e3aaa60c73c2f00073d06c5baf9b01b527ef"
+        },
+        {
+          "path": "web/progress/style.css",
+          "sha256": "078133fc916b8e2714e0a178c67bffadb99c11799c3af0250a4d3a911cb9d235"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "ac87a031cc718bf4330b997f137737e7e7141f428cea1b03b66ad3f298e21134"
+        },
+        {
+          "path": "web/stage.js",
+          "sha256": "c75c6fbc5cb782359099b1a35430de28716d16e5e56a7dfe28312c00e2d2ed95"
+        },
+        {
+          "path": "web/storage.js",
+          "sha256": "5aac0405a81c8a88fdfd80d3da3d46b79d09acab027fd49c49d94f6778f04fbb"
+        },
+        {
+          "path": "web/text-input.js",
+          "sha256": "e88f975d57f8de6b85812ed7c06dc8b680abfffcaaaf80ba86ccb1145718db0b"
+        },
+        {
+          "path": "web/text.js",
+          "sha256": "b15c20311a2567671cea7dd29ea4e1c4cd4e60431e065422a577a97e3103a8b0"
+        },
+        {
+          "path": "web/timers.js",
+          "sha256": "d42569c79bcda28ffd1b3712facb73e45e78e3b7dc22a1f194527781c9cdb9b1"
+        },
+        {
+          "path": "web/video.js",
+          "sha256": "07cab96086e70cefe710113f6bfc7c809b96a5322bbe9c4340c8cd0695563aec"
+        },
+        {
+          "path": "web/xml.js",
+          "sha256": "936a72a3f85060a5f87e90615f4022cd202ded740d1504d128dd996d6799a3d2"
+        }
+      ],
+      "verification": {
+        "id": "WEB-INTEGRATION-HTML5-20261027T1130Z",
+        "recordedHead": "51e0f98b09f3e3f5d3a8a8d462ef61ddc55ef164",
+        "sourceCapturedAt": "2026-10-27T11:32:02.101580+00:00",
+        "verifiedAt": "2026-10-27T11:39:49.874124+00:00",
+        "sourceManifestSha256": "0fcef97e4112355b8f1eb7a4cb61d457be840690e216dabf50268d2eb5018b8f",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified; no other engine tested.",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_partial_web_container_calls_navigation_family",
+        "currentSourceVerified": false
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:method:flash/external/ExternalInterface.html#addCallback()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual two-argument registration exposes the bound addPoints method on the stage canvas. Authored HTML invokes amount 3, producing total 3/calls 1 and exact returned AS3 record. After Restart, fresh registration again produces 3/1 once. No callback removal/replacement, collision, saved-old-wrapper invalidation or recursive crossing was tested."
+        },
+        {
+          "catalogId": "AS3:method:flash/external/ExternalInterface.html#call()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Named dotted NeoFlashExampleHost.quote receives AS3 score 3 and preserves its owning JavaScript receiver, returning caption HTML reply #1/score 30. Repeated after Restart. Forbidden constructor path raises TypeError with total/calls still 0, beside the working positive path. Simple values only; no deep-copy isolation, cycles, native data or expression evaluation acceptance."
+        },
+        {
+          "catalogId": "AS3:property:flash/external/ExternalInterface.html#available",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Live ordinary HTML5 container reports true at both startups; registration and real synchronous calls succeed. The unavailable-host profile is untested."
+        },
+        {
+          "catalogId": "AS3:property:flash/external/ExternalInterface.html#objectID",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Ready trace and callback result return stage; authored HTML independently records movie.id as stage and receives the same objectID, initially and after Restart. No custom-id or unavailable-container profile."
+        },
+        {
+          "catalogId": "AS3:property:flash/external/ExternalInterface.html#marshallExceptions",
+          "status": "needs_review",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "True assignment and readback are observed. The unsafe-name TypeError is validation outside the option-dependent exception path; no thrown host/callback exception or suppression comparison was performed. Remains needs_review for actual propagation semantics."
+        },
+        {
+          "catalogId": "AS3:function:flash/net/package.html#navigateToURL()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual user-triggered GET navigates existing named iframe neoflashReceipt; endpoint receives source=AS3-navigation and score=3 and the iframe renders those fields while top-level publication URL remains unchanged. One original-session request; no AS3 POST navigation, popup, cross-origin or post-Restart network repeat."
+        },
+        {
+          "catalogId": "AS3:function:flash/net/package.html#sendToURL()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual POST reaches the same-origin receipt endpoint with URL-encoded source=AS3-sendToURL&score=3. The existing AS2 form receipt iframe remains pixel-identical, while source reports dispatch. No response value is returned to this source. Pending cancellation, status/error policy, body-discard internals and post-Restart network repeat are untested."
+        },
+        {
+          "catalogId": "as2:flash/external/ExternalInterface.html#addCallback()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual three-argument registration addLegacy,this,addLegacy returns true. Authored HTML invokes amount 2 with the retained legacyPanel receiver; its value becomes 2/calls 1 and the returned record matches. Fresh registration after Restart again produces 2/1 once. No recursive crossing, removal/replacement or saved-retired-wrapper probe."
+        },
+        {
+          "catalogId": "as2:flash/external/ExternalInterface.html#call()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Named host quote receives AS2 value 2, preserves the owning JavaScript receiver and returns HTML reply #2/score 20 after the AS3 call. Visible AS2 state and returned values repeat after Restart. No recursive crossing, deep-copy or exception propagation acceptance."
+        },
+        {
+          "catalogId": "as2:flash/external/ExternalInterface.html#available",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Traced true at original and Restart startup, beside true registration return and successful actual HTML invocation. No unavailable-container case."
+        },
+        {
+          "catalogId": "as2:LoadVars.html#send()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual explicit named target with default POST returns true; server receives application/x-www-form-urlencoded body source=AS2-LoadVars&score=2 and the native iframe renders that receipt. No missing-url/target overload, alternative method, response callback or post-Restart network repeat."
+        },
+        {
+          "catalogId": "as2:global_functions.html#getURL()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual free getURL call navigates existing named iframe by GET; endpoint receives only source=AS2-getURL and the iframe renders it. Top-level page remains unchanged. This does not cover MovieClip.getURL, implicit-variable method overloads, window creation or scripting URLs."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/URLRequest.html#URLRequest()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Relative same-origin receipt requests are constructed and successfully dispatched through named-frame GET and sendToURL POST. This does not directly exercise the public url accessor. Prior separately retained evidence RESOURCES-HTML5-20261027T0323Z: String URLs in URLRequest select embedded project bytes; one missing relative URL gives the observed failure route. Null/default construction and broader URL coercion are untested. That prior-build scope is preserved and was not wholly revalidated on 51e0f98b09f3e3f5d3a8a8d462ef61ddc55ef164."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/URLVariables.html#URLVariables()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Empty variables populated with source/score produce the independently parsed GET query and POST body seen at the actual server. No direct decode/toString or additional encoding edge case is accepted. Prior separately retained evidence RESOURCES-HTML5-20261027T0323Z: URLVariables from the literal form preserves repeated tags through actual POST and response decoding. Arbitrary types/escape edge cases are not covered. That prior-build scope is preserved and was not wholly revalidated on 51e0f98b09f3e3f5d3a8a8d462ef61ddc55ef164."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequest.html#data",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Assigned URLVariables appear exactly as source=AS3-navigation&score=3 in the native navigation GET and source=AS3-sendToURL&score=3 in the POST body. No new binary/body-type profile. Prior separately retained evidence RESOURCES-HTML5-20261027T0323Z: A URLVariables request body reaches the local echo with expected fields and repeated tags. Binary/text request bodies are not inferred. That prior-build scope is preserved and was not wholly revalidated on 51e0f98b09f3e3f5d3a8a8d462ef61ddc55ef164."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequest.html#method",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Explicit POST assignment on sendToURL is traced as POST and independently confirmed by HTTP receipt; navigation request uses default GET. No additional methods are accepted. Prior separately retained evidence RESOURCES-HTML5-20261027T0323Z: Explicit POST is used for an actual local request and response. Other methods remain unsupported/unverified. That prior-build scope is preserved and was not wholly revalidated on 51e0f98b09f3e3f5d3a8a8d462ef61ddc55ef164."
+        },
+        {
+          "catalogId": "as2:LoadVars.html#LoadVars()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Constructed instance with dynamic source/score fields successfully feeds the observed native form POST and true send return. No new load/decode behavior is inferred. Prior separately retained evidence RESOURCES-HTML5-20261027T0323Z: A fresh LoadVars instance decodes the bundled form into dynamic fields consumed by its own onLoad callback. Other constructor/default behavior is not proven. That prior-build scope is preserved and was not wholly revalidated on 51e0f98b09f3e3f5d3a8a8d462ef61ddc55ef164."
         }
       ]
     },

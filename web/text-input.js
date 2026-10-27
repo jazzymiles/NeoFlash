@@ -35,11 +35,11 @@
         if(!display.alive(receiver))return null;
         insert=event.text;if(typeof insert!=='string')throw new TypeError('TextEvent.text must remain a String.');
       }
-      const result=JSON.parse(player.object_text_input(key,JSON.stringify({expected_revision:expected,begin:proposal.begin,end:proposal.end,text:insert})));
+      const result=text.input(key,{expected_revision:expected,begin:proposal.begin,end:proposal.end,text:insert});
       sync(key);
       if(result.text!==field.text){
         hub.dispatch(receiver,new events.Event(events.Event.CHANGE,true,false));
-        if(display.alive(receiver))legacy(receiver,'onChanged',[receiver]);
+        if(display.alive(receiver))text.notifyLegacy(key,'onChanged',[receiver]);
       }
       options.afterInput?.();return result;
     }
@@ -67,8 +67,28 @@
       record.base=null;
       if(proposed===displayed(base)){selection(record);return;}
       const edit=difference(displayed(base),proposed);
-      try{commit(record.target,{...edit,expected_revision:base.revision});}
+      const scroll={left:record.control.scrollLeft,top:record.control.scrollTop};
+      try{commit(record.target,{...edit,expected_revision:base.revision});nativeScroll(record,scroll);}
       catch(error){sync(record.key,true);throw error;}
+    }
+    function applyScroll(record,field){
+      if(!record.control||record.composing)return;
+      const result=text.layout(field),left=result.scroll_x||0,top=result.scroll_y||0;
+      if(Math.abs(record.control.scrollLeft-left)>.5)record.control.scrollLeft=left;
+      if(Math.abs(record.control.scrollTop-top)>.5)record.control.scrollTop=top;
+      // Native text layout can clamp these values differently. Record the
+      // actual assignment result so its asynchronous scroll event is not
+      // mistaken for user input and written back as a second layout truth.
+      record.expectedScroll={left:record.control.scrollLeft,top:record.control.scrollTop};
+    }
+    function nativeScroll(record,position){
+      if(!alive(record)||record.composing||!record.control)return;
+      const desired=position||{left:record.control.scrollLeft,top:record.control.scrollTop};
+      if(!position&&record.expectedScroll&&Math.abs(desired.left-record.expectedScroll.left)<.5&&Math.abs(desired.top-record.expectedScroll.top)<.5)return;
+      const field=text.info(record.key),result=text.layout(field),scroll_h=Math.round(Math.max(0,desired.left)),scroll_v=Math.floor(Math.max(0,desired.top)/result.line_height)+1;
+      if(scroll_h!==(result.scroll_h??field.scroll_h??0)||scroll_v!==(result.scroll_v??field.scroll_v??1))text.update(record.key,{scroll_h,scroll_v});
+      applyScroll(record,text.info(record.key));
+      if(!position)options.afterInput?.();
     }
     function listen(node,name,fn,settings){
       const guarded=event=>{try{fn(event);}catch(error){report(error);}};
@@ -77,7 +97,7 @@
     function removeDom(record){
       if(!record)return;for(const cleanup of record.cleanups||[])cleanup();
       domSuppressed=true;try{record.root?.remove();}finally{domSuppressed=false;}
-      record.root=record.control=null;
+      record.root=record.control=record.decoration=null;
     }
     function path(commands){return commands.map(item=>{switch(item.op){case'move_to':return `M${item.x} ${item.y}`;case'line_to':return `L${item.x} ${item.y}`;case'quadratic_to':return `Q${item.cx} ${item.cy} ${item.x} ${item.y}`;case'cubic_to':return `C${item.cx1} ${item.cy1} ${item.cx2} ${item.cy2} ${item.x} ${item.y}`;case'close':return 'Z';default:throw new Error('Unsupported input clip command.');}}).join(' ');}
     function clips(record,node,scene){
@@ -101,19 +121,22 @@
       const root=doc.createElement('div'),clipped=doc.createElement('div'),svg=doc.createElementNS(svgNS,'svg'),defs=doc.createElementNS(svgNS,'defs');
       Object.assign(root.style,{position:'absolute',left:'0',top:'0',transformOrigin:'0 0',pointerEvents:'none',overflow:'hidden',zIndex:'1'});
       Object.assign(clipped.style,{position:'absolute',inset:'0',pointerEvents:'none'});svg.setAttribute('width','0');svg.setAttribute('height','0');svg.style.position='absolute';svg.appendChild(defs);root.appendChild(svg);root.appendChild(clipped);
+      const decoration=doc.createElement('div');Object.assign(decoration.style,{position:'absolute',left:'0',top:'0',boxSizing:'border-box',pointerEvents:'none',transformOrigin:'0 0'});
       const control=doc.createElement(field.multiline?'textarea':'input');if(!field.multiline)control.type=field.display_as_password?'password':'text';
       control.autocomplete='off';control.autocapitalize='off';control.spellcheck=false;control.setAttribute('aria-label',display.descriptor(record.target).name||'Text field');control.setAttribute('data-neoflash-text-input','true');
-      Object.assign(control.style,{position:'absolute',left:'0',top:'0',margin:'0',padding:'2px',boxSizing:'border-box',border:'0',borderRadius:'0',background:'transparent',outline:'1px solid #2780e3',resize:'none',transformOrigin:'0 0',pointerEvents:'auto',overflow:'auto'});
-      const wrappers=[];let parent=clipped;for(let i=0;i<32;i++){const wrapper=doc.createElement('div');Object.assign(wrapper.style,{position:'absolute',inset:'0',pointerEvents:'none'});parent.appendChild(wrapper);wrappers.push(wrapper);parent=wrapper;}parent.appendChild(control);Object.assign(record,{root,control,defs,clipped,wrappers,clipKey:null,serial:++serial,cleanups:[]});
-      const on=(name,fn)=>record.cleanups.push(listen(control,name,fn));
+      Object.assign(control.style,{position:'absolute',left:'0',top:'0',margin:'0',padding:'2px',boxSizing:'border-box',border:'0',borderRadius:'0',background:'transparent',outline:'1px solid #2780e3',resize:'none',transformOrigin:'0 0',pointerEvents:'auto',overflow:'hidden'});
+      const wrappers=[];let parent=clipped;for(let i=0;i<32;i++){const wrapper=doc.createElement('div');Object.assign(wrapper.style,{position:'absolute',inset:'0',pointerEvents:'none'});parent.appendChild(wrapper);wrappers.push(wrapper);parent=wrapper;}parent.appendChild(decoration);parent.appendChild(control);Object.assign(record,{root,control,decoration,defs,clipped,wrappers,clipKey:null,serial:++serial,cleanups:[]});
+      const on=(name,fn,settings)=>record.cleanups.push(listen(control,name,fn,settings));
       on('beforeinput',()=>{if(!record.composing){selection(record);record.base=text.info(record.key);}});
       on('input',event=>{if(!record.composing&&!event.isComposing)acceptDom(record);});
       on('compositionstart',()=>{selection(record);record.base=text.info(record.key);record.composing=true;});
       on('compositionend',()=>{record.composing=false;acceptDom(record);});
       on('select',()=>selection(record));
+      on('scroll',()=>nativeScroll(record));
       on('blur',()=>{if(domSuppressed||active!==record)return;if(record.composing)record.composing=false;acceptDom(record);if(stage.stage.focus===record.target)stage.changeFocus(null);options.afterInput?.();});
       on('keydown',event=>{if(event.key==='Tab'&&!event.isComposing){event.preventDefault();const scene=snapshot(),items=scene.objects.filter(node=>node.text?.field_type==='input'&&node.on_stage&&node.effective_visible&&node.world[0]*node.world[3]-node.world[1]*node.world[2]!==0);if(items.length){const index=items.findIndex(node=>refKey(node.object_ref)===record.key),next=(index+(event.shiftKey?-1:1)+items.length)%items.length;stage.changeFocus(proxyForRef(items[next].object_ref),'key',event);}}});
       for(const type of ['pointerdown','pointerup','pointermove'])on(type,event=>stage.handlePointer(type,event,record.target));
+      on('wheel',event=>stage.handlePointer('wheel',event,record.target),{passive:false});
       on('click',event=>options.onClick?.(record.target,event));
       surface.appendChild(root);style(record,lastSnapshot||snapshot());sync(record.key,true);
       domSuppressed=true;try{control.focus({preventScroll:true});}finally{domSuppressed=false;}
@@ -127,18 +150,20 @@
       if(!record.control)return;
       const node=scene.objects.find(node=>refKey(node.object_ref)===record.key),draw=scene.draws.find(draw=>refKey(draw.owner_ref)===record.key&&draw.kind.type==='text_field');
       if(!node)return;
-      const field=draw?.kind.field||record.field,box=field.box||text.bounds(field),width=options.project?.width||options.canvas?.width||800,height=options.project?.height||options.canvas?.height||600;
+      const field=draw?.kind.field||record.field,box=text.layout(field).viewport||field.box||text.bounds(field),width=options.project?.width||options.canvas?.width||800,height=options.project?.height||options.canvas?.height||600;
       if(!box)throw new TypeError('Native text editing requires a nonempty text box. Set width and height.');
       const w=box.width??box.right-box.left,h=box.height??box.bottom-box.top;
       const rect=options.canvas?.getBoundingClientRect?.(),sx=rect?rect.width/width:1,sy=rect?rect.height/height:1;
       Object.assign(record.root.style,{width:width+'px',height:height+'px',transform:`scale(${sx},${sy})`});
       const c=field.format.color;
+      const rgba=(color,alpha=255)=>`rgba(${color>>>16},${color>>>8&255},${color&255},${alpha/255*(draw?.alpha??1)})`;
+      Object.assign(record.decoration.style,{width:w+'px',height:h+'px',transform:`matrix(${node.world.join(',')})`,background:field.background?rgba(field.background_color??0xffffff,field.background_alpha??255):'transparent',border:field.border?`1px solid ${rgba(field.border_color??0,field.border_alpha??255)}`:'0'});
       Object.assign(record.control.style,{width:w+'px',height:(field.multiline?h:Math.min(h,field.format.size*1.2+field.format.leading+4))+'px',font:global.NeoFlashText?.cssFont?.(field.format)||`${field.format.italic?'italic ':''}${field.format.bold?'bold ':''}${field.format.size}px ${JSON.stringify(field.format.font)},sans-serif`,lineHeight:(field.format.size*1.2+field.format.leading)+'px',textAlign:field.format.align,color:`rgba(${c>>>16},${c>>>8&255},${c&255},${field.alpha/255*(draw?.alpha??1)})`,caretColor:`rgb(${c>>>16},${c>>>8&255},${c&255})`,transform:`matrix(${node.world.join(',')})`,whiteSpace:field.word_wrap?'pre-wrap':'pre'});
       record.control.readOnly=!editable(field);if(field.multiline)record.control.wrap=field.word_wrap?'soft':'off';else {const type=field.display_as_password?'password':'text';if(record.control.type!==type)record.control.type=type;}
       // Rust filters restrict before enforcing maxChars; native maxlength would
       // truncate a pasted raw string before disallowed characters are removed.
       record.control.removeAttribute('maxlength');
-      clips(record,node,scene);applySelection(record,record.field);
+      clips(record,node,scene);applySelection(record,record.field);applyScroll(record,record.field);
     }
     function sync(key,force=false){
       if(!active||active.key!==key||!alive(active))return;
@@ -146,7 +171,7 @@
       if(record.control&&field.multiline&&field.display_as_password){removeDom(record);active=null;stage.changeFocus(null);throw new TypeError('Native password editing currently requires a single-line TextField. The multiline field remains masked on Canvas.');}
       if(record.composing&&!force){if(!changed){record.field=field;if(record.base)record.base={...record.base,revision:field.revision};return;}record.composing=false;record.base=null;}
       record.field=field;if(changed)record.base=null;
-      if(record.control){if(record.control.value!==displayed(field))record.control.value=displayed(field);applySelection(record,field);}
+      if(record.control){if(record.control.value!==displayed(field))record.control.value=displayed(field);applySelection(record,field);applyScroll(record,field);}
     }
     function focusChanged(next,previous){
       open();const version=++transition,old=active;active=null;

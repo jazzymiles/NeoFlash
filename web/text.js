@@ -38,6 +38,18 @@
   Object.assign(TextFormatAlign,{LEFT:'left',CENTER:'center',RIGHT:'right',JUSTIFY:'justify'});Object.freeze(TextFormatAlign);
   class TextFieldType {constructor(){throw new TypeError('TextFieldType supplies INPUT and DYNAMIC constants.');}}
   Object.assign(TextFieldType,{INPUT:'input',DYNAMIC:'dynamic'});Object.freeze(TextFieldType);
+  class TextFieldAutoSize {constructor(){throw new TypeError('TextFieldAutoSize supplies NONE, LEFT, CENTER and RIGHT constants.');}}
+  Object.assign(TextFieldAutoSize,{NONE:'none',LEFT:'left',CENTER:'center',RIGHT:'right'});Object.freeze(TextFieldAutoSize);
+  const metricsBrand=new WeakSet();
+  class TextLineMetrics {
+    constructor(x,width,height,ascent,descent,leading){
+      const values={x,width,height,ascent,descent,leading};if(!Object.values(values).every(Number.isFinite))throw new TypeError('TextLineMetrics requires six finite numeric measurements.');
+      Object.assign(this,values);metricsBrand.add(this);Object.seal(this);
+    }
+  }
+  TextLineMetrics.__nfIs=value=>metricsBrand.has(value);
+  TextLineMetrics.__nfInitialize=()=>{throw new TypeError('Native TextLineMetrics subclassing is unsupported.');};
+  Object.defineProperty(TextLineMetrics,Symbol.hasInstance,{value:TextLineMetrics.__nfIs});
   function formatPatch(value){
     const record=formats.get(value);if(!record)throw new TypeError('Expected TextFormat from this runtime.');
     return Object.fromEntries(Object.entries(record).filter(([,item])=>item!==null));
@@ -51,23 +63,61 @@
   }
   const publicText=value=>value.replace(/\n/g,'\r');
   const UNHANDLED=Symbol('unhandled text member');
-  function create({player,measureText,onUpdate=()=>{}}={}){
+  function create({player,measureText,onUpdate=()=>{},onScroll=()=>{},receiverFor=()=>null,isAlive=()=>true,geometry=global.NeoFlashGeom}={}){
     if(!player||typeof measureText!=='function')throw new TypeError('TextField requires the shared Player and font measurement service.');
-    let disposed=false,cacheBytes=0;const cache=new Map(),maxCacheBytes=8*1024*1024;
+    let disposed=false,cacheBytes=0,generation=1,preparing=false;const cache=new Map(),settled=new Map(),listeners=new Map(),maxCacheBytes=8*1024*1024;
     const active=()=>{if(disposed)throw new Error('This text service has been disposed.');};
-    function info(ref){active();return JSON.parse(player.object_text_info(ref));}
-    function update(ref,patch){active();if(!player.object_text_update(ref,JSON.stringify(patch)))throw new Error('TextField update requires a live text object.');onUpdate(ref);}
+    function native(fn){try{return fn();}catch(error){if(error instanceof Error)throw error;throw new Error(String(error),{cause:error});}}
+    const measure=(strings,format)=>{const style=JSON.parse(format);return JSON.stringify(JSON.parse(strings).map(text=>measureText(text,style)));};
+    function remember(field,value){
+      const key=JSON.stringify(field),bytes=key.length*4+value.lines.reduce((sum,line)=>sum+line.text.length*2+160,0)+(value.glyphs||[]).reduce((sum,glyph)=>sum+glyph.text.length*2+48,0)+(value.paragraphs?.length||0)*24;
+      if(cache.has(key)){cacheBytes-=cache.get(key).bytes;cache.delete(key);}
+      if(bytes<=maxCacheBytes){while(cache.size>=256||cacheBytes+bytes>maxCacheBytes){const first=cache.keys().next().value;cacheBytes-=cache.get(first).bytes;cache.delete(first);}cache.set(key,{value,bytes});cacheBytes+=bytes;}
+      return value;
+    }
+    function notifyLegacy(ref,name,args){
+      active();const version=generation,receiver=receiverFor(ref);if(!receiver||!isAlive(receiver))return;
+      const targets=[receiver,...(listeners.get(ref)||[])];
+      for(const target of targets){
+        if(version!==generation||disposed||!isAlive(receiver))return;
+        if(!isAlive(target)){listeners.get(ref)?.delete(target);continue;}
+        const fn=target[name];if(version!==generation||disposed)return;
+        if(typeof fn==='function')Reflect.apply(fn,target,args);
+      }
+    }
+    function accept(ref,result,notify=true){
+      settled.set(ref,result.field.revision);remember(result.field,result.layout);
+      if(notify)onUpdate(ref);
+      if(result.scroll_changed){const version=generation;onScroll(ref);if(version===generation&&!disposed){const receiver=receiverFor(ref);notifyLegacy(ref,'onScroller',[receiver]);}}
+      return result.field;
+    }
+    function reflow(ref,field){
+      if(typeof player.object_text_reflow!=='function')return field;
+      return accept(ref,JSON.parse(native(()=>player.object_text_reflow(ref,measure))),false);
+    }
+    function info(ref){active();const field=JSON.parse(native(()=>player.object_text_info(ref)));return settled.get(ref)===field.revision?field:reflow(ref,field);}
+    function update(ref,patch){
+      active();
+      if(typeof player.object_text_update_layout==='function')return accept(ref,JSON.parse(native(()=>player.object_text_update_layout(ref,JSON.stringify(patch),measure))));
+      if(!native(()=>player.object_text_update(ref,JSON.stringify(patch))))throw new Error('TextField update requires a live text object.');onUpdate(ref);return info(ref);
+    }
+    function input(ref,edit){
+      active();
+      if(typeof player.object_text_input_layout==='function')return accept(ref,JSON.parse(native(()=>player.object_text_input_layout(ref,JSON.stringify(edit),measure))));
+      const field=JSON.parse(native(()=>player.object_text_input(ref,JSON.stringify(edit))));onUpdate(ref);return field;
+    }
+    function prepareSnapshot(scene){
+      active();if(preparing||typeof player.object_text_reflow!=='function')return scene;
+      preparing=true;let changed=false;
+      try{const live=new Set();for(const node of scene.objects||[]){if(!node.text)continue;const ref=JSON.stringify(node.object_ref);live.add(ref);if(settled.get(ref)===node.text.revision)continue;const field=reflow(ref,node.text);changed ||=field.revision!==node.text.revision;}for(const ref of settled.keys())if(!live.has(ref)){settled.delete(ref);listeners.delete(ref);}return changed?JSON.parse(player.runtime_snapshot_json()):scene;}finally{preparing=false;}
+    }
     function layout(field){
       active();const key=JSON.stringify(field),existing=cache.get(key);
       if(existing){cache.delete(key);cache.set(key,existing);return existing.value;}
-      const value=JSON.parse(player.text_layout_json(key,(strings,format)=>{
-        const style=JSON.parse(format);return JSON.stringify(JSON.parse(strings).map(text=>measureText(text,style)));
-      }));
+      const value=JSON.parse(native(()=>player.text_layout_json(key,measure)));
       // Keys and the returned line strings both own text. Bound retained memory,
       // not just entry count, and skip caching exceptionally large layouts.
-      const bytes=key.length*4+value.lines.reduce((sum,line)=>sum+line.text.length*2+128,0);
-      if(bytes<=maxCacheBytes){while(cache.size>=256||cacheBytes+bytes>maxCacheBytes){const first=cache.keys().next().value;cacheBytes-=cache.get(first).bytes;cache.delete(first);}cache.set(key,{value,bytes});cacheBytes+=bytes;}
-      return value;
+      return remember(field,value);
     }
     function wholeRange(field,begin=-1,end=-1){
       if((begin===-1&&end===-1)||(begin===0&&(end===-1||end===field.text.length)))return;
@@ -75,7 +125,7 @@
     }
     function line(field,index){const result=layout(field);if(!Number.isInteger(index)||index<0||index>=result.lines.length)throw new RangeError('TextField line index is outside the current layout.');return result.lines[index];}
     function get(ref,name){
-      const known=['text','textColor','length','numLines','textWidth','textHeight','multiline','wordWrap','defaultTextFormat','type','selectable','displayAsPassword','password','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex'];
+      const known=['text','textColor','length','numLines','textWidth','textHeight','multiline','wordWrap','defaultTextFormat','type','selectable','displayAsPassword','password','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','autoSize','background','backgroundColor','border','borderColor','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','hscroll','scroll','maxhscroll','maxscroll','bottomScroll'];
       if(!known.includes(name))return UNHANDLED;
       const field=info(ref);
       const inputNames={type:'field_type',selectable:'selectable',displayAsPassword:'display_as_password',password:'display_as_password',maxChars:'max_chars',restrict:'restrict',selectionBeginIndex:'selection_begin',selectionEndIndex:'selection_end',caretIndex:'caret'};
@@ -86,10 +136,19 @@
       if(name==='multiline')return field.multiline;
       if(name==='wordWrap')return field.word_wrap;
       if(name==='defaultTextFormat')return formatCopy(field.default_format);
+      const decoration={autoSize:'auto_size',background:'background',backgroundColor:'background_color',border:'border',borderColor:'border_color'};
+      if(Object.hasOwn(decoration,name))return field[decoration[name]]??({autoSize:'none',background:false,backgroundColor:0xffffff,border:false,borderColor:0}[name]);
       const result=layout(field);
+      const scrolling={scrollH:'scroll_h',hscroll:'scroll_h',scrollV:'scroll_v',scroll:'scroll_v',maxScrollH:'max_scroll_h',maxhscroll:'max_scroll_h',maxScrollV:'max_scroll_v',maxscroll:'max_scroll_v',bottomScrollV:'bottom_scroll_v',bottomScroll:'bottom_scroll_v'};
+      if(Object.hasOwn(scrolling,name))return result[scrolling[name]]??field[scrolling[name]]??(name.toLowerCase().includes('h')?0:1);
       return name==='numLines'?result.lines.length:name==='textWidth'?result.text_width:result.text_height;
     }
     function set(ref,name,value){
+      if(name==='autoSize'){if(!['none','left','center','right'].includes(value))throw new TypeError('TextField.autoSize requires none, left, center or right.');update(ref,{auto_size:value});return true;}
+      if(name==='background'||name==='border'){if(typeof value!=='boolean')throw new TypeError(`TextField.${name} requires Boolean.`);update(ref,{[name]:value});return true;}
+      if(name==='backgroundColor'||name==='borderColor'){if(value===null||value===undefined)throw new TypeError(`TextField.${name} requires an RGB integer.`);update(ref,{[name==='backgroundColor'?'background_color':'border_color']:formatValue('color',value)});return true;}
+      if(['scrollH','scrollV','scroll','hscroll'].includes(name)){if(!Number.isSafeInteger(value))throw new TypeError('TextField scrolling requires integer pixels or a one-based line index.');update(ref,{[name==='scrollH'||name==='hscroll'?'scroll_h':'scroll_v']:value});return true;}
+      if(['maxScrollH','maxScrollV','bottomScrollV','maxhscroll','maxscroll','bottomScroll'].includes(name))throw new TypeError(`TextField.${name} is read-only.`);
       if(name==='type'){if(!['input','dynamic'].includes(value))throw new TypeError('TextField.type requires input or dynamic.');update(ref,{field_type:value});return true;}
       if(['selectable','displayAsPassword','password'].includes(name)){if(typeof value!=='boolean')throw new TypeError(`TextField.${name} requires a Boolean.`);update(ref,{[name==='selectable'?'selectable':'display_as_password']:value});return true;}
       if(name==='maxChars'){if(!Number.isInteger(value)||value<0||value>1048576)throw new RangeError('TextField.maxChars requires an integer from 0 through 1048576.');update(ref,{max_chars:value});return true;}
@@ -109,7 +168,25 @@
       if(['length','numLines','textWidth','textHeight'].includes(name))throw new TypeError(`TextField.${name} is read-only.`);
       return false;
     }
+    function query(ref,value){
+      const field=info(ref);
+      if(typeof player.text_query_json!=='function')throw new Error('TextField geometry queries require the current shared text runtime. Re-export the publication.');
+      return JSON.parse(native(()=>player.text_query_json(JSON.stringify(field),JSON.stringify(layout(field)),JSON.stringify(value))));
+    }
+    function wheel(ref,event){
+      if(event.defaultPrevented||event.ctrlKey||event.metaKey)return false;
+      const field=info(ref),before=layout(field),factor=event.deltaMode===1?before.line_height:event.deltaMode===2?(before.viewport?.height||before.line_height):1;
+      const dx=(Number(event.deltaX)||0)+(event.shiftKey?(Number(event.deltaY)||0):0),dy=event.shiftKey?0:Number(event.deltaY)||0;
+      if(!Number.isFinite(dx)||!Number.isFinite(dy))return false;
+      const horizontal=Math.round(Math.max(-1e6,Math.min(1e6,dx*factor))),vertical=Math.sign(dy)*Math.ceil(Math.min(1e6,Math.abs(dy*factor))/before.line_height);
+      if(!horizontal&&!vertical)return false;
+      const after=layout(update(ref,{scroll_h:(before.scroll_h||0)+horizontal,scroll_v:(before.scroll_v||1)+vertical}));
+      const changed=after.scroll_h!==before.scroll_h||after.scroll_v!==before.scroll_v;
+      if(changed)event.preventDefault?.();return changed;
+    }
     function methods(ref){return {
+      addListener:value=>{active();info(ref);if(value===null||!['object','function'].includes(typeof value))throw new TypeError('TextField.addListener requires an object.');let set=listeners.get(ref);if(!set){set=new Set();listeners.set(ref,set);}if(set.has(value))return false;if(set.size>=1024)throw new RangeError('TextField supports at most 1024 listeners.');set.add(value);return true;},
+      removeListener:value=>{active();info(ref);return listeners.get(ref)?.delete(value)||false;},
       setSelection:(begin,end)=>{if(!Number.isSafeInteger(begin)||!Number.isSafeInteger(end))throw new TypeError('setSelection requires integer UTF-16 indices.');update(ref,{selection:{begin,end}});},
       replaceSelectedText:value=>update(ref,{replace_selected:string(value)}),
       appendText:value=>update(ref,{append:string(value)}),
@@ -132,14 +209,21 @@
       getLineLength:index=>{const item=line(info(ref),index);return item.end-item.start;},
       getLineOffset:index=>line(info(ref),index).start,
       getLineIndexOfChar:index=>{const field=info(ref);if(!Number.isInteger(index)||index<0||index>=field.text.length)throw new RangeError('TextField character index is outside the current UTF-16 text.');return layout(field).lines.findIndex(item=>index>=item.start&&index<item.end);},
+      getLineMetrics:index=>{const field=info(ref),item=line(field,index);return new TextLineMetrics(item.x,item.width,item.height,item.ascent??field.format.size,item.descent??field.format.size*.2,item.leading??field.format.leading);},
+      getCharBoundaries:index=>{const item=query(ref,{type:'char_bounds',index});if(!item)return null;if(!geometry?.Rectangle)throw new Error('TextField character bounds require Rectangle.');return new geometry.Rectangle(item.x,item.y,item.width,item.height);},
+      getCharIndexAtPoint:(x,y)=>query(ref,{type:'char_at_point',x,y}),
+      getLineIndexAtPoint:(x,y)=>query(ref,{type:'line_at_point',x,y}),
+      getFirstCharInParagraph:index=>query(ref,{type:'first_char_in_paragraph',index}),
+      getParagraphLength:index=>query(ref,{type:'paragraph_length',index}),
     };}
     function bounds(field,ink=false){
-      if(!ink&&field.box)return {left:0,top:0,right:field.box.width,bottom:field.box.height};
+      const result=layout(field),viewport=result.viewport||field.box;
+      if(viewport&&(!ink||(field.background&&(field.background_alpha??255)>0)||(field.border&&(field.border_alpha??255)>0)))return {left:0,top:0,right:viewport.width,bottom:viewport.height};
       let box=null;
-      for(const item of layout(field).lines){
+      for(const item of result.lines){
         if(ink&&(!item.text.trim()||field.alpha===0))continue;
-        const next={left:item.x,top:item.y,right:item.x+item.width,bottom:item.y+item.height};
-        if(field.box){next.left=Math.max(0,next.left);next.top=Math.max(0,next.top);next.right=Math.min(field.box.width,next.right);next.bottom=Math.min(field.box.height,next.bottom);}
+        const x=item.x-(result.scroll_x||0),y=item.y-(result.scroll_y||0),next={left:x,top:y,right:x+item.width,bottom:y+item.height};
+        if(viewport){next.left=Math.max(0,next.left);next.top=Math.max(0,next.top);next.right=Math.min(viewport.width,next.right);next.bottom=Math.min(viewport.height,next.bottom);}
         if(next.right<=next.left||next.bottom<=next.top)continue;
         box=box?{left:Math.min(box.left,next.left),top:Math.min(box.top,next.top),right:Math.max(box.right,next.right),bottom:Math.max(box.bottom,next.bottom)}:next;
       }
@@ -148,17 +232,23 @@
     function draw(context,field){
       const result=layout(field);context.save();
       try{
-        if(field.box){context.beginPath();context.rect(0,0,field.box.width,field.box.height);context.clip();}
+        const viewport=result.viewport||field.box;
+        if(viewport){
+          const {width,height}=viewport;
+          if(field.background){const c=field.background_color??0xffffff;context.fillStyle=`rgba(${c>>>16},${c>>>8&255},${c&255},${(field.background_alpha??255)/255})`;context.fillRect(0,0,width,height);}
+          if(field.border&&width>0&&height>0){const c=field.border_color??0;context.strokeStyle=`rgba(${c>>>16},${c>>>8&255},${c&255},${(field.border_alpha??255)/255})`;context.lineWidth=1;context.beginPath();context.rect(.5,.5,Math.max(0,width-1),Math.max(0,height-1));context.stroke();}
+          context.beginPath();context.rect(0,0,width,height);context.clip();
+        }
         context.font=cssFont(field.format);context.textAlign='left';context.textBaseline='top';
         const rgb=field.format.color;context.fillStyle=`rgba(${rgb>>>16},${rgb>>>8&255},${rgb&255},${field.alpha/255})`;
-        for(const item of result.lines)context.fillText(item.text,item.x,item.y);
+        for(const item of result.lines){const x=item.x-(result.scroll_x||0),y=item.y-(result.scroll_y||0);if(!viewport||(y+item.height>0&&y<viewport.height&&x+item.width>0&&x<viewport.width))context.fillText(item.text,x,y);}
       }finally{context.restore();}
     }
-    function hit(field,x,y){const box=bounds(field);return !!box&&box.right>box.left&&box.bottom>box.top&&field.alpha>0&&x>=box.left&&y>=box.top&&x<=box.right&&y<=box.bottom;}
-    function reset(){active();cache.clear();cacheBytes=0;}
+    function hit(field,x,y){const box=bounds(field);return !!box&&box.right>box.left&&box.bottom>box.top&&(field.alpha>0||(field.background&&(field.background_alpha??255)>0)||(field.border&&(field.border_alpha??255)>0))&&x>=box.left&&y>=box.top&&x<=box.right&&y<=box.bottom;}
+    function reset(){active();generation++;cache.clear();settled.clear();listeners.clear();cacheBytes=0;}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({TextFormat,TextFormatAlign,TextFieldType,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
+    return Object.freeze({TextFormat,TextFormatAlign,TextFieldType,TextFieldAutoSize,TextLineMetrics,info,update,input,layout,prepareSnapshot,notifyLegacy,wheel,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
   }
-  const api={create,TextFormat,TextFormatAlign,TextFieldType,formatPatch,formatCopy,cssFont};
+  const api={create,TextFormat,TextFormatAlign,TextFieldType,TextFieldAutoSize,TextLineMetrics,formatPatch,formatCopy,cssFont};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashText=api;
 })(globalThis);
