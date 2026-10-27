@@ -141,4 +141,4 @@ The [FLA corpus](../examples/fla-corpus/README.md) retains 15 unchanged upstream
 
 ## Measured implementation coverage
 
-The [detailed capability ledger](progress/DETAILS.md) tracks AS2 and AS3 separately, including partial and missing behavior. The [public summary](https://jazzymiles.github.io/NeoFlash/progress.html) is deliberately compact. Percentages use the reviewed registry denominator, not an exhaustive Flash API catalogue or a conformance score; see the [counting rules](progress/README.md).
+The [ActionScript declaration audit](progress/ACTIONSCRIPT.md) tracks 2,307 AS2 and 43,740 AS3 entries from the selected references, with separate implemented-subset, partial, missing and needs-review states. The full AS3 reference includes frameworks, components and AIR; scope counts keep these visible. The [capability notes](progress/DETAILS.md) explain behavior but are not the AS coverage denominator. The [public summary](https://jazzymiles.github.io/NeoFlash/progress.html) remains compact. Counts are not full Flash conformance; see the [counting rules](progress/README.md).

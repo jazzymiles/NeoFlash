@@ -2,12 +2,14 @@
 
 Priority is based on the stated product goal, with explicit evidence required for completion.
 
+Current execution policy (user update, 27 October): breadth first, useful partial support across whole subsystems. Work and test in coherent batches, not one method at a time. P0 labels below identify risks, not a mandate to finish every edge case before the next subsystem. Prefer one representative integration/browser acceptance and a shared regression pass per delivery; defer non-blocking cases explicitly.
+
 ## P0 — HTML5 correctness
 
 - Known built-in properties must implement their contract or diagnose unsupported behavior: visibility must agree across pixels, scene, hit testing and semantic targets; text, dimensions and callback assignments must not become silent custom fields. Preserve genuine user fields and callbacks.
 - Preserve XFL Include Hidden Layers policy for root/nested timelines and distinguish placement lifetime from XML slot order. Check reordering, replacement, blank gaps, load events, clocks and overrides; reject ambiguous transfers.
 - Separate AS2/AS3 value profiles: parseInt radix behavior, Number.toFixed limits, typed slot writes/defaults through every access path, rotation normalization and public void return values.
-- For each fix, retain a minimal source project, ordinary HTML5 publish, actual browser trace/scene/image or input result, build/runtime hashes and a regression test. Mark documented expectations separately from original Flash measurements; record tested browser engines explicitly.
+- For each feature batch, retain representative source projects, ordinary HTML5 publish and aggregate browser results with build/runtime hashes. Mark documented expectations separately from original Flash measurements; record tested browser engines explicitly. Do not repeat a separate full acceptance cycle for every method.
 
 Delivered bounded portions, with actual Chrome/in-app browser checks in VERIFICATION.md:
 

@@ -1,34 +1,35 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Открытый учёт реализации NeoFlash: ActionScript 2, ActionScript 3, редактор, таймлайны, HTML5 и импорт.">
+  <meta name="description" content="Open implementation tracking for NeoFlash: ActionScript 2, ActionScript 3, the editor, timelines, HTML5 and imports.">
   <meta name="color-scheme" content="light">
-  <title>NeoFlash — статус реализации</title>
+  <title>NeoFlash — implementation progress</title>
   <link rel="stylesheet" href="style.css">
   <script src="app.js" defer></script>
 </head>
 <body data-page="current">
-  <a class="skip-link" href="#main">К содержимому</a>
+  <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header">
-    <a class="brand" href="./"><span class="brand-mark" aria-hidden="true">N<span>f</span></span><span>NeoFlash <small>ОТКРЫТАЯ РАЗРАБОТКА</small></span></a>
-    <nav aria-label="Основная навигация">
-      <a href="./" aria-current="page">Реализация</a><a href="history.html">История</a><a data-repo href="https://github.com/jazzymiles/NeoFlash">GitHub <span aria-hidden="true">↗</span></a>
+    <a class="brand" href="./"><span class="brand-mark" aria-hidden="true">N<span>f</span></span><span>NeoFlash <small>OPEN DEVELOPMENT</small></span></a>
+    <nav aria-label="Main navigation">
+      <a href="./" aria-current="page">Coverage</a><a href="history.html">History</a><a data-repo href="https://github.com/jazzymiles/NeoFlash">GitHub <span aria-hidden="true">↗</span></a>
     </nav>
   </header>
   <main id="main">
     <section class="intro">
-      <div><p class="eyebrow">ПРОГРЕСС ПРОЕКТА / DEVELOPMENT PREVIEW</p><h1>Что уже работает.<br><span>Что ещё впереди.</span></h1><p class="lead">Среда для сайтов, приложений, игр и анимации.<br>Rust · macOS · HTML5</p></div>
-      <aside class="intro-note"><span class="note-index">01 / ПРАВИЛА УЧЁТА</span><p>Каждая цифра ведёт к конкретной возможности, её ограничениям и исходному коду.</p><p>Проценты показывают долю реализованных пунктов реестра. Это <strong>не процент совместимости с Flash, AS2 или AS3</strong>.</p><a class="text-link" data-method href="https://github.com/jazzymiles/NeoFlash/blob/main/docs/progress/README.md">Как считаем <span aria-hidden="true">↗</span></a></aside>
+      <div><p class="eyebrow">PROJECT PROGRESS / DEVELOPMENT PREVIEW</p><h1>What works today.<br><span>What comes next.</span></h1><p class="lead">An authoring environment for websites, apps, games and animation.<br>Rust · macOS · HTML5</p></div>
+      <aside class="intro-note"><span class="note-index">01 / HOW WE COUNT</span><p>AS2 and AS3 use the full documentation catalogue. Other areas use product milestones.</p><p>An <strong>implemented subset is not full compatibility</strong>. Partial, missing and unreviewed entries remain visible; product percentages use their own milestone lists.</p><a class="text-link" data-method href="https://github.com/jazzymiles/NeoFlash/blob/main/docs/progress/README.md">How we count <span aria-hidden="true">↗</span></a></aside>
     </section>
-    <div class="snapshot-bar"><span><span class="live-dot" aria-hidden="true"></span><span id="snapshot-label">Загружаем снимок…</span></span><a id="revision-link" href="https://github.com/jazzymiles/NeoFlash">Исходный код</a></div>
+    <div class="snapshot-bar"><span><span class="live-dot" aria-hidden="true"></span><span id="snapshot-label">Loading snapshot…</span></span><a id="revision-link" href="https://github.com/jazzymiles/NeoFlash">Source code</a></div>
     <div id="load-error" class="load-error" role="alert" hidden></div>
-    <section class="section" aria-labelledby="overview-title"><div class="section-heading"><h2 id="overview-title">По направлениям</h2><p>Реализовано / всего пунктов</p></div><div id="categories" class="category-grid" aria-live="polite"></div><p class="fine-print">«Реализовано» относится только к указанному объёму пункта. Частичная поддержка учитывается отдельно и не увеличивает процент.</p></section>
-    <section class="detail-strip" aria-label="Подробности реализации"><p>Здесь — короткая сводка. Полный реестр с ограничениями и ссылками на код хранится в репозитории.</p><a class="text-link" data-details href="https://github.com/jazzymiles/NeoFlash/blob/main/docs/progress/DETAILS.md">Подробный реестр <span aria-hidden="true">↗</span></a></section>
-    <section class="history-callout"><div><p class="eyebrow">ИСТОРИЯ В GIT</p><h2>Развитие видно по дням.</h2><p>Снимки сохраняют состояние реестра на последний коммит дня в UTC. Отсчёт начинается с первого снимка.</p></div><a class="button-link" href="history.html">Открыть историю <span aria-hidden="true">→</span></a></section>
-    <noscript><p class="load-error">Для интерактивного реестра нужен JavaScript. Все данные доступны в <a href="progress.json">JSON</a>, а правила — в <a href="https://github.com/jazzymiles/NeoFlash/blob/main/docs/progress/README.md">репозитории</a>.</p></noscript>
+    <section class="section" aria-labelledby="actionscript-title"><div class="section-heading"><h2 id="actionscript-title">ActionScript catalogue coverage</h2><p>Documented entries, not feature families</p></div><div id="actionscript-categories" class="actionscript-grid" aria-live="polite"></div><p id="actionscript-note" class="fine-print">This is a dated implementation audit, not a fresh Flash conformance result.</p></section>
+    <section class="section" aria-labelledby="overview-title"><div class="section-heading"><h2 id="overview-title">Other product areas</h2><p>Implemented / tracked milestones</p></div><div id="categories" class="category-grid" aria-live="polite"></div><p class="fine-print">“Implemented” applies only to a milestone’s stated scope. Partial support is counted separately. These milestone counts are independent of the AS catalogue.</p></section>
+    <section class="detail-strip" aria-label="Implementation details"><p>This is the short overview. The full register, with limitations and source links, lives in the repository.</p><a class="text-link" data-details href="https://github.com/jazzymiles/NeoFlash/blob/main/docs/progress/DETAILS.md">Detailed register <span aria-hidden="true">↗</span></a></section>
+    <section class="history-callout"><div><p class="eyebrow">HISTORY IN GIT</p><h2>Follow progress day by day.</h2><p>Each snapshot records the register at the last commit of the day in UTC. Tracking starts with the first recorded snapshot.</p></div><a class="button-link" href="history.html">View history <span aria-hidden="true">→</span></a></section>
+    <noscript><p class="load-error">The interactive overview requires JavaScript. All data is available as <a href="progress.json">JSON</a>, with the counting rules in the <a href="https://github.com/jazzymiles/NeoFlash/blob/main/docs/progress/README.md">repository</a>.</p></noscript>
   </main>
-  <footer><span>NeoFlash · Открытая разработка</span><div><a data-method href="https://github.com/jazzymiles/NeoFlash/blob/main/docs/progress/README.md">Методика</a><a data-compat href="https://github.com/jazzymiles/NeoFlash/blob/main/docs/COMPATIBILITY.md">Совместимость</a><a href="progress.json">Исходные данные</a></div></footer>
+  <footer><span>NeoFlash · Open development</span><div><a data-method href="https://github.com/jazzymiles/NeoFlash/blob/main/docs/progress/README.md">Methodology</a><a data-compat href="https://github.com/jazzymiles/NeoFlash/blob/main/docs/COMPATIBILITY.md">Compatibility</a><a href="progress.json">Raw data</a></div></footer>
 </body>
 </html>

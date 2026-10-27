@@ -3,38 +3,38 @@
   "categories": [
     {
       "id": "editor",
-      "title": "Редактор и графика",
-      "description": "Инструменты авторства: сцена, вектор, текст, выделение и библиотека."
+      "title": "Editor and graphics",
+      "description": "Authoring tools: stage, vectors, text, selection and library."
     },
     {
       "id": "animation",
-      "title": "Таймлайны и анимация",
-      "description": "Вложенные экземпляры, кадры, интерполяция и безопасный авторский просмотр."
+      "title": "Timelines and animation",
+      "description": "Nested instances, frames, interpolation and safe authoring previews."
     },
     {
       "id": "web",
-      "title": "HTML5 и интерактивность",
-      "description": "Публикация сайтов, приложений, игр и анимации; JS/TS и браузерный runtime."
+      "title": "HTML5 and interactivity",
+      "description": "Publishing websites, apps, games and animation; JS/TS and the browser runtime."
     },
     {
       "id": "imports",
-      "title": "Импорт и совместимость файлов",
-      "description": "Отдельный учёт чтения структуры и получения редактируемого проекта."
+      "title": "Import and file compatibility",
+      "description": "Structural inspection and conversion to an editable project are tracked separately."
     },
     {
       "id": "platform",
-      "title": "Платформа и качество",
-      "description": "Формат проекта, macOS, проверки, доступность и выпуск приложения."
+      "title": "Platform and quality",
+      "description": "Project format, macOS, verification, accessibility and application delivery."
     }
   ],
   "features": [
     {
       "id": "editor-workspace",
       "category": "editor",
-      "title": "Классическое рабочее пространство",
+      "title": "Classic workspace",
       "status": "partial",
-      "scope": "Сцена, инструменты, таймлайн, библиотека, Properties и Actions; Light/Dark, сохраняемая видимость и размеры панелей, отдельные native Tools/Timeline/Actions с Dock и F9.",
-      "limitations": "Drag-to-dock, вкладки/split и именованные presets ещё отсутствуют; VoiceOver/IME и несколько мониторов не прошли полную native приёмку.",
+      "scope": "Stage, tools, timeline, library, Properties and Actions; Light/Dark themes, saved panel visibility and sizes, and detached native Tools/Timeline/Actions windows with Dock and F9 controls.",
+      "limitations": "Drag-to-dock, tabs/splits and named presets are still missing; VoiceOver/IME and multiple monitors have not completed full native acceptance testing.",
       "evidence": [
         "crates/neoflash-editor/src/panels.rs",
         "crates/neoflash-editor/src/detached.rs",
@@ -47,10 +47,10 @@
     {
       "id": "editor-primitives",
       "category": "editor",
-      "title": "Прямоугольник и овал",
+      "title": "Rectangle and oval",
       "status": "implemented",
-      "scope": "Создание прямоугольника и овала жестом, сплошная заливка и обводка, преобразование геометрии.",
-      "limitations": "Скругления и произвольные параметры фигур не входят в этот пункт.",
+      "scope": "Gesture-based rectangle and oval creation, solid fills and strokes, and geometry transforms.",
+      "limitations": "Rounded corners and arbitrary shape parameters are outside this item.",
       "evidence": [
         "crates/neoflash-editor/src/stage_primitives.rs",
         "crates/neoflash-editor/src/tests.rs"
@@ -59,10 +59,10 @@
     {
       "id": "editor-paths",
       "category": "editor",
-      "title": "Перо, карандаш и точки кривой",
+      "title": "Pen, pencil and curve points",
       "status": "implemented",
-      "scope": "Создание открытых и замкнутых путей; линейные, квадратичные и кубические сегменты; перемещение опорных точек и ручек.",
-      "limitations": "Вставка/удаление точек, ограничения касательных и операции объединения вынесены в расширенные инструменты.",
+      "scope": "Open and closed paths; line, quadratic and cubic segments; moving anchors and control handles.",
+      "limitations": "Point insertion/deletion, tangent constraints and merging operations are tracked under advanced tools.",
       "evidence": [
         "crates/neoflash-editor/src/vector.rs",
         "crates/neoflash-editor/src/vector_gesture_tests.rs",
@@ -72,10 +72,10 @@
     {
       "id": "editor-compound-fill",
       "category": "editor",
-      "title": "Составные контуры и отверстия",
+      "title": "Compound contours and holes",
       "status": "implemented",
-      "scope": "Сплошная заливка составных Path по nonzero/evenodd; геометрические границы и hit testing учитывают кривые.",
-      "limitations": "Градиенты, bitmap fills и маски учитываются отдельно.",
+      "scope": "Solid fills for compound paths using nonzero/evenodd rules; bounds and hit testing account for curves.",
+      "limitations": "Gradients, bitmap fills and masks are tracked separately.",
       "evidence": [
         "crates/neoflash-core/src/geometry.rs",
         "crates/neoflash-core/tests/paths.rs",
@@ -85,10 +85,10 @@
     {
       "id": "editor-selection",
       "category": "editor",
-      "title": "Множественное выделение",
+      "title": "Multiple selection",
       "status": "implemented",
-      "scope": "Shift-click, рамка, Select All и операции над выделением через видимые незаблокированные слои.",
-      "limitations": "Это проверяемый набор операций; полный UX-паритет с Flash не заявлен.",
+      "scope": "Shift-click, marquee, Select All and selection-wide operations across visible, unlocked layers.",
+      "limitations": "This is a defined, testable set of operations; complete Flash workflow parity is not claimed.",
       "evidence": [
         "crates/neoflash-editor/src/selection.rs",
         "crates/neoflash-editor/src/selection_tests.rs"
@@ -99,8 +99,8 @@
       "category": "editor",
       "title": "Free Transform",
       "status": "partial",
-      "scope": "Перенос, масштаб и вращение одного объекта; равномерный масштаб и вращение группы выбранных объектов.",
-      "limitations": "Нет пользовательского pivot, skew и неравномерного масштабирования нескольких объектов.",
+      "scope": "Move, scale and rotate individual objects; uniformly scale and rotate a group of selected objects.",
+      "limitations": "Custom pivots, skew and nonuniform scaling of multiple objects are missing.",
       "evidence": [
         "crates/neoflash-editor/src/stage_selection.rs",
         "crates/neoflash-editor/src/transform_gesture_tests.rs",
@@ -110,10 +110,10 @@
     {
       "id": "editor-clipboard",
       "category": "editor",
-      "title": "Объектный буфер обмена",
+      "title": "Object clipboard",
       "status": "partial",
-      "scope": "Copy/Cut/Paste и Paste in Place переносят объекты, зависимые символы, таймлайны и скрипты; текстовые поля сохраняют обычную вставку.",
-      "limitations": "Есть core/egui регрессии; физическая доставка macOS clipboard для этого изменения ещё не проверена. Буфер кадров — отдельная задача.",
+      "scope": "Copy/Cut/Paste and Paste in Place transfer objects, dependent symbols, timelines and scripts; text fields retain normal text paste.",
+      "limitations": "Core/egui regressions exist; actual macOS clipboard delivery for this change remains unverified. Frame clipboard is a separate task.",
       "evidence": [
         "crates/neoflash-core/src/clipboard.rs",
         "crates/neoflash-editor/src/clipboard_tests.rs",
@@ -124,10 +124,10 @@
     {
       "id": "editor-symbols",
       "category": "editor",
-      "title": "Библиотека и вложенное редактирование",
+      "title": "Library and nested editing",
       "status": "implemented",
-      "scope": "Convert to Symbol, размещение экземпляров, открытие символа и навигация по вложенности с сохранением идентичности и скриптов.",
-      "limitations": "Linkage и document class не входят в эту возможность.",
+      "scope": "Convert to Symbol, place instances, open symbols and navigate nesting while preserving identity and scripts.",
+      "limitations": "Linkage and document classes are outside this capability.",
       "evidence": [
         "crates/neoflash-editor/src/app.rs",
         "crates/neoflash-editor/src/tests.rs",
@@ -137,10 +137,10 @@
     {
       "id": "editor-text",
       "category": "editor",
-      "title": "Авторский текст",
+      "title": "Authored text",
       "status": "partial",
-      "scope": "Редактируемая строка с семейством, размером и цветом шрифта; системные семейства macOS.",
-      "limitations": "Нет rich text, динамических/вводимых TextField и полноценного shaping/layout. Переносимость шрифтов учитывается отдельно.",
+      "scope": "Editable text with font family, size and color; macOS system font families.",
+      "limitations": "Rich text, dynamic/input TextField support and complete shaping/layout are missing. Font portability is tracked separately.",
       "evidence": [
         "crates/neoflash-core/src/model.rs",
         "crates/neoflash-editor/src/fonts.rs",
@@ -150,10 +150,10 @@
     {
       "id": "editor-advanced-drawing",
       "category": "editor",
-      "title": "Расширенные векторные инструменты",
+      "title": "Advanced vector tools",
       "status": "planned",
-      "scope": "Кисть с давлением, вставка/удаление точек, сплайны, shape split/merge, привязки и группы.",
-      "limitations": "Остаются в backlog; наличие Pen не означает готовность этого набора.",
+      "scope": "Pressure-sensitive brush, point insertion/deletion, splines, shape splitting/merging, snapping and groups.",
+      "limitations": "These remain in the backlog; the Pen tool does not establish support for this set.",
       "evidence": [
         "docs/BACKLOG.md",
         "docs/ROADMAP.md"
@@ -162,10 +162,10 @@
     {
       "id": "editor-paint-effects",
       "category": "editor",
-      "title": "Градиенты, маски и эффекты",
+      "title": "Gradients, masks and effects",
       "status": "planned",
-      "scope": "Градиентные и bitmap-заливки, маски, фильтры и соответствующие операции авторства.",
-      "limitations": "Сплошная заливка/обводка уже есть, но эти типы оформления не реализованы.",
+      "scope": "Gradient and bitmap fills, masks, filters and their authoring operations.",
+      "limitations": "Solid fills and strokes exist, but these additional paint and effect types are not implemented.",
       "evidence": [
         "docs/BACKLOG.md",
         "docs/ROADMAP.md"
@@ -174,10 +174,10 @@
     {
       "id": "editor-layer-organization",
       "category": "editor",
-      "title": "Организация слоёв",
+      "title": "Layer organization",
       "status": "partial",
-      "scope": "Создание/удаление слоя, переключение видимости и блокировки.",
-      "limitations": "Папки, guides/masks и полноценные операции перестановки слоёв ещё нужны.",
+      "scope": "Create/delete layers and toggle visibility and locking.",
+      "limitations": "Folders, guides/masks and complete layer reordering operations are still needed.",
       "evidence": [
         "crates/neoflash-editor/src/panels.rs",
         "docs/BACKLOG.md"
@@ -186,10 +186,10 @@
     {
       "id": "animation-keys",
       "category": "animation",
-      "title": "Ключевые, пустые и удержанные кадры",
+      "title": "Keyframes, blank frames and holds",
       "status": "implemented",
-      "scope": "F5/F6/F7, перемещение и копирование отдельного ключа; вставка берёт видимую интерполированную позу.",
-      "limitations": "Операции над диапазонами кадров считаются отдельно.",
+      "scope": "F5/F6/F7 and moving/copying individual keyframes; insertion uses the visible interpolated pose.",
+      "limitations": "Frame-range operations are tracked separately.",
       "evidence": [
         "crates/neoflash-editor/src/app.rs",
         "crates/neoflash-editor/src/tests.rs"
@@ -198,10 +198,10 @@
     {
       "id": "animation-nested-clocks",
       "category": "animation",
-      "title": "Независимые вложенные таймлайны",
+      "title": "Independent nested timelines",
       "status": "implemented",
-      "scope": "Экземпляры MovieClip имеют независимые часы; остановка родителя не останавливает его живых потомков.",
-      "limitations": "Это контракт текущего runtime; полная конструкция и реентерабельность Flash отдельно не подтверждены.",
+      "scope": "MovieClip instances have independent clocks; stopping a parent does not stop its live descendants.",
+      "limitations": "This describes the current runtime contract; full Flash construction and reentrancy semantics are not independently established.",
       "evidence": [
         "crates/neoflash-core/src/runtime.rs",
         "crates/neoflash-core/tests/core.rs",
@@ -211,10 +211,10 @@
     {
       "id": "animation-graphic-modes",
       "category": "animation",
-      "title": "Синхронизация Graphic",
+      "title": "Graphic synchronization",
       "status": "implemented",
-      "scope": "Graphic поддерживает loop, play-once и single-frame относительно авторского таймлайна.",
-      "limitations": "Точная совместимость всех режимов исходных Flash-проектов требует отдельных fixtures.",
+      "scope": "Graphic supports loop, play-once and single-frame modes relative to the authored timeline.",
+      "limitations": "Exact compatibility with every mode in source Flash projects requires separate fixtures.",
       "evidence": [
         "crates/neoflash-core/src/model.rs",
         "crates/neoflash-core/src/evaluate.rs",
@@ -224,10 +224,10 @@
     {
       "id": "animation-motion-tween",
       "category": "animation",
-      "title": "Интерполяция позы",
+      "title": "Pose interpolation",
       "status": "implemented",
-      "scope": "Tween по стабильной идентичности объекта; position, scale, rotation, alpha и поддерживаемые свойства геометрии/цвета.",
-      "limitations": "Нет независимых property-level motion curves и полного Flash motion tween.",
+      "scope": "Tweens match stable object identities and interpolate position, scale, rotation, alpha and supported geometry/color properties.",
+      "limitations": "Independent property-level motion curves and complete Flash motion tween support are missing.",
       "evidence": [
         "crates/neoflash-core/src/evaluate.rs",
         "crates/neoflash-core/tests/core.rs"
@@ -236,10 +236,10 @@
     {
       "id": "animation-easing",
       "category": "animation",
-      "title": "Easing и пользовательские кривые",
+      "title": "Easing and custom curves",
       "status": "partial",
-      "scope": "Linear, EaseIn/Out/InOut и вычисление cubic Bézier имеются в модели.",
-      "limitations": "Полноценный визуальный редактор кривых, overshoot и кривые отдельных свойств ещё нужны.",
+      "scope": "The model includes Linear, EaseIn/Out/InOut and cubic Bézier evaluation.",
+      "limitations": "A complete visual curve editor, overshoot and individual property curves are still needed.",
       "evidence": [
         "crates/neoflash-core/src/evaluate.rs",
         "crates/neoflash-core/tests/core.rs",
@@ -249,10 +249,10 @@
     {
       "id": "animation-onion",
       "category": "animation",
-      "title": "Onion skin и скраббинг",
+      "title": "Onion skin and scrubbing",
       "status": "implemented",
-      "scope": "Авторская оценка без запуска скриптов; onion skin с диапазоном до/после, закреплением, outline и прозрачностью.",
-      "limitations": "Многокадровое редактирование не входит в onion preview.",
+      "scope": "Authored evaluation without script execution; onion skin with before/after range, anchoring, outlines and opacity.",
+      "limitations": "Editing multiple frames is outside onion preview.",
       "evidence": [
         "crates/neoflash-editor/src/panels.rs",
         "crates/neoflash-editor/src/stage.rs",
@@ -262,10 +262,10 @@
     {
       "id": "animation-shape-tween",
       "category": "animation",
-      "title": "Морфинг фигур",
+      "title": "Shape morphing",
       "status": "partial",
-      "scope": "Пути интерполируются при совпадающей топологии команд.",
-      "limitations": "Общий shape tween с сопоставлением разных контуров, shape hints и изменением топологии отсутствует.",
+      "scope": "Paths interpolate when their command topology matches.",
+      "limitations": "General shape tweening with different-contour matching, shape hints and topology changes is missing.",
       "evidence": [
         "crates/neoflash-core/src/evaluate.rs",
         "crates/neoflash-core/tests/paths.rs",
@@ -275,10 +275,10 @@
     {
       "id": "animation-frame-ranges",
       "category": "animation",
-      "title": "Операции над диапазонами кадров",
+      "title": "Frame-range operations",
       "status": "planned",
-      "scope": "Буфер кадров, span drag/copy/reverse, multi-frame editing и сохранение структуры слоёв при вставке.",
-      "limitations": "Перенос отдельного ключа не закрывает диапазонные операции.",
+      "scope": "Frame clipboard, span drag/copy/reverse, editing multiple frames and pasting while preserving layer structure.",
+      "limitations": "Moving an individual keyframe does not provide range operations.",
       "evidence": [
         "docs/BACKLOG.md",
         "docs/ROADMAP.md"
@@ -287,28 +287,26 @@
     {
       "id": "animation-lifecycle",
       "category": "animation",
-      "title": "Полный lifecycle Flash-таймлайна",
+      "title": "Complete Flash timeline lifecycle",
       "status": "partial",
-      "scope": "Удаление/повторное создание экземпляра получает новую жизнь; устаревшие dispatch отклоняются, goto имеет защиту от бесконечной очереди. Замена symbol на том же placement path сбрасывает subtree overrides/custom fields/clocks; stale proxies отвергаются, соседние instances сохраняются. Проверено обычным HTML5 в Chrome/IAB. Независимая IAB-приёмка на frozen 0a01ec54 + dirty hashes записана отдельно в P0-TRACKER; более поздние правки её не наследуют.",
-      "limitations": "Порядок construction/re-entry, сложные nested goto, сцены и вся семантика Flash Player ещё требуют conformance.",
+      "scope": "Removing and recreating an instance starts a new lifetime; stale dispatches are rejected and goto has protection against an unbounded queue. Same-path symbol replacement resets subtree overrides, custom fields and clocks, invalidates old proxies and preserves siblings; accepted in Chrome/in-app HTML5.",
+      "limitations": "Construction/re-entry order, complex nested goto, scenes and complete Flash Player semantics still need conformance work.",
       "evidence": [
         "crates/neoflash-core/tests/core.rs",
         "web/tests/wasm.test.cjs",
         "docs/COMPATIBILITY.md",
         "crates/neoflash-core/tests/visibility.rs",
         "examples/symbol-replacement.nflash",
-        "docs/VERIFICATION.md",
-        "docs/actionscript-reference/P0-TRACKER.md",
-        "docs/actionscript-reference/implementation-evidence.json"
+        "docs/VERIFICATION.md"
       ]
     },
     {
       "id": "animation-media-sync",
       "category": "animation",
-      "title": "Синхронизация аудио и видео",
+      "title": "Audio and video synchronization",
       "status": "planned",
-      "scope": "Таймлайновые звук/видео, режимы синхронизации, остановка и переходы вместе с проигрыванием.",
-      "limitations": "Аудио/видеоресурсы и их lifecycle пока не реализованы.",
+      "scope": "Timeline sound/video, synchronization modes, and coordinated playback stops and seeks.",
+      "limitations": "Audio/video resources and their lifecycle are not implemented yet.",
       "evidence": [
         "docs/ROADMAP.md",
         "docs/BACKLOG.md"
@@ -317,10 +315,10 @@
     {
       "id": "web-html5-export",
       "category": "web",
-      "title": "Самодостаточная HTML5-публикация",
+      "title": "Self-contained HTML5 publishing",
       "status": "implemented",
-      "scope": "Экспорт проекта с локальным JS, Canvas-host и встроенными WASM-байтами, без Flash Player и CDN.",
-      "limitations": "Гарантия относится к текущей поддерживаемой модели; отсутствующие возможности перечислены отдельно.",
+      "scope": "Project export includes local JavaScript, a Canvas host and embedded WASM bytes, without Flash Player or a CDN.",
+      "limitations": "This guarantee applies to the currently supported model; missing capabilities are listed separately.",
       "evidence": [
         "crates/neoflash-export/src/lib.rs",
         "scripts/build-web.sh",
@@ -330,10 +328,10 @@
     {
       "id": "web-shared-runtime",
       "category": "web",
-      "title": "Общее Rust/WASM-ядро",
+      "title": "Shared Rust/WASM core",
       "status": "implemented",
-      "scope": "Браузер использует тот же runtime таймлайнов; тесты вызывают реальный собранный WASM.",
-      "limitations": "Наличие общей реализации не доказывает совместимость с поведением Flash.",
+      "scope": "The browser uses the same timeline runtime; tests call the actual compiled WASM.",
+      "limitations": "A shared implementation does not prove compatibility with Flash behavior.",
       "evidence": [
         "crates/neoflash-web/src/lib.rs",
         "web/tests/wasm.test.cjs",
@@ -343,10 +341,10 @@
     {
       "id": "web-js-handlers",
       "category": "web",
-      "title": "JavaScript на кадрах и объектах",
+      "title": "JavaScript frame and object handlers",
       "status": "implemented",
-      "scope": "Синхронные frame/object function bodies разбираются Oxc и исполняются HTML5-host с указанным владельцем.",
-      "limitations": "Проектные modules/imports и top-level await не входят в этот пункт. Код имеет права страницы браузера.",
+      "scope": "Oxc parses synchronous frame/object function bodies, which the HTML5 host executes with the specified owner.",
+      "limitations": "Project modules/imports and top-level await are outside this item. Code has the privileges of its containing browser page.",
       "evidence": [
         "crates/neoflash-script/src/lib.rs",
         "web/runtime.js",
@@ -356,10 +354,10 @@
     {
       "id": "web-typescript",
       "category": "web",
-      "title": "TypeScript на кадрах и объектах",
+      "title": "TypeScript frame and object handlers",
       "status": "partial",
-      "scope": "Oxc удаляет аннотации и преобразует поддерживаемые runtime-конструкции обработчиков.",
-      "limitations": "Нет проверки типов TypeScript; imports/modules, JSX/TSX и внешние transform helpers не поддержаны.",
+      "scope": "Oxc removes annotations and transforms supported runtime constructs in handlers.",
+      "limitations": "TypeScript type checking is absent; imports/modules, JSX/TSX and external transform helpers are unsupported.",
       "evidence": [
         "crates/neoflash-script/src/lib.rs",
         "docs/COMPATIBILITY.md"
@@ -368,10 +366,10 @@
     {
       "id": "web-script-events",
       "category": "web",
-      "title": "Авторские события и интерактивность",
+      "title": "Authored events and interactivity",
       "status": "partial",
-      "scope": "Frame scripts и объектные Load/Click/EnterFrame; click идёт от листа к предкам, доступны instance fields и transform overrides.",
-      "limitations": "Это основа интерактивных проектов и игр; полный ввод, EventDispatcher и совместимость событий Flash не завершены.",
+      "scope": "Frame scripts and object Load/Click/EnterFrame events; clicks propagate from leaves to ancestors, with instance fields and transform overrides.",
+      "limitations": "This is a foundation for interactive projects and games; complete input, EventDispatcher and Flash event compatibility remain unfinished.",
       "evidence": [
         "crates/neoflash-core/src/runtime.rs",
         "web/runtime.js",
@@ -381,10 +379,10 @@
     {
       "id": "web-semantic-targets",
       "category": "web",
-      "title": "Доступные Button/Image",
+      "title": "Accessible Button/Image targets",
       "status": "implemented",
-      "scope": "Автор задаёт имя, описание, роль и порядок; Tab и Enter/Space активируют Button через общий Click-path.",
-      "limitations": "Это ограниченный semantic overlay. VoiceOver, Safari и общая доступность продукта ещё не проверены.",
+      "scope": "Authors set names, descriptions, roles and order; Tab and Enter/Space activate Buttons through the shared Click path.",
+      "limitations": "This is a limited semantic overlay. VoiceOver, Safari and overall product accessibility remain unverified.",
       "evidence": [
         "web/accessibility.js",
         "web/tests/accessibility.test.cjs",
@@ -395,10 +393,10 @@
     {
       "id": "web-preview-navigation",
       "category": "web",
-      "title": "Масштаб и навигация preview",
+      "title": "Preview zoom and navigation",
       "status": "implemented",
-      "scope": "Fit, 100%, фиксированные уровни zoom, scroll и pan сохраняют авторскую геометрию и доступ к transport.",
-      "limitations": "Zoom не является responsive layout. Touch-устройства и Safari требуют дополнительных проверок.",
+      "scope": "Fit, 100%, fixed zoom levels, scrolling and panning preserve authored geometry and access to transport controls.",
+      "limitations": "Zoom is not responsive layout. Touch devices and Safari need additional checks.",
       "evidence": [
         "web/preview.js",
         "web/tests/accessibility.test.cjs",
@@ -408,10 +406,10 @@
     {
       "id": "web-dom-layout",
       "category": "web",
-      "title": "DOM-сайты и приложения",
+      "title": "DOM websites and apps",
       "status": "planned",
-      "scope": "Семантический DOM-текст, формы и inputs, web components, responsive layout и breakpoints.",
-      "limitations": "Текущая публикация имеет фиксированную Canvas-сцену; Button/Image overlay не закрывает DOM-authoring.",
+      "scope": "Semantic DOM text, forms and inputs, web components, responsive layout and breakpoints.",
+      "limitations": "Current publishing uses a fixed Canvas stage; the Button/Image overlay does not provide DOM authoring.",
       "evidence": [
         "docs/PRODUCT.md",
         "docs/ROADMAP.md",
@@ -421,10 +419,10 @@
     {
       "id": "web-project-toolchain",
       "category": "web",
-      "title": "Модули, зависимости и отладчик",
+      "title": "Modules, dependencies and debugging",
       "status": "planned",
-      "scope": "JS/TS modules/imports, dependency graph, type checking, completion, навигация по диагностике и debugger/source maps.",
-      "limitations": "Нынешние обработчики компилируются отдельно; полноценной проектной сборки нет.",
+      "scope": "JS/TS modules/imports, dependency graphs, type checking, completion, diagnostic navigation and a debugger/source maps.",
+      "limitations": "Current handlers compile separately; a complete project build system is absent.",
       "evidence": [
         "docs/BACKLOG.md",
         "docs/COMPATIBILITY.md"
@@ -433,10 +431,10 @@
     {
       "id": "web-font-portability",
       "category": "web",
-      "title": "Переносимые шрифты и text layout",
+      "title": "Portable fonts and text layout",
       "status": "planned",
-      "scope": "Embedding/subsetting/outline export, font policies и предсказуемый layout на чистом компьютере.",
-      "limitations": "Сегодня экспорт ссылается на имя шрифта и выдаёт предупреждение; fallback может изменить вид текста.",
+      "scope": "Font embedding/subsetting/outline export, font policies and predictable layout on a clean computer.",
+      "limitations": "Export currently references fonts by name and emits a warning; fallback can change text appearance.",
       "evidence": [
         "crates/neoflash-export/src/lib.rs",
         "docs/ROADMAP.md",
@@ -446,10 +444,10 @@
     {
       "id": "web-media-assets",
       "category": "web",
-      "title": "Ресурсы изображений, аудио и видео",
+      "title": "Image, audio and video assets",
       "status": "planned",
-      "scope": "Импорт/упаковка bitmap, SVG, аудио и видео с asset graph и браузерным воспроизведением.",
-      "limitations": "Авторская роль Image описывает доступность объекта и не означает готовый bitmap importer.",
+      "scope": "Import/package bitmaps, SVG, audio and video with an asset graph and browser playback.",
+      "limitations": "The authored Image role describes object accessibility and does not imply a working bitmap importer.",
       "evidence": [
         "docs/ROADMAP.md",
         "docs/BACKLOG.md",
@@ -459,10 +457,10 @@
     {
       "id": "web-publish-diagnostics",
       "category": "web",
-      "title": "Проверки публикации и ошибки скриптов",
+      "title": "Publish validation and script failures",
       "status": "implemented",
-      "scope": "Невалидный проект, ошибки компиляции и отсутствующий runtime блокируют export; uncaught runtime failures показываются пользователю.",
-      "limitations": "Диагностика принятых AS-конструкций не означает доказанной семантической совместимости всех обращений к host.",
+      "scope": "Invalid projects, compilation errors and missing runtime files block export; uncaught runtime failures are shown to the user.",
+      "limitations": "Diagnostics for accepted ActionScript constructs do not establish semantic compatibility for every host interaction.",
       "evidence": [
         "crates/neoflash-export/src/lib.rs",
         "web/tests/script-failures.test.cjs",
@@ -472,10 +470,10 @@
     {
       "id": "imports-xfl",
       "category": "imports",
-      "title": "XFL и ZIP-FLA → проект",
+      "title": "XFL and ZIP-FLA to project",
       "status": "partial",
-      "scope": "Один scene, библиотека, held keys, метки, вложенные instances, TRS/alpha, primitives, простой static text и ограниченные выпуклые straight DOMShape с solid fill/round stroke. Учитывается InvisibleLayer выбранного publish profile, fresh IDs после blank gaps; XML wrappers/namespace и неоднозначная continuity дают диагностику. Независимая IAB-приёмка на frozen 0a01ec54 + dirty hashes записана отдельно в P0-TRACKER; более поздние правки её не наследуют.",
-      "limitations": "Один неизменённый CS6 FLA проверен через HTML5; общий DOMShape/masks/media/rich text/skew не поддержан. Adjacent same-symbol continuity отклоняется как неоднозначная; исключённые hidden scripts/labels/extended duration блокируют импорт вместо потери данных.",
+      "scope": "One scene, library, held keys, labels, nested instances, TRS/alpha, primitives, simple static text and a bounded subset of convex straight DOMShape geometry with solid fills and round strokes. Selected-profile InvisibleLayer policy and blank-gap placement IDs are preserved; ambiguous adjacent continuity and unsupported excluded-layer behavior produce diagnostics.",
+      "limitations": "One unchanged real CS6 FLA has browser acceptance. General DOMShape, masks, media, rich text and skew are incomplete. Adjacent same-symbol continuity and excluded scripts/labels/extended duration are explicitly refused.",
       "evidence": [
         "crates/neoflash-import/src/xfl.rs",
         "crates/neoflash-import/src/xfl/shape.rs",
@@ -483,18 +481,16 @@
         "crates/neoflash-import/tests/xfl_semantic_guards.rs",
         "docs/IMPORTS.md",
         "crates/neoflash-import/tests/xfl_publish_identity.rs",
-        "docs/VERIFICATION.md",
-        "docs/actionscript-reference/P0-TRACKER.md",
-        "docs/actionscript-reference/implementation-evidence.json"
+        "docs/VERIFICATION.md"
       ]
     },
     {
       "id": "imports-script-retention",
       "category": "imports",
-      "title": "Сохранение импортированного кода",
+      "title": "Imported source preservation",
       "status": "partial",
-      "scope": "Поддерживаемый XFL сохраняет frame source и язык, включая фрагменты text/CDATA; девять оригинальных AS2 скриптов одного CS6 FLA проверены с точным 17-строчным HTML5 trace.",
-      "limitations": "Document class/linkage и активная внешняя конфигурация блокируют import; сохранение произвольного source не доказывает исполнение.",
+      "scope": "Supported XFL preserves frame source and language, including text/CDATA fragments; nine original AS2 scripts from one CS6 FLA were checked against an exact 17-line HTML5 trace.",
+      "limitations": "Document class/linkage and active external script configuration block import; retaining arbitrary source does not prove execution.",
       "evidence": [
         "crates/neoflash-import/src/xfl.rs",
         "crates/neoflash-import/tests/xfl_semantic_guards.rs",
@@ -505,10 +501,10 @@
     {
       "id": "imports-container-safety",
       "category": "imports",
-      "title": "Чтение контейнеров и ограничения",
+      "title": "Container reading and limits",
       "status": "implemented",
-      "scope": "Определение формата, ограниченный ZIP/CFB reader, проверки путей/размеров/целостности и refusal без перезаписи исходника.",
-      "limitations": "Соблюдение границ контейнера не означает поддержку его содержимого.",
+      "scope": "Format detection, bounded ZIP/CFB readers, path/size/integrity checks and explicit refusal without overwriting the source.",
+      "limitations": "Respecting container boundaries does not establish support for its contents.",
       "evidence": [
         "crates/neoflash-import/src/source.rs",
         "crates/neoflash-import/src/legacy.rs",
@@ -519,10 +515,10 @@
     {
       "id": "imports-binary-structure",
       "category": "imports",
-      "title": "Структура бинарного FLA",
+      "title": "Binary FLA structure",
       "status": "partial",
-      "scope": "CFB/MFC inventory, сохранение ограниченных Contents, identity graph и типизированных timeline records с точными unread boundaries.",
-      "limitations": "Поздние Contents suffixes, многие классы объектов, media и исторические actions ещё не читаются полностью.",
+      "scope": "CFB/MFC inventory, bounded Contents preservation, an identity graph and typed timeline records with exact unread boundaries.",
+      "limitations": "Later Contents suffixes, many object classes, media and historical actions are not fully readable yet.",
       "evidence": [
         "crates/neoflash-import/src/legacy/contents.rs",
         "crates/neoflash-import/src/legacy/timeline.rs",
@@ -533,10 +529,10 @@
     {
       "id": "imports-binary-geometry",
       "category": "imports",
-      "title": "Геометрия бинарного FLA",
+      "title": "Binary FLA geometry",
       "status": "partial",
-      "scope": "Сохранение bounded shape/style/edge records и исходных байтов; строгий адаптер некоторых Flash 3 solid contours в core Path.",
-      "limitations": "Ограниченные revisions/paint/topology; contour success не создаёт редактируемый документ.",
+      "scope": "Preserve bounded shape/style/edge records and original bytes; a strict adapter maps some Flash 3 solid contours to core Path.",
+      "limitations": "Supported revisions, paints and topology are limited; successful contour conversion does not create an editable document.",
       "evidence": [
         "crates/neoflash-import/src/legacy/geometry.rs",
         "crates/neoflash-import/src/legacy/contours.rs",
@@ -546,10 +542,10 @@
     {
       "id": "imports-binary-document",
       "category": "imports",
-      "title": "Бинарный FLA → редактируемый документ",
+      "title": "Binary FLA to editable document",
       "status": "planned",
-      "scope": "Полная документная конверсия с порядком слоёв, placement identity, текстом, linkage, media, metadata и поддержанными действиями.",
-      "limitations": "Все бинарные документы в текущем корпусе остаются can_import=false; структурный reader не считается импортом.",
+      "scope": "Complete document conversion with layer order, placement identity, text, linkage, media, metadata and supported actions.",
+      "limitations": "All binary documents in the current corpus remain can_import=false; structural reading does not count as document import.",
       "evidence": [
         "docs/IMPORTS.md",
         "docs/BACKLOG.md"
@@ -558,10 +554,10 @@
     {
       "id": "imports-swf-inspection",
       "category": "imports",
-      "title": "Инспекция SWF",
+      "title": "SWF inspection",
       "status": "partial",
-      "scope": "Определяются сигнатуры FWS/CWS/ZWS и поля заголовка/версии.",
-      "limitations": "Нет decompression, tag parsing, исполнения AVM1/AVM2 и реконструкции исходника.",
+      "scope": "Recognizes FWS/CWS/ZWS signatures and header/version fields.",
+      "limitations": "Decompression, tag parsing, AVM1/AVM2 execution and source reconstruction are absent.",
       "evidence": [
         "crates/neoflash-import/src/lib.rs",
         "crates/neoflash-import/tests/import.rs",
@@ -571,10 +567,10 @@
     {
       "id": "imports-swf-playback",
       "category": "imports",
-      "title": "Воспроизведение и импорт SWF",
+      "title": "SWF playback and import",
       "status": "planned",
-      "scope": "Отдельная архитектура legacy playback и структурированного импорта; оценка интеграции Ruffle.",
-      "limitations": "Ruffle не встроен; проигрывание SWF само по себе не восстанавливает слои, исходные скрипты и tween intent.",
+      "scope": "A separate architecture for legacy playback and structured import; evaluation of Ruffle integration.",
+      "limitations": "Ruffle is not integrated; SWF playback alone does not recover layers, source scripts or tween intent.",
       "evidence": [
         "docs/IMPORTS.md",
         "docs/ROADMAP.md"
@@ -583,10 +579,10 @@
     {
       "id": "imports-external-libraries",
       "category": "imports",
-      "title": "SWC и внешние AS-библиотеки",
+      "title": "SWC and external AS libraries",
       "status": "planned",
-      "scope": "Модель зависимостей, linkage, версии и граница source/bytecode для внешних библиотек.",
-      "limitations": "Импорт SWC и готовый linker отсутствуют.",
+      "scope": "Dependency models, linkage, versions and the source/bytecode boundary for external libraries.",
+      "limitations": "SWC import and a working linker are absent.",
       "evidence": [
         "docs/IMPORTS.md",
         "docs/COMPATIBILITY.md"
@@ -595,10 +591,10 @@
     {
       "id": "imports-corpus",
       "category": "imports",
-      "title": "Корпус совместимости и fidelity",
+      "title": "Compatibility corpus and fidelity",
       "status": "partial",
-      "scope": "Synthetic fixtures и private corpus дополняются 15 неизменёнными лицензированными FLA: один опубликован с точным reference trace, 14 имеют явные отказы; 21 input case проверяется воспроизводимо.",
-      "limitations": "Нет полного per-file визуального/поведенческого сравнения разных поколений Flash. Один реальный пример не доказывает общий импорт; private artwork не публикуется.",
+      "scope": "Synthetic fixtures and the private corpus are supplemented by 15 unchanged, licensed FLA files: one exported to HTML5 with an exact reference trace and 14 explicit refusals; 21 input cases are checked reproducibly.",
+      "limitations": "Complete per-file visual/behavioral comparison across Flash generations is missing. One real example does not establish general import support; private artwork is not published.",
       "evidence": [
         "examples/fla-corpus/manifest.json",
         "examples/fla-corpus/VERIFICATION.md",
@@ -610,10 +606,10 @@
     {
       "id": "platform-document-model",
       "category": "platform",
-      "title": "Независимый формат проекта",
+      "title": "Independent project format",
       "status": "implemented",
-      "scope": "Версионируемый JSON хранит символы, экземпляры, кадры и скрипты со стабильными ID; validation проверяет связи, циклы и границы.",
-      "limitations": "Миграции будущих версий и внешние ресурсы потребуют отдельного расширения формата.",
+      "scope": "Versioned JSON stores symbols, instances, frames and scripts with stable IDs; validation checks references, cycles and bounds.",
+      "limitations": "Future version migrations and external resources require separate format extensions.",
       "evidence": [
         "crates/neoflash-core/src/model.rs",
         "crates/neoflash-core/src/validation.rs",
@@ -623,10 +619,10 @@
     {
       "id": "platform-save-open",
       "category": "platform",
-      "title": "Сохранение и открытие проекта",
+      "title": "Save and open projects",
       "status": "implemented",
-      "scope": "Редактор сохраняет и открывает .nflash через сериализацию и validation без зависимости документа от абсолютных путей.",
-      "limitations": "Autosave, восстановление и несколько документов считаются отдельно.",
+      "scope": "The editor saves and opens .nflash through serialization and validation, without tying the document to absolute paths.",
+      "limitations": "Autosave, recovery and multiple documents are tracked separately.",
       "evidence": [
         "crates/neoflash-editor/src/app.rs",
         "crates/neoflash-core/src/lib.rs",
@@ -636,10 +632,10 @@
     {
       "id": "platform-undo",
       "category": "platform",
-      "title": "Undo/Redo авторских операций",
+      "title": "Undo/Redo for authoring operations",
       "status": "implemented",
-      "scope": "История изменений и один Undo для завершённого жеста; новый edit отменяет redo branch.",
-      "limitations": "Resource-aware history для больших проектов ещё предстоит.",
+      "scope": "Change history with one Undo for a completed gesture; a new edit invalidates the redo branch.",
+      "limitations": "Resource-aware history for large projects remains to be implemented.",
       "evidence": [
         "crates/neoflash-core/src/history.rs",
         "crates/neoflash-core/tests/core.rs",
@@ -649,10 +645,10 @@
     {
       "id": "platform-recovery",
       "category": "platform",
-      "title": "Защита работы и восстановление",
+      "title": "Work protection and recovery",
       "status": "partial",
-      "scope": "Перед New/Open/Import/Close при dirty-проекте есть выбор Save/Discard/Cancel.",
-      "limitations": "Autosave/crash recovery, file-change detection и несколько документов ещё не реализованы.",
+      "scope": "Unsaved projects offer Save/Discard/Cancel before New/Open/Import/Close.",
+      "limitations": "Autosave/crash recovery, file-change detection and multiple documents are not implemented yet.",
       "evidence": [
         "crates/neoflash-editor/src/app.rs",
         "docs/BACKLOG.md",
@@ -662,10 +658,10 @@
     {
       "id": "platform-native-macos",
       "category": "platform",
-      "title": "Интеграция macOS",
+      "title": "macOS integration",
       "status": "partial",
-      "scope": "Rust/egui-приложение, основные shortcuts, системные шрифты и локальный .app для macOS 15+.",
-      "limitations": "Нативные меню/document integration, IME, accessibility tree и trackpad conventions требуют дальнейшей работы.",
+      "scope": "Rust/egui application, core shortcuts, system fonts and a local .app for macOS 15+.",
+      "limitations": "Native menus/document integration, IME, the accessibility tree and trackpad conventions need further work.",
       "evidence": [
         "crates/neoflash-editor/src/main.rs",
         "crates/neoflash-editor/src/fonts.rs",
@@ -676,10 +672,10 @@
     {
       "id": "platform-verification",
       "category": "platform",
-      "title": "Автоматические проверки",
+      "title": "Automated checks",
       "status": "implemented",
-      "scope": "check.sh запускает форматирование/lint, Rust-тесты, сборку WASM и проверки с настоящим WASM; CI описан в репозитории.",
-      "limitations": "Эта строка фиксирует наличие harness, не результат нового запуска и не полный Flash conformance suite.",
+      "scope": "check.sh runs formatting/lint, Rust tests, the WASM build and tests with actual WASM; CI is defined in the repository.",
+      "limitations": "This records the existence of the test harness, not a new run result or a complete Flash conformance suite.",
       "evidence": [
         "scripts/check.sh",
         ".github/workflows/check.yml",
@@ -689,10 +685,10 @@
     {
       "id": "platform-performance",
       "category": "platform",
-      "title": "Масштабирование больших проектов",
+      "title": "Scaling to large projects",
       "status": "partial",
-      "scope": "Есть validation/work budgets, ограничение expansion и cache геометрии браузерных путей.",
-      "limitations": "Нет полной virtualization таймлайна, resource-aware undo и опубликованных performance budgets.",
+      "scope": "Validation/work budgets, expansion limits and cached browser path geometry exist.",
+      "limitations": "Complete timeline virtualization, resource-aware undo and published performance budgets are missing.",
       "evidence": [
         "crates/neoflash-core/src/validation.rs",
         "web/tests/path-cache.test.cjs",
@@ -702,10 +698,10 @@
     {
       "id": "platform-release",
       "category": "platform",
-      "title": "Подписанные релизы и матрица платформ",
+      "title": "Signed releases and platform matrix",
       "status": "partial",
-      "scope": "Локальная упаковка .app с ad-hoc подписью; Apple Silicon указан как локально проверенная архитектура.",
-      "limitations": "Нет notarized distribution release, подтверждённой Intel-сборки, полной browser matrix и updater policy.",
+      "scope": "Local .app packaging with ad-hoc signing; Apple Silicon is documented as locally tested.",
+      "limitations": "A notarized distribution release, verified Intel build, complete browser matrix and updater policy are absent.",
       "evidence": [
         "scripts/package-macos.sh",
         "README.md",
@@ -715,10 +711,10 @@
     {
       "id": "platform-extensions",
       "category": "platform",
-      "title": "Расширения и локализация",
+      "title": "Extensions and localization",
       "status": "planned",
-      "scope": "Публичное extension API, локализация интерфейса и стабильные контракты расширения продукта.",
-      "limitations": "API и политика расширений ещё не определены.",
+      "scope": "Public extension API, interface localization and stable product extension contracts.",
+      "limitations": "The API and extension policy have not been defined yet.",
       "evidence": [
         "docs/PRODUCT.md",
         "docs/BACKLOG.md"
@@ -727,10 +723,10 @@
     {
       "id": "platform-accessibility",
       "category": "platform",
-      "title": "Доступность редактора и общая проверка",
+      "title": "Editor accessibility and overall verification",
       "status": "partial",
-      "scope": "Есть авторские метаданные Button/Image и отдельные проверки browser keyboard/focus.",
-      "limitations": "Нативное accessibility tree, VoiceOver и сквозная проверка доступности автора и посетителя ещё нужны.",
+      "scope": "Authored Button/Image metadata and individual browser keyboard/focus checks exist.",
+      "limitations": "The native accessibility tree, VoiceOver and end-to-end accessibility verification for authors and visitors are still needed.",
       "evidence": [
         "crates/neoflash-editor/src/accessibility.rs",
         "docs/WEB.md",

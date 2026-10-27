@@ -3,6 +3,8 @@
 - Product: open-source Rust authoring environment for macOS 15+, inspired by classic Flash before Animate. HTML5 is the primary publishing target.
 - User requirements include websites/apps, games and animation; AS2/AS3 plus JavaScript/TypeScript; nested timelines, instances, frame/object scripts; system fonts; eventual FLA/XFL/SWF import.
 - Do not reduce the product goal to a video animator or silently redefine partial scripting support as full AS2/AS3 compatibility.
+- Current user priority: breadth first. Bring the main subsystems to useful working partial support in large coherent batches, then deepen conformance. Do not let one method or rare edge case monopolize an iteration.
+- Validate feature batches with representative integration/browser scenarios and one shared regression pass. Do not create a separate lengthy HTML5 acceptance cycle for each API. Record non-blocking failures for a later batch; only shared breakage, crashes or content/data loss block the whole delivery.
 - Keep one source tree. Versions belong in Git tags/history, never in nested v1/v2 copies. No asset-folder chains. Build outputs go under ignored `target/` and `dist/`.
 - `crates/` contains Rust modules, `web/` the browser host, `examples/` small source projects, `scripts/` build/check tasks, `docs/` product and engineering records.
 - Keep the serialized document independent of UI, rendering backend and filesystem paths. Keep authored evaluation side-effect free for scrubbing/onion skin.
@@ -11,3 +13,5 @@
 - Verify model/runtime behavior with meaningful tests; verify UI by running it and inspect HTML5 output in a browser. Do not claim unperformed checks.
 - Do not publish a repository, deployment or release unless requested. Local development, builds and tests are authorized.
 - With implementation changes, update affected capability IDs/status/evidence in `docs/progress/*.json`, run `python3 scripts/progress.py --write-reports`, and keep the README summary and detailed ledger consistent. Percentages describe that registry, never complete Flash compatibility.
+- Keep the progress dashboard, its capability registry and generated repository reports in English.
+- AS2/AS3 coverage must use the complete declaration catalogue and per-entry audit in `docs/progress/actionscript-*.json`. Never use the supplementary 35/36 capability groups as the language coverage denominator. Preserve separate subset/partial/missing/needs-review counts and audit provenance.

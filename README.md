@@ -5,25 +5,34 @@ Open-source authoring environment inspired by classic Macromedia/Adobe Flash, bu
 **Status: development preview, 0.1.0. This is a working foundation, not a complete Flash replacement.** Full AS2/AS3 compatibility, general FLA/SWF import, a complete vector toolset and DOM-based web layouts remain substantial work. See the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
 
 <!-- progress:start -->
-## Где мы сейчас
+## Where we are
 
-Работает основа редактора: вложенные таймлайны, вектор, скрипты и автономный HTML5. Полные AS2/AS3, импорт FLA/SWF, переносимые медиа и DOM-приложения ещё в работе.
+The editor foundation works: nested timelines, vector tools, scripting and standalone HTML5. Full AS2/AS3, FLA/SWF import, portable media and DOM applications remain in development.
 
-| Направление | Готово | Частично | В плане | Выполнено по реестру |
+### ActionScript reference coverage
+
+| Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| AS2 | 2,307 | 14 | 171 | 1,998 | 124 |
+| AS3 | 43,740 | 14 | 175 | 43,287 | 264 |
+
+Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
+
+### Product capabilities
+
+| Area | Implemented | Partial | Planned | Registry coverage |
 | --- | ---: | ---: | ---: | ---: |
-| ActionScript 2 | 5/35 | 17 | 13 | 14.3% |
-| ActionScript 3 | 6/36 | 17 | 13 | 16.7% |
-| Редактор и графика | 5/12 | 5 | 2 | 41.7% |
-| Таймлайны и анимация | 5/10 | 3 | 2 | 50.0% |
-| HTML5 и интерактивность | 6/12 | 2 | 4 | 50.0% |
-| Импорт и совместимость файлов | 1/10 | 6 | 3 | 10.0% |
-| Платформа и качество | 4/10 | 5 | 1 | 40.0% |
+| Editor and graphics | 5/12 | 5 | 2 | 41.7% |
+| Timelines and animation | 5/10 | 3 | 2 | 50.0% |
+| HTML5 and interactivity | 6/12 | 2 | 4 | 50.0% |
+| Import and file compatibility | 1/10 | 6 | 3 | 10.0% |
+| Platform and quality | 4/10 | 5 | 1 | 40.0% |
 
-Готово = выполнена описанная граница пункта; частичные пункты не включены в процент. Это покрытие нашего реестра возможностей, **не процент совместимости с Flash и не покрытие строк кода тестами**. Размер пунктов различается; единого процента готовности продукта нет.
+Implemented means the item's stated scope is complete; partial items do not contribute to the percentage. This measures our capability registry, **not Flash compatibility or test line coverage**. Items differ in size, so there is no overall product completion percentage.
 
-[Текущее покрытие](https://jazzymiles.github.io/NeoFlash/progress.html) · [История по дням](https://jazzymiles.github.io/NeoFlash/history.html) · [Подробный реестр](docs/progress/DETAILS.md) · [Правила подсчёта](docs/progress/README.md)
+[Current coverage](https://jazzymiles.github.io/NeoFlash/progress.html) · [Daily history](https://jazzymiles.github.io/NeoFlash/history.html) · [Detailed registry](docs/progress/DETAILS.md) · [Counting rules](docs/progress/README.md)
 
-Сводка генерируется из `docs/progress/*.json`; GitHub Pages пересобирается при каждом push в `main`.
+This summary is generated from `docs/progress/*.json`; GitHub Pages rebuilds on every push to `main`.
 <!-- progress:end -->
 
 ## Run

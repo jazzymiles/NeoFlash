@@ -3,15 +3,15 @@
   "category": {
     "id": "as3",
     "title": "ActionScript 3",
-    "description": "Учтённые семейства возможностей языка и Flash API. Доля завершённых пунктов этого реестра не является процентом совместимости с Flash Player."
+    "description": "Tracked families of language features and Flash APIs. The completed share of this registry is not a percentage of Flash Player compatibility."
   },
   "features": [
     {
       "id": "as3-diagnostics",
-      "title": "Диагностика исходного кода",
+      "title": "Source diagnostics",
       "status": "implemented",
-      "scope": "Ошибки разбора и неподдерживаемые конструкции frontend сообщаются с языком, строкой и колонкой; ошибка компиляции блокирует экспорт.",
-      "limitations": "Это гарантия compiler diagnostics, а не проверка всей семантики Flash API.",
+      "scope": "Parse errors and unsupported frontend constructs report the language, line and column; compilation errors block export.",
+      "limitations": "This guarantees compiler diagnostics, not verification of every Flash API semantic.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/src/lib.rs",
@@ -20,10 +20,10 @@
     },
     {
       "id": "as3-literals",
-      "title": "Литералы",
+      "title": "Literals",
       "status": "partial",
-      "scope": "Числа decimal/hex/exponent, строки, Boolean, null/undefined/NaN/Infinity, массивы без пропусков и объектные литералы.",
-      "limitations": "Не реализован полный набор литералов и исторических правил Flash; устаревшие числа с ведущим нулём отклоняются.",
+      "scope": "Decimal, hexadecimal and exponent numbers; strings; Boolean, null, undefined, NaN and Infinity; arrays without holes and object literals.",
+      "limitations": "The full set of literals and historical Flash rules is not implemented; legacy numbers with leading zeroes are rejected.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
@@ -32,10 +32,10 @@
     },
     {
       "id": "as3-variables",
-      "title": "Переменные и область видимости",
+      "title": "Variables and scope",
       "status": "partial",
-      "scope": "var, несколько объявлений, поля владельца handler, hoisting локальных var и параметров.",
-      "limitations": "Модель полей handler отличается от классов и полного scope chain Flash; объявления верхнего уровня имеют оговорённую повторную инициализацию.",
+      "scope": "var, multiple declarations, handler-owner fields, and hoisting of local var declarations and parameters.",
+      "limitations": "Handler fields differ from classes and the full Flash scope chain; top-level declarations follow documented reinitialization rules.",
       "evidence": [
         "crates/neoflash-script/src/actionscript/scope.rs",
         "crates/neoflash-script/tests/execute.mjs",
@@ -44,10 +44,10 @@
     },
     {
       "id": "as3-operators",
-      "title": "Арифметика, логика и присваивания",
+      "title": "Arithmetic, logic and assignments",
       "status": "partial",
-      "scope": "Базовая арифметика, сравнения, короткое замыкание, битовые операции, ++/-- и составные присваивания.",
-      "limitations": "Часть операций использует JavaScript coercion; это не полная семантика AVM и всех версий Flash Player.",
+      "scope": "Basic arithmetic, comparisons, short-circuit evaluation, bitwise operations, ++/-- and compound assignments.",
+      "limitations": "Some operations use JavaScript coercion; this is not complete AVM semantics across all Flash Player versions.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
@@ -56,10 +56,10 @@
     },
     {
       "id": "as3-branches",
-      "title": "Ветвления if/else",
+      "title": "If/else branches",
       "status": "implemented",
-      "scope": "Разбор и исполнение if/else, блоков и условного выражения ?: с выбором одной ветви.",
-      "limitations": "Покрывается управление потоком поддержанного frontend; преобразования произвольных Flash-объектов относятся к незавершённой совместимости типов.",
+      "scope": "Parsing and execution of if/else, blocks and the conditional expression ?:, selecting one branch.",
+      "limitations": "This covers control flow in the supported frontend; conversion of arbitrary Flash objects remains part of unfinished type compatibility.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs"
@@ -67,10 +67,10 @@
     },
     {
       "id": "as3-loops",
-      "title": "Обычные циклы и переходы",
+      "title": "Classic loops and jumps",
       "status": "implemented",
-      "scope": "while, do/while, трёхчастный for, вложенные break/continue с проверкой цели перехода.",
-      "limitations": "Перебор свойств for..in и полная совместимость преобразований условий учитываются отдельно.",
+      "scope": "while, do/while, three-part for, and nested break/continue with jump-target validation.",
+      "limitations": "for..in property enumeration and full compatibility of condition coercion are tracked separately.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/src/actionscript/control_tests.rs",
@@ -79,10 +79,10 @@
     },
     {
       "id": "as3-switch",
-      "title": "Switch и fallthrough",
+      "title": "Switch and fallthrough",
       "status": "implemented",
-      "scope": "Однократное вычисление subject, последовательный поиск case, default, fallthrough и break.",
-      "limitations": "Поддержанный контракт использует строгое сравнение; общий профиль версий Flash Player не сертифицирован.",
+      "scope": "Single evaluation of the subject, sequential case matching, default, fallthrough and break.",
+      "limitations": "The supported contract uses strict comparison; compatibility across Flash Player versions is not certified.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/control-flow-fixtures.mjs"
@@ -90,10 +90,10 @@
     },
     {
       "id": "as3-functions",
-      "title": "Объявления и вызовы функций",
+      "title": "Function declarations and calls",
       "status": "partial",
-      "scope": "Function declarations/expressions, рекурсия, взаимная рекурсия, return, callbacks и немедленный вызов function expression.",
-      "limitations": "Объявления только непосредственно в теле функции/handler; общий динамический поиск методов и межскриптовое разрешение символов отсутствуют.",
+      "scope": "Function declarations and expressions, recursion, mutual recursion, return, callbacks and immediately invoked function expressions.",
+      "limitations": "Declarations must be directly inside a function or handler body; general dynamic method lookup and cross-script symbol resolution are absent.",
       "evidence": [
         "crates/neoflash-script/src/actionscript/scope.rs",
         "crates/neoflash-script/src/actionscript.rs",
@@ -102,10 +102,10 @@
     },
     {
       "id": "as3-closures",
-      "title": "Замыкания и захват переменных",
+      "title": "Closures and variable capture",
       "status": "partial",
-      "scope": "Лексические локальные переменные, shadowing, сохранение closure после возврата и захват владельца handler.",
-      "limitations": "Полная модель receiver, global object и цепочки областей Flash не реализована.",
+      "scope": "Lexical local variables, shadowing, closures retained after return, and capture of the handler owner.",
+      "limitations": "The complete Flash receiver, global-object and scope-chain models are not implemented.",
       "evidence": [
         "crates/neoflash-script/src/actionscript/scope.rs",
         "crates/neoflash-script/tests/execute.mjs",
@@ -114,10 +114,10 @@
     },
     {
       "id": "as3-parameters",
-      "title": "Параметры и результаты функций",
+      "title": "Function parameters and returns",
       "status": "partial",
-      "scope": "Позиционные параметры, точное число аргументов, выбранные typed arguments/returns и проверка путей возврата.",
-      "limitations": "Нет default/rest parameters, arguments и общего Function.call/apply; полная совместимость типов и ошибок вызова не доказана.",
+      "scope": "Positional parameters, exact argument counts, selected typed arguments/returns and return-path validation.",
+      "limitations": "Default/rest parameters, arguments and general Function.call/apply are absent; full compatibility of types and invocation errors is unproven.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
@@ -126,10 +126,10 @@
     },
     {
       "id": "as3-receiver",
-      "title": "this и привязка метода",
+      "title": "this and method binding",
       "status": "partial",
-      "scope": "this владельца handler; объявленные на верхнем уровне AS3-функции сохраняют владельца при отрыве метода.",
-      "limitations": "Явный this в AS2-функциях, вложенных объявлениях и function expressions отклоняется; общее поведение receiver не реализовано.",
+      "scope": "this refers to the handler owner; AS3 functions declared at handler level retain their owner when detached.",
+      "limitations": "Explicit this in AS2 functions, nested declarations and function expressions is rejected; general receiver behavior is not implemented.",
       "evidence": [
         "crates/neoflash-script/src/actionscript/scope.rs",
         "crates/neoflash-script/tests/execute.mjs",
@@ -138,10 +138,10 @@
     },
     {
       "id": "as3-types",
-      "title": "Аннотации и система типов",
+      "title": "Annotations and type system",
       "status": "partial",
-      "scope": "Выбранные Number/int/uint/Boolean/String/Function/Error/* defaults и coercion для bare-name writes, аргументов и return.",
-      "limitations": "Нет полного type checker, пользовательских классов и типизированных instance slots; запись this.field и из другого handler не гарантирует тип.",
+      "scope": "Selected Number/int/uint/Boolean/String/Function/Error/* defaults and coercion for bare-name writes, arguments and returns.",
+      "limitations": "There is no complete type checker, user-defined class model or typed instance-slot model; this.field writes and writes from another handler do not enforce the declared type.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
@@ -150,10 +150,10 @@
     },
     {
       "id": "as3-exceptions",
-      "title": "Throw, catch и finally",
+      "title": "Throw, catch and finally",
       "status": "partial",
-      "scope": "Throw, упорядоченные catches выбранных типов, отдельная catch scope, finally и приоритет abrupt completion.",
-      "limitations": "Нет catch произвольных классов/интерфейсов, boxed primitive parity и полного отображения ошибок AVM2.",
+      "scope": "Throw, ordered catches for selected types, separate catch scopes, finally and abrupt-completion precedence.",
+      "limitations": "Catches for arbitrary classes/interfaces, boxed-primitive equivalence and complete AVM2 error mapping are absent.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/src/actionscript/exceptions.js",
@@ -163,10 +163,10 @@
     },
     {
       "id": "as3-errors",
-      "title": "Объекты Error",
+      "title": "Error objects",
       "status": "partial",
-      "scope": "Ограниченный набор core Error constructors, message, name, errorID и toString.",
-      "limitations": "Нет общего конструктора классов, getStackTrace, полной prototype-семантики и всех Flash error codes.",
+      "scope": "A limited set of core Error constructors, message, name, errorID and toString.",
+      "limitations": "General class construction, getStackTrace, complete prototype semantics and all Flash error codes are absent.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/src/actionscript/exceptions.js",
@@ -175,10 +175,10 @@
     },
     {
       "id": "as3-classes",
-      "title": "Классы, наследование и интерфейсы",
+      "title": "Classes, inheritance and interfaces",
       "status": "planned",
-      "scope": "Полная модель class/interface, extends/implements, members, super, getters/setters и обычный new.",
-      "limitations": "Конструкции отклоняются frontend; Error facade не является реализацией произвольных классов.",
+      "scope": "A complete model of class/interface, extends/implements, members, super, getters/setters and general new.",
+      "limitations": "These constructs are rejected by the frontend; the Error facade does not implement arbitrary classes.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "docs/COMPATIBILITY.md",
@@ -187,10 +187,10 @@
     },
     {
       "id": "as3-imports",
-      "title": "Импорты и связывание проекта",
+      "title": "Imports and project linking",
       "status": "planned",
-      "scope": "package/import, document class, linkage и межфайловое разрешение.",
-      "limitations": "Текущая единица компиляции — отдельный синхронный frame/object handler.",
+      "scope": "package/import, document classes, linkage and cross-file resolution.",
+      "limitations": "The current compilation unit is an individual synchronous frame or object handler.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/src/actionscript/scope.rs",
@@ -200,10 +200,10 @@
     },
     {
       "id": "as3-dynamic-object",
-      "title": "Динамические объекты и прототипы",
+      "title": "Dynamic objects and prototypes",
       "status": "partial",
-      "scope": "Объектные литералы, custom fields, property/index reads и явно определённые function members.",
-      "limitations": "Нет полной Object/prototype/scope-chain модели; computed calls, общий alias/type inference и часть динамических методов отклоняются.",
+      "scope": "Object literals, custom fields, property/index reads and explicitly defined function members.",
+      "limitations": "There is no complete Object/prototype/scope-chain model; computed calls, general alias/type inference and some dynamic methods are rejected.",
       "evidence": [
         "crates/neoflash-script/src/actionscript/scope.rs",
         "crates/neoflash-script/src/actionscript.rs",
@@ -212,10 +212,10 @@
     },
     {
       "id": "as3-enumeration",
-      "title": "Перебор свойств и with",
+      "title": "Property enumeration and with",
       "status": "planned",
-      "scope": "Перебор for..in и корректный поиск имён в with.",
-      "limitations": "Не поддержаны; обычный трёхчастный for не считается реализацией перечисления свойств.",
+      "scope": "for..in enumeration and correct name lookup inside with.",
+      "limitations": "These are unsupported; a classic three-part for loop does not implement property enumeration.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "docs/COMPATIBILITY.md"
@@ -223,10 +223,10 @@
     },
     {
       "id": "as3-special-operators",
-      "title": "Дополнительные операторы языка",
+      "title": "Additional language operators",
       "status": "planned",
-      "scope": "is, as, instanceof, in, delete, unary void и произвольный new.",
-      "limitations": "Отклоняются с диагностикой; отдельный new Error не закрывает эту возможность.",
+      "scope": "is, as, instanceof, in, delete, unary void and general new.",
+      "limitations": "These are rejected with diagnostics; the separate new Error facade does not complete this capability.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "docs/COMPATIBILITY.md"
@@ -234,28 +234,25 @@
     },
     {
       "id": "as3-primitive-globals",
-      "title": "Примитивы и глобальные преобразования",
+      "title": "Primitives and global conversions",
       "status": "partial",
-      "scope": "Number, String, Boolean, parseFloat, isNaN и isFinite остаются JavaScript-backed; parseInt получил отдельный ограниченный AS3 профиль с pinned references и проверкой обычного HTML5 в Chrome/IAB. Независимая IAB-приёмка на frozen 0a01ec54 + dirty hashes записана отдельно в P0-TRACKER; более поздние правки её не наследуют.",
-      "limitations": "Ожидания documented_only: оригинальный Flash Player не запускался. Полные исторические преобразования, whitespace/rounding, boxed values и стандартная библиотека не реализованы.",
+      "scope": "Number, String, Boolean, parseInt, parseFloat, isNaN and isFinite are available through JavaScript. Separate bounded AS3 parseInt profile now has pinned reference fixtures and ordinary Chrome/in-app HTML5 acceptance.",
+      "limitations": "Flash-specific and version-specific rules, boxed values and the complete standard library are not implemented. Expectations are documented_only; original Flash runtime was not measured.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
         "docs/COMPATIBILITY.md",
         "crates/neoflash-script/tests/INTRINSICS.md",
-        "crates/neoflash-script/tests/intrinsic-fixtures.mjs",
         "examples/as-intrinsics.nflash",
-        "docs/VERIFICATION.md",
-        "docs/actionscript-reference/P0-TRACKER.md",
-        "docs/actionscript-reference/implementation-evidence.json"
+        "docs/VERIFICATION.md"
       ]
     },
     {
       "id": "as3-math",
       "title": "Math",
       "status": "partial",
-      "scope": "Поддержан закрытый список числовых методов Math, включая trig, abs, min/max, pow, random и round.",
-      "limitations": "Исполнение делегируется JavaScript; полный контракт и числовое соответствие Flash не сертифицированы.",
+      "scope": "A closed list of numeric Math methods, including trigonometry, abs, min/max, pow, random and round.",
+      "limitations": "Execution is delegated to JavaScript; the full contract and numerical equivalence with Flash are not certified.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "docs/COMPATIBILITY.md"
@@ -263,27 +260,24 @@
     },
     {
       "id": "as3-collections",
-      "title": "Array, String и Number methods",
+      "title": "Array, String and Number methods",
       "status": "partial",
-      "scope": "Выбранные push/pop/shift/unshift/join/slice/indexOf/substring/charAt/charCodeAt/toString/toFixed/split/concat/reverse. AS3 primitive toFixed применяет int precision 0–20, RangeError1002 и fixed integral output >=1e21; обычный HTML5 проверен в Chrome/IAB. Независимая IAB-приёмка на frozen 0a01ec54 + dirty hashes записана отдельно в P0-TRACKER; более поздние правки её не наследуют.",
-      "limitations": "Остальные методы используют JavaScript. Историческое округление Flash, boxed Number и method closures не реализованы; native toFixed extraction диагностируется. Ожидания documented_only.",
+      "scope": "Selected push/pop/shift/unshift/join/slice/indexOf/substring/charAt/charCodeAt/toString/toFixed/split/concat/reverse methods. Primitive toFixed supports int precision 0–20, RangeError1002 and fixed integral output at magnitude >=1e21; native method extraction is explicitly diagnosed without blocking custom fields.",
+      "limitations": "The list is limited and uses JavaScript behavior, with possible differences in ranges, coercion and errors. Historical rounding and boxed Numbers remain unverified.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
         "docs/COMPATIBILITY.md",
         "crates/neoflash-script/tests/INTRINSICS.md",
-        "crates/neoflash-script/tests/intrinsic-fixtures.mjs",
-        "docs/VERIFICATION.md",
-        "docs/actionscript-reference/P0-TRACKER.md",
-        "docs/actionscript-reference/implementation-evidence.json"
+        "docs/VERIFICATION.md"
       ]
     },
     {
       "id": "as3-trace",
-      "title": "Trace через browser host",
+      "title": "Trace through the browser host",
       "status": "implemented",
-      "scope": "trace из handler и вложенных функций проходит через host, обновляет консоль и строку состояния player.",
-      "limitations": "Реализован наблюдаемый канал вывода NeoFlash; полное форматирование всех Flash-типов не заявлено.",
+      "scope": "trace from handlers and nested functions runs through the host, updating the console and player status line.",
+      "limitations": "This implements the observable NeoFlash output channel; complete formatting of all Flash types is not claimed.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "web/runtime.js",
@@ -292,10 +286,10 @@
     },
     {
       "id": "as3-timeline",
-      "title": "MovieClip и таймлайны",
+      "title": "MovieClip and timelines",
       "status": "partial",
-      "scope": "play/stop, gotoAndPlay/gotoAndStop, nextFrame/prevFrame, текущий/общий кадр, именованные дети и независимые nested clocks.",
-      "limitations": "Это ограниченный фасад MovieClip; полный construction/re-entry, scenes, dynamic display list и Flash lifecycle не реализованы.",
+      "scope": "play/stop, gotoAndPlay/gotoAndStop, nextFrame/prevFrame, current/total frames, named children and independent nested clocks.",
+      "limitations": "This is a limited MovieClip facade; complete construction/re-entry, scenes, dynamic display lists and the Flash lifecycle are not implemented.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -305,10 +299,10 @@
     },
     {
       "id": "as3-display",
-      "title": "Свойства отображения",
+      "title": "Display properties",
       "status": "partial",
-      "scope": "x/y, rotation, alpha, scaleX/scaleY, root/parent в ограниченном host facade. Boolean visible для authored MovieClip проверен в HTML5 Chrome/IAB; скрытые клипы сохраняют clocks/Load/custom fields.",
-      "limitations": "Нет полного DisplayObject API, width/height, mask и filters. Полные TextField/Button contracts, conversion profiles и rotation semantics требуют отдельной работы. Успех MovieClip не распространяется на все классы; custom fields не доказывают изменение изображения.",
+      "scope": "x/y, rotation, alpha, scaleX/scaleY and root/parent through a limited host facade. Runtime visibility retains hidden clocks/state and removes rendering/input targets; Boolean MovieClip cases passed Chrome/in-app browser acceptance.",
+      "limitations": "Full DisplayObject APIs, dimensions, masks, filters and class-specific TextField/Button contracts remain incomplete. Rotation semantics remain pending; legacy visibility conversion has an explicit bounded profile.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -321,10 +315,10 @@
     },
     {
       "id": "as3-events",
-      "title": "События и обработчики",
+      "title": "Events and handlers",
       "status": "partial",
-      "scope": "Авторские frame scripts и object events load/click/enter_frame; проверка жизни target и ограничение рекурсивных dispatch.",
-      "limitations": "Нет полной Flash event model, keyboard/mouse API, button states и совместимого порядка всех lifecycle events.",
+      "scope": "Authored frame scripts and load/click/enter_frame object events; target-lifetime checks and a limit on recursive dispatch.",
+      "limitations": "The complete Flash event model, keyboard/mouse APIs, button states and compatible ordering of all lifecycle events are absent.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -333,10 +327,10 @@
     },
     {
       "id": "as3-graphics-api",
-      "title": "Программное рисование",
+      "title": "Programmatic drawing",
       "status": "planned",
-      "scope": "flash.display.Graphics, BitmapData и программная графика Flash.",
-      "limitations": "Авторские векторные формы и их Canvas-отрисовка не являются доступным из ActionScript Graphics API.",
+      "scope": "flash.display.Graphics, BitmapData and programmatic Flash graphics.",
+      "limitations": "Authored vector shapes and their Canvas rendering do not provide a Graphics API callable from ActionScript.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",
@@ -345,10 +339,10 @@
     },
     {
       "id": "as3-text-api",
-      "title": "TextField и текстовые API",
+      "title": "TextField and text APIs",
       "status": "planned",
-      "scope": "Динамический и вводимый текст, форматирование, измерения, selection и программное управление TextField.",
-      "limitations": "Статический текст модели не реализует Flash TextField; custom field с именем text не меняет нарисованную строку.",
+      "scope": "Dynamic and input text, formatting, measurement, selection and programmatic TextField control.",
+      "limitations": "Static text in the document model does not implement Flash TextField; a custom field named text does not change the rendered string.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",
@@ -357,10 +351,10 @@
     },
     {
       "id": "as3-media-api",
-      "title": "Звук, видео и загрузка ресурсов",
+      "title": "Audio, video and resource loading",
       "status": "planned",
-      "scope": "Flash media APIs, загрузка изображений, звука и видео, управление воспроизведением и синхронизация.",
-      "limitations": "Модель authoring/runtime пока не предоставляет соответствующих AS API.",
+      "scope": "Flash media APIs, loading of images, audio and video, playback control and synchronization.",
+      "limitations": "The authoring/runtime model does not yet provide the corresponding ActionScript APIs.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md"
@@ -368,10 +362,10 @@
     },
     {
       "id": "as3-network-api",
-      "title": "Сеть, хранилища и внешние связи",
+      "title": "Networking, storage and external communication",
       "status": "planned",
-      "scope": "Flash network/loaders, SharedObject и явно определённые browser bridges.",
-      "limitations": "Доступ JavaScript к браузеру не означает наличие одноимённых ActionScript API.",
+      "scope": "Flash networking/loaders, SharedObject and explicitly defined browser bridges.",
+      "limitations": "JavaScript access to the browser does not imply support for equivalent ActionScript APIs.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md"
@@ -379,10 +373,10 @@
     },
     {
       "id": "as3-components",
-      "title": "Компоненты и платформенные библиотеки",
+      "title": "Components and platform libraries",
       "status": "planned",
-      "scope": "Компоненты Flash/Flex и применимые AIR/platform APIs с отдельными решениями для браузера.",
-      "limitations": "Библиотеки не реализованы; перенос платформенных API требует явного supported/adapted/unavailable контракта.",
+      "scope": "Flash/Flex components and applicable AIR/platform APIs, with separate browser adaptations.",
+      "limitations": "These libraries are not implemented; porting platform APIs requires an explicit supported/adapted/unavailable contract.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md"
@@ -390,10 +384,10 @@
     },
     {
       "id": "as3-vm-conformance",
-      "title": "Полная семантика виртуальной машины",
+      "title": "Complete virtual-machine semantics",
       "status": "planned",
-      "scope": "Совместимость с AVM2, включая типы, классы, coercion и runtime errors.",
-      "limitations": "Текущий frontend выдаёт JavaScript; собственные regression tests не равны сертификации Flash Player conformance.",
+      "scope": "AVM2 compatibility, including types, classes, coercion and runtime errors.",
+      "limitations": "The current frontend emits JavaScript; internal regression tests are not Flash Player conformance certification.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md"
@@ -401,10 +395,10 @@
     },
     {
       "id": "as3-debugger",
-      "title": "Отладчик и source maps",
+      "title": "Debugger and source maps",
       "status": "planned",
-      "scope": "Отладка ActionScript с исходными строками, breakpoints и просмотром состояния.",
-      "limitations": "Диагностика compile/publish уже есть; полноценный source debugger отсутствует.",
+      "scope": "ActionScript debugging with original source lines, breakpoints and state inspection.",
+      "limitations": "Compile/publish diagnostics exist; a complete source debugger is absent.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md"
@@ -412,10 +406,10 @@
     },
     {
       "id": "as3-labels",
-      "title": "Метки и именованные переходы",
+      "title": "Labels and named jumps",
       "status": "implemented",
-      "scope": "Метки statement, labelled break и continue к внешним циклам; границы функции проверяются.",
-      "limitations": "Статус относится к управлению потоком исходного AS3, а не к меткам кадров MovieClip.",
+      "scope": "Statement labels, labelled break and continue to outer loops, with function-boundary validation.",
+      "limitations": "This status covers AS3 source control flow, not MovieClip frame labels.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/src/actionscript/control_tests.rs",
@@ -424,10 +418,10 @@
     },
     {
       "id": "as3-namespaces-e4x",
-      "title": "Namespaces, XML и E4X",
+      "title": "Namespaces, XML and E4X",
       "status": "planned",
-      "scope": "namespace/use namespace, qualified names, XML/XMLList, E4X и for each.",
-      "limitations": "Отклоняются frontend; XML-парсинг XFL не является реализацией AS3 XML.",
+      "scope": "namespace/use namespace, qualified names, XML/XMLList, E4X and for each.",
+      "limitations": "These are rejected by the frontend; XFL XML parsing does not implement AS3 XML.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "docs/COMPATIBILITY.md"
@@ -435,10 +429,10 @@
     },
     {
       "id": "as3-typed-collections",
-      "title": "Vector, Dictionary и ByteArray",
+      "title": "Vector, Dictionary and ByteArray",
       "status": "planned",
-      "scope": "Типизированные коллекции, словари, бинарные буферы и связанные AS3 APIs.",
-      "limitations": "Обычные JavaScript arrays и objects не заменяют эти контракты.",
+      "scope": "Typed collections, dictionaries, binary buffers and related AS3 APIs.",
+      "limitations": "Ordinary JavaScript arrays and objects do not replace these contracts.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md"
