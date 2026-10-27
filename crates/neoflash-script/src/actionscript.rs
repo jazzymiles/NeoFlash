@@ -1565,6 +1565,11 @@ impl<'a> Frontend<'a> {
                             | "getNewTextFormat"
                             | "setNewTextFormat"
                             | "createTextField"
+                            | "hitTestObject"
+                            | "hitTestPoint"
+                            | "hitTest"
+                            | "startDrag"
+                            | "stopDrag"
                     )
             }
             Expr::Index(base, index) => literal_property_name(index)
@@ -2457,7 +2462,12 @@ impl Emitter<'_> {
                         Expr::Name(name)
                             if matches!(
                                 name.as_str(),
-                                "onEnterFrame" | "onPress" | "onRelease"
+                                "onEnterFrame"
+                                    | "onPress"
+                                    | "onRelease"
+                                    | "onReleaseOutside"
+                                    | "onRollOver"
+                                    | "onRollOut"
                             ) && self.analysis.resolve(self.scope, name).is_none() =>
                         {
                             Some(("__nfFrame".into(), name))
@@ -2465,7 +2475,12 @@ impl Emitter<'_> {
                         Expr::Member(base, name)
                             if matches!(
                                 name.as_str(),
-                                "onEnterFrame" | "onPress" | "onRelease"
+                                "onEnterFrame"
+                                    | "onPress"
+                                    | "onRelease"
+                                    | "onReleaseOutside"
+                                    | "onRollOver"
+                                    | "onRollOut"
                             ) =>
                         {
                             Some((self.expression(base), name))

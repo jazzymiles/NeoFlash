@@ -1,6 +1,8 @@
 # Backlog
 
-Independent 6687ced acceptance (`CLASSES-HTML5-20261027T1007Z`) confirms separate private owner state, protected/package collaboration, bounded dynamic metadata/JSON and sealed refusals, positive imports/final declarations, distinct AS2 inherited-private behavior and Restart. Final rejection, wildcard ambiguity and full reflection/initialization are not inferred. See [the independent record](VERIFICATION.md#independent-classpackage-verification-of-6687ced). The subsequent Video/NetStream/local NetConnection family has its own [bounded file-playback verification](VERIFICATION.md#file-video-and-local-stream-workflow); it inherits no class/package pass.
+Independent f42ad94 acceptance (`VIDEO-HTML5-20261027T1042Z`) confirms real embedded AS3/AS2 MP4 playback, pre-completion pause/seek/resume, natural completion, post-completion Close retention, one-view clear and active HTTP Restart. The silent short file does not establish audible output, precise synchronization, broad codecs/transport or active-close races. See [the independent record](VERIFICATION.md#independent-video-verification-of-f42ad94). Pointer/drag/hit-test integration is already in development and retains separate delivery evidence.
+
+Independent 6687ced acceptance (`CLASSES-HTML5-20261027T1007Z`) confirms separate private owner state, protected/package collaboration, bounded dynamic metadata/JSON and sealed refusals, positive imports/final declarations, distinct AS2 inherited-private behavior and Restart. Final rejection, wildcard ambiguity and full reflection/initialization are not inferred. See [the independent record](VERIFICATION.md#independent-classpackage-verification-of-6687ced). The later f42ad94 Video family has its own bounded independent record.
 
 Independent 6f4f66a acceptance (`IMAGE-PIPELINE-HTML5-20261027T0943Z`) confirms the initial full source/tint oracle, captured/roundtrip/loaded PNG equality, bulk cursor/word checks and partial setPixels EOF behavior. Later UI phases and Restart are retained as screenshot/AX evidence; missing later logs do not establish repeated full-pixel or whole-run zero-error results. See [the independent record](VERIFICATION.md#independent-image-pipeline-verification-of-6f4f66a). The later 6687ced class/package family has its own bounded independent record.
 
@@ -202,3 +204,8 @@ The coordinated source package adds lexical AS3 access, final/dynamic classes, p
 ## Video playback follow-ups
 
 The file-video family adds local connections/streams, AS3-created and AS2-authored views, embedded/native HTTP media transport, playback controls and shared display ownership. Native placeholder insertion is compile/model checked; live native UI, timeline synchronization, codec/seek/error fidelity, RTMP/camera/publishing and richer media authoring remain open. Group further acceptance by complete media workflows.
+
+
+## Pointer and drag follow-ups
+
+The coordinated input family adds shared flags/hitArea state, transformed drag controls, geometry queries and legacy release callbacks. Remaining work includes full legacy enabled/trackAsMenu behavior, transparent-fill/glyph/filter hit fidelity, reparenting during drag, multi-touch/3D and cross-engine/original-player comparison. Keep follow-up verification grouped by usable components rather than one method per browser cycle.

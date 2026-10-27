@@ -277,7 +277,7 @@
     const references = new WeakMap();
     const attachedClasses = new Map();
     let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, program = null;
-    let timerRenderGeneration=0, capturePainter=null;
+    let timerRenderGeneration=0, capturePainter=null,inputPaths=null;
     let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
     function updateCursor() {
@@ -341,7 +341,10 @@
         }});
       if(global.NeoFlashFilters&&typeof player.filter_rgba==='function')filterHost=global.NeoFlashFilters.create({player});
       if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,onUpdate:ref=>textInputHost?.sync(ref),measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.font=global.NeoFlashText.cssFont(format);return context.measureText(text).width;}});
-      display=global.NeoFlashDisplay.create({player,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,beforeFilters:(target,specs)=>{if(specs.length)assertUnfilteredEditing(stageHost?.stage.focus,target);},referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
+      display=global.NeoFlashDisplay.create({player,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,as2,
+        shapeContains:(kind,x,y)=>{if(typeof context==='undefined'||typeof context.isPointInPath!=='function')throw new Error('Shape hit testing requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(context,kind,x,y,inputPaths.get(kind.commands));},
+        clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[]),x,y,inputPaths);},
+        beforeFilters:(target,specs)=>{if(specs.length)assertUnfilteredEditing(stageHost?.stage.focus,target);},referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
         measureText:(line,kind)=>{if(typeof context==='undefined')throw new Error('Text bounds require the Canvas font measurement service.');context.font=font(kind);return context.measureText(line).width;},
         pathBounds:(commands,matrix)=>global.NeoFlashAccessibility.pathBounds(commands,matrix)});
       if(global.NeoFlashEvents&&global.NeoFlashStage) {
@@ -351,12 +354,14 @@
           localPoint:local,globalPoint:(target,x,y)=>{const p=target===stageHost?.stage?{x,y}:display.convert(target,{x,y},true);return[p.x,p.y];}});
         stageHost=global.NeoFlashStage.create({events:eventHub,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,
           frameRate:runtimeFrameRate,getFrameRate:()=>runtimeFrameRate,setFrameRate:value=>{runtimeFrameRate=value;},alive:target=>alive(target)&&(target===stageHost?.stage||display.descriptor(target).on_stage!==false),localPoint:local,
-          canvas:typeof canvas==='undefined'?null:canvas,keyboardTarget:typeof viewport==='undefined'?null:viewport,
+          canvas:typeof canvas==='undefined'?null:canvas,keyboardTarget:typeof viewport==='undefined'?null:viewport,pointerTarget:global,
+          parentOf:target=>display.parentSpace(target),resolveInput:target=>display.resolveInput(target),beforePointer:()=>display.updateDrag(),hasDrag:()=>display.hasDrag(),cancelPointer:()=>display.cancelPointer(),
+          onPointerTarget:target=>{pointerOverContent=display.handCursor(target);updateCursor();},
           onFocusChanged:(next,previous)=>textInputHost?.focusChanged(next,previous),ownsTextInput:node=>textInputHost?.owns(node),canFocus:value=>{if(textInputHost&&!textInputHost.canFocus(value))return false;assertUnfilteredEditing(value);return true;},
-          hitTest:event=>{const hit=hitAt(event);return hit?interactiveTarget(hit):null;},
+          hitTest:event=>{if(typeof canvas==='undefined')return null;const rect=canvas.getBoundingClientRect(),x=(event.clientX-rect.left)*project.width/rect.width,y=(event.clientY-rect.top)*project.height/rect.height;return x>=0&&y>=0&&x<=project.width&&y<=project.height?display.pick(x,y):null;},
           coordinates:event=>{if(typeof canvas==='undefined')return null;const r=canvas.getBoundingClientRect();return[(event.clientX-r.left)*project.width/r.width,(event.clientY-r.top)*project.height/r.height];},
           isInputEnabled:()=>typeof failed==='undefined'||(!failed&&!preview.panMode&&!preview.suppressClick),
-          onLegacyInput:(type,target,event)=>{if(type==='mouseDown'&&(event.button===undefined||event.button===0))display.press(target);},
+          onLegacyInput:(type,target,event)=>display.pointer(type,target,event),
           afterInput:()=>{dispatchScripts();if(typeof context!=='undefined')render();},onError:inputFailure});
         if(global.NeoFlashLegacyInput){
           legacyHost=global.NeoFlashLegacyInput.create({stage:stageHost.stage,
@@ -369,7 +374,7 @@
       if(global.NeoFlashTextInput&&textHost&&stageHost&&typeof player.object_text_input==='function'){
         textInputHost=global.NeoFlashTextInput.create({player,text:textHost,display,events:global.NeoFlashEvents,hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,
           canvas:typeof canvas==='undefined'?null:canvas,surface:typeof document==='undefined'?null:document.getElementById('stage-surface'),document:typeof document==='undefined'?null:document,project:typeof project==='undefined'?null:project,
-          onError:inputFailure,afterInput:afterTimerEvent,onClick:(target,event)=>{stageHost.handlePointer('click',event,target);if(display.alive(target)){player.object_click(references.get(target).key);dispatchScripts(target);if(typeof context!=='undefined')render();}}});
+          onError:inputFailure,afterInput:afterTimerEvent,onClick:(target,event)=>{target=display.resolveInput(target);if(!target)return;stageHost.handlePointer('click',event,target);if(display.alive(target)){player.object_click(references.get(target).key);dispatchScripts(target);if(typeof context!=='undefined')render();}}});
         legacyGlobals=Object.freeze({...legacyGlobals,Selection:textInputHost.Selection});
       }
       if(global.NeoFlashTimers&&global.NeoFlashEvents)timerHost=global.NeoFlashTimers.create({events:global.NeoFlashEvents,
@@ -436,6 +441,7 @@
       };
     }
     function resetProject() {
+      pointerOverContent=false;legacyCursorVisible=true;updateCursor();
       capturePainter?.clear();capturePainter=null;
       filterHost?.renderer.clear();
       textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
@@ -445,6 +451,7 @@
       dispatchScripts();
     }
     function disposeFamily() {
+      pointerOverContent=false;legacyCursorVisible=true;updateCursor();
       capturePainter?.clear();capturePainter=null;
       filterHost?.renderer.clear();
       textInputHost?.dispose();storageHost?.dispose();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
@@ -506,22 +513,28 @@
     function drainDisplayEvents() {
       if(graphMode&&typeof player.display_events_json==='function')deliverDisplayEvents(JSON.parse(player.display_events_json()).events);
     }
+    function semanticRoute(node,list){
+      if(node.owner_ref&&!player.object_alive(JSON.stringify(node.owner_ref)))return null;
+      const owner=node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path);
+      const route=display?.inputRoute?display.inputRoute(owner,list):{owner,target:owner};
+      return route?.owner===owner?route:null;
+    }
     function activateSemantic(node) {
+      const route=semanticRoute(node);if(!route)return false;
       const accepted=node.owner_ref&&typeof player.object_activate_accessible==='function'
         ?player.object_activate_accessible(JSON.stringify(node.owner_ref))
         :player.activate_accessible(JSON.stringify(node.instance_path),node.lifetime_id);
       if(!accepted)return false;
-      const target=node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path);
+      const target=route.target;
       // Native semantic buttons have one click activation and no Canvas pointerdown.
       // Deliver the legacy press action once, alongside the AS3 click route.
-      display?.press(target);
+      if(display){display.pointer('mouseDown',target);display.pointer('mouseUp',target);}
       if(stageHost&&display.alive(target)){stageHost.stage.focus=target;stageHost.handlePointer('click',{},target);}
-      dispatchScripts(target);if(typeof context!=='undefined')render();return true;
+      dispatchScripts(route.owner);if(typeof context!=='undefined')render();return true;
     }
     function interactiveTarget(hit) {
       let target=graphMode?proxyForRef(hit):proxyFor(hit);
-      while(target&&target!==stageHost?.stage){const node=display.descriptor(target);if(node.owner!=='shape'&&node.owner!=='graphic'&&node.owner!=='bitmap'&&node.owner!=='video')return target;target=display.parentSpace(target);}
-      return target;
+      return display.resolveInput(target);
     }
 
     function broadcastFrame() {
@@ -731,14 +744,14 @@
       const painter=createScenePainter({global,paths,gradients,clippings,bitmapHost,textHost,filterHost,videoHost,context,matrix:bitmapMatrix,hidden:ref=>Boolean(textInputHost?.hidden(ref))});
       const {clippedBounds,objects}=painter.draw(context,snapshot||{draws:scene,objects:[],semantics:[],clips:[],filter_groups:[]},{width:project.width,height:project.height});
       const semanticScene=snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,...(clippedBounds.has(item)?{clipped_bounds:clippedBounds.get(item)}:{}),transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};}):scene;
-      const targetCount = semanticLayer.update(snapshot?snapshot.semantics:JSON.parse(player.accessibility_json()), semanticScene, project, preview.view.scale, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
+      const targetCount = semanticLayer.update(snapshot?snapshot.semantics.filter(node=>Boolean(semanticRoute(node,snapshot.objects))):JSON.parse(player.accessibility_json()), semanticScene, project, preview.view.scale, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
       bitmapHost?.cache.endFrame();
       if (targetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
       status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${runtimeFrameRate} fps`;
       if (traceElement.textContent !== lastTrace) traceElement.textContent = lastTrace;
       toggle.textContent = player.is_playing() ? 'Pause' : 'Play';
     }
-    function hitAt(event) {
+    function hitAt(event,details=false) {
       let snapshot=graphMode?JSON.parse(player.runtime_snapshot_json()):null;
       if(snapshot&&typeof videoHost!=='undefined'&&videoHost)snapshot=videoHost.prepareSnapshot(snapshot);
       scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
@@ -746,6 +759,7 @@
       const rect = canvas.getBoundingClientRect();
       const x = (event.clientX - rect.left) * project.width / rect.width;
       const y = (event.clientY - rect.top) * project.height / rect.height;
+      if(typeof display!=='undefined'&&display?.pickDetails){const result=x>=0&&y>=0&&x<=project.width&&y<=project.height?display.pickDetails(x,y):null;return details?result:result?references.get(result.target).objectRef:null;}
       for (let index = scene.length - 1; index >= 0; index--) {
         const item = scene[index];
         if (item.alpha <= 0) continue;
@@ -762,23 +776,23 @@
     canvas.addEventListener('click', event => {
       if (failed || preview.panMode || preview.suppressClick) return;
       try {
-        const hit=hitAt(event),target=hit?(graphMode?proxyForRef(hit):proxyFor(hit)):null;
-        stageHost?.handlePointer('click',event);
-        if(target&&display.alive(target)){
-          if(graphMode&&typeof player.object_click==='function')player.object_click(references.get(target).key);
+        const hit=hitAt(event,true),target=hit?.target||(hit?(graphMode?proxyForRef(hit):proxyFor(hit)):null),authored=hit?.owner||target;
+        if(stageHost?.handlePointer('click',event,target||stageHost.stage,true)===false)return;
+        if(target&&display.alive(target)&&display.alive(authored)){
+          if(graphMode&&typeof player.object_click==='function')player.object_click(references.get(authored).key);
           else {
-            let owner=target,node=display.descriptor(owner);
+            let owner=authored,node=display.descriptor(owner);
             while(graphMode&&node.authored_path===null){owner=display.parentSpace(owner);if(!owner||owner===stageHost?.stage)break;node=display.descriptor(owner);}
             const path=graphMode?node.authored_path:node.path;
             if(path)player.click(JSON.stringify(path));
           }
-          dispatchScripts(target);
+          dispatchScripts(authored);
           render();
         }
 
       } catch (error) { fail(error); }
     });
-    canvas.addEventListener('pointermove', event => { pointerOverContent=Boolean(hitAt(event));updateCursor(); });
+    canvas.addEventListener('pointermove',event=>{const hit=hitAt(event);pointerOverContent=Boolean(hit&&display.handCursor(graphMode?proxyForRef(hit):proxyFor(hit)));updateCursor();});
     canvas.addEventListener('pointerleave', () => { pointerOverContent=false;updateCursor(); });
     toggle.addEventListener('click', () => {
       player.set_playing(!player.is_playing());

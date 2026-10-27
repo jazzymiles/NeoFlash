@@ -215,6 +215,7 @@ impl Player {
             .retain(|reference, _| !retired.contains(reference));
         self.graph.retire_text(&retired);
         self.graph.retire_video(&retired);
+        self.graph.retire_input(&retired);
         self.graph.retire_filters(&retired);
         self.graph.retire_clipping(&retired);
         self.graph

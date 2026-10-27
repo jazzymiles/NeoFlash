@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "aca5d2746d411c97bfe66488dcf4f18f19ab5d76bcf19cd1401fb51ae5ff2a2b",
+  "catalogSha256": "14753e726aae7d5a8e8548268a712a0c95274c85a94cb0f34f1dc96789d85c02",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -83,8 +83,8 @@
       }
     ],
     "inputHashes": {
-      "implementation-audit.json": "7ff62d4fa22c4fbb9d61063af06adef041d4b3cd3bb63ea5ad20ae04c714453b",
-      "implementation-evidence.json": "2831ac973da5032ee537a57b55eb091ae482829e50661dffff964a85af51dc91",
+      "implementation-audit.json": "54d4ffe508d6b31700a9193fd26c884d15d36c063021a9d49b93e7a25a6ada60",
+      "implementation-evidence.json": "26557ea3bde8396a729f065b90fd2ea8fe9d5f57afbd594c319d00bfbda6e9f6",
       "as2.json": "160442a3ef962733440d4b187096b816398d5c4bc7fed87209e20bc157bf3791",
       "as2-components.json": "891666b00f6caf7c4bfc250187ab33cc19880715cb69468d8e0370a43a9aac82",
       "as2-components-supplement.json": "f7677e2c3a3e0f8baf899bdb4511de7bb14965bac4956b9de78a22be64eaa802",
@@ -545,30 +545,42 @@
         "originalFlashComparison": "documented_only",
         "decision": "accepted_partial_classes_packages_family",
         "currentSourceVerified": false
+      },
+      {
+        "id": "VIDEO-HTML5-20261027T1042Z",
+        "recordedHead": "f42ad943593abbdc3f5ce5a2f65c4addf287063a",
+        "sourceCapturedAt": "2026-10-27T10:44:53.502455+00:00",
+        "verifiedAt": "2026-10-27T10:58:58.198745+00:00",
+        "sourceManifestSha256": "da728dcb9b7ed815f7fa7cfba9b519cc1c9065df1e136223e8a914babcd6d116",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified; no other engine tested.",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_partial_video_local_streaming_family",
+        "currentSourceVerified": false
       }
     ]
   },
   "summary": {
     "total": {
       "implemented_subset": 30,
-      "partial": 884,
-      "missing": 44806,
-      "needs_review": 327,
+      "partial": 920,
+      "missing": 44768,
+      "needs_review": 329,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
         "implemented_subset": 15,
-        "partial": 340,
-        "missing": 1843,
+        "partial": 352,
+        "missing": 1831,
         "needs_review": 109,
         "total": 2307
       },
       "AS3": {
         "implemented_subset": 15,
-        "partial": 544,
-        "missing": 42963,
-        "needs_review": 218,
+        "partial": 568,
+        "missing": 42937,
+        "needs_review": 220,
         "total": 43740
       }
     },
@@ -610,9 +622,9 @@
       },
       "runtime": {
         "implemented_subset": 2,
-        "partial": 470,
-        "missing": 5682,
-        "needs_review": 4,
+        "partial": 506,
+        "missing": 5644,
+        "needs_review": 6,
         "total": 6158
       }
     },
@@ -655,8 +667,8 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 169,
-          "missing": 735,
+          "partial": 181,
+          "missing": 723,
           "needs_review": 3,
           "total": 908
         }
@@ -699,9 +711,9 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 301,
-          "missing": 4947,
-          "needs_review": 1,
+          "partial": 325,
+          "missing": 4921,
+          "needs_review": 3,
           "total": 5250
         }
       }
@@ -16208,6 +16220,780 @@
       "reason": "Explicit prototype/__proto__/__resolve questions identified by compiler auditor.",
       "limitations": "Use only within the exact reviewed rule; no full Flash compatibility is claimed.",
       "evidence": []
+    },
+    {
+      "id": "VIDEO-HTML5-20261027T1042Z",
+      "title": "Independent HTML5 acceptance: VIDEO-HTML5-20261027T1042Z",
+      "reason": "accepted partial video local streaming family",
+      "limitations": "Only the Codex in-app browser was used; engine/version not separately identified, original Flash documented_only. No FLV/F4V, other codecs, streaming server, RTMP, camera/microphone, DRM, video upload, remote NetConnection or full security-domain contract. AS3 HTTP, held pending-load cancellation, autoplay policy matrix, missing/invalid media and cross-origin CORS remain unverified. Close was tested after natural completion; active playback interruption belongs only to Restart during AS2 HTTP. No arbitrary attach/detach, multiple views, timeline replacement/reentry, old wrappers or full native owner retirement proof. Transforms/masks/scrollRect/filter intersections, smoothing effect and native authoring UI were not independently exercised. Silent source and configuration readback do not prove audible quality, volume/pan effect, full mixer or PCM fidelity. No general coercion/default/signature/status matrix or full class promotion from representative calls. Historical rgb/defaults/AS2 Number/owner-aware/resource overlay/native D-008 remain open or pending; earlier image observation gaps are not closed by this unrelated run.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/Cargo.toml",
+          "sha256": "748c4a1fb26b503b86b1b57cb3aa277691c7011dd504b8aaf5891a0a6999144a"
+        },
+        {
+          "path": "crates/neoflash-core/src/amf.rs",
+          "sha256": "b9dccbdebe417a5254f5ac68780897e926d8234be98608cb96593282c415e27d"
+        },
+        {
+          "path": "crates/neoflash-core/src/clipboard.rs",
+          "sha256": "45ca958aa45830f8c10ffa45c629c9f625895b90f01c041343853e8140f28c60"
+        },
+        {
+          "path": "crates/neoflash-core/src/demo.rs",
+          "sha256": "0a714dc68bc8bea957b3352f17665d0e690ab77eb41a6cd2478fd4571301a591"
+        },
+        {
+          "path": "crates/neoflash-core/src/evaluate.rs",
+          "sha256": "4e5096940e88b5959e40936a7bf0d0019f261be6d3a892ebae7fa02dd35a48ed"
+        },
+        {
+          "path": "crates/neoflash-core/src/filters.rs",
+          "sha256": "575cddddde48d50aa6cc7f19c55b9b69b9ef3a62a0915b83877c16d412e00023"
+        },
+        {
+          "path": "crates/neoflash-core/src/geometry.rs",
+          "sha256": "94b9531d20975840a8a9c998832f090fee17cfa66c5dbe78c12a30b0a527b2f8"
+        },
+        {
+          "path": "crates/neoflash-core/src/history.rs",
+          "sha256": "662c5cd0855fa1cccccac432fb374a7f86db680ed476559c92fbe324fff88441"
+        },
+        {
+          "path": "crates/neoflash-core/src/lib.rs",
+          "sha256": "57e14b125d1f135474e44df62be69d0b5d2f423f2f69d560b806fc45651191e5"
+        },
+        {
+          "path": "crates/neoflash-core/src/model.rs",
+          "sha256": "bdb05bac059810043a18d8a17f7164eb704a6c54ecce56f104611b12d35f524a"
+        },
+        {
+          "path": "crates/neoflash-core/src/pixels.rs",
+          "sha256": "078860eb01b599159269c1041a89f9d63d3aea791968b981f92ba48f4a82fc9b"
+        },
+        {
+          "path": "crates/neoflash-core/src/pixels/pipeline.rs",
+          "sha256": "7ca93f1ed1614f97e37ddf1a4ec05963aea4db46cad0bb42fd0d6127226d31fd"
+        },
+        {
+          "path": "crates/neoflash-core/src/resource_image.rs",
+          "sha256": "9b3fe39fa4e9ec92396c01d38800fb0fdd4610d33fe42382bc99c58045b9dda5"
+        },
+        {
+          "path": "crates/neoflash-core/src/resources.rs",
+          "sha256": "51964faf7747aa135a001f9939cd304edad394e3e05c12bec14ab51569a2924a"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime.rs",
+          "sha256": "5db6c7d04e986687f3d6ed059dc4724b0b6b408646a4f646d14d82cc8c289b64"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph.rs",
+          "sha256": "f2820b1127edae2f2312f88b3ee4bf27d0ac0736163bc24a43dec7ec5732bfbc"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/bitmap.rs",
+          "sha256": "d1dd747747c799ffa3c15cd6aef42e12690046b7bdf77cb12e1181c4880b5fa6"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/clipping.rs",
+          "sha256": "1811d4fea7afa50b3f10725f631b71cdd52b0e5f173bb0e3583d7b89902e376b"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/filters.rs",
+          "sha256": "5e69e3cd33a8f02e07102e699c8297af3096119dd5c457ca31228bb0a111a320"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/linked.rs",
+          "sha256": "3af2000f045432d2482a680ddcb7d7d32aa5ab0c54ee0b51d8088d53e941049e"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/loader.rs",
+          "sha256": "813929215da2e6ab0f83407147acff9a94b1a8242670fab4a821a4a545904193"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/text.rs",
+          "sha256": "b7f43acd26e1a1db47d248d7b4b47de62c9f7bde5707b674f0921bb50b60d215"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/transform.rs",
+          "sha256": "58acbec3e79f3cf2953196f1649386f0e8fe69606744d2c23f27cb4f8b17c45a"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/video.rs",
+          "sha256": "087870930dcfc008ec5dd2e80e0ed3774a5b46d82e13a09d9b76148fbb96cb1e"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graphics.rs",
+          "sha256": "d635425dfcd00d838f8083d8e758ce69f7aaa7f7cfe17fea7e5f77de196129b6"
+        },
+        {
+          "path": "crates/neoflash-core/src/text.rs",
+          "sha256": "118e1aea57041cc8f9668f1736f27485c4be665891aa67d2e416bee88d08d5a3"
+        },
+        {
+          "path": "crates/neoflash-core/src/validation.rs",
+          "sha256": "41a10dc1ec717ece6bf8d919cd850b9d9867dd8e5c2a381feb567cd85427c863"
+        },
+        {
+          "path": "crates/neoflash-core/src/xml.rs",
+          "sha256": "3dd8637ddd6d28bcf8f9fef0b9180c660fcdcac4e650fa26c003028f87d46ed7"
+        },
+        {
+          "path": "crates/neoflash-editor/Cargo.toml",
+          "sha256": "8549dc2d0d3b59abd1336bb322e2ca39e4198372b5f5cdf3ace861521e8741d9"
+        },
+        {
+          "path": "crates/neoflash-editor/src/accessibility.rs",
+          "sha256": "7b02f21d880283cdf480a6c0579f732abf19fbe317917e4e18faf9b11d069369"
+        },
+        {
+          "path": "crates/neoflash-editor/src/app.rs",
+          "sha256": "b5966a8a8cc4a370bebfddea27f95108d0fd78250c0e49a10b9d74e37ab01c32"
+        },
+        {
+          "path": "crates/neoflash-editor/src/bitmaps.rs",
+          "sha256": "ec7d1385f4e8e74fb32ab7d23d484dbecff848d1951d6f4f0acceff7b98ac32d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard.rs",
+          "sha256": "e3ffc6db4a9567d2de9194bfbc8a4715e3ddb0b206dc593002cce2ec9eb169fe"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard_tests.rs",
+          "sha256": "cd47a143e3954f0b664aa57df66d31175977a269f000a088ab7d136b854704ae"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached.rs",
+          "sha256": "4857ae64827f7818f7f159fff43b3e14a6ff784bcd0148d161a25e7765e59b3d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached_tests.rs",
+          "sha256": "e66b38262cd5cf6d0a1f64887b19ba86950233cc6fd77c16a977bcba16f14ceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/fonts.rs",
+          "sha256": "59e6bf607f4a074add517fe5fa1e29a09b65b8a51331ac6d5467e98e6064b988"
+        },
+        {
+          "path": "crates/neoflash-editor/src/main.rs",
+          "sha256": "a28169289b6e566c56f4d4c862a234724bf1d0d1fb1e476f34598f81dd2521ea"
+        },
+        {
+          "path": "crates/neoflash-editor/src/native_screens.rs",
+          "sha256": "b3eb6e6612dfd09c9ddfb206b82c3039343730bcf616c380cbee383b92664440"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panel_tests.rs",
+          "sha256": "1f30578675e958423af68ba50fc07ca5cc466f91f5f0a7fee9a56f65ee98dd11"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panels.rs",
+          "sha256": "7560c6068dbaa83333abc9fab14a6823c2aa976fe0d8abb765cf9f4e17e526fd"
+        },
+        {
+          "path": "crates/neoflash-editor/src/resources.rs",
+          "sha256": "8c1aad47de4850fd10a110d299970ddad9911e025597f42f9761db6ed123b4d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection.rs",
+          "sha256": "0c1ea7f8306eb81328d80672436993f0c4d270891d6c50ee81d6ef0243626859"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection_tests.rs",
+          "sha256": "5f0dd0cfcf2243aef8e82d4e7fbaba0f0fcae365abf86e5535b01ae112b8e080"
+        },
+        {
+          "path": "crates/neoflash-editor/src/sources.rs",
+          "sha256": "a41612c805421a92f4a49af70475dc7822d605d2060bc335ce1704a2b95a3ec9"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage.rs",
+          "sha256": "33e42f23cdb859896de68df4ecf6dd92de14fffc497d5a7277d6fefb867f85df"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_primitives.rs",
+          "sha256": "fe940d6123cb492a4c6a6a9e135b51da023fe4c47193a6c3cdc185bd679cfceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_selection.rs",
+          "sha256": "e7ca9975a795b79e376ad096bc440bc469b17247f66b166c801756e8bcaeed13"
+        },
+        {
+          "path": "crates/neoflash-editor/src/tests.rs",
+          "sha256": "a4b96abeb579c8d59014b974e97d883d8ff9802dfb5baca770340c60405c73d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/text_boxes.rs",
+          "sha256": "026d5cd1f800e39d70fa9a9e07d69d74363ddbc157c17ce35af8c2668cd4dcde"
+        },
+        {
+          "path": "crates/neoflash-editor/src/theme.rs",
+          "sha256": "98c946389cff79af8d415b3bd8a282633d097989e60d8643f2f8125f7f8c4936"
+        },
+        {
+          "path": "crates/neoflash-editor/src/timeline_paint.rs",
+          "sha256": "87a87535956dcfaa686e6222bb56f1953328b00be858a0b522094097759848d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_geometry.rs",
+          "sha256": "584f5b1d3d7cc50906d5fe647812678d97333fd8df4a7d31264e0b9f245c971f"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_gesture_tests.rs",
+          "sha256": "490e7e0df25c8ad6a7793109076100ea63c54b11d9469542f583b0cf4daf6ed6"
+        },
+        {
+          "path": "crates/neoflash-editor/src/ui_icons.rs",
+          "sha256": "532a69689f893cb6ad5bf82f4106b6472315fa1cea8af335b2d459ac0eaed74e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector.rs",
+          "sha256": "0d3ae90b25ab48e3228149b0b96920b8f1367e86a609f8d2c10176653ae35f1c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector_gesture_tests.rs",
+          "sha256": "6f54dd33ea9edf03f1c08383e932cffcc47a26cb2a54e2dfe0d8fed07e84d77e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace.rs",
+          "sha256": "e5adb69dad73eba07bc70ebed9d7907d837290df1bb80cae44f4fcd64d9f3b45"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace_editor_tests.rs",
+          "sha256": "6d26ab3e6be19b91b25fc13f27b9580b9810a8efbcb3892198de060216eb07af"
+        },
+        {
+          "path": "crates/neoflash-export/Cargo.toml",
+          "sha256": "577ab7bd07bb5614f4a0ef2e408b553befaad996024c65916121a52266cd0954"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "2d7ee3a4130740208ff2e193a4634774e0d381a3a36a1b6af139d3436c9f46be"
+        },
+        {
+          "path": "crates/neoflash-export/src/main.rs",
+          "sha256": "a174e11c87e970fc4ff37cb5966c525dd5435c744715b6ce93b0052c56bf89d8"
+        },
+        {
+          "path": "crates/neoflash-import/Cargo.toml",
+          "sha256": "ae07834a20cc84f4472c253088f5ce17127b137952daad3f066f34eca6ea96cc"
+        },
+        {
+          "path": "crates/neoflash-import/examples/contour_fixture.rs",
+          "sha256": "037f00320374630c556f0e45087b279071260e8de090fac6c81d059c362f3a59"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_binary_corpus.rs",
+          "sha256": "3ea8b650bcd5ced084b3c266f4f5865e2af96b43b3d3075588c6ae1414dea4d1"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_contour_candidates.rs",
+          "sha256": "9e6912139440480d7dee72ac4c6643c3690408f0ea19618df8f4d1276b20fe5e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy.rs",
+          "sha256": "9dfdb5573c5e1f63121cc4e7bc623bf151e55124ba47da8e688de153f65ccafa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents.rs",
+          "sha256": "adde25d4fa8736d8d47acbf215e78b054b9d31345fb80caef65009f2677cbffa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents/payload.rs",
+          "sha256": "b0c146ec3f5c56525f7e7c4e7b6a4bb28590e4711445b811766801caf685fedd"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours.rs",
+          "sha256": "f434f77c72359b53b18b42b137763d4d607b38b1f010a407b92f2575e7f7799e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours/certificate.rs",
+          "sha256": "fb4abe54a5984e47a05b1848e92f15adf61c4a35825edf7872e9103f8950caae"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/geometry.rs",
+          "sha256": "15797f76b2ed8a9b165b9f184ab8cf2d9439eefe702dcdc68e019c7ad9a191bf"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/mfc.rs",
+          "sha256": "2b79189ee7105947f7a18732860630e3f677ef82e55b2e91fcbde17959812021"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/timeline.rs",
+          "sha256": "7d5f4e1c0b44f6cc4e39628ed8f3724a99b81957394a0d8d07923ffd89f41f3a"
+        },
+        {
+          "path": "crates/neoflash-import/src/lib.rs",
+          "sha256": "3c54d4afecd01fde3e8f5db2bd9b42b0b0c5371be70d90ccc525027e2de53b8b"
+        },
+        {
+          "path": "crates/neoflash-import/src/main.rs",
+          "sha256": "2710f27ef30f4e62afb44537e56da44844aed04d4e8a864ccbda6edd75d4c2cc"
+        },
+        {
+          "path": "crates/neoflash-import/src/source.rs",
+          "sha256": "25662f5fd70d4e2cdafaf59518301dc8875fcf2f2e0636fd05e440823be5e9de"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl.rs",
+          "sha256": "17654ef592571a342b70eece359bb55e94a3281ac42baf8163dca72011706744"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/publish.rs",
+          "sha256": "0a631fa1a3c6b9c186eb76aef5115775b72b86e0d88462f3ea5028ee28b14c89"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/shape.rs",
+          "sha256": "2303fb011b22b32d56fccfe0505653af76057983da39540098b84be37abce1a5"
+        },
+        {
+          "path": "crates/neoflash-script/Cargo.toml",
+          "sha256": "73a29eb8d234c351f4fc2c8312f7924b2a365dddbd4b69ca86d6825b29c6b668"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_batch.rs",
+          "sha256": "c428fa1a84b3649229d9b8a6b33b3fa08ac274dd07679ca61de666b9bc069436"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_project.rs",
+          "sha256": "e7d780759bb4e62704d56c55e0d8e76c2ed9f5ae4a35f82e286aaea98a7c0ac6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "ecfe89b829611eacf76fac701a0d7531e28ffd4827f4b81bbaac55ed7d7f221f"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/collections.js",
+          "sha256": "63d55193c51b297e35970684a20cf31d8608956aa1f87210af778f67c0ab8cd0"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/completion.rs",
+          "sha256": "cbc6f6492a8d998193e5c4e1166c17b7df02211ae15f77d9f96c249ece6f7dea"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/containers.js",
+          "sha256": "28a50e4845cb068a313ad50b02b50ead5703c7dd2a11bb5fc346e70a99aee905"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/control_tests.rs",
+          "sha256": "4536b47803d97d87584e8a84b14aa5f279f412ce15fe98def9f6f31f7c8d8365"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/dates.js",
+          "sha256": "d8e821a7e50e822b6af1a16e3d5462a25bba8f345dd1dec5490fe0f573ae5024"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/dictionary.js",
+          "sha256": "f218db23553d32593ed4bced084bb466c0644ff3719702ce9391ddfb613e3034"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/exceptions.js",
+          "sha256": "534534a37d9d0c48b1898847615e0581b20661341d24ded64ed355785e8e366e"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/functions.js",
+          "sha256": "d416e6da72b4e9acd49ce781a0603147f9ac90f3d1edb21b01ff5271186edae2"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/intrinsics.js",
+          "sha256": "65528ea334627dc829097e59627647382ffe716b39acb77e15c8bcbef68ebdb4"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/json.js",
+          "sha256": "f1d574087cb0c3174d63965bd35653d1add7da0b4462ae9950e37b39ae1b79c6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "f63e7c2fa1a411f03d148f21c0ea3f20a31bc2d7bdc54d093fbd59da2604ff52"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "e75f78dda70d6ace0abc37ab04cf0fa128292561b185025c22e41baeb1639460"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/regexp.js",
+          "sha256": "2c0ed0066bd2894a6f78afce18ea718271d38d8b169fd728fee676b04dee9b07"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "366870d5ce74998ab410ff007c61ea9187cc204d53068c137fd6c427a053894b"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/strings.js",
+          "sha256": "11e60ba1f8e3204cab0b44a57089f70eb1fb022d94f55cc63300cf96e9a296e8"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/vectors.js",
+          "sha256": "b0eda4b41827889d9e676f4161b8c7bdb3cccd7724bebf42f84fa0502b7c93d1"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/xml_literals.rs",
+          "sha256": "53886e2a69ea84abf24c97ab91cc8e6ad2463e5bd8ac4ad8b534ff28a025bac3"
+        },
+        {
+          "path": "crates/neoflash-script/src/lib.rs",
+          "sha256": "3b7e634f008786775f3e8dd40dca84868b92e8af3e96f633ef28de5aa4464ec3"
+        },
+        {
+          "path": "crates/neoflash-web/Cargo.toml",
+          "sha256": "7658ff86ac02627a03ea66fe5c7c288333ff7c4d13e456b444e3b01fb0ea23f5"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "7591d915683770670abff9d600339bbab063b0c6d413778e277c362fe958dc92"
+        },
+        {
+          "path": "web/accessibility.js",
+          "sha256": "617b6d3e5ccb7a66f044ffcb2bb46ab7bcbc704e81b2c12f0055a80053ac8373"
+        },
+        {
+          "path": "web/amf.js",
+          "sha256": "67749be93531e6f12f573ef41ee133c37c05de7367a9fd2623356e74ce0305ae"
+        },
+        {
+          "path": "web/audio-formats.js",
+          "sha256": "91d325e5508967d057b697cedc37090058b09f1f34a71c603a1f6a11bb9d3443"
+        },
+        {
+          "path": "web/audio.js",
+          "sha256": "0fdcec0a321ca69419f825a9512cfb57c92fb6a3c671f83fad70b59b64e0c63c"
+        },
+        {
+          "path": "web/bitmap.js",
+          "sha256": "5a871c3a99fc48576d2b03fd0edebebd360b6d04f9df860d937c48499d21c5b3"
+        },
+        {
+          "path": "web/byte-array.js",
+          "sha256": "fbaca0bfa72cbbda3f95269717c30865a17041df7827cff7d6e39fa5cbf6f1e9"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "1cb5741f05316fcc0e7cc0c8a80aa22cbcc227fddfd9655610990824e7c6bb15"
+        },
+        {
+          "path": "web/events.js",
+          "sha256": "138fae7ce853928dd0595c53d8188d2477d2c738272f75e33092e6029dd0e73d"
+        },
+        {
+          "path": "web/filters.js",
+          "sha256": "e0dee474f5611cf41d72fe2037b6bad156ca4153d17674e0590d7dded3eea462"
+        },
+        {
+          "path": "web/geom.js",
+          "sha256": "2aa4ec042d7ea8fa8a8b0f8519e23eca1ea722960f4bb43496ac814ddd1de2b6"
+        },
+        {
+          "path": "web/legacy-input.js",
+          "sha256": "14ac0086abbbb5b1de591ea5ae35fafdce9f65f101b6e942871c62dc9c7b4c35"
+        },
+        {
+          "path": "web/loader.js",
+          "sha256": "ac5ed0cc57722c79f918c9e0968542d3b0412e855908fa7805c3c9b0ee10ee76"
+        },
+        {
+          "path": "web/net.js",
+          "sha256": "4fbf7e71528c9a107156dc5da64f6c97d9d7dfc3d677aeba120b039610caca11"
+        },
+        {
+          "path": "web/path.js",
+          "sha256": "c80ae03439b58963ed6e35abef4d7fb99033224aa57b6ba486f4cf1d54de1243"
+        },
+        {
+          "path": "web/preview.js",
+          "sha256": "1278996d0f1c0a7efe974919a8c496bbefebd5a0b5707926de03a708f4ca51fa"
+        },
+        {
+          "path": "web/progress/app.js",
+          "sha256": "b5f78ad52e27e498e0020ae33f59e4e545ed2d83c4f4abe8f9c3bd8fbc098780"
+        },
+        {
+          "path": "web/progress/history.html",
+          "sha256": "612e7564f63569bc8ee5497a91c14666c813653b6b348837506dd91cd0ba43e2"
+        },
+        {
+          "path": "web/progress/index.html",
+          "sha256": "5bcbd13e811e7a0ce201d7460ea6e3aaa60c73c2f00073d06c5baf9b01b527ef"
+        },
+        {
+          "path": "web/progress/style.css",
+          "sha256": "078133fc916b8e2714e0a178c67bffadb99c11799c3af0250a4d3a911cb9d235"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "8058917a351ff571e71d592ec174b65d1447b0772b98d922d1bd5dc12446961f"
+        },
+        {
+          "path": "web/stage.js",
+          "sha256": "11e403eeddf6c69b74475256973b52be1817f15d5e974562ca9d2da969d01515"
+        },
+        {
+          "path": "web/storage.js",
+          "sha256": "5aac0405a81c8a88fdfd80d3da3d46b79d09acab027fd49c49d94f6778f04fbb"
+        },
+        {
+          "path": "web/text-input.js",
+          "sha256": "e88f975d57f8de6b85812ed7c06dc8b680abfffcaaaf80ba86ccb1145718db0b"
+        },
+        {
+          "path": "web/text.js",
+          "sha256": "b15c20311a2567671cea7dd29ea4e1c4cd4e60431e065422a577a97e3103a8b0"
+        },
+        {
+          "path": "web/timers.js",
+          "sha256": "d42569c79bcda28ffd1b3712facb73e45e78e3b7dc22a1f194527781c9cdb9b1"
+        },
+        {
+          "path": "web/video.js",
+          "sha256": "07cab96086e70cefe710113f6bfc7c809b96a5322bbe9c4340c8cd0695563aec"
+        },
+        {
+          "path": "web/xml.js",
+          "sha256": "936a72a3f85060a5f87e90615f4022cd202ded740d1504d128dd996d6799a3d2"
+        }
+      ],
+      "verification": {
+        "id": "VIDEO-HTML5-20261027T1042Z",
+        "recordedHead": "f42ad943593abbdc3f5ce5a2f65c4addf287063a",
+        "sourceCapturedAt": "2026-10-27T10:44:53.502455+00:00",
+        "verifiedAt": "2026-10-27T10:58:58.198745+00:00",
+        "sourceManifestSha256": "da728dcb9b7ed815f7fa7cfba9b519cc1c9065df1e136223e8a914babcd6d116",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified; no other engine tested.",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_partial_video_local_streaming_family",
+        "currentSourceVerified": false
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:constructor:flash/media/Video.html#Video()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The real HTML5 workflow constructs a 320x180 Video, parents it to Main, attaches the stream and renders actual decoded MP4 frames. The same view/parent identity remains through pause/seek/close/clear; Restart creates an initially blank fresh scene. This is the observed constructor/display profile, not all dimensions, interaction or native-authoring behavior."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/NetConnection.html#NetConnection()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "A local-profile connection is constructed, receives its guarded Connect.Success event and initializes one stream at startup and Restart. Remote connections, call/publishing and network-server handshakes are not accepted."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/NetStream.html#NetStream()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "One AS3 stream per observed session is constructed from the local connection, retained by Main and used for native embedded playback. Metadata, client and identities remain coherent. No limits, arbitrary construction errors or all transport modes are accepted."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetConnection.html#connect()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "connect(null) drives the local success event path and permits native embedded playback, initially and after Restart. connected reads false and uri null as the local profile; no remote media-server connectivity or other command is claimed."
+        },
+        {
+          "catalogId": "AS3:method:flash/media/Video.html#attachNetStream()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The stream is attached to the created Video and actual native frames paint in its 320x180 viewport. Frame retention and one-view clearing remain associated with that view. No multiple-view rebinding, null detachment or arbitrary ownership transfer is tested."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Real Play decodes the embedded 8709-byte MP4, receives 320x180/duration 4 metadata and native Start, and reaches natural Stop after pause/seek/resume. Fresh Play after Restart yields one metadata/Start/Stop sequence and the same terminal image. No within-session AS3 source replacement, HTTP AS3 playback or general codec/streaming compatibility is accepted."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#pause()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "A real Pause occurs during active native playback at observed time 0.248697, receives Pause.Notify, and retains identical video crop across paused/paused-later screenshots. This is active pause evidence, not a command invoked only after completion; no precision guarantee is inferred."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#resume()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Real Resume from paused seek position 2 produces Unpause.Notify at observed 2.004976, later Stop at 4 and a changed terminal frame. No scheduler, synchronization or exact seek-frame accuracy claim."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#seek()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "seek(-1) raises RangeError while time stays exactly0.248697 and stream/video identity remains true. The adjacent seek(2) reaches time 2, native Seek.Notify and a different paused frame, then playback resumes. This is the two-second finite-file case, not exact original-player keyframe semantics or all seek limits."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#close()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Close is invoked after natural Stop at time 4; it resets public time to 0 while retaining the complete last-frame crop and completion count 1. The observed clear follows separately. Active-playback interruption/cancellation by Close is not established in this run."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#client",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Main is assigned as client, metadata is delivered to its callback, and client===this stays true in all observed states and both AS3 metadata calls. This accepts this client assignment/getter/callback route only, not arbitrary callback objects or reflection."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#soundTransform",
+          "status": "needs_review",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Needs review for the native effect. Source assigns SoundTransform volume 0; ready/getter reads 0, and nonzero pan 0.5 raises TypeError while volume remains 0, twice across Restart. The MP4 has silent AAC, so no audible-volume or mixing/pan effect is independently established. The refusal avoids silently accepting pan but does not implement it."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/Video.html#smoothing",
+          "status": "needs_review",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Needs review for its effect. Source assigns true and decoded video is visible, but no getter trace or false/true raster comparison was performed. Overall Video rendering is verified separately and does not prove this particular resampling property."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/NetStatusEvent.html#NET_STATUS",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The constant registers actual local connection and stream status listeners. Stream callbacks report event.type netStatus and observed Start/Pause/Seek/Unpause/Stop codes; local success reaches guarded initialization. No event-constructor/clone or every status code promotion."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/NetStatusEvent.html#info",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual info.code and info.level drive guarded local initialization and recorded stream transitions, with status level for the observed native events. Scope is these code/level fields and events; no other info payload or unsupported transport statuses."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetConnection.html#event:netStatus",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Local Connect.Success listener path initializes the stream once at startup and once after Restart. The success event itself is established by guarded initialization, not a remote/native network handshake. No close/failure/remote event matrix is accepted."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetStream.html#event:netStatus",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Native per-dialect sequence is Start→Pause.Notify→Seek.Notify→Unpause.Notify→Stop, then fresh Start→Stop after Restart. event.type is netStatus, level status, and each session ends with completed 1. No synthetic-only injection, cross-dialect ordering guarantee, error matrix or old-session completion inheritance."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetStream.html#event:onMetaData",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual native callback reports width 320, height 180,duration 4; count is 1 for initial and fresh sessions, with retained client identity and correct byte counts. Metadata precedes each AS3 native Start. No cue points, live/adaptive or arbitrary media metadata profile."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#NetConnection()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS2 constructs its local-profile connection and onStatus success callback initializes the authored-view stream at startup and Restart. No server connectivity or general constructor behavior."
+        },
+        {
+          "catalogId": "as2:NetStream.html#NetStream()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS2 constructs its stream from the local connection, attaches it to the authored Video and receives native embedded/HTTP callbacks. Scope is this bounded local finite-file workflow."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#connect()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS2 connect(null) triggers the guarded local success callback and permits media playback. The connect return value was not traced; no true-return or remote connection claim is added."
+        },
+        {
+          "catalogId": "as2:Video.html#attachVideo()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The named authored Video attaches its stream and renders actual native embedded and same-origin HTTP frames. It retains its terminal frame while the AS3 sibling is cleared. No AS2 Video construction, NetStream.attachVideo implementation or broad rebinding claim."
+        },
+        {
+          "catalogId": "as2:NetStream.html#play()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Embedded Play receives native metadata and Start, supports pause/seek/resume to Stop, and repeats once after Restart. A later same-origin /video-fixture.mp4 GET receives HTTP 200; metadata count 2, native Start and time 0.032 appear with changed pixels before Restart interrupts it. HTTP completion and large-file progressive buffering are not observed."
+        },
+        {
+          "catalogId": "as2:NetStream.html#pause()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "pause(true) actively pauses at observed time 0.206717 with Pause.Notify and unchanged paused screenshot; pause(false) resumes the paused two-second position, receives Unpause.Notify and reaches Stop at 4. No no-argument toggle or arbitrary Boolean coercion is accepted."
+        },
+        {
+          "catalogId": "as2:NetStream.html#seek()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The authored seek(2) moves the paused stream to time 2, receives Seek.Notify and visibly changes its frame before resume. The AS3 negative-seek evidence is not inherited by this AS2 row; no general seek precision claim."
+        },
+        {
+          "catalogId": "as2:NetStream.html#close()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Close occurs after native Stop at 4, resets time to 0 and retains the entire authored Video crop. The repeated close performed beside AS3 clear leaves its image and completed count unchanged. Active-playback close interruption is not tested."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#event:onStatus",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The guarded local Connect.Success callback initializes the legacy stream at startup and Restart. No remote or general failure-status route is accepted."
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onStatus",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual native statuses arrive with this===legacyStream: Start/Pause/Seek/Unpause/Stop for embedded playback, Start for HTTP, then fresh Start/Stop after Restart. No old HTTP Stop reaches the fresh session. No all-code or cross-dialect interleaving guarantee."
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onMetaData",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Native embedded metadata 1, HTTP metadata 2, then fresh embedded metadata 1 each report 320x180/duration 4 and this===legacyStream. Callback precedes Start per load. No HTTP completion, cue points or general media metadata behavior."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#connected",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The getter reports false after successful local connect(null), both initially and after Restart. This is the local-file connection contract, not a server connectivity check."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#time",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Recorded native seconds include active pause 0.248697, seek 2, resumed 2.004976, ended 4 and close 0; fresh playback ends at 4. These are observed values and transitions, not clock precision or full original-player timing equivalence."
+        },
+        {
+          "catalogId": "as2:NetStream.html#time",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Recorded native seconds include active pause 0.206717, seek 2, resumed 2.00851, ended 4, close 0 and HTTP 0.032 before Restart. Fresh playback ends at 4. No exact synchronization or clock precision claim."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/Video.html#videoWidth",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Getter reports 0 before metadata and 320 after actual native MP4 decode in initial and fresh sessions. This is source-media width for the tested 320x180 asset, not general viewport or malformed-codec handling."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/Video.html#videoHeight",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Getter reports 0 before metadata and 180 after actual native MP4 decode in initial and fresh sessions. This is source-media height for the tested 320x180 asset, not every codec or dimension boundary."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesLoaded",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Getter reports 8709 after embedded resource metadata, exactly matching the independent source asset length, in both sessions. No native HTTP buffer/download counter acceptance."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesTotal",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Getter reports 8709 after embedded resource metadata in both sessions, matching the exact source length. HTTP totals and progressive buffering remain outside this accepted scope."
+        },
+        {
+          "catalogId": "AS3:method:flash/media/Video.html#clear()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "After Close retained both terminal frames, second Close invokes only AS3 Video.clear. The AS3 crop becomes pixel-identical to initial blank view while the AS2 retained crop stays exactly unchanged. Stream/view/client/parent identities remain true and public time remains 0. This is independent one-view display clearing, not a stream-close method."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#uri",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Ready trace reports literal null after local connect(null), initially and after Restart. This accepts only the local-profile URI getter return, not remote URI resolution."
+        }
+      ]
     },
     {
       "id": "XML-HTML5-20261027T0545Z",

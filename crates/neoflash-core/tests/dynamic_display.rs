@@ -382,7 +382,116 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
     clipping_tracks_geometry_coordinates_and_lifetimes(project.clone());
     image_loading_owns_content_and_replaces_timelines(project.clone());
     video_viewports_share_display_state_and_lifetimes();
+    mouse_input_capabilities_follow_identity(project.clone());
     linked_timelines_are_independent_namespaces(project);
+}
+
+fn mouse_input_capabilities_follow_identity(project: Project) {
+    let original = project.to_json().unwrap();
+    let mut player = Player::new(&project);
+    let root = player.object_ref(&[]).unwrap();
+    let authored = player.object_ref(&["authored-container".into()]).unwrap();
+    let target = player.create_display(DynamicKind::Sprite).unwrap();
+    let source = player.create_display(DynamicKind::MovieClip).unwrap();
+    let text = player.create_display(DynamicKind::TextField).unwrap();
+    let shape = player.create_display(DynamicKind::Shape).unwrap();
+    let mut input = player.object_input_info(&project, &target).unwrap();
+    assert!(input.mouse_enabled && input.mouse_children && input.use_hand_cursor);
+    assert!(!input.button_mode && input.hit_area.is_none());
+    input.mouse_children = false;
+    input.button_mode = true;
+    input.hit_area = Some(source.clone());
+    player
+        .object_input_update(&project, &target, input.clone())
+        .unwrap();
+    assert_eq!(player.object_input_info(&project, &target).unwrap(), input);
+    // Sources remain ordinary display objects; the caller controls visibility
+    // and mouseEnabled separately. Detached relations do not change identity.
+    assert!(
+        player
+            .object_input_info(&project, &source)
+            .unwrap()
+            .mouse_enabled
+    );
+    add(&mut player, &project, &root, &target);
+    add(&mut player, &project, &root, &source);
+    let scene = player.runtime_snapshot(&project);
+    assert_eq!(object(&scene, &target).input, Some(input.clone()));
+    assert!(object(&scene, &shape).input.is_none());
+    assert!(player.object_input_info(&project, &shape).is_err());
+    player
+        .display_mutate(
+            &project,
+            DisplayMutation::Remove {
+                parent: root.clone(),
+                child: source.clone(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        player
+            .object_input_info(&project, &target)
+            .unwrap()
+            .hit_area,
+        Some(source.clone())
+    );
+    let mut reverse = player.object_input_info(&project, &source).unwrap();
+    reverse.hit_area = Some(target.clone());
+    assert!(
+        player
+            .object_input_update(&project, &source, reverse)
+            .is_err()
+    );
+    let mut invalid = input.clone();
+    invalid.mouse_enabled = false;
+    invalid.hit_area = Some(shape.clone());
+    assert!(
+        player
+            .object_input_update(&project, &target, invalid)
+            .is_err()
+    );
+    assert_eq!(player.object_input_info(&project, &target).unwrap(), input);
+    let mut text_input = player.object_input_info(&project, &text).unwrap();
+    text_input.mouse_enabled = false;
+    player
+        .object_input_update(&project, &text, text_input.clone())
+        .unwrap();
+    text_input.mouse_children = false;
+    assert!(
+        player
+            .object_input_update(&project, &text, text_input)
+            .is_err()
+    );
+    input.hit_area = Some(authored.clone());
+    player
+        .object_input_update(&project, &target, input)
+        .unwrap();
+    let mut authored_input = player.object_input_info(&project, &authored).unwrap();
+    authored_input.mouse_enabled = false;
+    player
+        .object_input_update(&project, &authored, authored_input)
+        .unwrap();
+    player.control(&project, &[], PlaybackCommand::GotoAndStop(1));
+    assert!(
+        player
+            .object_input_info(&project, &target)
+            .unwrap()
+            .hit_area
+            .is_none()
+    );
+    assert!(player.object_input_info(&project, &authored).is_err());
+    player.control(&project, &[], PlaybackCommand::GotoAndStop(2));
+    let replacement = player.object_ref(&["authored-container".into()]).unwrap();
+    assert_ne!(authored, replacement);
+    assert!(
+        player
+            .object_input_info(&project, &replacement)
+            .unwrap()
+            .mouse_enabled
+    );
+    player.reset(&project);
+    assert!(player.object_input_info(&project, &target).is_err());
+    assert_eq!(project.to_json().unwrap(), original);
 }
 
 fn video_viewports_share_display_state_and_lifetimes() {

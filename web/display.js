@@ -57,7 +57,7 @@
   const unsupportedText=new Set(['htmlText','styleSheet','type','selectable','autoSize','embedFonts','displayAsPassword','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','background','backgroundColor','border','borderColor','antiAliasType','gridFitType','sharpness','thickness','condenseWhite','getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineMetrics','getParagraphLength','getFirstCharInParagraph','setSelection','replaceSelectedText']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,beforeFilters=()=>{}}) {
+  function create({player,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{}}) {
     const legacy = new Map();
     const graph=typeof player.runtime_snapshot_json==='function';
     const refKey=ref=>JSON.stringify(ref);
@@ -347,8 +347,92 @@
         },
       };
     }
+    // Input targets use the authoritative graph and raw geometry, independently
+    // of rendered ColorTransform alpha. Filters never add hit geometry.
+    const inputNames={mouseEnabled:'mouse_enabled',mouseChildren:'mouse_children',buttonMode:'button_mode',useHandCursor:'use_hand_cursor',hitArea:'hit_area'};
+    const dragOwners=new Set(['sprite','movie_clip','graphic']);
+    const callbackNames=new Set(['onEnterFrame','onPress','onRelease','onReleaseOutside','onRollOver','onRollOut']);
+    let dragging=null,pressed=null,hovered=null;
+    const drops=new WeakMap();
+    function inputOf(node){if(Object.hasOwn(node,'input'))return node.input;return ['movie_clip','sprite','graphic','button','text','loader'].includes(node.owner)?{mouse_enabled:true,mouse_children:true,button_mode:node.owner==='button',use_hand_cursor:true,hit_area:null}:null;}
+    function nativeInput(target){const node=descriptor(target);if(!inputOf(node))throw new TypeError('This display object is not interactive.');return inputOf(node);}
+    function inputWrite(target,name,value){const input=nativeInput(target),key=inputNames[name];if(name==='hitArea'){if(value!==null)descriptor(value);value=value===null?null:referenceOf(value).objectRef;}else if(typeof value!=='boolean')throw new TypeError(`${name} requires a Boolean.`);try{player.object_input_update(referenceOf(target).key,JSON.stringify({...input,[key]:value}));}catch(error){if(error instanceof Error)throw error;throw new Error(String(error),{cause:error});}}
+    function nodeShapes(node){if(node.text)return[{type:'text_field',field:node.text}];if(node.video)return[{type:'video_frame',...node.video}];if(node.bitmap&&!node.bitmap.disposed)return[{type:'bitmap_pixels',...node.bitmap,smoothing:node.smoothing,pixel_snapping:'never'}];return node.kind?[node.kind]:[];}
+    function leafHit(node,x,y){
+      let q;try{q=point(inverse(node.world),x,y);}catch(_){return false;}
+      for(const kind of [...nodeShapes(node),...(node.graphics||[])]){
+        if(kind.type==='rectangle'){const stroke=kind.stroke_width>0&&kind.stroke?.[3]>0?kind.stroke_width/2:0;const inside=q.x>=0&&q.y>=0&&q.x<=kind.width&&q.y<=kind.height,outer=q.x>=-stroke&&q.y>=-stroke&&q.x<=kind.width+stroke&&q.y<=kind.height+stroke,inner=q.x>stroke&&q.y>stroke&&q.x<kind.width-stroke&&q.y<kind.height-stroke;if((kind.fill?.[3]>0&&inside)||(stroke&&outer&&!inner))return true;}
+        else if(kind.type==='ellipse'){const stroke=kind.stroke_width>0&&kind.stroke?.[3]>0?kind.stroke_width/2:0;if(kind.width>0&&kind.height>0){const ellipse=(rx,ry)=>rx>0&&ry>0&&Math.pow((q.x-kind.width/2)/rx,2)+Math.pow((q.y-kind.height/2)/ry,2)<=1;if((kind.fill?.[3]>0&&ellipse(kind.width/2,kind.height/2))||(stroke&&ellipse(kind.width/2+stroke,kind.height/2+stroke)&&!ellipse(kind.width/2-stroke,kind.height/2-stroke)))return true;}}
+        else if(kind.type==='text_field'){const b=kind.field.box?{left:0,top:0,right:kind.field.box.width,bottom:kind.field.box.height}:getText().bounds({...kind.field,alpha:255},true);if(b&&q.x>=b.left&&q.y>=b.top&&q.x<=b.right&&q.y<=b.bottom)return true;}
+        else if(kind.type==='text'){const lines=kind.text.split('\n');if(q.x>=0&&q.y>=0&&q.y<=lines.length*kind.font_size*1.2&&q.x<=Math.max(0,...lines.map(line=>measureText(line,kind))))return true;}
+        else if(kind.type==='bitmap_pixels'){if(getBitmap()?.cache.hit(kind,q.x,q.y))return true;}
+        else if(kind.type==='video_frame'){if(getVideo()?.get(nodeProxy(node),'videoWidth')>0&&q.x>=0&&q.y>=0&&q.x<kind.width&&q.y<kind.height)return true;}
+        else if(kind.type==='path'||kind.type==='gradient_path'){if(!shapeContains)throw new Error('Shape hit testing requires the Canvas Path2D service.');if(shapeContains(kind,q.x,q.y))return true;}
+      }
+      return false;
+    }
+    function shapeHit(target,x,y,snapshot=JSON.parse(player.runtime_snapshot_json()),respectVisibility=false){
+      const list=snapshot.objects,source=descriptor(target,list);
+      for(const node of list)if(descendant(node,source,list)&&(!respectVisibility||node.effective_visible)&&(!node.clip_ids?.length||clipsContain?.(snapshot,node.clip_ids,x,y))&&leafHit(node,x,y))return true;
+      return false;
+    }
+    function resolveInput(target,list=nodes(),x=null,y=null){
+      if(!target||target===getStage())return null;
+      let chosen=null;
+      for(let node=descriptor(target,list);node;node=parentNode(node,list)){
+        if(node.on_stage===false||node.effective_visible===false)return null;
+        const input=inputOf(node);if(!input)continue;
+        if(!chosen&&input.mouse_enabled)chosen=node;
+        if(input.mouse_children===false&&nodeKey(node)!==referenceOf(target).key){if(!input.mouse_enabled)return null;chosen=node;}
+      }
+      if(!chosen)return null;
+      if(inputOf(chosen).hit_area&&x!==null&&!shapeHit(proxyForRef(inputOf(chosen).hit_area),x,y))return null;
+      return nodeProxy(chosen);
+    }
+    function inputRoute(owner,list=nodes(),x=null,y=null){
+      const target=resolveInput(owner,list,x,y);if(!target)return null;
+      let nearest=descriptor(owner,list);while(nearest&&!inputOf(nearest))nearest=parentNode(nearest,list);
+      // Authored Click scripts on a noninteractive leaf keep their own source
+      // identity; retargeting an interactive branch must not bypass its flags.
+      const authored=nearest&&nodeKey(nearest)===referenceOf(target).key?owner:target;
+      return {owner:authored,target};
+    }
+    function pickDetails(x,y,exclude=null){
+      if(!Number.isFinite(x)||!Number.isFinite(y))return null;
+      const snapshot=JSON.parse(player.runtime_snapshot_json()),list=snapshot.objects,painted=new Set(snapshot.draws.map(item=>refKey(item.owner_ref))),excluded=exclude&&alive(exclude)?descriptor(exclude,list):null;
+      // Runtime objects are emitted in display preorder; reversing it tests the
+      // foremost child before its container and earlier siblings.
+      for(let i=list.length-1;i>=0;i--){const node=list[i];if(node.on_stage===false||node.effective_visible===false||(excluded&&descendant(node,excluded,list)))continue;
+        if(node.clip_ids?.length&&!clipsContain?.(snapshot,node.clip_ids,x,y))continue;
+        const area=node.input?.hit_area;
+        const hit=area?shapeHit(proxyForRef(area),x,y,snapshot):painted.has(nodeKey(node))&&leafHit(node,x,y);
+        if(!hit)continue;const result=inputRoute(nodeProxy(node),list,x,y);if(result)return result;
+      }
+      return null;
+    }
+    function pick(x,y,exclude=null){return pickDetails(x,y,exclude)?.target||null;}
+    function hitTestPoint(target,x,y,shape=false){if(!Number.isFinite(x)||!Number.isFinite(y)||typeof shape!=='boolean')throw new TypeError('hitTestPoint requires finite Stage coordinates and a Boolean shapeFlag.');if(shape)return shapeHit(target,x,y);const b=bounds(target,null,true);return b.width>0&&b.height>0&&x>=b.x&&y>=b.y&&x<=b.x+b.width&&y<=b.y+b.height;}
+    function hitTestObject(target,other){descriptor(other);const a=bounds(target,null,true),b=bounds(other,null,true);return a.width>0&&a.height>0&&b.width>0&&b.height>0&&a.x<b.x+b.width&&b.x<a.x+a.width&&a.y<b.y+b.height&&b.y<a.y+a.height;}
+    function mousePoint(target){const stage=getStage();return convert(target,{x:stage?.mouseX||0,y:stage?.mouseY||0},false);}
+    function dragPoint(target){const parent=parentSpace(target),stage=getStage();return !parent||parent===stage?{x:stage?.mouseX||0,y:stage?.mouseY||0}:convert(parent,{x:stage?.mouseX||0,y:stage?.mouseY||0},false);}
+    function startDrag(target,lockCenter=false,rect=null){const node=descriptor(target);if(!dragOwners.has(node.owner))throw new TypeError('startDrag requires Sprite or MovieClip.');if(!node.on_stage)throw new Error('startDrag requires an attached display object.');if(typeof lockCenter!=='boolean')throw new TypeError('startDrag lockCenter requires a Boolean.');let box=null;if(rect!==null){if(!Rectangle.__nfIs(rect))throw new TypeError('startDrag bounds require Rectangle or null.');const values=[rect.x,rect.y,rect.width,rect.height];if(!values.every(Number.isFinite)||values.some(v=>Math.abs(v)>1e12)||rect.width<0||rect.height<0)throw new RangeError('Drag bounds require finite coordinates within ±1e12 and nonnegative size.');box={x:rect.x,y:rect.y,width:rect.width,height:rect.height};}const p=dragPoint(target);dragging={target,parent:refKey(node.parent_ref),offsetX:lockCenter?0:node.local_matrix[4]-p.x,offsetY:lockCenter?0:node.local_matrix[5]-p.y,box};updateDrag();}
+    function updateDrag(){if(!dragging)return;const d=dragging;if(!alive(d.target)){dragging=null;return;}const node=descriptor(d.target);if(node.on_stage===false||node.effective_visible===false||refKey(node.parent_ref)!==d.parent){dragging=null;return;}const p=dragPoint(d.target);let x=p.x+d.offsetX,y=p.y+d.offsetY;if(d.box){x=Math.max(d.box.x,Math.min(d.box.x+d.box.width,x));y=Math.max(d.box.y,Math.min(d.box.y+d.box.height,y));}if(!Number.isFinite(x)||!Number.isFinite(y)||Math.abs(x)>1e12||Math.abs(y)>1e12)throw new RangeError('Drag coordinates exceed the finite display range.');if(!invoke(d.target,'set_property','x',x)||!invoke(d.target,'set_property','y',y))throw new Error('The runtime rejected movement of this drag target.');drops.set(d.target,pick(getStage().mouseX,getStage().mouseY,d.target));}
+    function stopDrag(target){if(dragging){updateDrag();dragging=null;}}
+    function legacyPath(target){if(!target||!alive(target))return '';const names=[];for(let current=target;current&&current!==getStage();current=parentSpace(current)){const node=descriptor(current);if(!node.parent_ref)break;if(!node.name||/[/.]/.test(node.name))throw new TypeError('AS2 _droptarget paths require named placements without slash or dot; use dropTarget for stable object identity.');names.push(node.name);}return '/'+names.reverse().join('/');}
+    function callbackOwner(target,names){while(target&&target!==getStage()&&alive(target)){const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(names.some(name=>callback(record,name)))return target;target=parentSpace(target);}return null;}
+    function callLegacy(target,name){if(!target||!alive(target))return;const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime),fn=callback(record,name);if(fn&&alive(target))Reflect.apply(fn,target,[]);}
+    function pointer(type,target,event={}){
+      prune();
+      if(type==='mouseMove'||type==='mouseDown'){const next=callbackOwner(target,['onRollOver','onRollOut','onPress','onRelease','onReleaseOutside']);if(next!==hovered){const old=hovered;hovered=next;callLegacy(old,'onRollOut');if(hovered===next)callLegacy(next,'onRollOver');}}
+      if(type==='mouseDown'&&(event.button===undefined||event.button===0)){pressed=callbackOwner(target,['onPress','onRelease','onReleaseOutside']);callLegacy(pressed,'onPress');}
+      if(type==='mouseUp'&&(event.button===undefined||event.button===0)){const old=pressed;pressed=null;if(old&&alive(old)){const inside=target&&target!==getStage()&&alive(target)&&descendant(descriptor(target),descriptor(old),nodes());callLegacy(old,inside?'onRelease':'onReleaseOutside');}}
+    }
+    function cancelPointer(){dragging=null;pressed=null;hovered=null;}
+    function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&(node.input.button_mode||['onPress','onRelease','onReleaseOutside'].some(name=>callback(record,name))))return true;}return false;}
     function methods(target) {
       const result={
+        hitTestPoint:(x,y,shape=false)=>hitTestPoint(target,x,y,shape),hitTestObject:other=>hitTestObject(target,other),
+        hitTest:(...args)=>args.length===1?hitTestObject(target,args[0]):hitTestPoint(target,args[0],args[1],args[2]??false),
         getBounds: space=>bounds(target,space===undefined?target:space,true),
         getRect: space=>bounds(target,space===undefined?target:space,false),
         localToGlobal: value=>convert(target,value,true),
@@ -358,6 +442,7 @@
         getChildIndex: child=>{requireContainer(target);const node=descriptor(child),index=children(target).findIndex(candidate=>nodeKey(candidate)===nodeKey(node));if(index<0)throw new RangeError('Object is not a direct child of this container.');return index;},
         contains: child=>{requireContainer(target);const parent=descriptor(target),node=descriptor(child);return descendant(node,parent,nodes());},
       };
+      if(dragOwners.has(descriptor(target).owner)){result.startDrag=(lockCenter=false,bounds=null)=>startDrag(target,lockCenter,bounds);result.stopDrag=()=>stopDrag(target);if(as2)as2.register(result.startDrag,target,'startDrag',(lockCenter=false,...limits)=>{if(limits.length!==0&&limits.length!==4)throw new TypeError('AS2 startDrag requires lockCenter and optional left,top,right,bottom.');let bounds=null;if(limits.length){const[left,top,right,bottom]=limits;if(!limits.every(Number.isFinite)||right<left||bottom<top)throw new RangeError('AS2 drag bounds require ordered finite coordinates.');bounds=new Rectangle(left,top,right-left,bottom-top);}startDrag(target,lockCenter,bounds);});}
       if(graph&&['movie_clip','sprite','graphic','button'].includes(descriptor(target).owner))Object.assign(result,containerMethods(target));
       if(graph&&descriptor(target).owner==='movie_clip')Object.assign(result,legacyDrawing(target));
       if(graph&&descriptor(target).owner==='loader')Object.assign(result,getLoader().methods(target));
@@ -377,6 +462,10 @@
       return result;
     }
     function get(target,name) {
+      if(Object.hasOwn(inputNames,name)){const input=nativeInput(target);return name==='hitArea'?(input.hit_area?proxyForRef(input.hit_area):null):input[inputNames[name]];}
+      if(['mouseX','mouseY','_xmouse','_ymouse'].includes(name)){const p=mousePoint(target);return name==='mouseX'||name==='_xmouse'?p.x:p.y;}
+      if(name==='enabled'&&['movie_clip','button'].includes(descriptor(target).owner))throw new TypeError('AS2 enabled is a separate callback-only switch not yet supported; use mouseEnabled for the current input profile.');
+      if(name==='dropTarget'||name==='_droptarget'){descriptor(target);const dropped=drops.get(target);return name==='_droptarget'?legacyPath(dropped):dropped&&alive(dropped)?dropped:null;}
       if(descriptor(target).owner==='video'&&getVideo()){const host=getVideo(),value=host.get(target,name);if(value!==host.UNHANDLED)return value;}
       if(name==='filters'){
         descriptor(target);const host=getFilters();if(!host)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
@@ -425,6 +514,9 @@
       return UNHANDLED;
     }
     function set(target,name,value) {
+      if(name==='enabled'&&['movie_clip','button'].includes(descriptor(target).owner))throw new TypeError('AS2 enabled is a separate callback-only switch not yet supported; use mouseEnabled for the current input profile.');
+      if(Object.hasOwn(inputNames,name)){inputWrite(target,name,value);return true;}
+      if(['mouseX','mouseY','_xmouse','_ymouse','dropTarget','_droptarget'].includes(name))throw new TypeError(`${name} is read-only.`);
       if(descriptor(target).owner==='video'&&getVideo()&&getVideo().set(target,name,value))return true;
       if(name==='filters'){
         descriptor(target);const host=getFilters();if(!host)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
@@ -491,8 +583,8 @@
     function setLegacyCallback(target,name,value) {
       if(!referenceOf(target)){target[name]=value;return value;}
       const node=descriptor(target);
-      if(!['movie_clip','button'].includes(node.owner))throw new TypeError('AS2 callbacks currently require an authored MovieClip or Button instance.');
-      if(name!=='onEnterFrame'&&name!=='onPress')throw new TypeError(`AS2 callback ${name} is not supported yet.`);
+      if(!['movie_clip','button'].includes(node.owner))throw new TypeError('AS2 callbacks require a MovieClip or Button instance.');
+      if(!callbackNames.has(name))throw new TypeError(`AS2 callback ${name} is not supported yet.`);
       if(value!==null&&value!==undefined&&typeof value!=='function')throw new TypeError(`${name} requires a function or null.`);
       target[name]=value;
       const ref=referenceOf(target),id=ref.key+'\u0000'+ref.lifetime;
@@ -513,7 +605,7 @@
       return typeof handler==='function'?handler:null;
     }
     function alive(target){const ref=referenceOf(target);return !!ref&&(graph?player.object_alive(ref.key):player.lifetime_id(ref.key)===ref.lifetime);}
-    function prune(){for(const[id,record]of legacy)if(!alive(record.target))legacy.delete(id);}
+    function prune(){for(const[id,record]of legacy)if(!alive(record.target))legacy.delete(id);if(dragging&&(!alive(dragging.target)||descriptor(dragging.target).on_stage===false))dragging=null;if(pressed&&(!alive(pressed)||descriptor(pressed).on_stage===false))pressed=null;if(hovered&&(!alive(hovered)||descriptor(hovered).on_stage===false))hovered=null;}
     function enterFrame(){prune();for(const record of [...legacy.values()]){if(!alive(record.target))continue;const handler=callback(record,'onEnterFrame');if(handler)Reflect.apply(handler,record.target,[]);}}
     function press(target){prune();while(target&&referenceOf(target)){const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime),handler=callback(record,'onPress');if(handler){Reflect.apply(handler,target,[]);return;}target=parentSpace(target);if(target===getStage())target=null;}}
     function pixelSnapping(value){if(!['auto','always','never'].includes(value))throw new TypeError('Bitmap.pixelSnapping requires auto, always or never.');return value;}
@@ -540,7 +632,7 @@
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});
       builtins[(name==='TextField'?'flash.text.':'flash.display.')+name]=NativeDisplay;
     }
-    return {methods,get,set,builtins,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,prune,clear:()=>legacy.clear(),UNHANDLED};
+    return {methods,get,set,builtins,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();cancelPointer();},UNHANDLED};
   }
   const api={create,Point,Rectangle,Matrix,ColorTransform,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

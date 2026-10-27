@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Independently checked frozen f42ad94 file video (`VIDEO-HTML5-20261027T1042Z`): actual AS3/AS2 MP4 decoding, metadata, pause/seek/resume/completion, post-completion retained frames and AS3 clear, plus HTTP playback interrupted by Restart and fresh playback. Audio quality, exact timing, active-close races and native authoring remain outside this evidence.
+
+- Added a coordinated pointer family: AS2/AS3 dragging in transformed containers, script hit tests, input targeting flags and hitArea identities, cursor preferences and legacy release/rollover callbacks. Rust owns input state; the browser owns pointer capture and drag lifetime.
+
 - Added file-video playback through AS3 Video/NetStream/local NetConnection and the AS2 authored-Video adapter. Shared Rust display ownership now includes Video placements, with explicit native insertion/Properties placeholders; browser decoding, transport, audio gating and publication lifetime have their own HTML5 profile.
 
 - Independently checked frozen 6687ced class/packages (`CLASSES-HTML5-20261027T1007Z`): isolated base/derived private state, protected/package updates, dynamic-only enumeration/public JSON, bounded sealed/private-route refusals, AS2 inherited-private updates and Restart. Positive final/import use does not imply every rejection, reflection or initialization rule.

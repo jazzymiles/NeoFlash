@@ -22,6 +22,8 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   }));
   const globals = { NeoFlashDisplay:require(resolve(root,'web/display.js')), NeoFlashEvents:require(resolve(root,'web/events.js')),
     NeoFlashStage:require(resolve(root,'web/stage.js')), NeoFlashLegacyInput:require(resolve(root,'web/legacy-input.js')), NeoFlashAccessibility:require(resolve(root,'web/accessibility.js')) };
+  const stageModule=globals.NeoFlashStage;
+  globals.NeoFlashStage={...stageModule,create:settings=>stageModule.create({...settings,...options.stage})};
   globals.NeoFlashByteArray=require(resolve(root,'web/byte-array.js'));
   globals.NeoFlashPaths=require(resolve(root,'web/path.js'));
   const netModule=require(resolve(root,'web/net.js'));

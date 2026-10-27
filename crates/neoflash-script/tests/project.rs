@@ -130,6 +130,8 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { import flash.display.Sprite; public class A extends Sprite {public var mask:Object;} }",
         "package { import flash.display.MovieClip; public class A extends MovieClip {public var loaderInfo:Object;} }",
         "package { import flash.display.MovieClip; public class A extends MovieClip {public var filters:Array;} }",
+        "package { import flash.display.Sprite; public class A extends Sprite {public var mouseEnabled:Boolean;} }",
+        "package { import flash.display.Sprite; public class A extends Sprite {public function startDrag():void{}} }",
         "package { import flash.filters.BitmapFilter; public class A extends BitmapFilter {} }",
         "package { import flash.filters.BitmapFilterQuality; public class A {public function A(){new BitmapFilterQuality();}} }",
         "package { import flash.filters.BlurFilter; public class A extends BlurFilter {} }",
@@ -544,6 +546,9 @@ fn class_syntax_outside_profile_is_never_erased() {
     assert!(video_program.is_ok(), "{:?}", video_program.err());
     let legacy_video=neoflash_core::Script{language:ScriptLanguage::ActionScript2,source:"var connection:NetConnection=new NetConnection();connection.connect(null);var stream:NetStream=new NetStream(connection);placedVideo.attachVideo(stream);stream.onStatus=function(info:Object):Void{result=info.code;};stream.play(\"media/motion.mp4\");stream.pause(true);stream.seek(2);stream.pause(false);stream.close();placedVideo.clear();".into()};
     assert!(neoflash_script::compile(&legacy_video).is_ok());
+    let legacy_drag=neoflash_core::Script{language:ScriptLanguage::ActionScript2,source:"card.onPress=function():Void{this.startDrag(false,20,20,250,145);localX=this._xmouse;};card.onReleaseOutside=function():Void{this.stopDrag();hit=this.hitTest(zone);pointHit=this.hitTest(300,200,true);drop=this._droptarget;};card.onRollOver=function():Void{rolls++;};card.onRollOut=function():Void{rolls--;};".into()};
+    let drag_code = neoflash_script::compile(&legacy_drag).expect("legacy drag callbacks compile");
+    assert!(drag_code.contains("setLegacyCallback"));
     let mut shadow_video = project(&[
         (
             "NetConnection.as",
@@ -715,6 +720,12 @@ fn linked_classes_are_resolved_before_publication() {
                     mask=source; scrollRect=view;
                     var copy:Rectangle=scrollRect;copy.y+=1;scrollRect=copy;
                     mask=null;scrollRect=null;return copy;
+                }
+                public function drag(view:Rectangle,target:DisplayObject):Boolean {
+                    mouseEnabled=true;mouseChildren=false;buttonMode=true;useHandCursor=true;
+                    startDrag(false,view);stopDrag();
+                    var local:Number=mouseX+mouseY;
+                    return hitTestObject(target)&&hitTestPoint(local,0,true);
                 }
                 public function paint(source:Graphics):void {
                     var drawing:Graphics=graphics;

@@ -26,6 +26,8 @@
     let frameRate = rate(options.frameRate ?? 24), mouseX = 0, mouseY = 0, focus = null;
     const initial = { width, height, frameRate };
     let attached = false, over = null,focusVersion=0,focusDepth=0,nativeFocus=false;
+    let captured=null,pressedTarget=null,clickTarget=null,hadPress=false;
+    const deliveredPointers=new WeakMap();
     const cleanups = [];
     const stage = new Stage(stageToken);
     Object.defineProperties(stage, {
@@ -83,7 +85,8 @@
     }
     function enabled() { return !options.isInputEnabled || options.isInputEnabled(); }
     function targetAt(domEvent, explicitTarget) {
-      const target = explicitTarget || options.hitTest?.(domEvent) || stage;
+      const supplied=explicitTarget&&explicitTarget!==stage&&options.resolveInput?options.resolveInput(explicitTarget):explicitTarget;
+      const target = explicitTarget ? supplied||stage : options.hitTest?.(domEvent)||stage;
       return target === stage || alive(target) ? target : stage;
     }
     function updatePoint(domEvent) {
@@ -92,7 +95,7 @@
     }
     function mouse(type, target, domEvent, related = null) {
       const point = target === stage ? [mouseX, mouseY] : options.localPoint?.(target, mouseX, mouseY) || [mouseX, mouseY];
-      const event = new MouseEvent(type, true, true, point[0], point[1], related,
+      const event = new MouseEvent(type, ![MouseEvent.ROLL_OVER,MouseEvent.ROLL_OUT].includes(type), true, point[0], point[1], related,
         Boolean(domEvent.ctrlKey || domEvent.metaKey), domEvent.altKey, domEvent.shiftKey,
         Boolean((domEvent.buttons || 0) & 1), type === MouseEvent.MOUSE_WHEEL ? -Math.sign(domEvent.deltaY || 0) : 0,
         domEvent.metaKey, domEvent.ctrlKey, domEvent.detail || 0);
@@ -103,36 +106,42 @@
       if (!result && domEvent.cancelable !== false) domEvent.preventDefault?.();
       return result;
     }
-    function handlePointer(type, domEvent = {}, explicitTarget = null) {
-      if (!enabled()) return true;
-      // isPrimary belongs to pointer tracking. Browsers can report false on a
-      // synthesized click PointerEvent even for an ordinary trusted mouse click.
-      if (domEvent.isPrimary === false && /^(?:pointerdown|pointerup|pointermove)$/.test(type)) return true;
-      const mapped = { pointerdown: 'mouseDown', pointerup: 'mouseUp', pointermove: 'mouseMove',
-        mousedown: 'mouseDown', mouseup: 'mouseUp', mousemove: 'mouseMove', dblclick: 'doubleClick', wheel: 'mouseWheel' };
-      type = mapped[type] || type;
-      if (!['mouseDown', 'mouseUp', 'mouseMove', 'mouseWheel', 'click', 'doubleClick'].includes(type)) {
-        throw new Error(`Unsupported native mouse event '${type}'.`);
-      }
-      updatePoint(domEvent);
-      const target = targetAt(domEvent, explicitTarget);
-      if (type === MouseEvent.MOUSE_DOWN && (domEvent.button === undefined || domEvent.button === 0)) {
+    function releaseCapture(){const id=captured;captured=null;if(id!==null&&options.canvas?.hasPointerCapture?.(id))options.canvas.releasePointerCapture(id);}
+    function cancelPointer(){pressedTarget=null;clickTarget=null;hadPress=false;releaseCapture();over=null;options.cancelPointer?.();}
+    function chain(target){const result=[];while(target&&target!==stage&&alive(target)&&result.length<65){result.push(target);target=options.parentOf?options.parentOf(target):target.parent;}return result;}
+    function hover(target,domEvent){
+      if(target===over)return;const previous=over;over=target;
+      if(previous&&previous!==stage&&alive(previous))deliver(previous,mouse(MouseEvent.MOUSE_OUT,previous,domEvent,target),domEvent);
+      const old=chain(previous),next=chain(target);
+      for(const item of old)if(!next.includes(item)&&alive(item))deliver(item,mouse(MouseEvent.ROLL_OUT,item,domEvent,target),domEvent);
+      for(const item of [...next].reverse())if(!old.includes(item)&&alive(item))deliver(item,mouse(MouseEvent.ROLL_OVER,item,domEvent,previous),domEvent);
+      if(target!==stage&&alive(target))deliver(target,mouse(MouseEvent.MOUSE_OVER,target,domEvent,previous),domEvent);
+    }
+    function handlePointer(type, domEvent = {}, explicitTarget = null, physicalPick = false) {
+      if(['pointercancel','lostpointercapture','cancel'].includes(type)){if(type!=='lostpointercapture'||captured!==null)cancelPointer();return true;}
+      if(!enabled()||domEvent.pointerType==='touch')return true;
+      if(domEvent.isPrimary===false&&/^(?:pointerdown|pointerup|pointermove)$/.test(type))return true;
+      const mapped={pointerdown:'mouseDown',pointerup:'mouseUp',pointermove:'mouseMove',pointerleave:'mouseMove',mousedown:'mouseDown',mouseup:'mouseUp',mousemove:'mouseMove',dblclick:'doubleClick',wheel:'mouseWheel'};
+      type=mapped[type]||type;
+      if(!['mouseDown','mouseUp','mouseMove','mouseWheel','click','doubleClick'].includes(type))throw new Error(`Unsupported native mouse event '${type}'.`);
+      // Native editor events are forwarded directly, then bubble to the outer
+      // pointer listener. One physical Event must enter the host only once.
+      if(domEvent&&typeof domEvent==='object'&&typeof domEvent.type==='string'){let seen=deliveredPointers.get(domEvent);if(seen?.has(type))return true;if(!seen){seen=new Set();deliveredPointers.set(domEvent,seen);}seen.add(type);}
+      updatePoint(domEvent);options.beforePointer?.(type,domEvent);
+      const target=targetAt(domEvent,explicitTarget),primary=domEvent.button===undefined||domEvent.button===0;
+      if(type==='click'&&(!explicitTarget||physicalPick)&&hadPress&&clickTarget!==target)return false;
+      if(type===MouseEvent.MOUSE_DOWN&&primary){
+        pressedTarget=target;clickTarget=null;hadPress=true;
+        if(domEvent.target===options.canvas&&Number.isInteger(domEvent.pointerId)&&options.canvas?.setPointerCapture){options.canvas.setPointerCapture(domEvent.pointerId);captured=domEvent.pointerId;}
         const changed=changeFocus(target===stage?null:target,'mouse',domEvent);
-        // A Canvas pointerdown can create and focus a native editor. Prevent
-        // its later compatibility mousedown from focusing Canvas again. Native
-        // editor pointer events retain their own caret/selection default.
         if(changed&&nativeFocus&&domEvent.target===options.canvas)domEvent.preventDefault?.();
       }
-      if (type === MouseEvent.MOUSE_MOVE && target !== over) {
-        if (over && alive(over)) deliver(over, mouse(MouseEvent.MOUSE_OUT, over, domEvent, target), domEvent);
-        if (target !== stage && alive(target)) deliver(target, mouse(MouseEvent.MOUSE_OVER, target, domEvent, over), domEvent);
-        over = target;
-      }
-      if (target !== stage && !alive(target)) { over = null; options.afterInput?.(); return true; }
-      const result = deliver(target, mouse(type, target, domEvent), domEvent);
-      if (target === stage || alive(target)) options.onLegacyInput?.(type, target, domEvent);
-      options.afterInput?.();
-      return result;
+      if(type===MouseEvent.MOUSE_MOVE||type===MouseEvent.MOUSE_DOWN)hover(target,domEvent);
+      if(target!==stage&&!alive(target)){over=null;options.afterInput?.();return true;}
+      if(type===MouseEvent.MOUSE_UP&&primary){clickTarget=pressedTarget===target?target:null;pressedTarget=null;releaseCapture();}
+      const result=deliver(target,mouse(type,target,domEvent),domEvent);
+      if(target===stage||alive(target))options.onLegacyInput?.(type,target,domEvent);
+      options.onPointerTarget?.(target,type);options.afterInput?.();return result;
     }
     function handleKey(type, domEvent = {}) {
       if (!enabled() || domEvent.isComposing) return true;
@@ -180,7 +189,10 @@
     function attach() {
       if (attached) return;
       attached = true;
-      for (const type of ['pointerdown', 'pointerup', 'pointermove']) listen(options.canvas, type, event => handlePointer(type, event));
+      for (const type of ['pointerdown','pointerup','pointermove','pointercancel','lostpointercapture','pointerleave']) listen(options.canvas,type,event=>handlePointer(type,event));
+      const outside=options.pointerTarget||global;
+      for(const type of ['pointermove','pointerup','pointercancel'])listen(outside,type,event=>{if(event.target!==options.canvas&&(captured!==null||pressedTarget!==null||options.hasDrag?.()))handlePointer(type,event);});
+      listen(outside,'blur',cancelPointer);
       listen(options.canvas, 'wheel', event => handlePointer('wheel', event), { passive: false });
       // Existing runtime click owns authored Click dispatch; opt in only for standalone use.
       if (options.attachClick) listen(options.canvas, 'click', event => handlePointer('click', event));
@@ -189,15 +201,16 @@
         const dimensions = options.getSize(); resize(dimensions[0], dimensions[1]);
       });
     }
-    function dispose() { for (const cleanup of cleanups.splice(0)) cleanup(); attached = false; hub.release(stage); focus = null; nativeFocus=false; over = null; }
+    function dispose() { cancelPointer();for (const cleanup of cleanups.splice(0)) cleanup(); attached = false; hub.release(stage); focus = null; nativeFocus=false; over = null; }
     function reset() {
+      cancelPointer();
       focus = null; nativeFocus=false; focusVersion++; over = null; mouseX = 0; mouseY = 0;
       width = initial.width; height = initial.height;
       if (options.setFrameRate) options.setFrameRate(initial.frameRate);
       frameRate = initial.frameRate;
       hub.release(stage);
     }
-    return Object.freeze({ stage, handlePointer, handleKey, changeFocus, resize, attach, dispose, reset,
+    return Object.freeze({ stage, handlePointer, handleKey, cancelPointer, changeFocus, resize, attach, dispose, reset,
       tick(targets) { hub.broadcast(Event.ENTER_FRAME, [stage, ...targets]); },
     });
   }

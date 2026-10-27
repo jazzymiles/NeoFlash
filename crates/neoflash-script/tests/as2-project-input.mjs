@@ -68,7 +68,7 @@ export async function verifyAs2ProjectInput(root, cargo) {
     keyboard.send('keydown', { key: 'x', code: 'KeyX', isComposing: true });
     assert.equal(scene.keyEvents, keyCount, 'IME input is not fabricated as AS2 key callbacks');
     down('h', 'KeyH', 72); assert.equal(canvas.style.cursor, 'none'); up('h', 'KeyH', 72);
-    down('s', 'KeyS', 83); assert.equal(canvas.style.cursor, 'default'); up('s', 'KeyS', 83);
+    down('s', 'KeyS', 83); assert.equal(canvas.style.cursor, 'pointer', 'Mouse.show restores the hand cursor for the hovered onPress clip'); up('s', 'KeyS', 83);
     down(' ', 'Space', 32); up(' ', 'Space', 32);
     assert.equal(left.count, 0); assert.equal(right.count, 0); assert.equal(Base.total, 0);
     const inherited = left.activate;

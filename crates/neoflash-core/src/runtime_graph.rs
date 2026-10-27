@@ -9,6 +9,8 @@ mod clipping;
 pub use clipping::{ClipComponent, RuntimeClip, ScrollRect};
 mod filters;
 pub use filters::RuntimeFilterGroup;
+mod input;
+pub use input::DisplayInputState;
 mod linked;
 mod loader;
 pub use loader::LoaderMutation;
@@ -92,6 +94,7 @@ pub struct RuntimeObject {
     pub graphics: Vec<RuntimeDrawKind>,
     pub text: Option<TextFieldState>,
     pub video: Option<VideoState>,
+    pub input: Option<DisplayInputState>,
     pub bitmap: Option<PixelDescriptor>,
     pub smoothing: bool,
     pub pixel_snapping: PixelSnapping,
@@ -225,6 +228,7 @@ pub(crate) struct RuntimeGraph {
     bitmap_error: Option<BitmapError>,
     text_states: HashMap<ObjectRef, TextFieldState>,
     video_states: HashMap<ObjectRef, VideoState>,
+    input_states: HashMap<ObjectRef, DisplayInputState>,
     text_bytes: usize,
     affines: HashMap<ObjectRef, transform::AffineState>,
     color_transforms: HashMap<ObjectRef, ColorTransform>,
@@ -259,6 +263,7 @@ impl RuntimeGraph {
         self.bitmap_error = None;
         self.text_states.clear();
         self.video_states.clear();
+        self.input_states.clear();
         self.text_bytes = 0;
         self.affines.clear();
         self.color_transforms.clear();
@@ -339,6 +344,7 @@ impl RuntimeGraph {
             .retain(|reference, _| !retired.contains(reference));
         self.retire_text(&retired);
         self.retire_video(&retired);
+        self.retire_input(&retired);
         self.retire_filters(&retired);
         self.retire_clipping(&retired);
         self.affines
@@ -886,6 +892,7 @@ impl Player {
                 ));
             }
             result.objects.push(RuntimeObject {
+                input: self.graph.input_state(&reference, &display.owner),
                 display,
                 object_ref: reference.clone(),
                 parent_ref: if capture_root.is_some() {
@@ -922,6 +929,7 @@ impl Player {
                 concatenated_color_transform,
             });
         }
+        RuntimeGraph::sanitize_input(&mut result);
         self.graph.apply_clipping(&mut result);
         self.graph.apply_filters(&mut result);
         // Eligibility follows final descendant paint alpha. A signed parent

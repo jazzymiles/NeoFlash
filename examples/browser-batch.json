@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "drag-drop",
+      "path": "examples/drag-drop.nflash",
+      "title": "Dragging, hit tests and pointer targeting",
+      "checks": [
+        "Drag the AS3 and AS2 cards inside their transformed containers; verify parent-space limits and live collision/drop readouts.",
+        "Toggle child/disabled input, compare visible target feedback, then release a dragged card outside the stage and confirm its release handler finishes once.",
+        "Restart restores both cards and flags; a fresh drag has one set of callbacks."
+      ]
+    },
+    {
       "id": "video-playback",
       "path": "examples/video-playback.nflash",
       "title": "Video, local streams and publication lifecycle",

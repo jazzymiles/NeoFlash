@@ -28,6 +28,7 @@ import { verifyFunctionWorkflow } from './function-workflow.mjs';
 import { verifyImagePipeline } from './image-pipeline.mjs';
 import { verifyClassPackages } from './class-packages.mjs';
 import { verifyVideoPlayback } from './video-playback.mjs';
+import { verifyDragDrop } from './drag-drop.mjs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
@@ -166,26 +167,50 @@ try {
 } finally {
   player?.free();rmSync(directory,{recursive:true,force:true});
 }
-await verifyAs2ProjectInput(root,cargo);
-await verifyGeometryTimer(root,cargo);
-await verifyBinaryData(root,cargo);
-await verifyInterfacesAccessors(root,cargo);
-await verifyResourceLoading(root,cargo);
-await verifyBitmapPixels(root,cargo);
-await verifyTextLayout(root,cargo);
-await verifySoundPlayback(root,cargo);
-await verifyDataProcessing(root,cargo);
-await verifyDisplayTransforms(root,cargo);
-await verifyTypedCollections(root,cargo);
-await verifyXMLCatalog(root,cargo);
-await verifyGradientGraphics(root,cargo);
-await verifyClippedScene(root,cargo);
-await verifyLoaderGallery(root,cargo);
-await verifySavedGame(root,cargo);
-await verifyTextForm(root,cargo);
-await verifyFilterGallery(root,cargo);
-await verifyFunctionWorkflow(root,cargo);
-await verifyImagePipeline(root,cargo);
-await verifyClassPackages(root,cargo);
-await verifyVideoPlayback(root,cargo);
+const workflows=[
+  ['as2-project-input',verifyAs2ProjectInput],
+  ['geometry-timer',verifyGeometryTimer],
+  ['binary-data',verifyBinaryData],
+  ['interfaces-accessors',verifyInterfacesAccessors],
+  ['resource-loading',verifyResourceLoading],
+  ['bitmap-pixels',verifyBitmapPixels],
+  ['text-layout',verifyTextLayout],
+  ['sound-playback',verifySoundPlayback],
+  ['data-processing',verifyDataProcessing],
+  ['display-transforms',verifyDisplayTransforms],
+  ['typed-collections',verifyTypedCollections],
+  ['xml-catalog',verifyXMLCatalog],
+  ['gradient-graphics',verifyGradientGraphics],
+  ['clipped-scene',verifyClippedScene],
+  ['loader-gallery',verifyLoaderGallery],
+  ['saved-game',verifySavedGame],
+  ['text-form',verifyTextForm],
+  ['filter-gallery',verifyFilterGallery],
+  ['function-workflow',verifyFunctionWorkflow],
+  ['image-pipeline',verifyImagePipeline],
+  ['class-packages',verifyClassPackages],
+  ['video-playback',verifyVideoPlayback],
+  ['drag-drop',verifyDragDrop],
+];
+let selected=workflows;
+if(process.env.NEOFLASH_WORKFLOWS!==undefined){
+  const requested=process.env.NEOFLASH_WORKFLOWS.split(',').map(id=>id.trim());
+  const known=new Set(workflows.map(([id])=>id));
+  if(requested.some(id=>!known.has(id))||new Set(requested).size!==requested.length){
+    throw new Error(`NEOFLASH_WORKFLOWS requires unique comma-separated workflow IDs. Available: ${[...known].join(',')}`);
+  }
+  const included=new Set(requested);
+  selected=workflows.filter(([id])=>included.has(id));
+}
+const failures=[];
+for(const [id,verify] of selected){
+  try{
+    await verify(root,cargo);
+    console.log(`[workflow ${id}] PASS`);
+  }catch(cause){
+    console.error(`[workflow ${id}] FAIL`,cause);
+    failures.push(new Error(`Workflow ${id} failed`,{cause}));
+  }
+}
+if(failures.length)throw new AggregateError(failures,`${failures.length}/${selected.length} project workflows failed; see labeled failures above.`);
 console.log('Project program: imports, inheritance/super, typed fields, constructors, static/const, stable methods, independent instances and actual EventDispatcher passed.');

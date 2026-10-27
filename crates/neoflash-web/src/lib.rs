@@ -308,6 +308,25 @@ impl WebPlayer {
     pub fn object_alive(&self, target: &str) -> Result<bool, JsValue> {
         Ok(self.player.object_alive(&object_ref(target)?))
     }
+    pub fn object_input_info(&self, target: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .object_input_info(&self.project, &object_ref(target)?)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn object_input_update(&mut self, target: &str, state: &str) -> Result<(), JsValue> {
+        if state.len() > 4096 {
+            return Err(JsValue::from_str("Display input state exceeds 4096 bytes"));
+        }
+        let state: neoflash_core::DisplayInputState =
+            serde_json::from_str(state).map_err(display_error)?;
+        self.player
+            .object_input_update(&self.project, &object_ref(target)?, state)
+            .map_err(display_error)
+    }
     pub fn create_linked(&mut self, linkage_id: &str) -> Result<String, JsValue> {
         serde_json::to_string(
             &self

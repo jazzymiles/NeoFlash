@@ -1,0 +1,1175 @@
+{
+  "format_version": 2,
+  "name": "Drag, drop and input targeting",
+  "width": 1040,
+  "height": 760,
+  "fps": 24,
+  "background": [
+    16,
+    23,
+    39,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 34,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / POINTER WORKFLOW / AS2 + AS3",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        150,
+                        170,
+                        195,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 80,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Drag across coordinate spaces.",
+                      "font_family": "Arial",
+                      "font_size": 34,
+                      "color": [
+                        235,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 121,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Drag either card into its green dock. Release beyond the panel to test captured input.\nThe AS3 card has an invisible 8 px hit margin; its dark badge exposes child targeting.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        150,
+                        170,
+                        195,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "label3",
+                    "name": "label3",
+                    "transform": {
+                      "x": 72,
+                      "y": 188,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "01   AS3 / -4\u00b0 PARENT",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        111,
+                        232,
+                        195,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "label2",
+                    "name": "label2",
+                    "transform": {
+                      "x": 568,
+                      "y": 188,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "02   AS2 / +5\u00b0 PARENT, 94% SCALE",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        117,
+                        170,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-rig-placement",
+                    "name": "as3Rig",
+                    "transform": {
+                      "x": 72,
+                      "y": 220,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "as3-rig",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-rig-placement",
+                    "name": "legacyRig",
+                    "transform": {
+                      "x": 568,
+                      "y": 210,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": -4,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "legacy-rig",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status3",
+                    "name": "status3",
+                    "transform": {
+                      "x": 48,
+                      "y": 525,
+                      "scale_x": 0.94,
+                      "scale_y": 0.94,
+                      "rotation": 5,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Ready",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        235,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status2",
+                    "name": "status2",
+                    "transform": {
+                      "x": 548,
+                      "y": 525,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Ready",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        235,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "mode-button",
+                    "name": "modeButton",
+                    "transform": {
+                      "x": 48,
+                      "y": 650,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "button",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.changeMode();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Target mode: 0",
+                      "description": "Change pointer targeting",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "reset-button",
+                    "name": "resetButton",
+                    "transform": {
+                      "x": 280,
+                      "y": 650,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "button",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.resetCards();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.legacyRig.card.stopDrag();_root.legacyRig.card._x=20;_root.legacyRig.card._y=20;_root.legacyState=\"Ready\";_root.refreshLegacy();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Reset positions",
+                      "description": "Return both cards to their original positions",
+                      "role": "button",
+                      "tab_order": 1,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 731,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Mode 0: group  /  Mode 1: child badge  /  Mode 2: card disabled. Restart clears counters.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        150,
+                        170,
+                        195,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "as3-rig",
+      "name": "as3-rig",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "as3-rig-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "as3-rig-bg",
+                    "name": "as3-rig-bg",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 390,
+                      "height": 260,
+                      "fill": [
+                        25,
+                        36,
+                        55,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-rig-bounds",
+                    "name": "as3-rig-bounds",
+                    "transform": {
+                      "x": 18,
+                      "y": 18,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 344,
+                      "height": 200,
+                      "fill": [
+                        29,
+                        49,
+                        65,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-rig-dock",
+                    "name": "dock",
+                    "transform": {
+                      "x": 245,
+                      "y": 110,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "dock",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-rig-card",
+                    "name": "card",
+                    "transform": {
+                      "x": 20,
+                      "y": 20,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "card3",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-rig-note",
+                    "name": "note",
+                    "transform": {
+                      "x": 20,
+                      "y": 236,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "LOCAL BOUNDS: x20..250 / y20..145",
+                      "font_family": "Arial",
+                      "font_size": 12,
+                      "color": [
+                        150,
+                        170,
+                        195,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "legacy-rig",
+      "name": "legacy-rig",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "legacy-rig-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "legacy-rig-bg",
+                    "name": "legacy-rig-bg",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 390,
+                      "height": 260,
+                      "fill": [
+                        25,
+                        36,
+                        55,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-rig-bounds",
+                    "name": "legacy-rig-bounds",
+                    "transform": {
+                      "x": 18,
+                      "y": 18,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 344,
+                      "height": 200,
+                      "fill": [
+                        29,
+                        49,
+                        65,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-rig-dock",
+                    "name": "dock",
+                    "transform": {
+                      "x": 245,
+                      "y": 110,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "dock",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-rig-card",
+                    "name": "card",
+                    "transform": {
+                      "x": 20,
+                      "y": 20,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "card2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-rig-note",
+                    "name": "note",
+                    "transform": {
+                      "x": 20,
+                      "y": 236,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "LOCAL BOUNDS: x20..250 / y20..145",
+                      "font_family": "Arial",
+                      "font_size": 12,
+                      "color": [
+                        150,
+                        170,
+                        195,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop();\ncard.useHandCursor=true;\ncard.onPress=function():Void{this.startDrag(false,20,20,250,145);_root.legacyPresses++;_root.legacyState=\"Dragging\";_root.refreshLegacy();};\ncard.onRelease=function():Void{this.stopDrag();_root.legacyReleases++;_root.legacyHit=this.hitTest(this._parent.dock);_root.legacyDrop=this._droptarget;_root.legacyState=\"Released\";_root.refreshLegacy();};\ncard.onReleaseOutside=function():Void{this.stopDrag();_root.legacyOutside++;_root.legacyHit=this.hitTest(this._parent.dock);_root.legacyDrop=this._droptarget;_root.legacyState=\"Released outside\";_root.refreshLegacy();};\ncard.onRollOver=function():Void{_root.legacyOver++;_root.refreshLegacy();};\ncard.onRollOut=function():Void{_root.legacyOut++;_root.refreshLegacy();};\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "card3",
+      "name": "card3",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "card3-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "card3-face",
+                    "name": "card3-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 110,
+                      "height": 70,
+                      "fill": [
+                        111,
+                        232,
+                        195,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card3-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 12,
+                      "y": 48,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 / DRAG",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        16,
+                        52,
+                        53,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card3-badge",
+                    "name": "badge",
+                    "transform": {
+                      "x": 72,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "badge",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card3-hit-area",
+                    "name": "invisibleHitArea",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "hit-area",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "card2",
+      "name": "card2",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "card2-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "card2-face",
+                    "name": "card2-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 110,
+                      "height": 70,
+                      "fill": [
+                        117,
+                        170,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card2-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 12,
+                      "y": 48,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 / DRAG",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        20,
+                        42,
+                        72,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "badge",
+      "name": "badge",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "badge-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "badge-face",
+                    "name": "badge-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 28,
+                      "height": 28,
+                      "fill": [
+                        28,
+                        99,
+                        87,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "dock",
+      "name": "dock",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "dock-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "dock-face",
+                    "name": "dock-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 110,
+                      "height": 90,
+                      "fill": [
+                        43,
+                        79,
+                        83,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "dock-stripe",
+                    "name": "dock-stripe",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 110,
+                      "height": 4,
+                      "fill": [
+                        111,
+                        232,
+                        195,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "dock-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 14,
+                      "y": 48,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "DROP ZONE",
+                      "font_family": "Arial",
+                      "font_size": 12,
+                      "color": [
+                        111,
+                        232,
+                        195,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "button",
+      "name": "button",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 210,
+                      "height": 48,
+                      "fill": [
+                        47,
+                        67,
+                        92,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 16,
+                      "y": 30,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Control",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        235,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "hit-area",
+      "name": "Hit area",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "hit-area-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "hit-area-face",
+                    "name": "hitAreaFace",
+                    "transform": {
+                      "x": -8,
+                      "y": -8,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 126,
+                      "height": 86,
+                      "fill": [
+                        28,
+                        99,
+                        87,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\nimport flash.display.MovieClip;\nimport flash.display.Sprite;\nimport flash.events.MouseEvent;\nimport flash.geom.Point;\nimport flash.geom.Rectangle;\npublic dynamic class Main extends MovieClip {\n    public var card:MovieClip;\n    public var pickArea:Sprite;\n    public var dragging:Boolean=false;\n    public var mode:int=0;\n    public var presses:int=0;\n    public var releases:int=0;\n    public var moves:int=0;\n    public var collisions:int=0;\n    public var lastTarget:String=\"none\";\n    public var lastDrop:String=\"none\";\n    public var lastHit:Boolean=false;\n    public var shapeHit:Boolean=false;\n    public var localPressX:Number=0;\n    public var localPressY:Number=0;\n    public var legacyPresses:int=0;\n    public var legacyReleases:int=0;\n    public var legacyOutside:int=0;\n    public var legacyOver:int=0;\n    public var legacyOut:int=0;\n    public var legacyHit:Boolean=false;\n    public var legacyDrop:String=\"\";\n    public var legacyState:String=\"Ready\";\n    public function Main(){\n        stop(); card=as3Rig.card;\n        title.selectable=false; eyebrow.selectable=false; instructions.selectable=false;\n        label3.selectable=false; label2.selectable=false; status3.selectable=false; status2.selectable=false; footer.selectable=false;\n        modeButton.caption.selectable=false; resetButton.caption.selectable=false; resetButton.caption.text=\"Reset positions\";\n        as3Rig.note.selectable=false; legacyRig.note.selectable=false;\n        as3Rig.dock.caption.selectable=false; as3Rig.dock.caption.mouseEnabled=false;\n        legacyRig.dock.caption.selectable=false; legacyRig.dock.caption.mouseEnabled=false; legacyRig.dock.mouseChildren=false;\n        card.caption.selectable=false; card.caption.mouseEnabled=false;\n        legacyRig.card.caption.selectable=false;\n        card.buttonMode=true; card.useHandCursor=true; card.mouseChildren=false;\n        as3Rig.dock.mouseChildren=false;\n        pickArea=card.invisibleHitArea; pickArea.mouseEnabled=false; pickArea.visible=false; card.hitArea=pickArea;\n        card.addEventListener(MouseEvent.MOUSE_DOWN,beginDrag);\n        stage.addEventListener(MouseEvent.MOUSE_MOVE,moveDrag);\n        stage.addEventListener(MouseEvent.MOUSE_UP,endDrag);\n        refresh(); refreshLegacy();\n    }\n    public function beginDrag(event:MouseEvent):void{\n        presses++; lastTarget=event.target.name; localPressX=card.mouseX; localPressY=card.mouseY;\n        dragging=true; card.startDrag(false,new Rectangle(20,20,230,125)); refresh();\n    }\n    public function moveDrag(event:MouseEvent):void{if(dragging){moves++;refresh();}}\n    public function endDrag(event:MouseEvent):void{\n        if(!dragging)return;\n        card.stopDrag(); dragging=false; releases++;\n        lastHit=card.hitTestObject(as3Rig.dock);\n        shapeHit=as3Rig.dock.hitTestPoint(event.stageX,event.stageY,true);\n        if(lastHit)collisions++;\n        lastDrop=card.dropTarget==null?\"none\":card.dropTarget.name;\n        refresh();\n    }\n    public function changeMode():void{\n        mode=(mode+1)%3; card.mouseChildren=mode==1; card.mouseEnabled=mode!=2;\n        if(mode==2){card.stopDrag();dragging=false;}\n        refresh();\n    }\n    public function resetCards():void{\n        card.stopDrag();dragging=false;card.x=20;card.y=20;mode=0;card.mouseChildren=false;card.mouseEnabled=true;\n        lastDrop=\"none\";lastHit=false;shapeHit=false;refresh();\n    }\n    public function refresh():void{\n        var state:String=mode==0?\"GROUP target\":(mode==1?\"CHILD targets\":\"CARD disabled\");\n        status3.text=state+\" | \"+(dragging?\"dragging\":\"ready\")+\"\\n\"+\n          \"position \"+Math.round(card.x)+\", \"+Math.round(card.y)+\" | press/release \"+presses+\"/\"+releases+\"\\n\"+\n          \"target \"+lastTarget+\" | local \"+Math.round(localPressX)+\", \"+Math.round(localPressY)+\"\\n\"+\n          \"bbox hit \"+lastHit+\" | point hit \"+shapeHit+\" | drop \"+lastDrop;\n        modeButton.caption.text=\"Target mode: \"+mode;\n    }\n    public function refreshLegacy():void{\n        status2.text=legacyState+\" | press/release \"+legacyPresses+\"/\"+legacyReleases+\"\\n\"+\n          \"outside releases \"+legacyOutside+\" | roll in/out \"+legacyOver+\"/\"+legacyOut+\"\\n\"+\n          \"bbox hit \"+legacyHit+\" | drop \"+legacyDrop;\n    }\n}\n}"
+    }
+  ]
+}

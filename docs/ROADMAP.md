@@ -1,6 +1,8 @@
 # Roadmap
 
-Independent 6687ced acceptance (`CLASSES-HTML5-20261027T1007Z`) confirms separate private owner state, protected/package collaboration, bounded dynamic metadata/JSON and sealed refusals, positive imports/final declarations, distinct AS2 inherited-private behavior and Restart. Final rejection, wildcard ambiguity and full reflection/initialization are not inferred. See [the independent record](VERIFICATION.md#independent-classpackage-verification-of-6687ced). The subsequent Video/NetStream/local NetConnection family has its own [bounded file-playback verification](VERIFICATION.md#file-video-and-local-stream-workflow); it inherits no class/package pass.
+Independent f42ad94 acceptance (`VIDEO-HTML5-20261027T1042Z`) confirms real embedded AS3/AS2 MP4 playback, pre-completion pause/seek/resume, natural completion, post-completion Close retention, one-view clear and active HTTP Restart. The silent short file does not establish audible output, precise synchronization, broad codecs/transport or active-close races. See [the independent record](VERIFICATION.md#independent-video-verification-of-f42ad94). Pointer/drag/hit-test integration is already in development and retains separate delivery evidence.
+
+Independent 6687ced acceptance (`CLASSES-HTML5-20261027T1007Z`) confirms separate private owner state, protected/package collaboration, bounded dynamic metadata/JSON and sealed refusals, positive imports/final declarations, distinct AS2 inherited-private behavior and Restart. Final rejection, wildcard ambiguity and full reflection/initialization are not inferred. See [the independent record](VERIFICATION.md#independent-classpackage-verification-of-6687ced). The later f42ad94 Video family has its own bounded independent record.
 
 Independent 6f4f66a acceptance (`IMAGE-PIPELINE-HTML5-20261027T0943Z`) confirms the initial full source/tint oracle, captured/roundtrip/loaded PNG equality, bulk cursor/word checks and partial setPixels EOF behavior. Later UI phases and Restart are retained as screenshot/AX evidence; missing later logs do not establish repeated full-pixel or whole-run zero-error results. See [the independent record](VERIFICATION.md#independent-image-pipeline-verification-of-6f4f66a). The later 6687ced class/package family has its own bounded independent record.
 
@@ -100,3 +102,8 @@ BitmapData processing now connects shared pixel/filter kernels, current subtree 
 Source class/package access now connects encapsulated model components to the existing public display and data APIs. Private owner slots, protected dispatch, internal collaborators, final/dynamic declarations and wildcard imports form one source family, with distinct AS2 behavior. Native overrides, user namespaces, complete reflection/initialization and JS/TS modules remain subsequent work; see ADR 0030.
 
 File-video playback now connects a Rust-owned Video display leaf to native browser decoding and local NetConnection/NetStream controls. Authored placeholders allow AS2 attachVideo and preserve native editing dimensions; the shared HTML5 painter keeps video in the ordinary scene. Full timeline/media synchronization, legacy codecs, capture/publishing and native decoder acceptance remain later work; see ADR 0031.
+
+
+### Pointer-driven components
+
+The pointer family connects transformed dragging, collision queries, hit-area ownership and event targeting for interactive applications and games. One shared display model serves AS2 and AS3; capture/release and Restart are checked as a complete component workflow. Multi-touch, exact historical input behavior and richer native interaction authoring remain subsequent work.
