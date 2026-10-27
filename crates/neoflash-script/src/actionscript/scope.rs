@@ -157,7 +157,7 @@ impl<'a> Analysis<'a> {
                 }
             }
             Stmt::While(_, body) => self.declarations(scope, body, false)?,
-            Stmt::For(init, _, _, body) => {
+            Stmt::For(init, _, _, body) | Stmt::ForIn(init, _, _, body) => {
                 self.declarations(scope, init, false)?;
                 self.declarations(scope, body, false)?;
             }
@@ -387,6 +387,10 @@ impl<'a> Analysis<'a> {
             }
         }
         match expr {
+            Expr::Delete(target,offset) if !matches!(target.as_ref(),Expr::Member(_,_)|Expr::Index(_,_)) => return Err(self.error(*offset,"delete requires a property or indexed element.")),
+            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "Vector"|"Dictionary") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,format!("{name} is an AS3 native collection; AS2 user bindings/classes may use that name, but the native family is unavailable."))),
+            Expr::Name(name) if name=="Vector" && self.context.intrinsic_type(name,self.script.language==ScriptLanguage::ActionScript3) && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"Vector requires a resolved element type: Vector.<T>. Untyped native Vector class values are unsupported.")),
+            Expr::TypeValue(_,offset) | Expr::NewVector(_,_,offset) if self.resolve(scope,"Vector").is_some() => return Err(self.error(*offset,"A shadowed Vector value cannot act as the native generic class; use an unshadowed type name.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "RegExp" | "JSON") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset, format!("{name} is an AS3 native family; AS2 has no native {name} in this profile. A declared user binding/class with that name is supported."))),
             Expr::TypeTest(_, _, name, offset) if self.resolve(scope,name.split('.').next().unwrap()).is_some() => return Err(self.error(*offset, "is/as requires a resolved type name; a shadowed value or dynamic class alias is outside this profile.")),
             Expr::NewBuiltin(name, _, offset) if matches!(name.as_str(), "RegExp" | "JSON") && self.script.language == ScriptLanguage::ActionScript2 => return Err(self.error(*offset, format!("{name} is an AS3 native family, not an AS2 constructor."))),
@@ -446,7 +450,7 @@ impl<'a> Analysis<'a> {
                 // when the call executes; arbitrary member APIs stay blocked.
                 let dynamic_timeline = self.script.language == ScriptLanguage::ActionScript2
                     && binding.is_none() && matches!(callee.as_ref(), Expr::Name(name) if !is_global(name));
-                if !builtin && !project_call && !user_binding && !dynamic_timeline && !matches!(callee.as_ref(),Expr::Function(_)) && !self.known_member(scope,callee) {
+                if !builtin && !project_call && !user_binding && !dynamic_timeline && !matches!(callee.as_ref(),Expr::Function(_) | Expr::TypeValue(_, _)) && !self.known_member(scope,callee) {
                     return Err(self.error(*offset,"This ActionScript call is not a supported API or a declared user function/value. Unknown member APIs and dynamic computed calls remain unsupported; source is not discarded."));
                 }
             }
@@ -469,6 +473,18 @@ impl<'a> Analysis<'a> {
         Ok(())
     }
     fn statement(&mut self, scope: usize, stmt: &Stmt) -> Result<(), Diagnostic> {
+        if let Stmt::ForIn(binding, _, _, _) = stmt
+            && let Stmt::Expr(target) = binding.as_ref()
+        {
+            self.expression(
+                scope,
+                &Expr::Assign(
+                    "=".into(),
+                    Box::new(target.clone()),
+                    Box::new(Expr::Literal("undefined".into())),
+                ),
+            )?;
+        }
         if let Stmt::Try(body, catches, finally) = stmt {
             for stmt in body {
                 self.statement(scope, stmt)?;
@@ -523,6 +539,7 @@ fn expressions(stmt: &Stmt) -> Vec<&Expr> {
         Stmt::Var(v) => v.iter().filter_map(|(_, _, v)| v.as_ref()).collect(),
         Stmt::If(e, _, _) | Stmt::While(e, _) => vec![e],
         Stmt::For(_, c, u, _) => c.iter().chain(u.iter()).collect(),
+        Stmt::ForIn(_, collection, _, _) => vec![collection],
         Stmt::Return(e, _) => e.iter().collect(),
         Stmt::Throw(e) | Stmt::DoWhile(_, e) => vec![e],
         Stmt::Switch(e, cases) => std::iter::once(e)
@@ -538,7 +555,7 @@ fn statements(stmt: &Stmt) -> Vec<&Stmt> {
             .chain(n.iter().map(Box::as_ref))
             .collect(),
         Stmt::While(_, b) => vec![b],
-        Stmt::For(i, _, _, b) => vec![i, b],
+        Stmt::For(i, _, _, b) | Stmt::ForIn(i, _, _, b) => vec![i, b],
         Stmt::DoWhile(b, _) | Stmt::Label(_, b) => vec![b],
         Stmt::Switch(_, cases) => cases.iter().flat_map(|c| &c.body).collect(),
         Stmt::Try(b, catches, finally) => b
@@ -554,15 +571,17 @@ fn children(expr: &Expr) -> Vec<&Expr> {
         Expr::Member(v, _)
         | Expr::Unary(_, v)
         | Expr::Update(_, v, _)
-        | Expr::TypeTest(_, v, _, _) => vec![v],
+        | Expr::TypeTest(_, v, _, _)
+        | Expr::Delete(v, _) => vec![v],
         Expr::Index(a, b) | Expr::Binary(_, a, b) | Expr::Assign(_, a, b) => vec![a, b],
         Expr::Array(v) => v.iter().collect(),
         Expr::Object(v) => v.iter().map(|(_, e)| e).collect(),
         Expr::Conditional(a, b, c) => vec![a, b, c],
         Expr::Call(c, a, _) => std::iter::once(c.as_ref()).chain(a.iter()).collect(),
-        Expr::NewError(_, args, _) | Expr::NewClass(_, args, _) | Expr::NewBuiltin(_, args, _) => {
-            args.iter().collect()
-        }
+        Expr::NewError(_, args, _)
+        | Expr::NewClass(_, args, _)
+        | Expr::NewBuiltin(_, args, _)
+        | Expr::NewVector(_, args, _) => args.iter().collect(),
         _ => vec![],
     }
 }

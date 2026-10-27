@@ -1,0 +1,641 @@
+{
+  "format_version": 2,
+  "name": "Typed inventory and instance identity",
+  "width": 960,
+  "height": 820,
+  "fps": 24,
+  "background": [
+    13,
+    21,
+    32,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Typed inventory",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 28,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / VECTOR + DICTIONARY + ENUMERATION",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        163,
+                        199,
+                        213,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "heading",
+                    "name": "heading",
+                    "transform": {
+                      "x": 48,
+                      "y": 63,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Typed models. Reusable instances.",
+                      "font_family": "Arial",
+                      "font_size": 30,
+                      "color": [
+                        239,
+                        248,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 48,
+                      "y": 108,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Process a batch: update stock, ship one model and reuse its card for an incoming item.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        218,
+                        233,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "models-label",
+                    "name": "models-label",
+                    "transform": {
+                      "x": 52,
+                      "y": 153,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "VECTOR.<ITEM> / DICTIONARY KEYS ARE THE CARDS",
+                      "font_family": "Arial",
+                      "font_size": 12,
+                      "color": [
+                        218,
+                        233,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "report-label",
+                    "name": "report-label",
+                    "transform": {
+                      "x": 480,
+                      "y": 153,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "JSON ARRAY / PUBLIC FIELDS + GETTER",
+                      "font_family": "Arial",
+                      "font_size": 12,
+                      "color": [
+                        218,
+                        233,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "report-panel",
+                    "name": "report-panel",
+                    "transform": {
+                      "x": 466,
+                      "y": 178,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 444,
+                      "height": 420,
+                      "fill": [
+                        24,
+                        33,
+                        46,
+                        255
+                      ],
+                      "stroke": [
+                        48,
+                        62,
+                        80,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "reportText",
+                    "name": "reportText",
+                    "transform": {
+                      "x": 482,
+                      "y": 190,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Loading typed data\u2026",
+                      "width": 414,
+                      "height": 390,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 12,
+                        "color": 14346740,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 2
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "summary",
+                    "name": "summary",
+                    "transform": {
+                      "x": 48,
+                      "y": 616,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Loading\u2026",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        218,
+                        233,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "detail",
+                    "name": "detail",
+                    "transform": {
+                      "x": 48,
+                      "y": 644,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        218,
+                        233,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyReadout",
+                    "name": "legacyReadout",
+                    "transform": {
+                      "x": 48,
+                      "y": 681,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        123,
+                        218,
+                        185,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 774,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Restart restores the three original models, identity keys and linked cards.",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        159,
+                        188,
+                        205,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "process-button",
+                    "name": "process-button",
+                    "transform": {
+                      "x": 48,
+                      "y": 718,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "process-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.processBatch();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Process batch",
+                      "description": "Update typed models, delete an identity key and reuse its card with a new model.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "var legacyStock:Object={ink:4,paper:6,film:3}; var legacyTotal:Number=0; for(var stockKey:String in legacyStock) {legacyTotal+=legacyStock[stockKey];} legacyReadout.text=\"AS2 for\u2026in: named stock values / quantity \"+legacyTotal;"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "process-control",
+      "name": "Process batch",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "process-control-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 208,
+                      "height": 40,
+                      "fill": [
+                        81,
+                        193,
+                        160,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 18,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Process batch",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        13,
+                        38,
+                        36,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "inventory-card",
+      "name": "Linked inventory card",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "inventory-card-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "card-face",
+                    "name": "card-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 380,
+                      "height": 96,
+                      "fill": [
+                        31,
+                        54,
+                        75,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        88,
+                        115,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 18,
+                      "y": 14,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Stock item",
+                      "font_family": "Arial",
+                      "font_size": 19,
+                      "color": [
+                        218,
+                        233,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "quantity",
+                    "name": "quantity",
+                    "transform": {
+                      "x": 18,
+                      "y": 42,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "SKU: 0",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        153,
+                        202,
+                        223,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "track",
+                    "name": "track",
+                    "transform": {
+                      "x": 18,
+                      "y": 73,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 340,
+                      "height": 7,
+                      "fill": [
+                        42,
+                        70,
+                        90,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "bar",
+                    "name": "bar",
+                    "transform": {
+                      "x": 18,
+                      "y": 73,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 340,
+                      "height": 7,
+                      "fill": [
+                        86,
+                        206,
+                        176,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      },
+      "linkage_id": "inventory-card",
+      "class_name": "app.InventoryCard"
+    }
+  ],
+  "sources": [
+    {
+      "id": "source-main",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;\n import flash.utils.Dictionary;\n public class Main extends MovieClip {\n  public var items:Vector.<Item>;\n  public var cards:Vector.<InventoryCard>;\n  public var byCard:Dictionary;\n  public var batch:int=0;\n  public var total:int=0;\n  public var keyCount:int=0;\n  public var released:Boolean=false;\n  public var report:String;\n  public function Main() {\n   super(); stop();\n   items=new Vector.<Item>(); cards=new Vector.<InventoryCard>(); byCard=new Dictionary();\n   var records:Array=JSON.parse(\"[{\\\"sku\\\":\\\"INK\\\",\\\"label\\\":\\\"Ink cartridges\\\",\\\"quantity\\\":4},{\\\"sku\\\":\\\"PAPER\\\",\\\"label\\\":\\\"Print paper\\\",\\\"quantity\\\":6},{\\\"sku\\\":\\\"FILM\\\",\\\"label\\\":\\\"Animation film\\\",\\\"quantity\\\":3}]\");\n   for each(var record:Object in records) {\n    var item:Item=new Item(record.sku,record.label,record.quantity);\n    var card:InventoryCard=new InventoryCard();\n    items.push(item); cards.push(card); byCard[card]=item; addChild(card);\n   }\n   refresh();\n  }\n  public function processBatch():void {\n   batch++;\n   for each(var item:Item in items) item.quantity++;\n   var recycled:InventoryCard=cards.shift();\n   var shipped:Item=items.shift();\n   delete byCard[recycled]; released=!(recycled in byCard);\n   removeChild(recycled);\n   var incoming:Item=new Item(\"RESTOCK-\"+batch,\"Incoming batch \"+batch,batch+4);\n   items.push(incoming); cards.push(recycled); byCard[recycled]=incoming; addChild(recycled);\n   refresh();\n  }\n  public function refresh():void {\n   total=0; keyCount=0;\n   for each(var item:Item in items) total+=item.quantity;\n   for(var key:Object in byCard) {\n    var card:InventoryCard=InventoryCard(key);\n    card.bind(Item(byCard[key])); keyCount++;\n   }\n   for(var i:int=0;i<cards.length;i++) {cards[i].x=52;cards[i].y=190+i*110;}\n   report=JSON.stringify(items,null,2);\n   reportText.text=report;\n   summary.text=\"Batch \"+batch+\" / \"+items.length+\" typed models / \"+keyCount+\" identity keys / quantity \"+total;\n   detail.text=\"Key removed before reusing its card: \"+released+\" | linked cards constructed: \"+InventoryCard.created;\n   trace(\"typed inventory\",batch,items.length,keyCount,total,released,InventoryCard.created);\n  }\n }\n}"
+    },
+    {
+      "id": "source-item",
+      "path": "app/Item.as",
+      "language": "action_script3",
+      "source": "package app {\n public class Item {\n  public var sku:String;\n  public var label:String;\n  public var quantity:int;\n  public function Item(sku:String,label:String,quantity:int) {this.sku=sku;this.label=label;this.quantity=quantity;}\n  public function get stockLabel():String {return sku+\": \"+quantity;}\n }\n}"
+    },
+    {
+      "id": "source-card",
+      "path": "app/InventoryCard.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;\n public class InventoryCard extends MovieClip {\n  public static var created:int=0;\n  public var item:Item;\n  public function InventoryCard() {super();stop();created++;}\n  public function bind(value:Item):void {\n   item=value;title.text=value.label;quantity.text=value.stockLabel;\n   bar.scaleX=Math.min(value.quantity,20)/20;\n  }\n }\n}"
+    }
+  ]
+}

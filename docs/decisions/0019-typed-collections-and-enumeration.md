@@ -1,0 +1,25 @@
+# Typed collections and enumeration
+
+Status: accepted for the bounded implementation, 2026-10-27.
+
+## Types and identity
+
+AS3 Vector types are parameterized by an actual element-type token, coercion operation and default value. A qualified-name string alone cannot distinguish classes in different publications. Generic type parsing belongs to the Rust frontend, including nested closing brackets without changing numeric shift expressions. Construction, explicit conversion and assignment to a nullable typed slot are different operations. Dense storage, bounds and fixed length belong to the captured runtime adapter.
+
+Dictionary object keys retain their identity. The pinned AVM2 reference implementation routes primitive keys through property-name conversion; using JavaScript Map for every key would give a different result for values such as 1 and "1". Compiled indexed access therefore retains the original receiver and key until the runtime reference adapter selects the correct container behavior. Compound writes, postfix updates, deletion and membership must not stringify an object key or evaluate its receiver/key twice.
+
+Weak dictionaries require actual weak ownership. A WeakMap can own values while a separate enumeration index holds WeakRef keys; it must never retain a strong fallback key/value pair. Garbage collection timing is nondeterministic and cannot be certified by an ordinary browser scenario. Unsupported platforms must diagnose the weak mode.
+
+## Iteration and serialization
+
+For-in and AS3 for-each use a bounded enumeration adapter, with explicit ordering/mutation boundaries. Project metadata distinguishes dynamic enumerable properties from fixed AS3 traits. Native display proxies are valid Dictionary keys; enumerating their hidden custom storage needs a separate host contract rather than an empty successful loop.
+
+Vector JSON encoding is array encoding, with the existing callback traversal and ordinary serialization of each element. Dictionary's default toJSON result is a label, not an entry dump; authors can override it or explicitly project entries for a useful report. Neither family changes ambient JavaScript prototypes.
+
+## Combined delivery
+
+One inventory publication parses source records, creates Vector.<Item> models, indexes their linked display cards in a Dictionary, updates stock through enumeration, deletes/reinserts a key while reusing its card, and serializes the typed model Vector including public getters. An AS2 plain-record for-in readout remains independent. Restart recreates the program and container identities. Existing compiler scenarios carry type/control-flow boundaries; this workflow is one additional helper in the existing project runner, not a per-member suite.
+
+Primary references: [Vector](https://airsdk.dev/reference/actionscript/3.0/Vector.html), [Dictionary](https://airsdk.dev/reference/actionscript/3.0/flash/utils/Dictionary.html), [pinned AVM2 JSON vector dispatch](https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/JSONClass.cpp), and [pinned AVM2 property routing](https://github.com/ruffle-rs/ruffle/blob/fe6cfc545405b888ebb478ce1c211d63147ca49b/core/src/avm2/activation.rs). These document expectations; original Flash execution remains separate evidence.
+
+Delivery: one shared regression pass and the combined ordinary HTML5 workflow passed. See [VERIFICATION.md](../VERIFICATION.md#typed-collections-and-enumeration-batch) for source/artifact fingerprints, observed browser interactions and limits.

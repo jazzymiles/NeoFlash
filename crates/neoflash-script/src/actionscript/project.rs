@@ -31,6 +31,7 @@ const BUILTINS: &[&str] = &[
     "flash.utils.Timer",
     "flash.utils.ByteArray",
     "flash.utils.Endian",
+    "flash.utils.Dictionary",
     "flash.net.URLRequest",
     "flash.net.URLRequestHeader",
     "flash.net.URLRequestMethod",
@@ -245,6 +246,7 @@ fn frontend(script: &Script, tokens: Vec<Token>, context: CompileContext) -> Fro
         function_depth: 0,
         next_function: 1,
         context,
+        no_in: false,
     }
 }
 fn qualified(p: &mut Frontend<'_>) -> Result<String, Diagnostic> {
@@ -453,7 +455,7 @@ fn context(
     // Source classes/imports win over these top-level native names. In
     // particular, AS2 projects may define their own JSON or RegExp classes.
     for name in if language == ScriptLanguage::ActionScript3 {
-        &["Date", "RegExp", "JSON"][..]
+        &["Date", "RegExp", "JSON", "Vector"][..]
     } else {
         &["Date"][..]
     } {
@@ -487,7 +489,7 @@ fn parse_class(
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "Native Date/RegExp subclass initialization is outside this profile; use composition. JSON supplies static functions and cannot be a base class.",
+            "Native Date/RegExp/Vector subclass initialization is outside this profile; use composition. JSON supplies static functions and cannot be a base class.",
         ));
     }
     let base = header
@@ -533,12 +535,12 @@ fn parse_class(
     }
     if matches!(
         base.as_deref(),
-        Some("flash.geom.Transform" | "flash.geom.ColorTransform")
+        Some("flash.geom.Transform" | "flash.geom.ColorTransform" | "flash.utils.Dictionary")
     ) {
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "Transform and ColorTransform native subclass initialization is outside this profile; bind a Transform to a display object or use a ColorTransform value through composition.",
+            "Transform, ColorTransform and Dictionary native subclass initialization is outside this profile; use native instances through composition.",
         ));
     }
     if matches!(
@@ -776,15 +778,7 @@ struct MethodContract {
     is_public: bool,
 }
 fn method_contract(class: &Class, method: &Method) -> MethodContract {
-    let canonical = |ty: Option<&str>| {
-        let ty = ty.unwrap_or("*");
-        class
-            .context
-            .types
-            .get(ty)
-            .cloned()
-            .unwrap_or_else(|| ty.into())
-    };
+    let canonical = |ty: Option<&str>| class.context.canonical_type(ty.unwrap_or("*"));
     MethodContract {
         signature: Signature {
             params: method

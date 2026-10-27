@@ -26,6 +26,13 @@ fn control_targets_are_validated_at_source_and_reset_at_functions() {
         "case 1: break;",
         "var switch=1;",
         "var try=1;",
+        "for each(var key=1;key<3;key++){}",
+        "for(var key=1 in {}){}",
+        "for(var a,b in {}){}",
+        "for(Number in {}){}",
+        "delete local;",
+        "var value:Vector.<void>;",
+        "var value:Vector;",
     ] {
         assert!(as3(source).is_err(), "must reject {source}");
     }
@@ -34,10 +41,22 @@ fn control_targets_are_validated_at_source_and_reset_at_functions() {
         "first:second:do{continue first;}while(false);",
         "block:{break block;}",
         "switch(1){case 1:break;} while(false){continue;}",
+        "outer:for each(var value:int in new Vector.<int>(2)){try{continue outer;}finally{trace(value);}}",
+        "for(var key:String in {a:1}){if(key in {a:2})delete this[key];}",
+        "var value:Vector.<Vector.<int>>=new Vector.<Vector.<int>>(); var shifts=(16>>2)+(16>>>3);",
+        "for(var f=function(){return 'x' in {x:1};};false;){}",
     ] {
         assert!(as3(source).is_ok(), "must accept {source}");
     }
     assert!(check("label:while(false){}", ScriptLanguage::ActionScript2).is_err());
+    assert!(
+        check(
+            "for each(var value in [1]){}",
+            ScriptLanguage::ActionScript2
+        )
+        .is_err()
+    );
+    assert!(check("var value:Vector.<int>;", ScriptLanguage::ActionScript2).is_err());
 }
 
 #[test]

@@ -46,12 +46,13 @@
       "id": "as3-operators",
       "title": "Arithmetic, logic and assignments",
       "status": "partial",
-      "scope": "Basic arithmetic, comparisons, short-circuit evaluation, bitwise operations, ++/-- and compound assignments.",
+      "scope": "Basic arithmetic, comparisons, short-circuit evaluation, bitwise operations, ++/-- and compound assignments. Membership and member/index deletion preserve original container keys; indexed compound/update writes evaluate receiver and key once.",
       "limitations": "Some operations use JavaScript coercion; this is not complete AVM semantics across all Flash Player versions.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-script/src/actionscript/containers.js"
       ]
     },
     {
@@ -261,12 +262,16 @@
     {
       "id": "as3-enumeration",
       "title": "Property enumeration and with",
-      "status": "planned",
-      "scope": "for..in enumeration and correct name lookup inside with.",
-      "limitations": "These are unsupported; a classic three-part for loop does not implement property enumeration.",
+      "status": "partial",
+      "scope": "Bounded for-in property enumeration over ordinary records, Arrays and project objects; original-key membership and member/index deletion. AS3 for-each visits values; Vector/Dictionary retain typed indices and object-key identity. Fixed AS3 traits are excluded and protected from deletion.",
+      "limitations": "Snapshot keys ignore later insertions, skip deletions and read values at visit time. Historical iteration order, with, XML/E4X and enumeration of hidden native/display storage remain unsupported. The combined typed-collections workflow supplies delivery evidence separately; this is not a full Flash enumeration contract.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-script/src/actionscript/containers.js",
+        "crates/neoflash-script/tests/typed-collections.mjs",
+        "examples/typed-collections.nflash",
+        "docs/decisions/0019-typed-collections-and-enumeration.md"
       ]
     },
     {
@@ -396,7 +401,7 @@
       "title": "Display properties",
       "status": "partial",
       "scope": "Position, alpha, scale, bounded finite rotation readback, visibility, names, root/parent/stage, child traversal, transformed bounds and coordinates, and supported nonrotated width/height writes. Native Sprite/Shape/MovieClip and project subclasses allocate stable runtime objects; containers add/remove/reparent/reorder dynamic children in an ordered suffix after authored children. Explicitly exported MovieClip symbols provide independent scoped authored timelines, nested clocks/scripts and linked class state; new on the linked MovieClip class allocates its authored library timeline. Bitmap is a noncontainer display view over shared BitmapData with smoothing and pixel-snapping controls. Runtime Transform/ColorTransform adds exact affine overrides, copy-valued geometry getters, skew-preserving scalar mutation, nested RGBA paint composition and independent tinted views of shared pixels.",
-      "limitations": "General authored/dynamic display mixing, masks/filters, full text layout and all owner-specific native APIs remain incomplete. Rotated dimension setters and singular coordinate conversions diagnose. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent ed3c39b evidence covers only the specified typed geometry/Timer workflow; other members and full timing/coercion remain unverified. Authored children cannot be moved/removed; detached runtime objects remain allocated until Restart, with a 4,096-object bound. General Flash depth replacement and full linked construction order remain unsupported. The combined dynamic-display browser workflow and Restart passed. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. The linked-movieclips ordinary-export/real-WASM host scenario passes; representative interactions and Restart also passed in the shared in-app-browser batch; VERIFICATION.md distinguishes visible evidence from host-only checks. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. The bitmap-pixels family passes separate ordinary-export/real-WASM and in-app-browser checks for visible shared edits, source/clone independence, AS2 attachment and Restart. Native image-panel acceptance remains pending; full rasterization and coercion parity are not established. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass. The combined Transform workflow passed actual-WASM and in-app-browser Cycle/Restart; independent declaration audit and exact historical conformance remain separate.",
+      "limitations": "General authored/dynamic display mixing, masks/filters, full text layout and all owner-specific native APIs remain incomplete. Rotated dimension setters and singular coordinate conversions diagnose. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent ed3c39b evidence covers only the specified typed geometry/Timer workflow; other members and full timing/coercion remain unverified. Authored children cannot be moved/removed; detached runtime objects remain allocated until Restart, with a 4,096-object bound. General Flash depth replacement and full linked construction order remain unsupported. The combined dynamic-display browser workflow and Restart passed. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. The linked-movieclips ordinary-export/real-WASM host scenario passes; representative interactions and Restart also passed in the shared in-app-browser batch; VERIFICATION.md distinguishes visible evidence from host-only checks. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. The bitmap-pixels family passes separate ordinary-export/real-WASM and in-app-browser checks for visible shared edits, source/clone independence, AS2 attachment and Restart. Native image-panel acceptance remains pending; full rasterization and coercion parity are not established. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass. The combined Transform workflow passed actual-WASM and in-app-browser Cycle/Restart; independent declaration audit and exact historical conformance remain separate. Independent 852c8b7 evidence (TRANSFORMS-HTML5-20261027T0502Z) covers the specified affine/skew/reparent, tint/alpha pixels and real coordinate hits, copy ownership and Restart workflow in VERIFICATION.md. Native editing, exact rasterization, dynamic-card keyboard/accessibility and unobserved members do not inherit that pass.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -611,8 +616,8 @@
       "id": "as3-typed-collections",
       "title": "Vector, Dictionary and ByteArray",
       "status": "partial",
-      "scope": "AS3 exact ByteArray/Endian imports, indexed binary storage, primitive numeric IO, endian control, UTF, byte copying and clear. Publication-owned limits and reset/disposal isolate buffers; invalid size/overrun/UTF failures preserve state.",
-      "limitations": "Ordinary JavaScript arrays and objects do not replace these contracts. Vector and Dictionary remain unimplemented. ByteArray excludes AMF, compression, other code pages, indexed enumeration, native subclass initialization and full coercion/error-class fidelity. Defaults bound each buffer to 16 MiB, total backing capacity to 64 MiB and initialized arrays to 4,096; the ordinary binary-data browser workflow and Restart passed. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified.",
+      "scope": "AS3 exact ByteArray/Endian imports, indexed binary storage, primitive numeric IO, endian control, UTF, byte copying and clear. Publication-owned limits and reset/disposal isolate buffers; invalid size/overrun/UTF failures preserve state. Dense invariant Vector types, bounded methods/callbacks and Vector JSON; Dictionary identity keys, primitive property-name keys and actual weak ownership; original-key indexed access and snapshot enumeration.",
+      "limitations": "Vector is bounded to 1,000,000 elements; structural callback/reentrant coercion mutation, RETURNINDEXEDARRAY and subclassing diagnose. Dictionary bounds 100,000 live entry records and 1,000,000 UTF-16 primitive key units; weak collection timing and historical enumeration/coercion remain unverified. Native/display hidden-storage enumeration is separate. ByteArray excludes AMF, compression, other code pages, indexed enumeration, native subclass initialization and full coercion/error-class fidelity. Defaults bound each buffer to 16 MiB, total backing capacity to 64 MiB and initialized arrays to 4,096; the ordinary binary-data browser workflow and Restart passed. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",
@@ -622,7 +627,12 @@
         "crates/neoflash-script/tests/binary-data.mjs",
         "examples/binary-data.nflash",
         "docs/VERIFICATION.md",
-        "docs/progress/actionscript-audit.json"
+        "docs/progress/actionscript-audit.json",
+        "crates/neoflash-script/src/actionscript/vectors.js",
+        "crates/neoflash-script/src/actionscript/dictionary.js",
+        "crates/neoflash-script/src/actionscript/containers.js",
+        "crates/neoflash-script/tests/typed-collections.mjs",
+        "examples/typed-collections.nflash"
       ]
     }
   ]

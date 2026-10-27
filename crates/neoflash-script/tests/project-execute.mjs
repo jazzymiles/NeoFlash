@@ -16,6 +16,7 @@ import { verifyTextLayout } from './text-layout.mjs';
 import { verifySoundPlayback } from './sound-playback.mjs';
 import { verifyDataProcessing } from './data-processing.mjs';
 import { verifyDisplayTransforms } from './display-transforms.mjs';
+import { verifyTypedCollections } from './typed-collections.mjs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
@@ -26,6 +27,9 @@ const source=(id,path,source)=>({id,path,language:'action_script3',source});
 const project={format_version:2,name:'Original program fixture',width:320,height:180,fps:24,background:[255,255,255,255],root:'scene',
   symbols:[{id:'scene',name:'Scene',kind:'movie_clip',timeline:{frame_count:1,layers:[],scripts:[]}}],
   sources:[
+    source('typed-bag','model/Bag.as','package model { public class Bag { public var items:Vector.<DataBase>; public var numbers:Vector.<int>; public function Bag(){} public function accept(items:Vector.<DataBase>,numbers:Vector.<int>):int {this.items=items;this.numbers=numbers;return items.length+numbers.length;} } }'),
+    {id:'user-vector',path:'legacy/Vector.as',language:'action_script2',source:'class legacy.Vector {public function Vector(){} public function size():Number{return 3;}}'},
+    {id:'user-dictionary',path:'legacy/Dictionary.as',language:'action_script2',source:'class legacy.Dictionary {public function Dictionary(){} public function count():Number{return 4;}}'},
     source('data-base','model/DataBase.as','package model { public class DataBase { public var value:int=2; public static var reads:int=0; public function DataBase(){} public function get doubled():int { DataBase.reads++; return value*2; } public function set writeOnly(next:int):void {value=next;} } }'),
     source('data-record','model/DataRecord.as','package model { public class DataRecord extends DataBase { public var when:Date; public var pattern:RegExp; public function DataRecord(){super();} public function accept(date:Date,regex:RegExp):Boolean {when=date;pattern=regex;return date is Date && regex is RegExp;} public function serialize():String {return JSON.stringify(this,function(key:String,value:*):* {if(key=="pattern")return value.source;return value;});} } }'),
     {id:'user-json',path:'legacy/JSON.as',language:'action_script2',source:'class legacy.JSON {public function JSON(){} public function parse(value:String):String{return "user:"+value;}}'},
@@ -41,7 +45,8 @@ const project={format_version:2,name:'Original program fixture',width:320,height
   ]};
 const scripts=[{language:'action_script3',source:'import flash.utils.getTimer; import model.Counter; import app.Watcher; import flash.events.Event; var a:Counter=new Counter(2); var b:Counter=new Counter(7); first=a.increment(); second=b.value; total=Counter.created; var cb:Function=a.callback(); detached=cb(); var w:Watcher=new Watcher(); w.dispatchEvent(new Event(Event.CHANGE)); w.close(); w.dispatchEvent(new Event(Event.CHANGE)); events=w.count; collection=a.summarize(new Array(30,2,11)); shadowed=a.localTypes(function(value:*):String { return "local:"+value; },function(value:int):int { return value+3; }); lookupResult=this.probe["sort"](this.argument()); var clock:Function=getTimer; elapsed=clock(); qualified=flash.utils.getTimer(); function localClock(getTimer:Function):Number {return getTimer();} localTime=localClock(function():Number{return 77;});'}];
 scripts[0].source='import model.DataRecord; '+scripts[0].source+' var record:DataRecord=new DataRecord(); emptySlots=(record.when==null&&record.pattern==null); var foreignDate:Date=new Date(0); var foreignRegex:RegExp=new RegExp("x"); accepted=record.accept(foreignDate,foreignRegex); record.extra="dynamic"; serialized=record.serialize();';
-scripts.push({language:'action_script2',source:'import legacy.JSON; import legacy.RegExp; import legacy.Date; legacyElapsed=getTimer(); var userJSON=new JSON(); var userRegex=new RegExp(); var userDate=new Date(); userText=userJSON.parse("value"); userMatch=userRegex.test("user"); userTime=userDate.getTime(); function localNative(JSON:Object,RegExp:Object):String{return JSON.parse("local")+RegExp.test("local");} userShadow=localNative({parse:function(value:String):String{return value;}},{test:function(value:String):Boolean{return true;}});'});
+scripts[0].source='import flash.utils.Dictionary; import model.Bag; import model.DataBase; '+scripts[0].source+' var modelVector:Vector.<DataBase>=new Vector.<DataBase>(); modelVector.push(record); var numbers:Vector.<int>=Vector.<int>([7,8]); var bag:Bag=new Bag(); bagResult=bag.accept(modelVector,numbers); var associations:Dictionary=new Dictionary(); associations[record]=7;associations[a]=9; dictionarySum=0; var objectKeys:Array=[];for(var identity:Object in associations){objectKeys.push(identity);dictionarySum+=associations[identity];} dictionaryHad=record in associations;dictionaryRemoved=delete associations[record];dictionaryNow=record in associations;dictionaryJSON=JSON.stringify(associations); fixedDelete=delete record.value;fixedHas="value" in record;var dynamicKeys:Array=[];for(var property:String in record)dynamicKeys.push(property);';
+scripts.push({language:'action_script2',source:'import legacy.JSON; import legacy.RegExp; import legacy.Date; import legacy.Vector; import legacy.Dictionary; legacyElapsed=getTimer(); var userJSON=new JSON(); var userRegex=new RegExp(); var userDate=new Date(); var userVector=new Vector(); var userDictionary=new Dictionary(); userCollections=userVector.size()+userDictionary.count(); userText=userJSON.parse("value"); userMatch=userRegex.test("user"); userTime=userDate.getTime(); function localNative(JSON:Object,RegExp:Object):String{return JSON.parse("local")+RegExp.test("local");} userShadow=localNative({parse:function(value:String):String{return value;}},{test:function(value:String):Boolean{return true;}});'});
 const result=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-script','--example','compile_project'],{cwd:root,input:JSON.stringify({project,scripts}),encoding:'utf8'});
 assert.equal(result.status,0,result.error?.message || result.stderr);
 const compiled=JSON.parse(result.stdout);assert.ok(compiled.Ok,JSON.stringify(compiled));
@@ -71,6 +76,10 @@ assert.equal(serialized.when,context.foreignDate.toString()); assert.equal(Objec
 assert.equal(program.type('model.DataBase').reads,1,'inherited getter executes once, only during JSON traversal');
 assert.ok(program.jsonKeys(context.record).includes('doubled')); assert.equal(program.type('model.DataBase').reads,1,'listing JSON keys does not call getters');
 assert.equal(program.jsonKeys({plain:true}),null);
+assert.equal(context.bagResult,3);assert.equal(context.bag.items,context.modelVector);assert.equal(context.bag.numbers,context.numbers);
+assert.equal(context.dictionarySum,16);assert.ok(context.objectKeys.includes(context.record));assert.ok(context.objectKeys.includes(context.a));
+assert.equal(context.dictionaryHad,true);assert.equal(context.dictionaryRemoved,true);assert.equal(context.dictionaryNow,false);assert.equal(context.dictionaryJSON,'"Dictionary"');
+assert.equal(context.fixedDelete,false);assert.equal(context.fixedHas,true);assert.deepEqual(context.dynamicKeys,['extra']);assert.equal(context.userCollections,7);
 assert.equal(context.first,15);assert.equal(context.second,9);assert.equal(context.total,2);assert.equal(context.detached,16);
 assert.equal(context.collection,'A2,11,30');
 assert.deepEqual([context.elapsed,context.qualified,context.localTime],[0,0,77]);
@@ -145,4 +154,5 @@ await verifyTextLayout(root,cargo);
 await verifySoundPlayback(root,cargo);
 await verifyDataProcessing(root,cargo);
 await verifyDisplayTransforms(root,cargo);
+await verifyTypedCollections(root,cargo);
 console.log('Project program: imports, inheritance/super, typed fields, constructors, static/const, stable methods, independent instances and actual EventDispatcher passed.');

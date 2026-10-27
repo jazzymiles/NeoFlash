@@ -46,12 +46,13 @@
       "id": "as2-operators",
       "title": "Arithmetic, logic and assignments",
       "status": "partial",
-      "scope": "Basic arithmetic, comparisons, short-circuit evaluation, bitwise operations, ++/-- and compound assignments.",
+      "scope": "Basic arithmetic, comparisons, short-circuit evaluation, bitwise operations, ++/-- and compound assignments. Membership and member/index deletion preserve original container keys; indexed compound/update writes evaluate receiver and key once.",
       "limitations": "Some operations use JavaScript coercion; this is not complete AVM semantics across all Flash Player versions.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-script/src/actionscript/containers.js"
       ]
     },
     {
@@ -258,12 +259,16 @@
     {
       "id": "as2-enumeration",
       "title": "Property enumeration and with",
-      "status": "planned",
-      "scope": "for..in enumeration and correct name lookup inside with.",
-      "limitations": "These are unsupported; a classic three-part for loop does not implement property enumeration.",
+      "status": "partial",
+      "scope": "Bounded for-in property enumeration over ordinary records, Arrays and project objects; original-key membership and member/index deletion. AS2 variable annotations retain their erased profile.",
+      "limitations": "Snapshot keys ignore later insertions, skip deletions and read values at visit time. Historical iteration order, with, XML/E4X and enumeration of hidden native/display storage remain unsupported. The combined typed-collections workflow supplies delivery evidence separately; this is not a full Flash enumeration contract.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-script/src/actionscript/containers.js",
+        "crates/neoflash-script/tests/typed-collections.mjs",
+        "examples/typed-collections.nflash",
+        "docs/decisions/0019-typed-collections-and-enumeration.md"
       ]
     },
     {
@@ -392,7 +397,7 @@
       "title": "Display properties",
       "status": "partial",
       "scope": "Position, scale, alpha, bounded finite rotation readback, visibility, root/parent and AS2 aliases including _name/_width/_height. The shared facade supplies name lookup, transformed bounds/coordinates and supported nonrotated dimension changes. Runtime createEmptyMovieClip/removeMovieClip and append-only getNextHighestDepth share stable identities with the dynamic graph. Explicitly exported MovieClip symbols provide independent scoped authored timelines, nested clocks/scripts and linked class state; attachMovie resolves an exact export identifier at append-only depth with a bounded data-only initObject. MovieClip.attachBitmap adds shared runtime pixels at the current append depth. Runtime Transform/ColorTransform adds exact affine overrides, copy-valued geometry getters, skew-preserving scalar mutation, nested RGBA paint composition and independent tinted views of shared pixels.",
-      "limitations": "Full MovieClip APIs, general depth management, masks/filters and TextField/Button contracts remain incomplete. Rotated dimension writes and noninvertible coordinate conversions diagnose; legacy rotation/visibility coercion is not full AVM1 conformance. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified. Authored children cannot be moved/removed; detached runtime objects remain allocated until Restart, with a 4,096-object bound. General Flash depth replacement and full linked construction order remain unsupported. The combined dynamic-display browser workflow and Restart passed. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. The linked-movieclips ordinary-export/real-WASM host scenario passes; representative interactions and Restart also passed in the shared in-app-browser batch; VERIFICATION.md distinguishes visible evidence from host-only checks. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. The bitmap-pixels family passes separate ordinary-export/real-WASM and in-app-browser checks for visible shared edits, source/clone independence, AS2 attachment and Restart. Native image-panel acceptance remains pending; full rasterization and coercion parity are not established. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass. The combined Transform workflow passed actual-WASM and in-app-browser Cycle/Restart; independent declaration audit and exact historical conformance remain separate.",
+      "limitations": "Full MovieClip APIs, general depth management, masks/filters and TextField/Button contracts remain incomplete. Rotated dimension writes and noninvertible coordinate conversions diagnose; legacy rotation/visibility coercion is not full AVM1 conformance. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified. Authored children cannot be moved/removed; detached runtime objects remain allocated until Restart, with a 4,096-object bound. General Flash depth replacement and full linked construction order remain unsupported. The combined dynamic-display browser workflow and Restart passed. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. The linked-movieclips ordinary-export/real-WASM host scenario passes; representative interactions and Restart also passed in the shared in-app-browser batch; VERIFICATION.md distinguishes visible evidence from host-only checks. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. The bitmap-pixels family passes separate ordinary-export/real-WASM and in-app-browser checks for visible shared edits, source/clone independence, AS2 attachment and Restart. Native image-panel acceptance remains pending; full rasterization and coercion parity are not established. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass. The combined Transform workflow passed actual-WASM and in-app-browser Cycle/Restart; independent declaration audit and exact historical conformance remain separate. Independent 852c8b7 evidence (TRANSFORMS-HTML5-20261027T0502Z) covers the specified affine/skew/reparent, tint/alpha pixels and real coordinate hits, copy ownership and Restart workflow in VERIFICATION.md. Native editing, exact rasterization, dynamic-card keyboard/accessibility and unobserved members do not inherit that pass. Canonical ColorTransform.rgb remains missing: P1 TRANSFORM-AS2-RGB-001 reproduces a silent custom-field write with unchanged green tint; the adjacent .color control produces red. Working AS2 affine stripe/rotation does not close rgb.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",

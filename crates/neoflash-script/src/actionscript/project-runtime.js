@@ -2,8 +2,9 @@
 const __nfProgram = (() => {
     const definitions = new Map(), interfaces = new Map(), identities = new WeakMap(), fieldStates = new WeakMap();
     const accessorStates = new WeakMap();
+    const elementDescriptors = new Map();
     const initialized = new WeakMap(), superMethods = new WeakMap(), failed = new WeakMap();
-    const builtins = { Object, Array: __nfArrayClass(true), Date: __nfDateClass(true), RegExp: __nfRegExpClass(true), JSON: __nfJSON, ...__nfBuiltins };
+    const builtins = { Object, Array: __nfArrayClass(true), Date: __nfDateClass(true), RegExp: __nfRegExpClass(true), JSON: __nfJSON, 'flash.utils.Dictionary':__nfDictionaryClass(true), ...__nfBuiltins };
     function type(name) {
         const value = definitions.get(name)?.facade ?? interfaces.get(name) ?? builtins[name];
         if (value === undefined) throw new Error(`Project type ${name} has no runtime implementation.`);
@@ -32,6 +33,27 @@ const __nfProgram = (() => {
         const result = [];
         for (let current = definitions.get(name); current; current = definitions.get(current.base)) result.unshift(current);
         return result;
+    }
+    function elementDescriptor(name) {
+        if(!elementDescriptors.has(name))elementDescriptors.set(name,Object.freeze({token:type(name),name,defaultValue:null,coerce:value=>cast(name,value)}));
+        return elementDescriptors.get(name);
+    }
+    function fixedProperties(value) {
+        const name=identities.get(value);
+        if(!name||definitions.get(name)?.dialect==='as2')return null;
+        const fixed=new Set();
+        for(const definition of chain(name))for(const member of [...definition.fields,...definition.methods,...definition.accessors])if(!member.static)fixed.add(member.name);
+        return fixed;
+    }
+    function hasFixedProperty(value,key) {return fixedProperties(value)?.has(key)??false;}
+    function enumerationKeys(value) {
+        if(!identities.has(value))return null;
+        const fixed=fixedProperties(value),keys=[];
+        for(const key in value)if(!fixed?.has(key)){
+            if(keys.length>=1000000)throw new TypeError('Project enumeration exceeds 1000000 entries.');
+            keys.push(key);
+        }
+        return keys;
     }
     function jsonKeys(value) {
         const name = identities.get(value);
@@ -228,6 +250,6 @@ const __nfProgram = (() => {
         }
         for (const definition of definitions.values()) initializeFields(definition.name, definition.facade, true);
     }
-    return Object.freeze({ type, is, cast, define, defineInterface, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys,
+    return Object.freeze({ type, is, cast, define, defineInterface, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty,
         dialect:name=>definitions.get(name)?.dialect });
 })();

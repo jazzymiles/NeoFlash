@@ -80,7 +80,9 @@ function __nfJSONStringify(value,replacer,space){
         if(typeof item!=='object')throw __nfJSONError('TypeError','Unsupported JSON value type.');
         if(level>=__nfJSONDepth)throw __nfJSONError('RangeError','JSON nesting exceeds 128 containers.');
         if(active.has(item))throw __nfJSONError('TypeError','JSON cannot serialize a cyclic structure.',1129);
-        const array=Array.isArray(item);
+        // AVM2 JSON serializes typed Vectors as arrays, preserving the ordinary
+        // callback traversal and public getters of their element objects.
+        const array=Array.isArray(item)||(typeof __nfVectorIs==='function'&&__nfVectorIs(item));
         let keys;
         if(array){if(item.length>__nfJSONVisits)throw __nfJSONError('RangeError','JSON array exceeds 100000 items.');}
         else{

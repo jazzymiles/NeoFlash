@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "typed-collections",
+      "path": "examples/typed-collections.nflash",
+      "title": "Typed Vector models, Dictionary identity and enumeration",
+      "checks": [
+        "Initial inventory shows INK4 / PAPER6 / FILM3, three typed models and three object keys. Vector JSON includes public stockLabel getters. AS2 for-in totals13.",
+        "Process batch updates quantities and reuses the shipped card for RESTOCK-1: PAPER7 / FILM4 / RESTOCK-1 quantity5, total16. Dictionary key removal is true; linked construction count stays3. A second batch totals17.",
+        "Restart restores original models/cards/keys; the next Process batch runs batch1 exactly once."
+      ]
+    },
+    {
       "id": "display-transforms",
       "path": "examples/display-transforms.nflash",
       "title": "2D Transform, color and shared bitmap views",

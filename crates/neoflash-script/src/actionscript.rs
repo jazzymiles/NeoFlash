@@ -25,9 +25,21 @@ struct CompileContext {
 
 impl CompileContext {
     fn intrinsic_type(&self, name: &str, as3: bool) -> bool {
-        (matches!(name, "Date") || (as3 && matches!(name, "RegExp" | "JSON")))
+        (matches!(name, "Date") || (as3 && matches!(name, "RegExp" | "JSON" | "Vector")))
             && (!self.project || self.intrinsic_types.contains(name))
     }
+    fn canonical_type(&self, name: &str) -> String {
+        if let Some(element) = vector_element(name) {
+            format!("Vector.<{}>", self.canonical_type(element))
+        } else {
+            self.types.get(name).cloned().unwrap_or_else(|| name.into())
+        }
+    }
+}
+
+fn vector_element(name: &str) -> Option<&str> {
+    name.strip_prefix("Vector.<")
+        .and_then(|name| name.strip_suffix('>'))
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -211,6 +223,8 @@ enum Expr {
     Unary(String, Box<Expr>),
     Binary(String, Box<Expr>, Box<Expr>),
     TypeTest(String, Box<Expr>, String, usize),
+    TypeValue(String, usize),
+    Delete(Box<Expr>, usize),
     Assign(String, Box<Expr>, Box<Expr>),
     Update(String, Box<Expr>, bool),
     Conditional(Box<Expr>, Box<Expr>, Box<Expr>),
@@ -219,6 +233,7 @@ enum Expr {
     NewError(String, Vec<Expr>, usize),
     NewClass(String, Vec<Expr>, usize),
     NewBuiltin(String, Vec<Expr>, usize),
+    NewVector(String, Vec<Expr>, usize),
 }
 
 #[derive(Clone, Debug)]
@@ -265,11 +280,12 @@ struct ControlTarget {
 impl Expr {
     fn depth(&self) -> usize {
         1 + match self {
-            Self::Literal(_) | Self::Name(_) | Self::Function(_) => 0,
+            Self::Literal(_) | Self::Name(_) | Self::Function(_) | Self::TypeValue(_, _) => 0,
             Self::Member(v, _)
             | Self::Unary(_, v)
             | Self::Update(_, v, _)
-            | Self::TypeTest(_, v, _, _) => v.depth(),
+            | Self::TypeTest(_, v, _, _)
+            | Self::Delete(v, _) => v.depth(),
             Self::Index(a, b) | Self::Binary(_, a, b) | Self::Assign(_, a, b) => {
                 a.depth().max(b.depth())
             }
@@ -281,7 +297,8 @@ impl Expr {
                 .max(args.iter().map(Self::depth).max().unwrap_or(0)),
             Self::NewError(_, args, _)
             | Self::NewClass(_, args, _)
-            | Self::NewBuiltin(_, args, _) => args.iter().map(Self::depth).max().unwrap_or(0),
+            | Self::NewBuiltin(_, args, _)
+            | Self::NewVector(_, args, _) => args.iter().map(Self::depth).max().unwrap_or(0),
         }
     }
     fn assignable(&self) -> bool {
@@ -303,6 +320,7 @@ enum Stmt {
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),
     For(Box<Stmt>, Option<Expr>, Option<Expr>, Box<Stmt>),
+    ForIn(Box<Stmt>, Expr, bool, Box<Stmt>),
     DoWhile(Box<Stmt>, Expr),
     Switch(Expr, Vec<Case>),
     Label(String, Box<Stmt>),
@@ -323,6 +341,7 @@ struct Frontend<'a> {
     function_depth: usize,
     next_function: usize,
     context: CompileContext,
+    no_in: bool,
 }
 
 impl<'a> Frontend<'a> {
@@ -632,7 +651,15 @@ impl<'a> Frontend<'a> {
             return Ok(Stmt::While(condition, Box::new(body)));
         }
         if self.eat("for") {
+            let values = self.eat("each");
+            if values && self.script.language != ScriptLanguage::ActionScript3 {
+                return Err(self.error(
+                    "for each..in is an AS3 collection statement; use for..in keys in AS2.",
+                ));
+            }
             self.expect("(")?;
+            let previous_no_in = self.no_in;
+            self.no_in = true;
             let init = if self.is(";") {
                 Stmt::Empty
             } else if self.eat("var") {
@@ -640,6 +667,35 @@ impl<'a> Frontend<'a> {
             } else {
                 Stmt::Expr(self.expression(0)?)
             };
+            self.no_in = previous_no_in;
+            if self.eat("in") {
+                let valid = match &init {
+                    Stmt::Var(vars) => vars.len() == 1 && vars[0].2.is_none(),
+                    Stmt::Expr(value) => value.assignable(),
+                    _ => false,
+                };
+                if !valid {
+                    return Err(self.error("for..in requires one uninitialized variable or assignable property target."));
+                }
+                let collection = self.expression(0)?;
+                self.expect(")")?;
+                self.controls.push(ControlTarget {
+                    label: None,
+                    iteration: true,
+                    breakable: true,
+                });
+                let body = self.statement()?;
+                self.controls.pop();
+                return Ok(Stmt::ForIn(
+                    Box::new(init),
+                    collection,
+                    values,
+                    Box::new(body),
+                ));
+            }
+            if values {
+                return Err(self.error("for each requires an 'in' collection."));
+            }
             self.expect(";")?;
             let condition = if self.is(";") {
                 None
@@ -697,7 +753,7 @@ impl<'a> Frontend<'a> {
         }
         if let Kind::Ident(word) = &self.token().kind
             && is_unsupported_keyword(word)
-            && word != "new"
+            && !matches!(word.as_str(), "new" | "delete")
             && !(self.context.project && word == "super" && self.context.class_name.is_some())
         {
             return Err(self.error(format!("ActionScript '{word}' is not implemented yet. See docs/COMPATIBILITY.md; use a JavaScript/TypeScript handler for this feature.")));
@@ -735,29 +791,85 @@ impl<'a> Frontend<'a> {
         if !self.eat(":") {
             return Ok(None);
         }
+        let name = self.type_name()?;
+        if !self.supported_type(&name, returns) {
+            return Err(self.error(format!("Type '{name}' is not supported in this ActionScript annotation. Use a supported primitive, resolved project type or AS3 Vector.<T>; void/Void is return-only.")));
+        }
+        Ok(Some(name))
+    }
+    fn type_name(&mut self) -> Result<String, Diagnostic> {
+        self.enter()?;
         let mut name = if self.eat("*") {
             "*".into()
         } else {
             self.ident()?
         };
-        while self.context.project && self.eat(".") {
+        while self.is(".")
+            && (self.context.project
+                || matches!(
+                    self.tokens.get(self.pos + 1).map(|t| &t.kind),
+                    Some(Kind::Punct("<"))
+                ))
+        {
+            self.pos += 1;
+            if self.eat("<") {
+                if name != "Vector"
+                    || !self.context.intrinsic_type(
+                        "Vector",
+                        self.script.language == ScriptLanguage::ActionScript3,
+                    )
+                {
+                    return Err(self.error("Only the unshadowed AS3 Vector.<T> native type supports type parameters in this profile."));
+                }
+                let element = self.type_name()?;
+                if !self.supported_type(&element, false) {
+                    return Err(self.error(format!("Unsupported Vector element type '{element}'.")));
+                }
+                self.type_close()?;
+                name = format!("Vector.<{element}>");
+                break;
+            }
             name.push('.');
             name.push_str(&self.ident()?);
         }
-        let as3 = self.script.language == ScriptLanguage::ActionScript3;
-        let supported = matches!(
-            name.as_str(),
-            "Number" | "String" | "Boolean" | "Function" | "Array" | "Object"
-        ) || (as3 && matches!(name.as_str(), "int" | "uint" | "*"))
-            || (name != "JSON" && self.context.intrinsic_type(&name, as3))
-            || (!as3 && matches!(name.as_str(), "LoadVars" | "TextFormat" | "Sound"))
-            || (self.context.project && self.context.types.contains_key(&name))
-            || (is_error_type(&name) && (as3 || name == "Error"))
-            || (returns && name == if as3 { "void" } else { "Void" });
-        if !supported || (name == "JSON" && self.context.intrinsic_type(&name, as3)) {
-            return Err(self.error(format!("Type '{name}' is not supported in this ActionScript annotation. Supported types are primitive types and Function; void/Void is return-only.")));
+        self.depth -= 1;
+        Ok(name)
+    }
+    fn type_close(&mut self) -> Result<(), Diagnostic> {
+        if self.eat(">") {
+            return Ok(());
         }
-        Ok(Some(name))
+        // Split only while consuming a generic closer; expression shifts and
+        // >= remain untouched outside this type grammar.
+        let rest = match self.token().kind {
+            Kind::Punct(">>") => ">",
+            Kind::Punct(">>>") => ">>",
+            Kind::Punct(">=") => "=",
+            Kind::Punct(">>=") => ">=",
+            Kind::Punct(">>>=") => ">>=",
+            _ => return Err(self.error("Expected '>' after the Vector element type.")),
+        };
+        self.tokens[self.pos].kind = Kind::Punct(rest);
+        self.tokens[self.pos].offset += 1;
+        Ok(())
+    }
+    fn supported_type(&self, name: &str, returns: bool) -> bool {
+        let as3 = self.script.language == ScriptLanguage::ActionScript3;
+        if let Some(element) = vector_element(name) {
+            return as3
+                && self.context.intrinsic_type("Vector", true)
+                && self.supported_type(element, false);
+        }
+        let supported = matches!(
+            name,
+            "Number" | "String" | "Boolean" | "Function" | "Array" | "Object"
+        ) || (as3 && matches!(name, "int" | "uint" | "*"))
+            || self.context.intrinsic_type(name, as3)
+            || (!as3 && matches!(name, "LoadVars" | "TextFormat" | "Sound"))
+            || (self.context.project && self.context.types.contains_key(name))
+            || (is_error_type(name) && (as3 || name == "Error"))
+            || (returns && name == if as3 { "void" } else { "Void" });
+        supported && !(matches!(name, "JSON" | "Vector") && self.context.intrinsic_type(name, as3))
     }
     fn function(&mut self, declaration: bool) -> Result<Function, Diagnostic> {
         self.project_function(declaration, false, false)
@@ -825,10 +937,13 @@ impl<'a> Frontend<'a> {
         } else {
             self.expect("{")?;
             let outer_controls = std::mem::take(&mut self.controls);
+            let outer_no_in = self.no_in;
+            self.no_in = false;
             self.function_depth += 1;
             let body = self.statements(true)?;
             self.function_depth -= 1;
             self.controls = outer_controls;
+            self.no_in = outer_no_in;
             body
         };
         Ok((
@@ -851,22 +966,33 @@ impl<'a> Frontend<'a> {
         Ok(result)
     }
     fn expression_inner(&mut self, min_bp: u8) -> Result<Expr, Diagnostic> {
-        let mut lhs =
-            if self.is("!") || self.is("~") || self.is("-") || self.is("+") || self.is("typeof") {
-                let operator = self.token_text();
-                self.pos += 1;
-                Expr::Unary(operator, Box::new(self.expression(25)?))
-            } else if self.is("++") || self.is("--") {
-                let operator = self.token_text();
-                self.pos += 1;
-                let operand = self.expression(25)?;
-                if !operand.assignable() {
-                    return Err(self.error("Increment/decrement requires a variable or property."));
-                }
-                Expr::Update(operator, Box::new(operand), true)
-            } else {
-                self.primary()?
-            };
+        let mut lhs = if self.is("!")
+            || self.is("~")
+            || self.is("-")
+            || self.is("+")
+            || self.is("typeof")
+        {
+            let operator = self.token_text();
+            self.pos += 1;
+            Expr::Unary(operator, Box::new(self.expression(25)?))
+        } else if self.eat("delete") {
+            let offset = self.tokens[self.pos - 1].offset;
+            let operand = self.expression(25)?;
+            if !matches!(operand, Expr::Member(_, _) | Expr::Index(_, _)) {
+                return Err(self.error("delete requires a property or indexed element; deleting lexical bindings is unsupported."));
+            }
+            Expr::Delete(Box::new(operand), offset)
+        } else if self.is("++") || self.is("--") {
+            let operator = self.token_text();
+            self.pos += 1;
+            let operand = self.expression(25)?;
+            if !operand.assignable() {
+                return Err(self.error("Increment/decrement requires a variable or property."));
+            }
+            Expr::Update(operator, Box::new(operand), true)
+        } else {
+            self.primary()?
+        };
         loop {
             if lhs.depth() > 128 {
                 return Err(self.error(
@@ -874,6 +1000,22 @@ impl<'a> Frontend<'a> {
                 ));
             }
             if min_bp <= 30 && self.eat(".") {
+                if self.eat("<") {
+                    if !matches!(&lhs,Expr::Name(name) if name=="Vector" && self.context.intrinsic_type(name,self.script.language==ScriptLanguage::ActionScript3))
+                    {
+                        return Err(self.error("Only the unshadowed AS3 Vector.<T> native type supports type parameters."));
+                    }
+                    let offset = self.tokens[self.pos - 1].offset;
+                    let element = self.type_name()?;
+                    if !self.supported_type(&element, false) {
+                        return Err(
+                            self.error(format!("Unsupported Vector element type '{element}'."))
+                        );
+                    }
+                    self.type_close()?;
+                    lhs = Expr::TypeValue(format!("Vector.<{element}>"), offset);
+                    continue;
+                }
                 lhs = Expr::Member(Box::new(lhs), self.ident()?);
                 continue;
             }
@@ -930,21 +1072,22 @@ impl<'a> Frontend<'a> {
                 }
                 let offset = self.token().offset;
                 self.pos += 1;
-                let mut name = self.ident()?;
-                while self.context.project && self.eat(".") {
-                    name.push('.');
-                    name.push_str(&self.ident()?);
-                }
-                if (name == "JSON" && self.context.intrinsic_type(&name, true))
+                let name = self.type_name()?;
+                if (matches!(name.as_str(), "JSON" | "Vector")
+                    && self.context.intrinsic_type(&name, true))
                     || (!self.context.intrinsic_type(&name, true)
-                        && !self.context.types.contains_key(&name))
+                        && !self.context.types.contains_key(&name)
+                        && vector_element(&name).is_none())
                 {
                     return Err(self.error("is/as currently requires Date, RegExp or a resolved project/native type; dynamic class expressions are unsupported."));
                 }
                 lhs = Expr::TypeTest(operator, Box::new(lhs), name, offset);
                 continue;
             }
-            if matches!(operator.as_str(), "in" | "instanceof" | "::" | ".." | "@") {
+            if operator == "in" && self.no_in {
+                break;
+            }
+            if matches!(operator.as_str(), "instanceof" | "::" | ".." | "@") {
                 return Err(self.error(format!("ActionScript operator '{operator}' requires compatibility semantics not implemented yet.")));
             }
             let Some((left_bp, right_bp, assignment)) = binding_power(&operator) else {
@@ -978,10 +1121,15 @@ impl<'a> Frontend<'a> {
     fn primary(&mut self) -> Result<Expr, Diagnostic> {
         if self.eat("new") {
             let offset = self.token().offset;
-            let mut name = self.ident()?;
-            while self.context.project && self.eat(".") {
-                name.push('.');
-                name.push_str(&self.ident()?);
+            let name = self.type_name()?;
+            if name == "Vector"
+                && self
+                    .context
+                    .intrinsic_type(&name, self.script.language == ScriptLanguage::ActionScript3)
+            {
+                return Err(self.error(
+                    "Vector construction requires an element type: new Vector.<T>(length, fixed).",
+                ));
             }
             let class = self.context.types.get(&name).cloned();
             let builtin = matches!(name.as_str(), "Array" | "String")
@@ -994,6 +1142,7 @@ impl<'a> Frontend<'a> {
                 || (self.script.language == ScriptLanguage::ActionScript2
                     && matches!(name.as_str(), "LoadVars" | "TextFormat" | "Sound"));
             if !builtin
+                && vector_element(&name).is_none()
                 && class.is_none()
                 && (!is_error_type(&name)
                     || (self.script.language == ScriptLanguage::ActionScript2 && name != "Error"))
@@ -1011,6 +1160,9 @@ impl<'a> Frontend<'a> {
                 }
             }
             self.expect(")")?;
+            if vector_element(&name).is_some() {
+                return Ok(Expr::NewVector(name, args, offset));
+            }
             if builtin {
                 return Ok(Expr::NewBuiltin(name, args, offset));
             }
@@ -1044,7 +1196,7 @@ impl<'a> Frontend<'a> {
                     Ok(Expr::Literal(name))
                 } else { Ok(Expr::Name(name)) }
             }
-            Kind::Punct("(") => { self.pos += 1; let expr = self.expression(0)?; self.expect(")")?; Ok(expr) }
+            Kind::Punct("(") => { self.pos += 1; let previous=self.no_in;self.no_in=false; let expr = self.expression(0)?;self.no_in=previous; self.expect(")")?; Ok(expr) }
             Kind::Punct("[") => {
                 self.pos += 1; let mut values = Vec::new();
                 if !self.is("]") { loop { values.push(self.expression(0)?); if !self.eat(",") || self.is("]") { break; } } }
@@ -1376,7 +1528,7 @@ fn binding_power(operator: &str) -> Option<(u8, u8, bool)> {
         "^" => (9, 10, false),
         "&" => (11, 12, false),
         "==" | "!=" | "===" | "!==" => (13, 14, false),
-        "<" | "<=" | ">" | ">=" => (15, 16, false),
+        "<" | "<=" | ">" | ">=" | "in" => (15, 16, false),
         "<<" | ">>" | ">>>" => (17, 18, false),
         "+" | "-" => (19, 20, false),
         "*" | "/" | "%" => (21, 22, false),
@@ -1407,6 +1559,9 @@ impl Emitter<'_> {
         let boolean = self.intrinsic("Boolean");
         let string = self.intrinsic("String");
         match ty {
+            Some(ty) if vector_element(ty).is_some() => {
+                format!("__nfVectorCast({value}, {})", self.vector_type(ty))
+            }
             Some("Number") => format!("{number}({value})"),
             Some("Boolean") => format!("{boolean}({value})"),
             Some("int") => format!("({number}({value}) | 0)"),
@@ -1440,6 +1595,27 @@ impl Emitter<'_> {
     }
     fn intrinsic(&self, name: &str) -> String {
         format!("__nf{name}")
+    }
+    fn type_descriptor(&self, ty: &str) -> String {
+        if let Some(element) = vector_element(ty) {
+            return format!("__nfVectorDescriptor({})", self.type_descriptor(element));
+        }
+        if self.analysis.context.types.contains_key(ty)
+            && !matches!(ty, "Object" | "Array")
+            && !self.analysis.context.intrinsic_type(ty, true)
+        {
+            return format!(
+                "__nfProgram.elementDescriptor({:?})",
+                self.analysis.context.types[ty]
+            );
+        }
+        format!("__nfPrimitiveDescriptor({ty:?})")
+    }
+    fn vector_type(&self, ty: &str) -> String {
+        format!(
+            "__nfVectorType({})",
+            self.type_descriptor(vector_element(ty).expect("Vector type"))
+        )
     }
     fn typed(&self, name: &str) -> bool {
         self.analysis
@@ -1528,6 +1704,7 @@ impl Emitter<'_> {
             return "undefined";
         }
         match ty {
+            Some(ty) if vector_element(ty).is_some() => "null",
             Some("Number") => "NaN",
             Some("Boolean") => "false",
             Some("String" | "Function" | "Object" | "Array") => "null",
@@ -1610,6 +1787,22 @@ impl Emitter<'_> {
             _ => unreachable!("The parser only accepts assignable expression targets"),
         }
     }
+    fn reference(&self, expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Member(base, name) => Some(format!(
+                "__nfContainerRef({}, {name:?}, {})",
+                self.expression(base),
+                self.as3
+            )),
+            Expr::Index(base, key) => Some(format!(
+                "__nfContainerRef({}, {}, {})",
+                self.expression(base),
+                self.expression(key),
+                self.as3
+            )),
+            _ => None,
+        }
+    }
     fn expression(&self, expr: &Expr) -> String {
         fn qualified_name(expr: &Expr) -> Option<String> {
             match expr {
@@ -1636,6 +1829,19 @@ impl Emitter<'_> {
             return format!("__nfProgram.type({qname:?})");
         }
         match expr {
+            Expr::TypeValue(ty, _) => self.vector_type(ty),
+            Expr::NewVector(ty, args, _) => format!(
+                "new ({})({})",
+                self.vector_type(ty),
+                args.iter()
+                    .map(|a| self.expression(a))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Expr::Delete(target, _) => format!(
+                "({}).delete()",
+                self.reference(target).expect("delete property")
+            ),
             Expr::Literal(value) => value.clone(),
             Expr::Name(name) => self.name(name),
             Expr::Function(f) => format!("({})", self.function(f)),
@@ -1706,13 +1912,21 @@ impl Emitter<'_> {
                     .join(", ")
             ),
             Expr::Unary(op, value) => format!("({op} {})", self.expression(value)),
+            Expr::Binary(op, left, right) if op == "in" => format!(
+                "((__nfKey,__nfReceiver)=>__nfContainerRef(__nfReceiver,__nfKey,{}).has())({}, {})",
+                self.as3,
+                self.expression(left),
+                self.expression(right)
+            ),
             Expr::Binary(op, left, right) => format!(
                 "({} {op} {})",
                 self.expression(left),
                 self.expression(right)
             ),
             Expr::TypeTest(op, value, ty, _) => {
-                let predicate = if self.analysis.context.intrinsic_type(ty, true) {
+                let predicate = if vector_element(ty).is_some() {
+                    format!("{}.__nfIs(__nfValue)", self.vector_type(ty))
+                } else if self.analysis.context.intrinsic_type(ty, true) {
                     format!("__nf{ty}Is(__nfValue)")
                 } else {
                     format!(
@@ -1777,6 +1991,25 @@ impl Emitter<'_> {
                     };
                     return format!("({target} = {})", self.coerce(name, value));
                 }
+                if let Some(reference) = self.reference(left) {
+                    if op == "=" {
+                        return format!("({reference}).set({value})");
+                    }
+                    let operator = &op[..op.len() - 1];
+                    let expression = if matches!(op.as_str(), "&&=" | "||=") {
+                        format!("__nfOld {operator} __nfRef.set({value})")
+                    } else {
+                        format!("__nfRef.set(__nfOld {operator} {value})")
+                    };
+                    let assignment = format!(
+                        "((__nfRef)=>{{const __nfOld=__nfRef.get();return {expression};}})({reference})"
+                    );
+                    return if self.as3 && matches!(op.as_str(), "&&=" | "||=") {
+                        format!("__nfFamilyValue({assignment},true)")
+                    } else {
+                        assignment
+                    };
+                }
                 let assignment = format!("({target} {op} {value})");
                 if self.as3 && matches!(op.as_str(), "&&=" | "||=") {
                     // A short-circuited indexed ||= may itself extract the old
@@ -1787,6 +2020,13 @@ impl Emitter<'_> {
                 }
             }
             Expr::Update(op, value, prefix) => {
+                if let Some(reference) = self.reference(value) {
+                    let sign = if op == "++" { "+" } else { "-" };
+                    return format!(
+                        "((__nfRef)=>{{const __nfOld=__nfNumber(__nfRef.get()),__nfNext=__nfOld {sign} 1;__nfRef.set(__nfNext);return {};}})({reference})",
+                        if *prefix { "__nfNext" } else { "__nfOld" }
+                    );
+                }
                 let target = self.lvalue(value);
                 if let Expr::Name(name) = value.as_ref()
                     && self.as3
@@ -1952,11 +2192,17 @@ impl Emitter<'_> {
                         if self.as3
                             && let Expr::Member(base, name) = callee.as_ref()
                         {
-                            format!("({}).{name}", self.expression(base))
+                            format!(
+                                "__nfContainerMethod({}, {name:?}, true)",
+                                self.expression(base)
+                            )
                         } else if self.as3
                             && let Some((base, name)) = &member
                         {
-                            format!("({})[{name:?}]", self.expression(base))
+                            format!(
+                                "__nfContainerMethod({}, {name:?}, true)",
+                                self.expression(base)
+                            )
                         } else {
                             self.expression(callee)
                         }
@@ -2030,6 +2276,33 @@ impl Emitter<'_> {
                     .unwrap_or_default(),
                 self.statement(body)
             ),
+            Stmt::ForIn(binding, collection, values, body) => {
+                let (target, initial) = match binding.as_ref() {
+                    Stmt::Var(vars) => {
+                        (Expr::Name(vars[0].0.clone()), Some(self.statement(binding)))
+                    }
+                    Stmt::Expr(value) => (value.clone(), None),
+                    _ => unreachable!("validated enumeration target"),
+                };
+                let assign = Expr::Assign(
+                    "=".into(),
+                    Box::new(target),
+                    Box::new(Expr::Literal("__nfItem".into())),
+                );
+                let iterator = format!(
+                    "__nfEnumerate({}, {values}, {})",
+                    self.expression(collection),
+                    self.as3
+                );
+                let iterator = initial.map_or(iterator.clone(), |initial| {
+                    format!("({}, {iterator})", initial.trim_end_matches(';'))
+                });
+                format!(
+                    "for (const __nfItem of {iterator}) {{\n{};\n{}\n}}",
+                    self.expression(&assign),
+                    self.statement(body)
+                )
+            }
             Stmt::Break(label) => format!(
                 "break{};",
                 label.as_ref().map_or(String::new(), |l| format!(" {l}"))
@@ -2147,8 +2420,40 @@ fn embedded_helpers() -> String {
         include_str!("actionscript/dates.js"),
         include_str!("actionscript/regexp.js"),
         include_str!("actionscript/strings.js"),
+        include_str!("actionscript/vectors.js"),
+        include_str!("actionscript/dictionary.js"),
+        include_str!("actionscript/containers.js"),
         include_str!("actionscript/json.js"),
         r#"
+const __nfPrimitiveTypes = new Map();
+const __nfObjectType=Object, __nfFunctionType=Function, __nfArrayType=Array;
+function __nfPrimitiveDescriptor(name) {
+    if (__nfPrimitiveTypes.has(name)) return __nfPrimitiveTypes.get(name);
+    const nullable=value=>value==null?null:value;
+    let token,coerce,defaultValue=null;
+    switch(name) {
+      case 'int':token=Symbol.for('neoflash.vector.element.int');coerce=value=>__nfNumber(value)|0;defaultValue=0;break;
+      case 'uint':token=Symbol.for('neoflash.vector.element.uint');coerce=value=>__nfNumber(value)>>>0;defaultValue=0;break;
+      case 'Number':token=__nfNumber;coerce=__nfNumber;defaultValue=0;break;
+      case 'Boolean':token=__nfBoolean;coerce=__nfBoolean;defaultValue=false;break;
+      case 'String':token=__nfString;coerce=value=>value==null?null:__nfString(value);break;
+      case '*':token=Symbol.for('neoflash.vector.element.any');coerce=nullable;break;
+      case 'Object':token=__nfObjectType;coerce=nullable;break;
+      case 'Function':token=__nfFunctionType;coerce=value=>{if(value==null)return null;if(typeof value==='function')return value;throw new __nfTypeError('AS3 Function value required');};break;
+      case 'Array':token=__nfArrayType;coerce=value=>{if(value==null)return null;if(__nfArrayIsArray(value))return value;throw new __nfTypeError('AS3 Array value required');};break;
+      case 'Date':token=__nfDateNative;coerce=__nfDateCast;break;
+      case 'RegExp':token=Symbol.for('neoflash.vector.element.RegExp');coerce=value=>{if(value==null)return null;if(__nfRegExpIs(value))return value;throw new __nfTypeError('AS3 RegExp value required');};break;
+      default:
+        if(!Object.hasOwn(__nfErrorTypes,name))throw new __nfTypeError('Unsupported Vector element type '+name);
+        token=Symbol.for('neoflash.vector.element.error.'+name);
+        coerce=value=>{if(value==null)return null;if(__nfCatchType(value,name))return value;throw new __nfTypeError('AS3 '+name+' value required');};
+    }
+    const descriptor=Object.freeze({token,coerce,defaultValue,name});__nfPrimitiveTypes.set(name,descriptor);return descriptor;
+}
+function __nfVectorDescriptor(element) {
+    const token=__nfVectorType(element);
+    return Object.freeze({token,coerce:value=>__nfVectorCast(value,token),defaultValue:null,name:'Vector.<'+element.name+'>'});
+}
 function __nfFamilyValue(value, as3) {
     value = __nfArrayMethodValue(value);
     value = __nfStringMethodValue(value);
@@ -2156,17 +2461,10 @@ function __nfFamilyValue(value, as3) {
     return as3 ? __nfMethodValue(value) : value;
 }
 function __nfFamilyPropertyValue(receiver, key, as3) {
-    return __nfFamilyValue(receiver[key], as3);
+    return __nfFamilyValue(__nfContainerRef(receiver,key,as3).get(), as3);
 }
 function __nfMemberMethod(receiver, key, as3) {
-    if (__nfArrayIsArray(receiver)) return __nfArrayMethod(receiver, key, as3);
-    if (typeof receiver === 'string') return __nfStringMethod(receiver, key, as3);
-    if (__nfDateIs(receiver)) return __nfDateMethod(receiver, key, as3);
-    if (as3 && key === 'toFixed') return __nfFixedMethod(receiver);
-    // No family lookup has read this property. Preserve one getter invocation,
-    // the original receiver and argument evaluation order for custom methods.
-    const method = receiver[key];
-    return (...args) => __nfApply(method, receiver, args);
+    return __nfContainerMethod(receiver,key,as3);
 }
 "#,
     ]
@@ -2184,6 +2482,7 @@ fn compile_context(script: &Script, context: CompileContext) -> Result<String, D
         function_depth: 0,
         next_function: 1,
         context: context.clone(),
+        no_in: false,
     };
     let statements = parser.statements(false)?;
     let analysis = scope::Analysis::with_context(script, &statements, context)?;
@@ -2232,7 +2531,7 @@ mod tests {
         assert!(output.contains("__nfTrace('stop() _x')"));
         assert!(output.contains("const __nfTrace = trace;"));
         assert!(!output.contains("console.log"));
-        assert!(output.contains("(this.child).gotoAndPlay(2)"));
+        assert!(output.contains("__nfContainerMethod(this.child, \"gotoAndPlay\", true)(2)"));
         assert!(output.contains("this.stop()"));
     }
     #[test]
@@ -2283,7 +2582,7 @@ mod tests {
             compile_as("for (var i:int = 0; i < 10; i++) { x += Math.sin(i); if (x > 4) break; }")
                 .unwrap();
         assert!(output.contains("for ("));
-        assert!(output.contains("(Math).sin(this.i)"));
+        assert!(output.contains("__nfContainerMethod(Math, \"sin\", true)(this.i)"));
     }
     #[test]
     fn missing_compatibility_features_fail_explicitly() {

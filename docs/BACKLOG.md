@@ -1,5 +1,7 @@
 # Backlog
 
+Independent 852c8b7 acceptance (`TRANSFORMS-HTML5-20261027T0502Z`) confirms bounded affine/skew and world-pose preservation, independent tint views, parent-alpha pixels/hits, copy ownership and Restart. Canonical AS2 ColorTransform.rgb remains missing: a reproduced silent custom-field write leaves tint unchanged while the adjacent `.color` control works (P1 TRANSFORM-AS2-RGB-001). Exact rendering/accessibility and native editing are not inferred. See [the independent record](VERIFICATION.md#independent-transform-verification-of-852c8b7). Vector/Dictionary/iteration is already in development and requires its own delivery evidence.
+
 Independent 7ed1605 acceptance (`DATA-HTML5-20261027T0452Z`) confirms a resource-driven AS3 JSON/RegExp/String report, public getter serialization, adjacent safe diagnostics, AS2/AS3 numeric UTC dates across selected boundaries and Restart. Nine AS3 timestamps match a Python UTC oracle. Exact declarations remain partial; locale/DST/parsing, full PCRE and general JSON class/coercion semantics are not inferred. See [the independent record](VERIFICATION.md#independent-data-processing-verification-of-7ed1605). Transform/ColorTransform now has a separate [main-delivery record](VERIFICATION.md#runtime-transform-and-colortransform-batch); independent declaration acceptance remains separate.
 
 Independent d8f580a acceptance (`AUDIO-HTML5-20261027T0429Z`) confirms embedded AS3 and HTTP AS2 MP3 loading, native silent channel completion with different repeat counts, transform-copy/refusal behavior, Stop and active-playback Restart. Exact declarations remain partial; audible quality, WAV native decode, full mixer/timeline audio and pending-decode races are not inferred. See [the independent record](VERIFICATION.md#independent-audio-verification-of-d8f580a). Date/JSON/RegExp/String now has a separate [main-delivery record](VERIFICATION.md#date-regexp-and-json-data-processing-batch); independent declaration acceptance remains separate.
@@ -50,6 +52,10 @@ Date in both dialects and AS3 JSON/RegExp with String matching now support the i
 ## Runtime display transforms delivered
 
 The delivered partial family adds exact 2D matrix and RGBA color transforms to stable runtime objects, including linked instances and separately tinted views of shared BitmapData. Coordinate conversion, paint alpha, hit regions and accessibility share the runtime graph; one combined export/WASM/browser Cycle/Restart workflow passed. Native script execution, authoring skew controls and 3D remain separate work. Keep one combined skew/color/lifecycle workflow and extend existing cases rather than creating per-method suites; see [the decision](decisions/0018-runtime-display-transforms.md).
+
+## Typed containers and enumeration
+
+Vector, Dictionary, original-key indexed operations and for-in/for-each now form one bounded language family. The typed-collections workflow brings dense model storage, display-object identity keys and a JSON report together while reusing linked cards. Delivery verification is recorded separately in VERIFICATION.md. XML/XMLList, E4X literals/name resolution, native display enumeration and complete historical mutation/coercion behavior remain separate follow-ups. See [the decision](decisions/0019-typed-collections-and-enumeration.md).
 
 ## P0 — HTML5 correctness
 

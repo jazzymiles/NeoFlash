@@ -70,7 +70,9 @@ fn statement(stmt: &Stmt) -> Exits {
             exits.insert(Exit::Throw);
             exits
         }
-        Stmt::While(_, body) | Stmt::For(_, _, _, body) => loop_exits(body, false),
+        Stmt::While(_, body) | Stmt::For(_, _, _, body) | Stmt::ForIn(_, _, _, body) => {
+            loop_exits(body, false)
+        }
         Stmt::DoWhile(body, _) => loop_exits(body, true),
         Stmt::Switch(_, cases) => switch_exits(cases),
         Stmt::Label(name, body) => {

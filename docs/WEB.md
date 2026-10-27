@@ -69,3 +69,7 @@ These families use captured browser-backed adapters. Regex patterns currently us
 ### Runtime display transforms
 
 `examples/display-transforms.nflash` combines a nested linked card, a skewed matrix, scalar rotation/scale updates, vector/text color and two independent colorized views of shared BitmapData. Its Cycle control reparents the same card and returns it to the rig; Restart restores original objects and transforms. An AS2 strip uses the same geometry family. The runtime profile and remaining window-coordinate/native-authoring boundaries are documented in [the decision](decisions/0018-runtime-display-transforms.md).
+
+### Typed collections
+
+`examples/typed-collections.nflash` connects AS3 Vector models, Dictionary keys that are live card instances, for-in/for-each, deletion/membership and JSON serialization. Process batch updates stock and reuses the shipped card for an incoming model; construction stays at three linked instances. An independent AS2 for-in readout totals the original named properties. Restart restores the original models, keys and cards.

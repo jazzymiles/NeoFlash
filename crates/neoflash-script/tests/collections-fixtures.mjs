@@ -44,6 +44,9 @@ var copy = labels.concat(["end"]);
 var reversed = copy.reverse();
 records.sort = function(flags) { return "custom:" + flags; };
 var custom = records.sort(Array.NUMERIC);
+var stock={apples:2,pears:3}; var stockTotal=0;
+for(var stockKey:String in stock) stockTotal+=stock[stockKey];
+var hadPears="pears" in stock; var removedPears=delete stock.pears;
 result = labels.join("|");
 trace("AS2", result, "order", order.join(","), "numbers", numeric.join(","));`,
   as3: `var lines:Array = new Array(3);
@@ -69,6 +72,23 @@ var numeric:Array = new Array(30, 2, 11);
 numeric.sort(function(a:Number, b:Number):Number { return a - b; });
 var duplicate:Array = new Array("echo", "echo");
 var unique:* = duplicate.sort(Array.UNIQUESORT);
+var typed:Vector.<int>=Vector.<int>([3,1.9,2]);
+var nested:Vector.<Vector.<int>>=new Vector.<Vector.<int>>(); nested.push(typed);
+var nestedIs:Boolean=nested is Vector.<Vector.<int>>;
+var optional:Vector.<int>; var matching:Vector.<int>=typed as Vector.<int>;
+var wrong:Vector.<uint>=typed as Vector.<uint>;
+var mapped:Vector.<int>=typed.map(function(value:int,index:int,source:Vector.<int>):int{return value*2;});
+var assignment:Number=(typed[0]=4294967295); var wrapped:int=typed[0];
+var before:int=typed[0]++; var after:int=typed[0];
+typed[0]=3; typed.fixed=true; var fixedError:Boolean=false;
+try{typed.push(4);}catch(error:RangeError){fixedError=true;} typed.fixed=false;
+var genericJSON:String=JSON.stringify(nested); var shifts:int=(32>>2)+(32>>>3);
+var typedTotal:int=0; var finallyVisits:int=0;
+outer:for each(var item:int in mapped){try{if(item==2)continue outer;typedTotal+=item;if(item==4)break outer;}finally{finallyVisits++;}}
+var indexTotal:int=0; for(var key:int in typed)indexTotal+=key;
+var sourceRecord:Object={a:1,b:2};var remaining:int=0;
+for(var recordKey:String in sourceRecord){remaining+=sourceRecord[recordKey];delete sourceRecord.b;sourceRecord.c=99;}
+var retained:Boolean="c" in sourceRecord;
 result = labels.join("|");
 trace("AS3", result, "total", total, "checks", all && any, "find", first, last);`,
 };
@@ -81,6 +101,7 @@ export const collectionsFixtures = [
       assert.equal(c.preview[0].name,'Ada'); assert.equal(c.unchanged,'Ada'); assert.deepEqual(c.order,[1,0,2]);
       assert.deepEqual(c.numeric,[2,11,30]); assert.equal(c.unique,0); assert.deepEqual(c.duplicate,['echo','echo']);
       assert.equal(c.reversed,c.copy); assert.equal(c.custom,'custom:16');
+      assert.equal(c.stockTotal,5);assert.equal(c.hadPears,true);assert.equal(c.removedPears,true);assert.equal(Object.hasOwn(c.stock,'pears'),false);
       assert.deepEqual(logs,[['AS2','Zoe:45|Ada:30|Bob:20','order','1,0,2','numbers','2,11,30']]);
     } },
   { language:'action_script3', profile:collectionsProfile, source:collectionSources.as3, context:{},
@@ -89,6 +110,10 @@ export const collectionsFixtures = [
       assert.equal(c.unchanged,'Ada'); assert.deepEqual(c.order,[1,0,2]); assert.equal(c.total,95);
       assert.equal(c.eachResult,undefined); assert.equal(c.all,true); assert.equal(c.any,true);
       assert.equal(c.first,1); assert.equal(c.last,2); assert.deepEqual(c.numeric,[2,11,30]); assert.equal(c.unique,0);
+      assert.equal(c.nestedIs,true);assert.equal(c.optional,null);assert.equal(c.matching,c.typed);assert.equal(c.wrong,null);
+      assert.equal(c.assignment,4294967295);assert.equal(c.wrapped,-1);assert.equal(c.before,-1);assert.equal(c.after,0);
+      assert.equal(c.fixedError,true);assert.equal(c.genericJSON,'[[3,1,2]]');assert.equal(c.shifts,12);
+      assert.equal(c.typedTotal,10);assert.equal(c.finallyVisits,3);assert.equal(c.indexTotal,3);assert.equal(c.remaining,1);assert.equal(c.retained,true);
       assert.deepEqual(logs,[['AS3','Zoe:45|Ada:30|Bob:20','total',95,'checks',true,'find',1,2]]);
     } },
 ];

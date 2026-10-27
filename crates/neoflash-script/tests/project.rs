@@ -44,6 +44,8 @@ fn class_syntax_outside_profile_is_never_erased() {
     for source in [
         "package { public class A {private var secret:int;} }",
         "package { public class A extends Date {} }",
+        "package { public class A extends Vector {} }",
+        "package { import flash.utils.Dictionary; public class A extends Dictionary {} }",
         "package { import flash.geom.Transform; public class A extends Transform {} }",
         "package { import flash.geom.ColorTransform; public class A extends ColorTransform {} }",
         "package { import flash.geom.Transform; public class A {public function A(){new Transform();}} }",

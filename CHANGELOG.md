@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added a typed-container family: AS3 Vector and Dictionary, identity-preserving indexed operations, for-in/AS3 for-each, member deletion/membership and Vector JSON encoding. One inventory project connects typed models, linked-card reuse and report generation; fixed traits and unsupported native enumeration have explicit boundaries. Weak Dictionary storage uses actual weak references; garbage-collection timing and full AVM conformance remain unverified.
+
+- Independently verified the 852c8b7 affine/color delivery: matrix/skew and world-pose preservation, distinct bitmap tints, parent-alpha pixels/hits, transform-copy ownership and Restart, with one shared browser regression. Recorded P1 TRANSFORM-AS2-RGB-001: canonical AS2 rgb writes remain a silent custom field; the adjacent color control works. Exact declarations retain their bounded status.
+
 - Independently verified the 7ed1605 data-processing delivery: real JSON/RegExp/String reporting, public getter serialization and safe diagnostics, UTC leap/month/year boundaries checked against Python timestamps, AS2 Date and Restart. One five-project browser batch preserves Sound, text, linked-timeline and collection behavior. Exact declarations remain partial; locale/DST/parser, full PCRE and general JSON class semantics are not inferred.
 
 - Added runtime 2D Transform and ColorTransform: exact skew-preserving matrices, scalar edits, nested RGBA transforms, independent colorized views of shared BitmapData, AS2/AS3 constructors and linked-object lifecycle. Stage-coordinate bounds and finite numeric limits are explicit; native authoring skew, window-coordinate mapping and 3D remain unfinished.
