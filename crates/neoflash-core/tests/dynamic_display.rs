@@ -379,7 +379,279 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
     assert!(player.create_display(DynamicKind::Sprite).is_err());
     gradient_geometry_remains_shared_and_atomic(project.clone());
     affine_color_views_follow_the_display_lifecycle(project.clone());
+    clipping_tracks_geometry_coordinates_and_lifetimes(project.clone());
     linked_timelines_are_independent_namespaces(project);
+}
+
+fn clipping_tracks_geometry_coordinates_and_lifetimes(mut project: Project) {
+    project
+        .symbol_mut("component")
+        .unwrap()
+        .timeline
+        .frame_count = 1;
+    fn hits(clip: &RuntimeClip, point: [f64; 2]) -> bool {
+        clip.components.iter().any(|component| {
+            let [a, b, c, d, tx, ty] = component.matrix;
+            let determinant = a * d - b * c;
+            let [x, y] = [point[0] - tx, point[1] - ty];
+            hit_test_path(
+                &component.commands,
+                component.fill_rule,
+                [(d * x - c * y) / determinant, (a * y - b * x) / determinant],
+                true,
+                0.,
+                FlattenOptions::default(),
+            )
+            .unwrap()
+        })
+    }
+
+    let authored = project.to_json().unwrap();
+    let mut player = Player::new(&project);
+    let root = player.object_ref(&[]).unwrap();
+    let viewport = player.create_display(DynamicKind::Sprite).unwrap();
+    let target = player.create_display(DynamicKind::Sprite).unwrap();
+    let content = player.create_display(DynamicKind::Shape).unwrap();
+    let other = player.create_display(DynamicKind::Sprite).unwrap();
+    let mask = player.create_display(DynamicKind::Sprite).unwrap();
+    let donut = player.create_display(DynamicKind::Shape).unwrap();
+    let island = player.create_display(DynamicKind::Shape).unwrap();
+    let stroke = player.create_display(DynamicKind::Shape).unwrap();
+    for node in [&viewport, &other, &mask] {
+        add(&mut player, &project, &root, node);
+    }
+    add(&mut player, &project, &viewport, &target);
+    add(&mut player, &project, &target, &content);
+    for node in [&donut, &island, &stroke] {
+        add(&mut player, &project, &mask, node);
+    }
+    let base = [1., 0., 0., 1., 20., 30.];
+    player.object_set_matrix(&viewport, base).unwrap();
+    player.object_set_matrix(&mask, base).unwrap();
+    player
+        .object_set_matrix(&target, [1., 0., 0., 1., 10., 15.])
+        .unwrap();
+    for (node, x, width, alpha) in [
+        (&content, 0., 300., 1.),
+        (&donut, 0., 100., 0.),
+        (&island, 120., 20., 1.),
+    ] {
+        let mut ops = vec![
+            GraphicsOp::BeginFill {
+                color: 0x6699cc,
+                alpha,
+            },
+            GraphicsOp::DrawRect {
+                x,
+                y: 0.,
+                width,
+                height: 100.,
+            },
+        ];
+        if node == &donut {
+            ops.push(GraphicsOp::DrawRect {
+                x: 20.,
+                y: 20.,
+                width: 40.,
+                height: 40.,
+            });
+        }
+        ops.push(GraphicsOp::EndFill);
+        player.graphics_apply(node, &ops).unwrap();
+    }
+    player
+        .graphics_apply(
+            &stroke,
+            &[
+                GraphicsOp::LineStyle {
+                    width: Some(10.),
+                    color: 0xffffff,
+                    alpha: 1.,
+                },
+                GraphicsOp::DrawRect {
+                    x: 160.,
+                    y: 0.,
+                    width: 40.,
+                    height: 100.,
+                },
+            ],
+        )
+        .unwrap();
+    assert_eq!(player.object_mask(&target).unwrap(), None);
+    assert_eq!(player.object_scroll_rect(&target).unwrap(), None);
+    let parent_rect = ScrollRect {
+        x: 8.,
+        y: 4.,
+        width: 200.,
+        height: 140.,
+    };
+    player
+        .object_set_scroll_rect(&project, &viewport, Some(parent_rect))
+        .unwrap();
+    let child_rect = ScrollRect {
+        x: 5.,
+        y: 6.,
+        width: 80.,
+        height: 70.,
+    };
+    player
+        .object_set_scroll_rect(&project, &target, Some(child_rect))
+        .unwrap();
+    player
+        .object_set_mask(&project, &target, Some(mask.clone()))
+        .unwrap();
+
+    let scene = player.runtime_snapshot(&project);
+    assert_eq!(player.object_matrix(&project, &viewport).unwrap(), base);
+    assert_eq!(object(&scene, &viewport).local_matrix, base);
+    assert_eq!(
+        object(&scene, &viewport).content_local_matrix,
+        [1., 0., 0., 1., 12., 26.]
+    );
+    assert_eq!(
+        object(&scene, &target).local_matrix,
+        [1., 0., 0., 1., 10., 15.]
+    );
+    assert_eq!(
+        object(&scene, &target).content_local_matrix,
+        [1., 0., 0., 1., 5., 9.]
+    );
+    assert_eq!(
+        object(&scene, &content).display.world,
+        [1., 0., 0., 1., 17., 35.]
+    );
+    assert_eq!(object(&scene, &target).scroll_rect, Some(child_rect));
+    assert_eq!(object(&scene, &target).mask_ref, Some(mask.clone()));
+    let ids = &object(&scene, &content).clip_ids;
+    assert_eq!(ids.len(), 3);
+    assert_eq!(ids, &object(&scene, &target).clip_ids);
+    assert!(
+        scene
+            .draws
+            .iter()
+            .filter(|draw| draw.owner_ref == content)
+            .all(|draw| &draw.clip_ids == ids)
+    );
+    assert!(scene.draws.iter().any(|draw| draw.owner_ref == content));
+    let filled_mask = scene
+        .clips
+        .iter()
+        .find(|clip| clip.components.len() == 2)
+        .unwrap();
+    assert!(ids.contains(&filled_mask.id));
+    // Components union; a transparent filled path keeps its even-odd hole.
+    assert!(hits(filled_mask, [25., 35.]));
+    assert!(!hits(filled_mask, [50., 60.]));
+    assert!(hits(filled_mask, [145., 35.]));
+    assert!(!hits(filled_mask, [180., 35.])); // Stroke ink is not mask fill.
+    let parent_clip = scene
+        .clips
+        .iter()
+        .find(|clip| object(&scene, &viewport).clip_ids.contains(&clip.id))
+        .unwrap();
+    assert_eq!(parent_clip.components[0].matrix, base);
+    let child_clip = scene
+        .clips
+        .iter()
+        .find(|clip| {
+            ids.contains(&clip.id) && clip.id != parent_clip.id && clip.id != filled_mask.id
+        })
+        .unwrap();
+    assert_eq!(child_clip.components[0].matrix, [1., 0., 0., 1., 22., 41.]);
+    assert!(!hits(child_clip, [25., 35.])); // The three clip groups intersect.
+    for source in [&mask, &donut, &island, &stroke] {
+        assert!(player.object_alive(source));
+        assert!(!object(&scene, source).display.effective_visible);
+        assert!(scene.draws.iter().all(|draw| &draw.owner_ref != source));
+    }
+    let expected_mask = serde_json::to_value(&filled_mask.components).unwrap();
+    player.object_set_visible(&mask, false);
+    player.object_set_property(&mask, "alpha", 0.);
+    let hidden_scene = player.runtime_snapshot(&project);
+    let hidden_mask = hidden_scene
+        .clips
+        .iter()
+        .find(|clip| clip.id == filled_mask.id)
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&hidden_mask.components).unwrap(),
+        expected_mask
+    );
+    player.object_set_visible(&mask, true);
+    player.object_set_property(&mask, "alpha", 1.);
+
+    // Reusing a mask releases its previous owner; clearing restores its paints.
+    player
+        .object_set_mask(&project, &other, Some(mask.clone()))
+        .unwrap();
+    assert_eq!(player.object_mask(&target).unwrap(), None);
+    assert_eq!(player.object_mask(&other).unwrap(), Some(mask.clone()));
+    player.object_set_mask(&project, &other, None).unwrap();
+    let released = player.runtime_snapshot(&project);
+    assert!(object(&released, &island).display.effective_visible);
+    assert!(released.draws.iter().any(|draw| draw.owner_ref == island));
+    player
+        .object_set_mask(&project, &target, Some(mask.clone()))
+        .unwrap();
+
+    // Candidate validation must not partially release, reparent or scroll state.
+    let before = serde_json::to_value(player.runtime_snapshot(&project)).unwrap();
+    assert!(
+        player
+            .object_set_mask(&project, &mask, Some(target.clone()))
+            .is_err()
+    );
+    assert!(
+        player
+            .object_set_scroll_rect(
+                &project,
+                &target,
+                Some(ScrollRect {
+                    x: 0.5,
+                    ..child_rect
+                })
+            )
+            .is_err()
+    );
+    assert!(
+        player
+            .display_mutate(
+                &project,
+                DisplayMutation::Add {
+                    parent: target.clone(),
+                    child: mask.clone(),
+                    index: None
+                }
+            )
+            .is_err()
+    );
+    assert_eq!(
+        serde_json::to_value(player.runtime_snapshot(&project)).unwrap(),
+        before
+    );
+
+    // Retiring an authored source clears its link instead of rebinding by path.
+    player.object_set_mask(&project, &target, None).unwrap();
+    let holder = player.object_ref(&["authored-container".into()]).unwrap();
+    player
+        .object_set_mask(&project, &other, Some(holder.clone()))
+        .unwrap();
+    player
+        .object_set_scroll_rect(&project, &holder, Some(child_rect))
+        .unwrap_err();
+    player.control(&project, &[], PlaybackCommand::GotoAndStop(1));
+    assert_eq!(player.object_mask(&other).unwrap(), None);
+    assert!(player.object_mask(&holder).is_err());
+    player.control(&project, &[], PlaybackCommand::GotoAndStop(2));
+    let replacement = player.object_ref(&["authored-container".into()]).unwrap();
+    assert_ne!(replacement, holder);
+    assert_eq!(player.object_mask(&replacement).unwrap(), None);
+    assert_eq!(player.object_scroll_rect(&replacement).unwrap(), None);
+    assert_eq!(project.to_json().unwrap(), authored);
+    player.reset(&project);
+    assert!(player.object_mask(&target).is_err());
+    assert!(player.object_scroll_rect(&viewport).is_err());
+    assert!(player.runtime_snapshot(&project).clips.is_empty());
 }
 
 fn gradient_geometry_remains_shared_and_atomic(project: Project) {

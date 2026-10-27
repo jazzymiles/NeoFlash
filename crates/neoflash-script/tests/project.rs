@@ -97,6 +97,9 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { import flash.display.GradientType; public class A extends GradientType {} }",
         "package { import flash.display.GraphicsPathCommand; public class A {public function A(){new GraphicsPathCommand();}} }",
         "package { import flash.display.MovieClip; public class A extends MovieClip {public function beginGradientFill():void{}} }",
+        "package { import flash.display.Sprite; public class A extends Sprite {public var mask:Object;} }",
+        "package { import flash.display.Shape; public class A extends Shape {public function get scrollRect():Object{return null;}} }",
+        "package { import flash.display.MovieClip; public class A extends MovieClip {public function setMask(value:Object):void{}} }",
         "package { import flash.utils.Endian; public class A {public function A(){new Endian();}} }",
         "package { import flash.utils.ByteArray; public class A {public function A(){new ByteArray(8);}} }",
     ] {
@@ -294,7 +297,14 @@ fn linked_classes_are_resolved_before_publication() {
             import flash.display.GraphicsPathCommand;
             import flash.display.GraphicsPathWinding;
             import flash.geom.Matrix;
+            import flash.geom.Rectangle;
+            import flash.display.DisplayObject;
             public class Model extends flash.display.MovieClip {
+                public function clip(source:DisplayObject,view:Rectangle):Rectangle {
+                    mask=source; scrollRect=view;
+                    var copy:Rectangle=scrollRect;copy.y+=1;scrollRect=copy;
+                    mask=null;scrollRect=null;return copy;
+                }
                 public function paint(source:Graphics):void {
                     var drawing:Graphics=graphics;
                     var box:Matrix=new Matrix(); box.createGradientBox(80,40);

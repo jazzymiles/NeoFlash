@@ -13,8 +13,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 301 | 1,881 | 110 |
-| AS3 | 43,740 | 15 | 439 | 43,066 | 220 |
+| AS2 | 2,307 | 15 | 304 | 1,878 | 110 |
+| AS3 | 43,740 | 15 | 456 | 43,049 | 220 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -22,7 +22,7 @@ Counts use the complete selected documentation catalogue, including AIR, Flex an
 
 | Area | Implemented | Partial | Planned | Registry coverage |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 5/12 | 5 | 2 | 41.7% |
+| Editor and graphics | 5/12 | 6 | 1 | 41.7% |
 | Timelines and animation | 5/10 | 3 | 2 | 50.0% |
 | HTML5 and interactivity | 6/12 | 4 | 2 | 50.0% |
 | Import and file compatibility | 1/10 | 6 | 3 | 10.0% |
@@ -66,7 +66,7 @@ The local bundle is ad-hoc signed, not a notarized distribution release. Apple S
 
 **Text (T)** creates a text box with a separate width and height, word wrap and multiline content. Properties edits its installed font, bold/italic style, size, color, leading and alignment. Resizing the box reflows the text; scaling the object transforms it. Older unboxed text keeps its appearance and can be converted with **Use text box**. AS3 TextField/TextFormat and AS2 createTextField use the shared Rust layout in HTML5. Browser fonts still depend on the visitor’s installed fonts or fallback; embedding, rich formatting and text input remain planned.
 
-For vector drawing, choose **Pen (P)**: click for corners, drag for Bézier handles, click the first anchor to close, or press Enter to finish an open path. Escape cancels the draft. **Pencil (Y)** records a freehand line and simplifies redundant samples. **Subselection (A)** edits anchors and control handles; moving an anchor carries adjacent handles. Fill, stroke and nonzero/even–odd rules are editable in Properties. Compound contours, curve bounds, transformed strokes and paths inside nested symbols share the HTML5 geometry model. General shape morphing, brush pressure, native gradient tools and masks remain pending.
+For vector drawing, choose **Pen (P)**: click for corners, drag for Bézier handles, click the first anchor to close, or press Enter to finish an open path. Escape cancels the draft. **Pencil (Y)** records a freehand line and simplifies redundant samples. **Subselection (A)** edits anchors and control handles; moving an anchor carries adjacent handles. Fill, stroke and nonzero/even–odd rules are editable in Properties. Compound contours, curve bounds, transformed strokes and paths inside nested symbols share the HTML5 geometry model. General shape morphing, brush pressure, native gradient/mask tools remain pending.
 
 For object editing, **Selection (V)** moves objects; Shift-click toggles objects and dragging an empty area selects enclosed objects across visible, unlocked layers. Shift adds a marquee to the selection, **⌘A** selects all editable objects in the current frame, and Escape cancels a gesture or clears the selection. Duplicate, Delete and Undo work on the whole selection. **Free Transform (Q)** exposes resize and rotation handles: Shift preserves proportions when resizing or snaps rotation to 15°; Option resizes around the center. Multiple objects can be uniformly scaled or rotated together. Custom pivots, skew and nonuniform multi-object scaling remain planned.
 
@@ -116,6 +116,8 @@ Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two indep
 [geometry-timer.nflash](examples/geometry-timer.nflash) combines Point/Rectangle/Matrix with Timer events: four ticks move an authored marker, query typed bounds and update text. The timer service owns its callbacks for the publication session and clears them on Restart. Geometry uses a finite 2D profile; browser timer throttling still applies.
 
 [dynamic-display.nflash](examples/dynamic-display.nflash) creates Sprite/Shape components from code with linear/radial gradient fills and strokes, rounded/cubic paths and independently copied Graphics. The Card changes palette on click, moves between containers and detaches/reattaches without losing fields or listeners. Click the card, then use Right / Space / Up; the purple triangle uses AS2 gradient drawing and percentage alpha. These runtime changes do not alter the authored document. Editing authored display-list ownership remains separate work.
+
+[clipped-scene.nflash](examples/clipped-scene.nflash) combines scrolling linked cards, compound vector masks, clipped pointer targets and AS2 setMask/scrollRect. Advance moves the view and masks, reveals the full panels, then restores them. Runtime state preserves the same card instances; native mask and scroll-rectangle tools remain planned.
 
 [linked-movieclips.nflash](examples/linked-movieclips.nflash) creates two AS3 instances from one exported library MovieClip and a third with AS2 `attachMovie`. Each keeps its own frame controls, nested animation, fields and script targets. Click the cards, use Right to step frames, Space to detach/reattach the middle instance and Up to use frame labels. Explicit export identifiers and required program/library snapshots survive cross-document clipboard transfer.
 

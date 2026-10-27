@@ -720,6 +720,13 @@ impl GraphicsState {
             }
         }
     }
+    /// Fill presence is independent of color alpha; stroke-only runs do not mask.
+    pub(crate) fn mask_paths(&self) -> impl Iterator<Item = (&[PathCommand], FillRule)> {
+        self.groups
+            .iter()
+            .filter(|group| group.fill.is_some() && group.commands.len() > 1)
+            .map(|group| (group.commands.as_slice(), group.fill_rule))
+    }
     pub(crate) fn paints(&self) -> Vec<RuntimeDrawKind> {
         self.paints_with_color(crate::ColorTransform::default())
     }

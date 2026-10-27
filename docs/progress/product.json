@@ -195,12 +195,16 @@
       "id": "editor-paint-effects",
       "category": "editor",
       "title": "Gradients, masks and effects",
-      "status": "planned",
+      "status": "partial",
       "scope": "Gradient and bitmap fills, masks, filters and their authoring operations.",
-      "limitations": "Solid fills and strokes exist, but these additional paint and effect types are not implemented.",
+      "limitations": "Scripted HTML5 Graphics now supports bounded linear/radial gradients and vector display masks. Native gradient/mask tools, bitmap fills, alpha masks and filters remain pending; runtime support does not complete authoring operations.",
       "evidence": [
         "docs/BACKLOG.md",
-        "docs/ROADMAP.md"
+        "docs/ROADMAP.md",
+        "docs/decisions/0022-runtime-gradient-graphics.md",
+        "docs/decisions/0023-runtime-masks-and-scroll-rectangles.md",
+        "examples/dynamic-display.nflash",
+        "examples/clipped-scene.nflash"
       ]
     },
     {

@@ -2122,6 +2122,21 @@ impl Emitter<'_> {
                 self.reference(target).expect("delete property")
             ),
             Expr::Literal(value) => value.clone(),
+            Expr::Name(name)
+                if !self.as3
+                    && name == "scrollRect"
+                    && self
+                        .analysis
+                        .resolve(self.scope, name)
+                        .is_none_or(|(scope, _)| scope == 0)
+                    && !self.analysis.context.types.contains_key(name)
+                    && !self.analysis.context.static_members.contains_key(name) =>
+            {
+                format!(
+                    "__nfContainerRef({}, \"scrollRect\", false).get()",
+                    if self.scope == 0 { "this" } else { "__nfFrame" }
+                )
+            }
             Expr::Name(name) => self.name(name),
             Expr::Function(f) => format!("({})", self.function(f)),
             Expr::NewError(name, args, _) => format!(

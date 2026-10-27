@@ -177,6 +177,71 @@
     }
   }
 
+  function clipTable(clips=[]) {
+    const result=new Map();for(const clip of clips){if(typeof clip.id!=='string'||!Array.isArray(clip.components)||result.has(clip.id))throw new Error('Invalid runtime clip table.');result.set(clip.id,clip);}return result;
+  }
+  function clipGroups(ids,table) {
+    return [...new Set(ids||[])].map(id=>{const clip=table.get(id);if(!clip)throw new Error(`Runtime clip '${id}' is missing; re-export this project.`);return clip;});
+  }
+  function clipsContain(context,ids,table,x,y,cache) {
+    context.save();try{
+      context.setTransform(1,0,0,1,0,0);
+      return clipGroups(ids,table).every(clip=>clip.components.some(component=>{
+        const m=component.matrix,det=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(det)||det===0)return false;
+        const p=point(inverse(m),x,y);return context.isPointInPath(cache.get(component.commands),p[0],p[1],component.fill_rule||'nonzero');
+      }));
+    }finally{context.restore();}
+  }
+  // Each clip is a UNION of independently filled components. Combining their
+  // commands into one Path2D changes overlap/winding semantics. Nested clips are
+  // intersections. Two reusable surfaces preserve those rules for all paints.
+  class ClipRenderer {
+    constructor({maxSurfacePixels=16*1024*1024,maxReadPixels=16*1024*1024,maxReadTilePixels=262144,createCanvas}={}) {
+      for(const value of [maxSurfacePixels,maxReadPixels,maxReadTilePixels])if(!Number.isSafeInteger(value)||value<1)throw new Error('Clipping budgets must be positive safe integers.');
+      Object.assign(this,{maxSurfacePixels,maxReadPixels,maxReadTilePixels});this.surfaces=[];this.readPixels=0;
+      this.createCanvas=createCanvas||(()=>typeof OffscreenCanvas==='function'?new OffscreenCanvas(1,1):global.document.createElement('canvas'));
+    }
+    beginFrame(){this.readPixels=0;}
+    clear(){for(const surface of this.surfaces){surface.width=1;surface.height=1;}this.surfaces=[];this.readPixels=0;}
+    surface(index,width,height){
+      const surface=this.surfaces[index]||(this.surfaces[index]=this.createCanvas());
+      if(surface.width!==width||surface.height!==height){surface.width=1;surface.height=height;surface.width=width;}
+      const ctx=surface.getContext('2d');if(!ctx)throw new Error('Canvas 2D clipping surface is unavailable.');
+      ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';ctx.clearRect(0,0,width,height);return ctx;
+    }
+    draw(context,item,table,cache,draw,{bounds=null,readBounds=false}={}) {
+      const groups=clipGroups(item.clip_ids,table);if(!groups.length){draw(context);return undefined;}if(groups.some(g=>!g.components.length))return null;
+      const base=matrixOf(context),det=base[0]*base[3]-base[1]*base[2];if(!Number.isFinite(det)||det===0)return null;
+      const viewport={left:0,top:0,right:context.canvas.width,bottom:context.canvas.height};
+      let area=bounds?intersect(box(corners(bounds).map(p=>point(base,...p))),viewport):viewport;
+      // Control hulls are used only to bound scratch allocation. Actual clipping
+      // and semantic coverage below still use filled curves and their holes.
+      for(const group of groups){let extent=null;for(const c of group.components)extent=union(extent,controlBounds(c.commands,multiply(base,c.matrix),0));area=intersect(area,extent);if(!area)return null;}
+      const left=Math.max(0,Math.floor(area.left)-1),top=Math.max(0,Math.floor(area.top)-1),right=Math.min(context.canvas.width,Math.ceil(area.right)+1),bottom=Math.min(context.canvas.height,Math.ceil(area.bottom)+1),width=right-left,height=bottom-top;
+      if(!(width>0&&height>0))return null;
+      if(width*height>this.maxSurfacePixels)throw new RangeError('Clipping surface exceeds 16777216 pixels; reduce publication dimensions or clipped coverage.');
+      if(readBounds&&this.readPixels+width*height>this.maxReadPixels)throw new RangeError('Clipped semantic coverage exceeds the per-frame readback budget; reduce semantic clipped coverage.');
+      const content=this.surface(0,width,height),shifted=[base[0],base[1],base[2],base[3],base[4]-left,base[5]-top];content.setTransform(...shifted);draw(content);
+      for(const group of groups){
+        const mask=this.surface(1,width,height);mask.fillStyle='#fff';
+        for(const component of group.components){const m=multiply(shifted,component.matrix),d=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(d)||d===0)continue;mask.setTransform(...m);mask.fill(cache.get(component.commands),component.fill_rule||'nonzero');}
+        content.setTransform(1,0,0,1,0,0);content.globalAlpha=1;content.globalCompositeOperation='destination-in';content.drawImage(mask.canvas,0,0);
+      }
+      content.globalCompositeOperation='source-over';
+      let visible=null;
+      if(readBounds){
+        this.readPixels+=width*height;const rows=Math.max(1,Math.min(64,Math.floor(this.maxReadTilePixels/width)));let minX=width,minY=height,maxX=-1,maxY=-1;
+        // Width is itself bounded by the publication canvas and surface budget.
+        // Do not silently exceed the explicitly requested temporary read budget.
+        if(width>this.maxReadTilePixels)throw new RangeError('Clipped semantic readback row exceeds the tile budget.');
+        for(let y=0;y<height;y+=rows){const h=Math.min(rows,height-y),pixels=content.getImageData(0,y,width,h).data;for(let offset=3;offset<pixels.length;offset+=4)if(pixels[offset]){const p=(offset-3)/4,x=p%width,py=y+Math.floor(p/width);minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,py);maxY=Math.max(maxY,py);}}
+        if(maxX>=0)visible=box(corners({left:left+minX,top:top+minY,right:left+maxX+1,bottom:top+maxY+1}).map(p=>point(inverse(base),...p)));
+      }
+      context.save();try{context.setTransform(1,0,0,1,0,0);context.drawImage(content.canvas,left,top);}finally{context.restore();}
+      return readBounds?visible:undefined;
+    }
+  }
+
   function contains(context, kind, x, y, path = createPath(kind.commands)) {
     context.save();
     try {
@@ -194,7 +259,7 @@
     }
   }
 
-  const api = { createPath, PathCache, contains, paintVisible, paintAlpha, visibleBounds, GradientRenderer };
+  const api = { createPath, PathCache, contains, paintVisible, paintAlpha, visibleBounds, GradientRenderer, clipTable, clipsContain, ClipRenderer };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else global.NeoFlashPaths = api;
 })(globalThis);

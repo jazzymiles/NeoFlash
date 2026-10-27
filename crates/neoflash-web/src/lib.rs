@@ -1,7 +1,7 @@
 //! Thin JavaScript bindings around the same Rust timeline runtime used by the editor.
 use neoflash_core::{
     ColorTransform, DisplayMutation, DynamicKind, GraphicsOp, ObjectRef, PixelRef, PixelSnapping,
-    PlaybackCommand, Player, Project, RuntimeScriptDispatch, ScriptDispatch,
+    PlaybackCommand, Player, Project, RuntimeScriptDispatch, ScriptDispatch, ScrollRect,
 };
 use neoflash_core::{TextError, TextFieldState, TextPatch, layout_text};
 use wasm_bindgen::prelude::*;
@@ -554,6 +554,42 @@ impl WebPlayer {
         Ok(self
             .player
             .object_set_property(&object_ref(target)?, name, value))
+    }
+    pub fn object_mask(&self, target: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .object_mask(&object_ref(target)?)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn object_set_mask(&mut self, target: &str, source: &str) -> Result<(), JsValue> {
+        if source.len() > 4096 {
+            return Err(JsValue::from_str("Mask reference exceeds 4096 bytes"));
+        }
+        let source: Option<ObjectRef> = serde_json::from_str(source).map_err(display_error)?;
+        self.player
+            .object_set_mask(&self.project, &object_ref(target)?, source)
+            .map_err(display_error)
+    }
+    pub fn object_scroll_rect(&self, target: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .object_scroll_rect(&object_ref(target)?)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn object_set_scroll_rect(&mut self, target: &str, rect: &str) -> Result<(), JsValue> {
+        if rect.len() > 4096 {
+            return Err(JsValue::from_str("scrollRect exceeds 4096 bytes"));
+        }
+        let rect: Option<ScrollRect> = serde_json::from_str(rect).map_err(display_error)?;
+        self.player
+            .object_set_scroll_rect(&self.project, &object_ref(target)?, rect)
+            .map_err(display_error)
     }
     pub fn object_matrix(&self, target: &str) -> Result<String, JsValue> {
         serde_json::to_string(

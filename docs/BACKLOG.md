@@ -1,6 +1,8 @@
 # Backlog
 
-Independent 5be13d9 acceptance (`E4X-HTML5-20261027T0608Z`) confirms bounded selectors, XML/XMLList literals, interpolation order, targeted creation, namespace/QName selection and content-preserving ambiguous-write refusal. Twenty-four complete structures match independent parsing. Corrected handler access establishes a narrow typed XML bridge on this snapshot; previous inconclusive evidence is unchanged. Pretty setters, direct methods and full E4X remain unverified. See [the independent record](VERIFICATION.md#independent-e4x-verification-of-5be13d9). Graphics gradients/strokes/paths is already in development and requires its own delivery evidence.
+Independent 08f1d9c acceptance (`GRAPHICS-HTML5-20261027T0619Z`) confirms representative gradient fill/stroke, copied-paint independence, Vector/cubic paths, real input/lifetime behavior and Restart. Reflect and incomplete-path diagnostics preserve the observed positive scene; bounds alone are not a full atomicity proof. Exact rasterization, alpha hits, all coercions and native authoring are not inferred. See [the independent record](VERIFICATION.md#independent-graphics-verification-of-08f1d9c). Masks/scrollRect is already in development and requires its own delivery evidence.
+
+Independent 5be13d9 acceptance (`E4X-HTML5-20261027T0608Z`) confirms bounded selectors, XML/XMLList literals, interpolation order, targeted creation, namespace/QName selection and content-preserving ambiguous-write refusal. Twenty-four complete structures match independent parsing. Corrected handler access establishes a narrow typed XML bridge on this snapshot; previous inconclusive evidence is unchanged. Pretty setters, direct methods and full E4X remain unverified. See [the independent record](VERIFICATION.md#independent-e4x-verification-of-5be13d9). The later 08f1d9c Graphics family has a separate independent record.
 
 Independent f4fcb71 acceptance (`XML-HTML5-20261027T0545Z`) confirms exact embedded XML bytes and bounded AS2/AS3 tree copy/mutation/serialization, visible catalog updates and Restart. Fifteen complete logical trees match an independent parser, including Unicode text and expanded namespaces. Failure-only AS2 parseXML and delegated XML.setChildren remain needs_review; an unqualified handler probe is inconclusive. See [the independent record](VERIFICATION.md#independent-xml-verification-of-f4fcb71). The later E4X source layer has a separate main-delivery record; it inherits no independent XML declaration pass.
 
@@ -66,6 +68,10 @@ Vector, Dictionary, original-key indexed operations and for-in/for-each now form
 ## Runtime gradient Graphics batch
 
 The existing dynamic-display workflow now covers linear/radial gradient fills and strokes, cubic paths, rounded rectangles, Vector drawPath and independent Graphics.copyFrom state. Its shared delivery and browser acceptance passed. Rust retains the drawing intent; Canvas paints it and picks the same shared curves. The first profile uses pad/rgb and explicit limits. Native gradient authoring, bitmap fills, masks/filters, repeat/reflect and linearRGB remain follow-ups. Keep one combined ordinary export and browser workflow rather than per-method acceptance. See [the decision](decisions/0022-runtime-gradient-graphics.md).
+
+## Runtime masks and scroll rectangles
+
+The delivered batch combines live vector mask sources, transparent filled geometry, compound unions, nested target clipping and copied integral scroll rectangles. One linked-scene/AS2 workflow and the single shared regression pass succeeded; actual browser clicks, scroll phases, removal/restoration and Restart passed. Native mask authoring, animated authored mask sources, bitmap/text/alpha masks, fractional/deferred scroll behavior and complete frame-reconciliation conformance remain follow-ups. The unmasked legacy strip overlaps part of its adjacent explanatory label in phase two; this example-layout issue does not block the family. See [the decision](decisions/0023-runtime-masks-and-scroll-rectangles.md).
 
 ## P0 — HTML5 correctness
 

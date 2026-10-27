@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 mod bitmap;
+mod clipping;
+pub use clipping::{ClipComponent, RuntimeClip, ScrollRect};
 mod linked;
 mod text;
 mod transform;
@@ -85,6 +87,11 @@ pub struct RuntimeObject {
     pub smoothing: bool,
     pub pixel_snapping: PixelSnapping,
     pub local_matrix: [f64; 6],
+    /// Local content transform, including the scrollRect origin offset.
+    pub content_local_matrix: [f64; 6],
+    pub mask_ref: Option<ObjectRef>,
+    pub scroll_rect: Option<ScrollRect>,
+    pub clip_ids: Vec<String>,
     pub color_transform: ColorTransform,
     pub concatenated_color_transform: ColorTransform,
 }
@@ -131,12 +138,14 @@ pub struct RuntimeDrawItem {
     #[serde(flatten)]
     pub item: DrawItem<RuntimeDrawKind>,
     pub owner_ref: ObjectRef,
+    pub clip_ids: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeAccessibleNode {
     #[serde(flatten)]
     pub node: AccessibleNode,
     pub owner_ref: ObjectRef,
+    pub clip_ids: Vec<String>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeScriptDispatch {
@@ -150,6 +159,7 @@ pub struct RuntimeSnapshot {
     pub objects: Vec<RuntimeObject>,
     pub draws: Vec<RuntimeDrawItem>,
     pub semantics: Vec<RuntimeAccessibleNode>,
+    pub clips: Vec<RuntimeClip>,
 }
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq)]
@@ -198,6 +208,8 @@ pub(crate) struct RuntimeGraph {
     text_bytes: usize,
     affines: HashMap<ObjectRef, transform::AffineState>,
     color_transforms: HashMap<ObjectRef, ColorTransform>,
+    masks: BTreeMap<ObjectRef, ObjectRef>,
+    scroll_rects: BTreeMap<ObjectRef, ScrollRect>,
     authored: BTreeMap<Vec<Id>, Authored>,
     paths: HashMap<ObjectRef, Vec<Id>>,
     prefix: HashMap<ObjectRef, Vec<ObjectRef>>,
@@ -227,6 +239,8 @@ impl RuntimeGraph {
         self.text_bytes = 0;
         self.affines.clear();
         self.color_transforms.clear();
+        self.masks.clear();
+        self.scroll_rects.clear();
         self.authored.clear();
         self.paths.clear();
         self.prefix.clear();
@@ -298,6 +312,7 @@ impl RuntimeGraph {
         self.bitmap_states
             .retain(|reference, _| !retired.contains(reference));
         self.retire_text(&retired);
+        self.retire_clipping(&retired);
         self.affines
             .retain(|reference, _| !retired.contains(reference));
         self.color_transforms
@@ -590,7 +605,11 @@ impl Player {
                 .unwrap_or_else(|| ColorTransform::from_alpha(display.transform.alpha));
             display.transform.alpha = color_transform.multipliers[3];
             let concatenated_color_transform = color_transform.then(parent_color);
-            display.world = affine_multiply(parent_world, local_matrix);
+            let scroll_rect = self.graph.scroll_rects.get(&reference).copied();
+            let content_local_matrix = scroll_rect.map_or(local_matrix, |rect| {
+                affine_multiply(local_matrix, [1., 0., 0., 1., -rect.x, -rect.y])
+            });
+            display.world = affine_multiply(parent_world, content_local_matrix);
             display.effective_visible = parent_visible && display.visible;
             let on_stage = parent_attached || root.as_ref() == Some(&reference);
             let singular = parent_singular
@@ -617,6 +636,7 @@ impl Player {
                         accessibility,
                     },
                     owner_ref: reference.clone(),
+                    clip_ids: vec![],
                 });
             }
             let children = self.graph.children(&reference);
@@ -637,12 +657,14 @@ impl Player {
                         result.draws.push(RuntimeDrawItem {
                             item,
                             owner_ref: reference.clone(),
+                            clip_ids: vec![],
                         });
                     }
                 }
                 if let Some(field) = &text {
                     result.draws.push(RuntimeDrawItem {
                         owner_ref: reference.clone(),
+                        clip_ids: vec![],
                         item: DrawItem {
                             element_id: items.get(&reference).map_or_else(
                                 || format!("runtime-{}-text", reference.id),
@@ -666,6 +688,7 @@ impl Player {
                 {
                     result.draws.push(RuntimeDrawItem {
                         owner_ref: reference.clone(),
+                        clip_ids: vec![],
                         item: DrawItem {
                             element_id: items.get(&reference).map_or_else(
                                 || format!("runtime-{}-bitmap", reference.id),
@@ -702,6 +725,7 @@ impl Player {
                 for (index, kind) in colored_graphics.into_iter().enumerate() {
                     result.draws.push(RuntimeDrawItem {
                         owner_ref: reference.clone(),
+                        clip_ids: vec![],
                         item: DrawItem {
                             element_id: format!("runtime-{}-{index}", reference.id),
                             name: display.name.clone(),
@@ -740,10 +764,15 @@ impl Player {
                 smoothing: bitmap_state.smoothing,
                 pixel_snapping: bitmap_state.pixel_snapping,
                 local_matrix,
+                content_local_matrix,
+                scroll_rect,
+                mask_ref: self.graph.masks.get(&reference).cloned(),
+                clip_ids: vec![],
                 color_transform,
                 concatenated_color_transform,
             });
         }
+        self.graph.apply_clipping(&mut result);
         // Eligibility follows final descendant paint alpha. A signed parent
         // transform may hide 0..255 itself while a child's unclamped transform
         // produces a visible concatenation, so never prune whole subtrees early.
@@ -890,6 +919,13 @@ impl Player {
                 if depth + height > MAX_GRAPH_DEPTH {
                     return Err(error("Display graph nesting exceeds 64 objects"));
                 }
+                self.graph.validate_clipping(
+                    project,
+                    &snapshot,
+                    &self.graph.masks,
+                    &self.graph.scroll_rects,
+                    Some((&child, &parent)),
+                )?;
                 if same {
                     let siblings = self.graph.suffix.entry(parent).or_default();
                     let old = siblings

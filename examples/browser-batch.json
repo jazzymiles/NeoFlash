@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "clipped-scene",
+      "path": "examples/clipped-scene.nflash",
+      "title": "Vector masks, scroll rectangles and linked identity",
+      "checks": [
+        "Only visible portions of the linked cards and masked panel accept clicks; the compound mask hole and exterior remain inactive.",
+        "Advance changes scroll and mask position, then removes masks; the same five card instances retain their identity and click counts.",
+        "AS2 setMask/scrollRect uses the same clipping; Restart restores fresh view, masks and callbacks."
+      ]
+    },
+    {
       "id": "xml-catalog",
       "path": "examples/xml-catalog.nflash",
       "title": "E4X selectors, editable XMLList targets and literals",

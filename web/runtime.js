@@ -138,6 +138,7 @@
     if (!global.NeoFlashPaths) throw new Error('The vector path runtime is missing. Re-export this project.');
     const paths = new global.NeoFlashPaths.PathCache();
     const gradients = new global.NeoFlashPaths.GradientRenderer();
+    const clippings = new global.NeoFlashPaths.ClipRenderer();
     const status = document.getElementById('status');
     const toggle = document.getElementById('toggle');
     const traceElement = document.getElementById('trace');
@@ -542,17 +543,10 @@
       const m=bitmapHost.cache.transform([a*sx,b*sy,c*sx,d*sy,e*sx,f*sy],item.kind.pixel_snapping);
       return [m[0]/sx,m[1]/sy,m[2]/sx,m[3]/sy,m[4]/sx,m[5]/sy];
     }
-    function render() {
-      const snapshot=graphMode?JSON.parse(player.runtime_snapshot_json()):null;
-      scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
-      context.setTransform(canvas.width / project.width, 0, 0, canvas.height / project.height, 0, 0);
-      context.clearRect(0, 0, project.width, project.height);
-      context.fillStyle = color(project.background);
-      context.fillRect(0, 0, project.width, project.height);
-      bitmapHost?.cache.beginFrame();
-      for (const item of scene) {
+    function paintItem(context,item) {
         const kind = item.kind;
         context.save();
+        try {
         context.transform(...bitmapMatrix(item));
         context.globalAlpha = Math.max(0, Math.min(1, item.alpha));
         if (kind.type === 'rectangle' || kind.type === 'ellipse') {
@@ -580,10 +574,40 @@
           context.fillStyle = color(kind.color);
           kind.text.split('\n').forEach((line, index) => context.fillText(line, 0, index * kind.font_size * 1.2));
         } else throw new Error(`Unsupported display primitive: ${kind.type}`);
-        context.restore();
+        } finally { context.restore(); }
+    }
+    function render() {
+      const snapshot=graphMode?JSON.parse(player.runtime_snapshot_json()):null;
+      scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
+      context.setTransform(canvas.width / project.width, 0, 0, canvas.height / project.height, 0, 0);
+      context.clearRect(0, 0, project.width, project.height);
+      context.fillStyle = color(project.background);
+      context.fillRect(0, 0, project.width, project.height);
+      bitmapHost?.cache.beginFrame();
+      clippings.beginFrame();
+      const clips=global.NeoFlashPaths.clipTable(snapshot?.clips||[]),objects=snapshot?new Map(snapshot.objects.map(node=>[JSON.stringify(node.object_ref),node])):null;
+      const semanticOwners=new Set((snapshot?.semantics||[]).map(node=>JSON.stringify(node.owner_ref))),needsCoverage=new Map(),clippedBounds=new Map();
+      const semanticCoverage=item=>{const key=JSON.stringify(item.owner_ref);if(needsCoverage.has(key))return needsCoverage.get(key);let needed=false;for(let node=objects?.get(key);node;node=objects.get(JSON.stringify(node.parent_ref)))if(semanticOwners.has(JSON.stringify(node.object_ref))){needed=true;break;}needsCoverage.set(key,needed);return needed;};
+      for (const item of scene) {
+        if(item.clip_ids?.length){
+          const kind=item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind;
+          let bounded=global.NeoFlashAccessibility.itemBounds({...item,kind,transform:bitmapMatrix(item)},(line,textKind)=>{context.font=font(textKind);return context.measureText(line).width;});
+          // Scratch bounds also include actual glyph overhang; layout advance
+          // widths alone could crop italic text before applying the real mask.
+          if((kind.type==='text_field'&&kind.field.alpha>0)||(kind.type==='text'&&kind.color[3]>0)){
+            const field=kind.type==='text_field'?kind.field:null,lines=field?textHost.layout(field).lines:kind.text.split('\n').map((text,index)=>({text,x:0,y:index*kind.font_size*1.2})),m=bitmapMatrix(item);
+            context.save();try{context.font=field?global.NeoFlashText.cssFont(field.format):font(kind);context.textAlign='left';context.textBaseline='top';
+              for(const line of lines){if(!line.text.trim())continue;const metric=context.measureText(line.text),values=[metric.actualBoundingBoxLeft,metric.actualBoundingBoxRight,metric.actualBoundingBoxAscent,metric.actualBoundingBoxDescent];if(!values.every(Number.isFinite))continue;
+                let left=line.x-values[0],right=line.x+values[1],top=line.y-values[2],bottom=line.y+values[3];if(field?.box){left=Math.max(0,left);top=Math.max(0,top);right=Math.min(field.box.width,right);bottom=Math.min(field.box.height,bottom);}if(right<=left||bottom<=top)continue;
+                for(const[x,y]of [[left,top],[right,top],[right,bottom],[left,bottom]]){const px=m[0]*x+m[2]*y+m[4],py=m[1]*x+m[3]*y+m[5];bounded=bounded?{left:Math.min(bounded.left,px),top:Math.min(bounded.top,py),right:Math.max(bounded.right,px),bottom:Math.max(bounded.bottom,py)}:{left:px,top:py,right:px,bottom:py};}
+              }
+            }finally{context.restore();}
+          }
+          const visible=clippings.draw(context,item,clips,paths,target=>paintItem(target,item),{bounds:bounded,readBounds:semanticCoverage(item)});
+          clippedBounds.set(item,visible||null);
+        }else paintItem(context,item);
       }
-      const objects=snapshot?new Map(snapshot.objects.map(node=>[JSON.stringify(node.object_ref),node])):null;
-      const semanticScene=snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};}):scene;
+      const semanticScene=snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,...(clippedBounds.has(item)?{clipped_bounds:clippedBounds.get(item)}:{}),transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};}):scene;
       const targetCount = semanticLayer.update(snapshot?snapshot.semantics:JSON.parse(player.accessibility_json()), semanticScene, project, preview.view.scale, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
       bitmapHost?.cache.endFrame();
       if (targetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
@@ -592,13 +616,16 @@
       toggle.textContent = player.is_playing() ? 'Pause' : 'Play';
     }
     function hitAt(event) {
-      scene = graphMode?JSON.parse(player.runtime_snapshot_json()).draws:JSON.parse(player.scene_json());
+      const snapshot=graphMode?JSON.parse(player.runtime_snapshot_json()):null;
+      scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
+      const clips=snapshot?.clips?.length?global.NeoFlashPaths.clipTable(snapshot.clips):new Map();
       const rect = canvas.getBoundingClientRect();
       const x = (event.clientX - rect.left) * project.width / rect.width;
       const y = (event.clientY - rect.top) * project.height / rect.height;
       for (let index = scene.length - 1; index >= 0; index--) {
         const item = scene[index];
         if (item.alpha <= 0) continue;
+        if(item.clip_ids?.length&&!global.NeoFlashPaths.clipsContain(context,item.clip_ids,clips,x,y,paths))continue;
         const local = localPoint(bitmapMatrix(item), x, y);
         if (!local) continue;
         if (hitShape(item.kind, ...local, (line, kind) => {
@@ -639,7 +666,7 @@
       failed = false;
       errorElement.style.display = 'none';
       accumulated = 0; lastTime = null;
-      try { gradients.clear();resetProject(); render(); } catch (error) { fail(error); }
+      try { gradients.clear();clippings.clear();resetProject(); render(); } catch (error) { fail(error); }
     });
     document.getElementById('audio-toggle')?.addEventListener('click',()=>{
       if(!audioHost||failed)return;
@@ -652,9 +679,9 @@
     document.getElementById('zoom').addEventListener('change', event => preview.setMode(event.target.value));
     const panButton = document.getElementById('pan');
     panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
-    global.addEventListener('pagehide', event => { if(!event.persisted){gradients.clear();disposeFamily();} });
+    global.addEventListener('pagehide', event => { if(!event.persisted){gradients.clear();clippings.clear();disposeFamily();} });
     new ResizeObserver(() => { resize(); render(); }).observe(viewport);
-    stopAsyncOnFailure=()=>{gradients.clear();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
+    stopAsyncOnFailure=()=>{gradients.clear();clippings.clear();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
     initializeFamily();
     canvas.tabIndex=-1;
     stageHost?.attach();

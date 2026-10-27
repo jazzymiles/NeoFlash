@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added runtime vector mask assignment and copied scrollRect state, shared clip tables, clipped Canvas/pointer/semantic paths and AS2 setMask/undefined absence handling. One linked-scene workflow combines scrolling, compound mask unions, nested viewport intersections and Restart. Integer immediate scroll rectangles and vector sources are the first profile; native mask tools and bitmap-alpha masking remain pending.
+
+- Independently verified the 08f1d9c Graphics delivery: representative linear/radial paints and gradient stroke, independent copied paint, Vector/cubic paths, real pointer/keyboard lifecycle and Restart, with adjacent reflect/incomplete-path diagnostics and one shared browser regression. Unequal-corner drawRoundRectComplex is a NeoFlash extension; exact rasterization, alpha edges, budgets and full coercion are not inferred.
+
 - Independently verified the 5be13d9 bounded E4X delivery: selector/literal/targeted-update semantics, interpolation order, namespace/QName selection, safe ambiguous refusal and Restart, with 24 independently parsed structures. A corrected handler probe establishes a narrow XML/XMLList typed bridge only on this snapshot. One five-project browser batch preserves typed collections, Transform, text and earlier collections; full E4X and uncalled APIs are not inferred.
 
 - Added runtime gradient Graphics across AS2/AS3: linear/radial fills and strokes, copied matrices/stops, shared cubic and rounded geometry, Vector drawPath and independent Graphics.copyFrom. The existing dynamic-display workflow combines palette edits, copied paint, hierarchy changes and Restart. Pad/RGB is the initial profile; bitmap fills, masks/filters and native gradient authoring remain separate work.

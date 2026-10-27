@@ -19,7 +19,12 @@ function __nfContainerRef(receiver,key,as3){
     // conversion belongs to each read/write operation, after the assignment RHS
     // has run. Compound updates can therefore convert an object key twice.
     return {
-        get:()=>receiver[__nfContainerKey(key)],
+        get(){
+            const name=__nfContainerKey(key),value=receiver[name];
+            // AVM1 exposes an absent native scrollRect as undefined; AS3 and
+            // the public JS facade use null. Never rewrite ordinary user fields.
+            return !as3&&name==='scrollRect'&&value===null&&typeof __nfDisplay!=='undefined'&&__nfDisplay?.alive(receiver)?undefined:value;
+        },
         set(value){
             const name=__nfContainerKey(key);
             if(__nfArrayIsArray(receiver)){

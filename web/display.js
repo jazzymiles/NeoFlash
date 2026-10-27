@@ -85,7 +85,7 @@
       if (descendant(node,target,list)) {
         const chain=[];
         for(let current=node;nodeKey(current)!==nodeKey(target);current=parentNode(current,list))chain.push(current);
-        let result=identity;for(const child of chain.reverse())result=multiply(result,child.local_matrix||matrix(child.transform));
+        let result=identity;for(const child of chain.reverse())result=multiply(result,child.content_local_matrix||child.local_matrix||matrix(child.transform));
         return result;
       }
       return multiply(inverse(target.world),node.world);
@@ -97,6 +97,18 @@
       const include=(x,y)=>{ if (!Number.isFinite(x)||!Number.isFinite(y)) throw new RangeError('Display bounds exceed the finite coordinate range.'); box=box ? {left:Math.min(box.left,x),top:Math.min(box.top,y),right:Math.max(box.right,x),bottom:Math.max(box.bottom,y)} : {left:x,top:y,right:x,bottom:y}; };
       for(const leaf of list) {
         if(!descendant(leaf,source,list))continue;
+        // A scroll viewport replaces that subtree's reported bounds, even when
+        // its content is smaller. Keep mask geometry out of this bounds rule:
+        // masks affect painting/picking, not the unmasked script geometry.
+        let cropped=false;
+        for(let ancestor=parentNode(leaf,list);ancestor&&descendant(ancestor,source,list);ancestor=parentNode(ancestor,list))if(ancestor.scroll_rect){cropped=true;break;}
+        if(cropped)continue;
+        if(leaf.scroll_rect){
+          const rect=leaf.scroll_rect;
+          const m=destination&&nodeKey(leaf)===nodeKey(destination)?identity:multiply(relative(leaf,destination,list),[1,0,0,1,rect.x,rect.y]);
+          for(const [x,y]of [[0,0],[rect.width,0],[rect.width,rect.height],[0,rect.height]]){const p=point(m,x,y);include(p.x,p.y);}
+          continue;
+        }
         const shapes=leaf.text?[{type:'text_field',field:leaf.text}]:leaf.owner==='bitmap'?(leaf.bitmap&&!leaf.bitmap.disposed?[{type:'bitmap_pixels',width:leaf.bitmap.width,height:leaf.bitmap.height}]:[]):leaf.kind?[leaf.kind]:[];
         for(const kind of [...shapes,...(leaf.graphics||[])]) {
         const m=relative(leaf,destination,list),stroke=strokes?(kind.stroke_width||0)/2:0;
@@ -278,6 +290,16 @@
     function legacyDrawing(target) {
       const drawing=graphics(target);
       return {
+        setMask:(...args)=>{
+          descriptor(target);
+          if(!args.length)return undefined;
+          const mask=args[0];
+          if(typeof mask==='string')throw new TypeError('AS2 setMask string target paths are not supported; pass a live display object or null.');
+          // Pinned Ruffle AVM1 set_mask returns Boolean success, despite the
+          // Adobe reference's Void annotation. Missing arguments are a no-op.
+          if(mask!=null&&!referenceOf(mask))return false;
+          set(target,'mask',mask==null?null:mask);return true;
+        },
         beginFill:(color,alpha=100)=>drawing.beginFill(color,alpha/100),
         beginGradientFill:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>drawing.beginGradientFill(type,colors,graphicsNumbers(alphas,'AS2 alphas',15).map(alpha=>alpha/100),ratios,matrix,spread,interpolation==='RGB'?'rgb':interpolation,focal),
         lineGradientStyle:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>drawing.lineGradientStyle(type,colors,graphicsNumbers(alphas,'AS2 alphas',15).map(alpha=>alpha/100),ratios,matrix,spread,interpolation==='RGB'?'rgb':interpolation,focal),
@@ -354,6 +376,14 @@
     }
     function get(target,name) {
       if(name==='transform')return transform(target);
+      if(name==='mask'){
+        descriptor(target);const value=JSON.parse(player.object_mask(referenceOf(target).key));
+        return value===null?null:proxyForRef(value);
+      }
+      if(name==='scrollRect'){
+        descriptor(target);const value=JSON.parse(player.object_scroll_rect(referenceOf(target).key));
+        return value===null?null:new Rectangle(value.x,value.y,value.width,value.height);
+      }
       if(getText()&&descriptor(target).owner==='text'){
         const text=getText(),value=text.get(referenceOf(target).key,name);if(value!==text.UNHANDLED)return value;
       }
@@ -387,6 +417,23 @@
     }
     function set(target,name,value) {
       if(name==='transform')throw new TypeError('Replacing DisplayObject.transform is not supported; set transform.matrix or transform.colorTransform.');
+      if(name==='mask'){
+        descriptor(target);if(value!==null)descriptor(value);
+        player.object_set_mask(referenceOf(target).key,JSON.stringify(value===null?null:referenceOf(value).objectRef));return true;
+      }
+      if(name==='scrollRect'){
+        descriptor(target);
+        if(value!==null&&!Rectangle.__nfIs(value))throw new TypeError('DisplayObject.scrollRect requires a native Rectangle or null.');
+        let rect=null;
+        if(value!==null){
+          const values=['x','y','width','height'].map(name=>value[name]);
+          if(!values.every(value=>typeof value==='number'&&Number.isInteger(value)&&Math.abs(value)<=1e9)||values[2]<0||values[3]<0)throw new RangeError('scrollRect requires integer coordinates within ±1000000000 and nonnegative integer dimensions. Fractional normalization and render-delayed updates are outside this profile.');
+          rect={x:values[0],y:values[1],width:values[2],height:values[3]};
+        }
+        // Shared Rust owns copied state. Every getter also returns a new value;
+        // mutating either the assigned Rectangle or a prior read has no effect.
+        player.object_set_scroll_rect(referenceOf(target).key,JSON.stringify(rect));return true;
+      }
       if(getText()&&descriptor(target).owner==='text'){
         if(['width','height','_width','_height'].includes(name)&&nonAxisAligned(descriptor(target)))throw new RangeError('Setting dimensions of a rotated TextField or skewed TextField is not supported yet. Set its logical box before applying the matrix.');
         if(getText().set(referenceOf(target).key,name,value))return true;

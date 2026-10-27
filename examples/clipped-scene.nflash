@@ -1,0 +1,861 @@
+{
+  "format_version": 2,
+  "name": "Masks and scrolling linked scenes",
+  "width": 1040,
+  "height": 760,
+  "fps": 24,
+  "background": [
+    16,
+    23,
+    32,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Clipped scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 60,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / MASKS + SCROLL RECTANGLES",
+                      "font_family": "Arial",
+                      "font_size": 12,
+                      "color": [
+                        145,
+                        190,
+                        197,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 60,
+                      "y": 78,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Move the view. Keep the scene.",
+                      "font_family": "Arial",
+                      "font_size": 34,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 60,
+                      "y": 129,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Scroll linked cards, click through vector openings and preserve every instance.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "left-label",
+                    "name": "left-label",
+                    "transform": {
+                      "x": 60,
+                      "y": 185,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 / SCROLLING LINKED CARDS",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        145,
+                        202,
+                        195,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "right-label",
+                    "name": "right-label",
+                    "transform": {
+                      "x": 590,
+                      "y": 185,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 / COMPOUND MASK + PARENT VIEWPORT",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        145,
+                        202,
+                        195,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "left-back",
+                    "name": "left-back",
+                    "transform": {
+                      "x": 60,
+                      "y": 220,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 450,
+                      "height": 230,
+                      "fill": [
+                        30,
+                        45,
+                        56,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "right-back",
+                    "name": "right-back",
+                    "transform": {
+                      "x": 590,
+                      "y": 220,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 390,
+                      "height": 230,
+                      "fill": [
+                        30,
+                        45,
+                        56,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 60,
+                      "y": 474,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Preparing clipping...",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "selection",
+                    "name": "selection",
+                    "transform": {
+                      "x": 60,
+                      "y": 506,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Select a visible card or the masked panel.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-label",
+                    "name": "legacy-label",
+                    "transform": {
+                      "x": 60,
+                      "y": 553,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 / setMask + scrollRect",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        145,
+                        202,
+                        195,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-back",
+                    "name": "legacy-back",
+                    "transform": {
+                      "x": 60,
+                      "y": 580,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 450,
+                      "height": 64,
+                      "fill": [
+                        30,
+                        45,
+                        56,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-status",
+                    "name": "legacyStatus",
+                    "transform": {
+                      "x": 540,
+                      "y": 591,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Preparing legacy clipping...",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "advance-button",
+                    "name": "advanceButton",
+                    "transform": {
+                      "x": 60,
+                      "y": 676,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "advance-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.advance();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "this._root.advanceLegacy();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Scroll and move masks",
+                      "description": "Advance the scrolling view, move masks, reveal the full panels, then restore.",
+                      "role": "button",
+                      "tab_order": 20,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 305,
+                      "y": 689,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Restart restores the view, masks and fresh linked instances.",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        159,
+                        182,
+                        197,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import flash.geom.Rectangle;\nthis.legacyPhase=0; this.legacyHits=0;\nthis.legacyPanel=this.createEmptyMovieClip(\"legacyPanel\",this.getNextHighestDepth());\nlegacyPanel._x=60; legacyPanel._y=580;\nlegacyPanel.beginFill(0xAC7AC4,100);legacyPanel.moveTo(0,0);legacyPanel.lineTo(520,0);legacyPanel.lineTo(520,64);legacyPanel.lineTo(0,64);legacyPanel.lineTo(0,0);legacyPanel.endFill();\nlegacyPanel.beginFill(0xE1B06B,100);legacyPanel.moveTo(150,0);legacyPanel.lineTo(220,0);legacyPanel.lineTo(220,64);legacyPanel.lineTo(150,64);legacyPanel.lineTo(150,0);legacyPanel.endFill();\nthis.legacyMask=this.createEmptyMovieClip(\"legacyMask\",this.getNextHighestDepth());\nlegacyMask._x=60;legacyMask._y=580;\nlegacyMask.beginFill(0,0);legacyMask.moveTo(0,0);legacyMask.lineTo(400,0);legacyMask.lineTo(360,64);legacyMask.lineTo(40,64);legacyMask.lineTo(0,0);legacyMask.endFill();\nthis.legacyAbsent=(legacyPanel.scrollRect===undefined);\nlegacyPanel.scrollRect=new Rectangle(0,0,450,64);\nthis.legacyMaskAccepted=legacyPanel.setMask(legacyMask);\nlegacyPanel.onPress=function(){this._root.legacyHits++;this._root.legacyStatus.text=\"AS2 clicks \"+this._root.legacyHits+\" / phase \"+this._root.legacyPhase;trace(\"clipping legacy click\",this._root.legacyHits);};\nthis.advanceLegacy=function(){\n this.legacyPhase=(this.legacyPhase+1)%3;\n if(this.legacyPhase==2){this.legacyPanel.setMask(null);this.legacyPanel.scrollRect=null;this.legacyAbsent=(this.legacyPanel.scrollRect===undefined);}\n else {this.legacyPanel.setMask(this.legacyMask);this.legacyPanel.scrollRect=new Rectangle(this.legacyPhase*55,0,450,64);}\n this.legacyStatus.text=\"AS2 phase \"+this.legacyPhase+\" / mask accepted \"+this.legacyMaskAccepted+\"\\nAbsent scrollRect is undefined: \"+this.legacyAbsent;\n trace(\"clipping legacy\",this.legacyPhase,this.legacyAbsent,this.legacyHits);\n};\nlegacyStatus.text=\"AS2 phase 0 / mask accepted \"+legacyMaskAccepted+\"\\nAbsent scrollRect is undefined: \"+legacyAbsent;\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "advance-control",
+      "name": "Advance clipping",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "advance-control-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "advance-face",
+                    "name": "advance-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 40,
+                      "fill": [
+                        62,
+                        152,
+                        128,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "advance-caption",
+                    "name": "advance-caption",
+                    "transform": {
+                      "x": 17,
+                      "y": 11,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Scroll and move masks",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "scroll-card",
+      "name": "Linked scrolling card",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scroll-card-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "card-face",
+                    "name": "card-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 130,
+                      "height": 160,
+                      "fill": [
+                        61,
+                        139,
+                        164,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "Open card",
+                      "description": "Select this live card through the scrolling viewport.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 12,
+                      "y": 20,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Card",
+                      "font_family": "Arial",
+                      "font_size": 20,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card-hint",
+                    "name": "card-hint",
+                    "transform": {
+                      "x": 12,
+                      "y": 56,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Click to select",
+                      "font_family": "Arial",
+                      "font_size": 12,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card-stripe",
+                    "name": "card-stripe",
+                    "transform": {
+                      "x": 12,
+                      "y": 122,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 100,
+                      "height": 8,
+                      "fill": [
+                        246,
+                        194,
+                        112,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      },
+      "linkage_id": "scroll-card",
+      "class_name": "app.ScrollCard"
+    },
+    {
+      "id": "masked-panel",
+      "name": "Linked masked panel",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "masked-panel-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "panel-face",
+                    "name": "panel-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 390,
+                      "height": 230,
+                      "fill": [
+                        69,
+                        133,
+                        173,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "Masked panel",
+                      "description": "A vector mask and parent scroll rectangle limit this clickable panel.",
+                      "role": "button",
+                      "tab_order": 10,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "panel-upper",
+                    "name": "panel-upper",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 390,
+                      "height": 48,
+                      "fill": [
+                        55,
+                        173,
+                        161,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel-lower",
+                    "name": "panel-lower",
+                    "transform": {
+                      "x": 0,
+                      "y": 172,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 390,
+                      "height": 58,
+                      "fill": [
+                        220,
+                        159,
+                        89,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel-caption",
+                    "name": "panel-caption",
+                    "transform": {
+                      "x": 24,
+                      "y": 90,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ONE LIVE PANEL",
+                      "font_family": "Arial",
+                      "font_size": 19,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel-detail",
+                    "name": "panel-detail",
+                    "transform": {
+                      "x": 24,
+                      "y": 122,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "The opening changes; identity stays.",
+                      "font_family": "Arial",
+                      "font_size": 12,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      },
+      "linkage_id": "masked-panel",
+      "class_name": "app.MaskedPanel"
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip; import flash.display.Sprite; import flash.display.Shape;\n import flash.geom.Rectangle; import flash.geom.Point; import flash.display.GraphicsPathWinding;\n public class Main extends MovieClip {\n  public var viewport:Sprite; public var rightViewport:Sprite; public var aperture:Sprite;\n  public var panel:MaskedPanel; public var cards:Vector.<ScrollCard>; public var phase:int=0;\n  public var selected:int=0; public var panelHits:int=0; public var rectangleCopied:Boolean=false;\n  public var badMaskRejected:Boolean=false; public var badScrollRejected:Boolean=false;\n  public function Main(){\n   super();stop();viewport=new Sprite();viewport.name=\"viewport\";viewport.x=60;viewport.y=220;addChild(viewport);\n   cards=new Vector.<ScrollCard>();\n   for(var i:int=0;i<5;i++){var card:ScrollCard=new ScrollCard();card.name=\"card\"+i;card.index=i+1;card.caption.text=\"Card \"+(i+1);card.x=20+i*155;card.y=28;viewport.addChild(card);cards.push(card);}\n   var view:Rectangle=new Rectangle(0,0,450,230);viewport.scrollRect=view;view.x=900;rectangleCopied=(viewport.scrollRect.x==0);\n   var returned:Rectangle=viewport.scrollRect;returned.x=700;rectangleCopied=rectangleCopied&&viewport.scrollRect.x==0;\n   rightViewport=new Sprite();rightViewport.name=\"rightViewport\";rightViewport.x=590;rightViewport.y=220;rightViewport.scrollRect=new Rectangle(0,0,390,230);addChild(rightViewport);\n   panel=new MaskedPanel();panel.name=\"maskedPanel\";rightViewport.addChild(panel);\n   aperture=new Sprite();aperture.name=\"aperture\";aperture.x=590;aperture.y=220;addChild(aperture);\n   var hole:Shape=new Shape();hole.graphics.beginFill(0,0);\n   hole.graphics.drawPath([1,2,2,2,2,1,2,2,2,2],[20,20,200,20,200,210,20,210,20,20,70,70,145,70,145,145,70,145,70,70],GraphicsPathWinding.EVEN_ODD);hole.graphics.endFill();aperture.addChild(hole);\n   var circle:Shape=new Shape();circle.graphics.beginFill(0,0);circle.graphics.drawCircle(290,115,95);circle.graphics.endFill();aperture.addChild(circle);\n   panel.mask=aperture;\n   try{panel.mask=panel;}catch(error:*){badMaskRejected=true;}\n   try{viewport.scrollRect=new Rectangle(0.5,0,450,230);}catch(error:*){badScrollRejected=true;}\n   report();trace(\"clipping ready\",ScrollCard.created,cards.length,rectangleCopied,badMaskRejected,badScrollRejected);\n  }\n  public function advance():void{\n   phase=(phase+1)%3;viewport.scrollRect=new Rectangle(phase*155,0,450,230);\n   if(phase==2){panel.mask=null;rightViewport.scrollRect=null;}\n   else{panel.mask=aperture;aperture.x=590+phase*20;rightViewport.scrollRect=new Rectangle(phase*35,0,390,230);}\n   report();trace(\"clipping phase\",phase,ScrollCard.created,viewport.scrollRect.x,panel.mask==aperture);\n  }\n  public function report():void{\n   status.text=\"Phase \"+phase+\" / scroll \"+viewport.scrollRect.x+\" / masks \"+(panel.mask!=null)+\" / linked instances \"+ScrollCard.created;\n   selection.text=\"Selected card \"+selected+\" / panel clicks \"+panelHits+\" / rectangle copied \"+rectangleCopied+\" / invalid changes refused \"+(badMaskRejected&&badScrollRejected);\n  }\n }\n}"
+    },
+    {
+      "id": "card-source",
+      "path": "app/ScrollCard.as",
+      "language": "action_script3",
+      "source": "package app { import flash.display.MovieClip;import flash.events.MouseEvent;\n public class ScrollCard extends MovieClip { public static var created:int=0;public var index:int=0;public var hits:int=0;\n public function ScrollCard(){super();stop();created++;addEventListener(MouseEvent.CLICK,onClick);}\n public function onClick(event:MouseEvent):void{hits++;root.selected=index;root.report();trace(\"clipping card\",index,hits);}\n }}"
+    },
+    {
+      "id": "panel-source",
+      "path": "app/MaskedPanel.as",
+      "language": "action_script3",
+      "source": "package app { import flash.display.MovieClip;import flash.events.MouseEvent;\n public class MaskedPanel extends MovieClip {public function MaskedPanel(){super();stop();addEventListener(MouseEvent.CLICK,onClick);}\n public function onClick(event:MouseEvent):void{root.panelHits++;root.report();trace(\"clipping panel\",root.panelHits);}\n }}"
+    }
+  ]
+}

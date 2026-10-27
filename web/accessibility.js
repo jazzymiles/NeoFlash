@@ -69,6 +69,10 @@
   }
   function itemBounds(item, measureText) {
     if (!(item.alpha > 0)) return null;
+    // Filled-mask holes cannot be represented by intersecting bounding boxes.
+    // The renderer supplies the actual clipped alpha coverage when needed by a
+    // semantic ancestor; null means no remaining visible pixels.
+    if(Object.hasOwn(item,'clipped_bounds')){const b=item.clipped_bounds;return b&&Object.values(b).every(Number.isFinite)&&b.right>b.left&&b.bottom>b.top?b:null;}
     const m=item.transform, kind=item.kind;
     if (!m.every(Number.isFinite) || Math.abs(m[0]*m[3]-m[1]*m[2])<1e-12) return null;
     let bounds=null;

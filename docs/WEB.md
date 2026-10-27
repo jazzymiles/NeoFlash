@@ -26,7 +26,7 @@ Metadata belongs to a placement and follows its keyframes. Nested instances expo
 
 Targets with zero effective opacity or singular transforms are excluded by the runtime. The browser also needs visible display geometry to place a focus indicator. A button keeps its DOM identity while its current placement moves, and its focus outline follows the displayed bounds. Removing and recreating the same object path creates a new lifetime. Delayed activation from an earlier lifetime is rejected, so it cannot operate a replacement object.
 
-Pointer input continues to use Canvas geometry, including path holes and strokes. The semantic DOM layer must not turn the transparent bounding-box corners into clickable artwork.
+Pointer input continues to use Canvas geometry, including path holes and strokes. Runtime mask unions and inherited scroll rectangles also constrain picking. Semantic bounds come from the already clipped artwork; fully clipped targets are omitted. The semantic DOM layer must not turn the transparent bounding-box corners into clickable artwork.
 
 ## Preview scale
 

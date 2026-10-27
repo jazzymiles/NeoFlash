@@ -73,9 +73,9 @@ const fixtures = [
   },
   {
     language: 'action_script2',
-    source: 'function local(Number, trace) { return trace(Number(2)); } result = local(function(x) { return x + 1; }, function(x) { return x * 4; });',
-    context: {},
-    verify(c) { assert.equal(c.result, 12); },
+    source: 'function local(Number, trace) { return trace(Number(2)); } result = local(function(x) { return x + 1; }, function(x) { return x * 4; }); scrollRect=null; absentBare=scrollRect; absentMember=this.scrollRect; var key="scrollRect"; absentComputed=this[key]; var record={scrollRect:null}; ordinary=record.scrollRect; function localRect(scrollRect){return scrollRect;} shadowedRect=localRect(null);',
+    context: {}, nativeDisplay: true,
+    verify(c) { assert.equal(c.result, 12); assert.equal(c.absentBare,undefined); assert.equal(c.absentMember,undefined); assert.equal(c.absentComputed,undefined); assert.equal(c.scrollRect,null); assert.equal(c.ordinary,null); assert.equal(c.shadowedRect,null); },
   },
   {
     language: 'action_script3',
@@ -227,12 +227,13 @@ for (const [index, fixture] of fixtures.entries()) {
   assert.ok(outputs[index].Ok, JSON.stringify(outputs[index]));
   const logs = [];
   const consoleLogs = [];
-  const run = new Function('console', 'trace', 'stop', '__nfAs2Method', '__nfAs2Value', '"use strict"; return (function(){\n' + outputs[index].Ok + '\n}).call(this)');
+  const run = new Function('console', 'trace', 'stop', '__nfAs2Method', '__nfAs2Value', '__nfDisplay', '"use strict"; return (function(){\n' + outputs[index].Ok + '\n}).call(this)');
+  const display=fixture.nativeDisplay?{alive:receiver=>receiver===fixture.context}:undefined;
   for (let i = 0; i < (fixture.repeat || 1); i++) {
     if (fixture.verifyThrown) {
-      assert.throws(() => run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args), undefined, as2Bridge.method, as2Bridge.value), error => { fixture.verifyThrown(error); return true; });
+      assert.throws(() => run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args), undefined, as2Bridge.method, as2Bridge.value, display), error => { fixture.verifyThrown(error); return true; });
     } else {
-      run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args), () => { throw new Error('wrong binding'); }, as2Bridge.method, as2Bridge.value);
+      run.call(fixture.context, { log: (...args) => consoleLogs.push(args) }, (...args) => logs.push(args), () => { throw new Error('wrong binding'); }, as2Bridge.method, as2Bridge.value, display);
     }
   }
   fixture.verify(fixture.context, logs);

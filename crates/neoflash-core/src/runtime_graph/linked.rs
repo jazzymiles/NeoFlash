@@ -213,6 +213,7 @@ impl Player {
             .bitmap_states
             .retain(|reference, _| !retired.contains(reference));
         self.graph.retire_text(&retired);
+        self.graph.retire_clipping(&retired);
         self.graph
             .affines
             .retain(|reference, _| !retired.contains(reference));
