@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "sound-playback",
+      "path": "examples/sound-playback.nflash",
+      "title": "AS3 and AS2 complete-file Sound playback",
+      "checks": [
+        "Both sound owners load the original MP3 and display matching byte totals/duration. The example keeps volume zero.",
+        "Play silently starts independent AS3/AS2 channels from a real gesture; both completion counters advance once. Stop suppresses later completion.",
+        "Restart resets counters and fresh sound owners; repeating Play silently produces one completion per dialect."
+      ]
+    },
+    {
       "id": "text-layout",
       "path": "examples/text-layout.nflash",
       "title": "Text boxes, TextFormat and independent AS3/AS2 cards",

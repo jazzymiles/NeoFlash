@@ -1,6 +1,8 @@
 # Backlog
 
-Independent `BITMAP-HTML5-20261027T0345Z` acceptance on `1bd0e3c` confirms bounded PNG/shared pixel edits, independent clone/copy/scroll, AS2 attachment, disposal and Restart. Only 24 positively observed declarations receive partial evidence; diagnostic-only AS3 BitmapData construction remains needs_review. JPEG, rasterization options and native image authoring are not inferred. See [the independent record](VERIFICATION.md#independent-bitmap-verification-of-1bd0e3c). Dynamic TextField/TextFormat is already in progress and needs its own batch evidence.
+Independent fba17ae acceptance (`TEXT-LAYOUT-HTML5-20261027T0409Z`) confirms dynamic AS2/AS3 fields, actual width-driven wrapping/alignment, independent current/default uniform formats, content-preserving mixed/range refusal and Restart. Exact members remain partial; rich text/input/IME/font embedding are unsupported and native editing remains unverified. See [the independent record](VERIFICATION.md#independent-text-layout-verification-of-fba17ae). Sound is already in development and requires its own delivery evidence.
+
+Independent `BITMAP-HTML5-20261027T0345Z` acceptance on `1bd0e3c` confirms bounded PNG/shared pixel edits, independent clone/copy/scroll, AS2 attachment, disposal and Restart. Only 24 positively observed declarations receive partial evidence; diagnostic-only AS3 BitmapData construction remains needs_review. JPEG, rasterization options and native image authoring are not inferred. See [the independent record](VERIFICATION.md#independent-bitmap-verification-of-1bd0e3c). The later fba17ae text family has a separate independent record.
 
 Independent c39a29e acceptance (`RESOURCES-HTML5-20261027T0323Z`) confirms preserved embedded resources, visible AS2/AS3 data loading, same-origin GET/POST and suppression of two held responses after close/Restart. Exact members remain partial. Cross-origin CORS, direct-file opening and native resource import/Undo are not inferred. See [the independent record](VERIFICATION.md#independent-resource-and-loading-verification-of-c39a29e). Bitmap was subsequently checked in the separate 1bd0e3c record.
 
@@ -32,6 +34,10 @@ Array/String constructors, mutation, searches, Flash sorting and data-processing
 ## Portable resources delivered; next text and visual families
 
 Portable project resources, AS3 URLRequest/URLLoader/URLVariables and AS2 LoadVars now share one binary-to-text workflow, including actual HTTP POST, cancellation, errors and Restart. Resource storage, export packaging and clipboard preservation are implemented; browser/native observations are separately recorded. The integrated bitmap family builds on this storage and the shared scene graph: PNG/JPEG placement, shared BitmapData pixel edits, independent clones/copies/scrolling and AS2 attachBitmap. Its own evidence is recorded separately; general Loader, bitmap fills, filters, draw/encode and additional image formats remain follow-ups. Dynamic TextField/TextFormat and authored TextBox now provide explicit layout boxes, shared Rust wrapping/alignment, uniform format and independent defaults, with their own verification record. Rich character runs, HTML/input/IME, auto-size/scrolling, fuller text metrics and font embedding remain explicit follow-ups.
+
+## Audio family and next media work
+
+Complete-file AS3 Sound/SoundChannel/SoundTransform and AS2 Sound now share resource/HTTP loading, browser decoding, gesture-enabled playback, stop/repeats, volume/pan and completion callbacks. Native audio tracks, streaming, linkage, precise historical mixing, video and audio-driven timeline synchronization remain open. Keep their verification grouped by workflow and separate from this first playback profile.
 
 ## P0 — HTML5 correctness
 

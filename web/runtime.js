@@ -165,7 +165,7 @@
     const graphMode=typeof player.runtime_snapshot_json==='function';
     const references = new WeakMap();
     const attachedClasses = new Map();
-    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, program = null;
+    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, audioHost = null, program = null;
     let timerRenderGeneration=0;
     let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
@@ -191,7 +191,19 @@
     }
     function netFailure(error) {
       const cause=unwrapScriptThrow(error),failure=new Error(`Resource callback: ${describeThrown(cause)}`,{cause});
-      if(typeof fail==='function')fail(failure);else {netHost?.reset();stopTimers();throw failure;}
+      if(typeof fail==='function')fail(failure);else {audioHost?.reset();netHost?.reset();stopTimers();throw failure;}
+    }
+    function audioFailure(error){
+      const cause=unwrapScriptThrow(error),failure=new Error(`Audio callback: ${describeThrown(cause)}`,{cause});
+      if(typeof fail==='function')fail(failure);else {audioHost?.reset();throw failure;}
+    }
+    function updateAudioStatus(state){
+      if(typeof document==='undefined')return;
+      const button=document.getElementById('audio-toggle'),label=document.getElementById('audio-status');if(!button||!label)return;
+      button.hidden=label.hidden=state.state==='idle';
+      button.textContent=!state.unlocked||state.state==='awaiting_gesture'?'Enable audio':state.muted?'Unmute audio':'Mute audio';
+      button.setAttribute('aria-pressed',String(state.muted));
+      label.textContent=state.state==='awaiting_gesture'?`Audio waiting for a gesture · ${state.pending} pending`:state.error?`Audio: ${state.error}`:state.state==='loading'?`Loading audio · ${state.loading}`:state.muted?'Audio muted':state.active?`Audio playing · ${state.active}`:'Audio ready';
     }
     function initializeFamily() {
       if (!global.NeoFlashDisplay || typeof player.display_nodes_json !== 'function') return;
@@ -228,6 +240,10 @@
         netHost=global.NeoFlashNet.create({events:global.NeoFlashEvents,binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],onError:netFailure,onAfterDispatch:afterTimerEvent});
         legacyGlobals=Object.freeze({...legacyGlobals,LoadVars:netHost.LoadVars});
       }
+      if(global.NeoFlashAudio&&netHost&&binaryHost&&global.NeoFlashEvents){
+        audioHost=global.NeoFlashAudio.create({events:global.NeoFlashEvents,net:netHost,binary:binaryHost,onError:audioFailure,afterEvent:afterTimerEvent,onState:updateAudioStatus});
+        legacyGlobals=Object.freeze({...legacyGlobals,Sound:audioHost.LegacySound});
+      }
       if(textHost)legacyGlobals=Object.freeze({...legacyGlobals,TextFormat:textHost.TextFormat});
       initializeProgram();
     }
@@ -242,6 +258,7 @@
       if(timerHost){builtins['flash.utils.Timer']=timerHost.Timer;builtins['flash.events.TimerEvent']=timerHost.TimerEvent;builtins['flash.utils.getTimer']=timerHost.getTimer;}
       if(bitmapHost){builtins['flash.display.BitmapData']=bitmapHost.BitmapData;builtins['flash.display.PixelSnapping']=bitmapHost.PixelSnapping;}
       if(textHost){builtins['flash.text.TextFormat']=textHost.TextFormat;builtins['flash.text.TextFormatAlign']=textHost.TextFormatAlign;}
+      if(audioHost)for(const name of ['Sound','SoundChannel','SoundTransform'])builtins['flash.media.'+name]=audioHost[name];
       if(binaryHost){builtins['flash.utils.ByteArray']=binaryHost.ByteArray;builtins['flash.utils.Endian']=binaryHost.Endian;}
       if(netHost){
         for(const name of ['URLRequest','URLRequestHeader','URLRequestMethod','URLVariables','URLLoader','URLLoaderDataFormat'])builtins['flash.net.'+name]=netHost[name];
@@ -253,14 +270,14 @@
       };
     }
     function resetProject() {
-      netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
+      audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
       proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();lastTrace = '';
       player.reset();
       initializeProgram();
       dispatchScripts();
     }
     function disposeFamily() {
-      netHost?.dispose();timerRenderGeneration++;timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
+      audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
       legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
     function prepareLinked(receiver,allocatedByProgram) {
@@ -624,6 +641,12 @@
       accumulated = 0; lastTime = null;
       try { resetProject(); render(); } catch (error) { fail(error); }
     });
+    document.getElementById('audio-toggle')?.addEventListener('click',()=>{
+      if(!audioHost||failed)return;
+      const state=audioHost.status();
+      const action=state.unlocked&&!state.muted&&state.state!=='awaiting_gesture'?audioHost.setMuted(true):audioHost.resumeFromGesture();
+      action.catch(audioFailure);
+    });
     global.addEventListener('resize', () => { resize(); render(); });
     document.addEventListener('visibilitychange', () => { lastTime = null; accumulated = 0; });
     document.getElementById('zoom').addEventListener('change', event => preview.setMode(event.target.value));
@@ -631,7 +654,7 @@
     panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
     global.addEventListener('pagehide', event => { if(!event.persisted)disposeFamily(); });
     new ResizeObserver(() => { resize(); render(); }).observe(viewport);
-    stopAsyncOnFailure=()=>{netHost?.reset();stopTimers();binaryHost?.reset();};
+    stopAsyncOnFailure=()=>{audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
     initializeFamily();
     canvas.tabIndex=-1;
     stageHost?.attach();

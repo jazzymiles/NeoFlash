@@ -29,6 +29,8 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   globals.NeoFlashBitmap={create:settings=>bitmapModule.create({...settings,...options.bitmap})};
   const textModule=require(resolve(root,'web/text.js'));
   globals.NeoFlashText={...textModule,create:settings=>textModule.create({...settings,...options.text})};
+  const audioModule=require(resolve(root,'web/audio.js'));
+  globals.NeoFlashAudio={create:settings=>audioModule.create({...settings,...options.audio})};
   globals.NeoFlashGeom=require(resolve(root,'web/geom.js'));
   const timerModule=require(resolve(root,'web/timers.js'));
   globals.NeoFlashTimers={create:settings=>timerModule.create({...settings,...options.timers})};
@@ -37,7 +39,7 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const host = new Function('player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'traceSpy', 'global', 'bundle', 'project', 'context', 'font', 'canvas', 'viewport',
     'const proxies = new Map(); const render = () => {}; let lastTrace = "";\n' + runtime.slice(start, end) +
     '\nconst originalTrace = trace; trace = (...args) => { traceSpy(...args); return originalTrace(...args); };\n' +
-    'initializeFamily(); return { proxyFor, proxyForRef, activateSemantic, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, disposeFamily, stopTimers, display:()=>display, stage:()=>stageHost, legacy:()=>legacyGlobals, timers:()=>timerHost, binary:()=>binaryHost, net:()=>netHost, bitmap:()=>bitmapHost, text:()=>textHost, program:()=>program, lastTrace: () => lastTrace };'
+    'initializeFamily(); return { proxyFor, proxyForRef, activateSemantic, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, disposeFamily, stopTimers, display:()=>display, stage:()=>stageHost, legacy:()=>legacyGlobals, timers:()=>timerHost, binary:()=>binaryHost, net:()=>netHost, bitmap:()=>bitmapHost, text:()=>textHost, audio:()=>audioHost, program:()=>program, lastTrace: () => lastTrace };'
   )(player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args),
     globals, options.bundle, options.project || options.bundle?.project, options.context, kind=>`${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`, options.canvas, options.keyboardTarget);
   return { host, traceCalls, hostConsole, scriptConsole };

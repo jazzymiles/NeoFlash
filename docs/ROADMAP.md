@@ -1,6 +1,8 @@
 # Roadmap
 
-Independent `BITMAP-HTML5-20261027T0345Z` acceptance on `1bd0e3c` confirms bounded PNG/shared pixel edits, independent clone/copy/scroll, AS2 attachment, disposal and Restart. Only 24 positively observed declarations receive partial evidence; diagnostic-only AS3 BitmapData construction remains needs_review. JPEG, rasterization options and native image authoring are not inferred. See [the independent record](VERIFICATION.md#independent-bitmap-verification-of-1bd0e3c). Dynamic TextField/TextFormat is already in progress and needs its own batch evidence.
+Independent fba17ae acceptance (`TEXT-LAYOUT-HTML5-20261027T0409Z`) confirms dynamic AS2/AS3 fields, actual width-driven wrapping/alignment, independent current/default uniform formats, content-preserving mixed/range refusal and Restart. Exact members remain partial; rich text/input/IME/font embedding are unsupported and native editing remains unverified. See [the independent record](VERIFICATION.md#independent-text-layout-verification-of-fba17ae). Sound is already in development and requires its own delivery evidence.
+
+Independent `BITMAP-HTML5-20261027T0345Z` acceptance on `1bd0e3c` confirms bounded PNG/shared pixel edits, independent clone/copy/scroll, AS2 attachment, disposal and Restart. Only 24 positively observed declarations receive partial evidence; diagnostic-only AS3 BitmapData construction remains needs_review. JPEG, rasterization options and native image authoring are not inferred. See [the independent record](VERIFICATION.md#independent-bitmap-verification-of-1bd0e3c). The later fba17ae text family has a separate independent record.
 
 Full Flash replacement is the product objective. The stages below are independently reviewable deliveries; completion of one does not imply feature parity.
 
@@ -36,3 +38,6 @@ The next visual family adds authored PNG/JPEG placements and a shared Rust Bitma
 Independent c39a29e acceptance (`RESOURCES-HTML5-20261027T0323Z`) confirms preserved embedded resources, visible AS2/AS3 data loading, same-origin GET/POST and suppression of two held responses after close/Restart. Exact members remain partial. Cross-origin CORS, direct-file opening and native resource import/Undo are not inferred. See [the independent record](VERIFICATION.md#independent-resource-and-loading-verification-of-c39a29e). Bitmap was subsequently checked in the separate 1bd0e3c record.
 
 The text family adds authored TextBox, runtime-created TextField, uniform TextFormat and shared Rust wrapping/alignment using native/Canvas font measurements. Width/height reflow and display scale remain separate. This advances authoring and AS2/AS3 support while keeping mixed runs, input/IME, font portability and DOM layouts on the roadmap. Evidence for its own batch is separate from earlier plain-text and bitmap acceptance.
+
+
+The audio family adds complete-file scripted Sound playback through the existing portable resource/HTTP service, with AS3 channels/transforms and the AS2 adapter. Gesture controls, bounded PCM reservations and publication cleanup support ordinary web playback. Streaming, sound linkage, audio tracks/synchronization, video and richer DOM applications remain subsequent families; partial playback does not imply native timeline audio.

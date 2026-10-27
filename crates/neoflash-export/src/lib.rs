@@ -23,6 +23,8 @@ const BYTE_ARRAY: &str = include_str!("../../../web/byte-array.js");
 const NET: &str = include_str!("../../../web/net.js");
 const BITMAP: &str = include_str!("../../../web/bitmap.js");
 const TEXT: &str = include_str!("../../../web/text.js");
+const AUDIO_FORMATS: &str = include_str!("../../../web/audio-formats.js");
+const AUDIO: &str = include_str!("../../../web/audio.js");
 const DISPLAY: &str = include_str!("../../../web/display.js");
 const MARKER: &str = "neoflash-export.json";
 
@@ -257,6 +259,8 @@ pub fn export_project(
         ("net.js", NET),
         ("bitmap.js", BITMAP),
         ("text.js", TEXT),
+        ("audio-formats.js", AUDIO_FORMATS),
+        ("audio.js", AUDIO),
         ("display.js", DISPLAY),
         ("bundle.js", bundle_js.as_str()),
         ("README.txt", readme.as_str()),
@@ -315,6 +319,7 @@ fn html_document(title: &str) -> String {
     .pan-mode, .pan-mode canvas {{ cursor: grab; }}
     .preview-info {{ display: flex; flex-wrap: wrap; gap: 4px 12px; min-width: 0; flex: 1; }}
     #name {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+    #audio-status {{ color: #c6d8ef; }}
     #status {{ font-variant-numeric: tabular-nums; color: #a5acb7; white-space: nowrap; }}
     #trace {{ flex-basis: 100%; overflow-wrap: anywhere; min-height: 1em; color: #c6d8ef; }}
     #error {{ position: fixed; inset: 24px; max-height: 60vh; overflow: auto; margin: auto; z-index: 2; padding: 24px; border: 1px solid #f19393; background: #351d22; color: #ffe0e0; white-space: pre-wrap; display: none; }}
@@ -335,12 +340,14 @@ fn html_document(title: &str) -> String {
   <script defer src="net.js"></script>
   <script defer src="bitmap.js"></script>
   <script defer src="text.js"></script>
+  <script defer src="audio-formats.js"></script>
+  <script defer src="audio.js"></script>
   <script defer src="display.js"></script>
   <script defer src="runtime.js"></script>
 </head>
 <body>
   <main id="viewport" tabindex="-1" aria-label="Project preview"><div id="stage-space"><div id="stage-surface" role="group" aria-label="{title}"><canvas id="stage" aria-label="{title}"></canvas><div id="semantic-layer"></div></div></div></main>
-  <footer><div class="transport" aria-label="Preview controls"><button id="toggle" type="button">Pause</button><button id="restart" type="button">Restart</button><select id="zoom" aria-label="Preview zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" type="button" aria-pressed="false" title="Drag the stage to pan. Touch scrolling also works.">Pan</button></div><div class="preview-info"><span id="name">{title}</span><span id="status"></span><span id="trace" role="status" aria-live="polite" aria-atomic="true"></span></div></footer>
+  <footer><div class="transport" aria-label="Preview controls"><button id="toggle" type="button">Pause</button><button id="restart" type="button">Restart</button><select id="zoom" aria-label="Preview zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" type="button" aria-pressed="false" title="Drag the stage to pan. Touch scrolling also works.">Pan</button><button id="audio-toggle" type="button" hidden>Enable audio</button></div><div class="preview-info"><span id="name">{title}</span><span id="status"></span><span id="audio-status" role="status" aria-live="polite" aria-atomic="true" hidden></span><span id="trace" role="status" aria-live="polite" aria-atomic="true"></span></div></footer>
   <div id="loading" role="status">Loading project…</div><pre id="error" role="alert"></pre>
 </body>
 </html>
@@ -399,6 +406,10 @@ mod tests {
         assert!(html.find("src=\"net.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         assert!(html.find("src=\"bitmap.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         assert!(html.find("src=\"text.js\"").unwrap() < html.find("src=\"display.js\"").unwrap());
+        assert!(
+            html.find("src=\"audio-formats.js\"").unwrap() < html.find("src=\"audio.js\"").unwrap()
+        );
+        assert!(html.find("src=\"audio.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         let bundle = fs::read_to_string(output.join("bundle.js")).unwrap();
         assert!(bundle.contains("PC9zY3JpcHQ+cG9ydGFibGUgZGF0YQ=="));
         assert!(

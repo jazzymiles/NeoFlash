@@ -55,6 +55,10 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { public class A implements Missing {} }",
         "package { import flash.display.Bitmap; public class A extends Bitmap {} }",
         "package { import flash.text.TextField; public class A extends TextField {} }",
+        "package { import flash.media.Sound; public class A extends Sound {} }",
+        "package { import flash.media.SoundChannel; public class A extends SoundChannel {} }",
+        "package { import flash.media.SoundTransform; public class A extends SoundTransform {} }",
+        "package { import flash.media.SoundChannel; public class A { public function A(){new SoundChannel();} } }",
         "package { import flash.text.TextFormat; public class A extends TextFormat {} }",
         "package { import flash.text.TextFormatAlign; public class A extends TextFormatAlign {} }",
         "package { import flash.text.TextFormatAlign; public class A { public function A(){new TextFormatAlign();} } }",
@@ -98,6 +102,8 @@ fn class_syntax_outside_profile_is_never_erased() {
         "class A extends TextField {}",
         "class A extends TextFormat {}",
         "class A {public function A(){new TextField();}}",
+        "class A {public function A(){new Sound(this);}}",
+        "import flash.media.Sound; class A {}",
     ] {
         legacy.sources[0].source = source.into();
         assert!(

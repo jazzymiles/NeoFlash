@@ -13,8 +13,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 237 | 1,938 | 117 |
-| AS3 | 43,740 | 15 | 344 | 43,130 | 251 |
+| AS2 | 2,307 | 15 | 250 | 1,925 | 117 |
+| AS3 | 43,740 | 15 | 361 | 43,113 | 251 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -76,7 +76,7 @@ For object editing, **Selection (V)** moves objects; Shift-click toggles objects
 
 **Actions → Project files** stores reusable source code inside the project. Add or import source files, set the document class or a nested symbol's class, and use **Check project** for compiler feedback. Project programs support bounded public AS3 classes with typed fields, bound methods, getters/setters and project interfaces, and AS2 classes with erased annotations and shared prototypes. Both support exact imports and inheritance; unsupported constructs report diagnostics. Set an **Export identifier** on a MovieClip symbol to enable AS3 class construction from its library timeline or AS2 `attachMovie`. Projects with source files use document version 2. Older projects remain readable, and linked-symbol clipboard transfers preserve source files.
 
-**Library → Resource files** imports text, data and media bytes into the project. Use the displayed project path in scripts, edit its content type/path, or remove it with Undo. Resource documents use version 3 so older editors refuse them safely; versions 1 and 2 remain readable. Embedded files travel with HTML5 publication and work offline. AS3 URLLoader/URLVariables and AS2 LoadVars also support bounded browser HTTP(S) data requests. Select a PNG/JPEG resource and choose **Place image** to add it to the stage; Properties controls smoothing. AS3 Bitmap/BitmapData and AS2 BitmapData/attachBitmap share bounded Rust pixel buffers in HTML5. Sound/video playback and font embedding remain separate capabilities.
+**Library → Resource files** imports text, data and media bytes into the project. Use the displayed project path in scripts, edit its content type/path, or remove it with Undo. Resource documents use version 3 so older editors refuse them safely; versions 1 and 2 remain readable. Embedded files travel with HTML5 publication and work offline. AS3 URLLoader/URLVariables and AS2 LoadVars also support bounded browser HTTP(S) data requests. Select a PNG/JPEG resource and choose **Place image** to add it to the stage; Properties controls smoothing. AS3 Bitmap/BitmapData and AS2 BitmapData/attachBitmap share bounded Rust pixel buffers in HTML5. AS3 Sound/SoundChannel/SoundTransform and AS2 Sound provide complete-file MP3/WAV loading, playback, repeats, volume/pan and completion callbacks in HTML5. A browser gesture enables playback; streaming, timeline audio, video and font embedding remain planned.
 
 Example frame script:
 
@@ -107,7 +107,7 @@ Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two indep
 
 [as2-project-input.nflash](examples/as2-project-input.nflash) combines inherited AS2 MovieClips, independent instance counters, shared class state and Key/Mouse/Stage listeners. Left/Right activate the cards, Space resets them, and H/S hide or show the stage cursor. AS2 root document linkage is a NeoFlash extension.
 
-[collections-text.nflash](examples/collections-text.nflash) processes the same leaderboard in AS2 and AS3: parse rows, update records, sort with Flash array flags and display the result in authored text fields. The shared Array/String profile also works in project classes. Plain text mutation, color, line queries and Canvas-based measurements are available; rich text, editable input, wrapping and embedded fonts remain separate work.
+[collections-text.nflash](examples/collections-text.nflash) processes the same leaderboard in AS2 and AS3: parse rows, update records, sort with Flash array flags and display the result in authored text fields. The shared Array/String profile also works in project classes. Plain text mutation, color, line queries and Canvas-based measurements are available; dynamic wrapping and uniform formatting have their own text-layout profile; rich text, editable input and embedded fonts remain separate work.
 
 [geometry-timer.nflash](examples/geometry-timer.nflash) combines Point/Rectangle/Matrix with Timer events: four ticks move an authored marker, query typed bounds and update text. The timer service owns its callbacks for the publication session and clears them on Restart. Geometry uses a finite 2D profile; browser timer throttling still applies.
 

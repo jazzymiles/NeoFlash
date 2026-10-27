@@ -1,0 +1,629 @@
+{
+  "format_version": 3,
+  "name": "Silent sound playback and completion",
+  "width": 960,
+  "height": 636,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    34,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Silent sound playback and completion",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 36,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / SOUND + SOUNDCHANNEL + MP3",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 76,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "One source. Two sound APIs.",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        238,
+                        247,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 126,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Load one original MP3, then play or stop it through AS3 and AS2. Playback starts muted; completion remains visible.",
+                      "width": 832,
+                      "height": 48,
+                      "format": {
+                        "font": "Arial",
+                        "size": 17,
+                        "color": 11718112,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 4,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modern-card",
+                    "name": "modern-card",
+                    "transform": {
+                      "x": 48,
+                      "y": 196,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 392,
+                      "height": 178,
+                      "fill": [
+                        23,
+                        35,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-card",
+                    "name": "legacy-card",
+                    "transform": {
+                      "x": 488,
+                      "y": 196,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 392,
+                      "height": 178,
+                      "fill": [
+                        23,
+                        35,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modern-heading",
+                    "name": "modern-heading",
+                    "transform": {
+                      "x": 64,
+                      "y": 215,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 / SOUND + CHANNEL",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-heading",
+                    "name": "legacy-heading",
+                    "transform": {
+                      "x": 504,
+                      "y": 215,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 / SOUND",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "soundStatus",
+                    "name": "soundStatus",
+                    "transform": {
+                      "x": 64,
+                      "y": 251,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Loading embedded MP3…",
+                      "width": 360,
+                      "height": 94,
+                      "format": {
+                        "font": "Arial",
+                        "size": 20,
+                        "color": 15661055,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 4,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyStatus",
+                    "name": "legacyStatus",
+                    "transform": {
+                      "x": 504,
+                      "y": 251,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Loading embedded MP3…",
+                      "width": 360,
+                      "height": 94,
+                      "format": {
+                        "font": "Arial",
+                        "size": 20,
+                        "color": 2806949,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 4,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "play-button",
+                    "name": "playButton",
+                    "transform": {
+                      "x": 48,
+                      "y": 422,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "play-button-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.playMuted();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Play silently",
+                      "description": "Play silently for both sound APIs. Playback starts with volume zero.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "stop-button",
+                    "name": "stopButton",
+                    "transform": {
+                      "x": 288,
+                      "y": 422,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "stop-button-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.stopPlayback();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Stop",
+                      "description": "Stop for both sound APIs. Playback starts with volume zero.",
+                      "role": "button",
+                      "tab_order": 1,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 48,
+                      "y": 484,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Waiting for both decoders.",
+                      "width": 832,
+                      "height": 56,
+                      "format": {
+                        "font": "Arial",
+                        "size": 17,
+                        "color": 15661055,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 4,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "sourceInfo",
+                    "name": "sourceInfo",
+                    "transform": {
+                      "x": 48,
+                      "y": 558,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Original audio: two short sine pulses, 440 Hz and 660 Hz, with silence. Mono MP3, 0.7 seconds.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 596,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Default volume is 0. This example verifies transport and completion without audible output.",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "label": "",
+                "tween": null
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "var legacySound:Sound = new Sound();\nvar legacyReady:Boolean = false;\nvar legacyCompleted:Number = 0;\nlegacySound.setVolume(0);\nlegacySound.setPan(-25);\nlegacySound.onLoad = function(success:Boolean):Void {\n    legacyReady = success;\n    if (success) {\n        legacyStatus.text = \"Ready | \" + this.getBytesTotal() + \" bytes\\nVolume \" + this.getVolume() + \" | pan \" + this.getPan();\n    } else {\n        legacyStatus.text = \"The MP3 could not be loaded or decoded.\";\n    }\n};\nlegacySound.onSoundComplete = function():Void {\n    legacyCompleted++;\n    legacyStatus.text = \"Completed \" + legacyCompleted + \" time(s)\\nVolume \" + this.getVolume() + \" | pan \" + this.getPan();\n};\nlegacySound.loadSound(\"audio/original-pulse.mp3\", false);\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "play-button-symbol",
+      "name": "Play silently",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "play-button-symbol-content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "play-button-background",
+                    "name": "play-button-background",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 40,
+                      "fill": [
+                        42,
+                        212,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "play-button-label",
+                    "name": "play-button-label",
+                    "transform": {
+                      "x": 18,
+                      "y": 12,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Play silently",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        16,
+                        22,
+                        34,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "label": "",
+                "tween": null
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "stop-button-symbol",
+      "name": "Stop",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "stop-button-symbol-content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "stop-button-background",
+                    "name": "stop-button-background",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 132,
+                      "height": 40,
+                      "fill": [
+                        57,
+                        76,
+                        102,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "stop-button-label",
+                    "name": "stop-button-label",
+                    "transform": {
+                      "x": 18,
+                      "y": 12,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Stop",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        238,
+                        247,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "label": "",
+                "tween": null
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n    import flash.display.MovieClip;\n    import flash.media.Sound;\n    import flash.media.SoundChannel;\n    import flash.media.SoundTransform;\n    import flash.net.URLRequest;\n    import flash.events.Event;\n    import flash.events.IOErrorEvent;\n\n    public class Main extends MovieClip {\n        public var sound:Sound;\n        public var channel:SoundChannel;\n        public var ready:Boolean = false;\n        public var plays:int = 0;\n        public var completed:int = 0;\n        public var stopped:int = 0;\n        // This original publication intentionally starts silent.\n        public var volume:Number = 0;\n\n        public function Main() {\n            stop();\n            sound = new Sound();\n            sound.addEventListener(Event.COMPLETE, loaded);\n            sound.addEventListener(IOErrorEvent.IO_ERROR, failed);\n            sound.load(new URLRequest(\"audio/original-pulse.mp3\"));\n        }\n        public function loaded(event:Event):void {\n            ready = true;\n            soundStatus.text = \"Ready | \" + Math.round(sound.length) + \" ms\\n\" + sound.bytesLoaded + \" / \" + sound.bytesTotal + \" bytes\";\n            status.text = \"Choose Play silently. If your browser asks, choose Enable audio; the example stays muted.\";\n            trace(\"sound ready\", sound.bytesLoaded, Math.round(sound.length));\n        }\n        public function failed(event:IOErrorEvent):void {\n            ready = false;\n            soundStatus.text = \"The MP3 could not be loaded or decoded.\";\n            status.text = \"Audio is unavailable in this browser or the resource could not be decoded.\";\n        }\n        public function playMuted():void {\n            if (!ready || !legacyReady) {\n                status.text = \"Wait until both sound cards are ready.\";\n                return;\n            }\n            if (channel != null) { channel.stop(); }\n            legacySound.stop();\n            channel = sound.play(0, 0, new SoundTransform(volume, 0.25));\n            channel.addEventListener(Event.SOUND_COMPLETE, ended);\n            legacySound.setVolume(volume * 100);\n            legacySound.setPan(-25);\n            legacySound.start(0, 1);\n            plays++;\n            soundStatus.text = \"Playing run \" + plays + \"\\nVolume \" + channel.soundTransform.volume + \" | pan \" + channel.soundTransform.pan;\n            legacyStatus.text = \"Playing run \" + plays + \"\\nVolume \" + legacySound.getVolume() + \" | pan \" + legacySound.getPan();\n            status.text = \"Two independent channels are playing at volume \" + volume + \". Stop cancels completion; Restart restores the source.\";\n            trace(\"sound play\", plays, volume);\n        }\n        public function ended(event:Event):void {\n            completed++;\n            soundStatus.text = \"Completed \" + completed + \" time(s)\\nPosition \" + Math.round(channel.position) + \" ms\";\n            status.text = \"Playback finished. Play again, test Stop, or Restart for fresh channels and counters.\";\n            trace(\"sound complete\", completed);\n        }\n        public function stopPlayback():void {\n            if (channel != null) { channel.stop(); }\n            legacySound.stop();\n            stopped++;\n            soundStatus.text = \"Stopped | \" + stopped + \" command(s)\\nCompletion count \" + completed;\n            legacyStatus.text = \"Stopped | completion count \" + legacyCompleted;\n            status.text = \"Stopped channels do not dispatch a natural completion event.\";\n            trace(\"sound stop\", stopped);\n        }\n    }\n}\n"
+    }
+  ],
+  "resources": [
+    {
+      "id": "original-pulse",
+      "path": "audio/original-pulse.mp3",
+      "media_type": "audio/mpeg",
+      "data_base64": "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"
+    }
+  ]
+}

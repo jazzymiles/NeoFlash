@@ -737,7 +737,7 @@ impl<'a> Frontend<'a> {
             name.as_str(),
             "Number" | "String" | "Boolean" | "Function" | "Array" | "Object"
         ) || (as3 && matches!(name.as_str(), "int" | "uint" | "*"))
-            || (!as3 && matches!(name.as_str(), "LoadVars" | "TextFormat"))
+            || (!as3 && matches!(name.as_str(), "LoadVars" | "TextFormat" | "Sound"))
             || (self.context.project && self.context.types.contains_key(&name))
             || (is_error_type(&name) && (as3 || name == "Error"))
             || (returns && name == if as3 { "void" } else { "Void" });
@@ -953,7 +953,7 @@ impl<'a> Frontend<'a> {
             let class = self.context.types.get(&name).cloned();
             let builtin = matches!(name.as_str(), "Array" | "String")
                 || (self.script.language == ScriptLanguage::ActionScript2
-                    && matches!(name.as_str(), "LoadVars" | "TextFormat"));
+                    && matches!(name.as_str(), "LoadVars" | "TextFormat" | "Sound"));
             if !builtin
                 && class.is_none()
                 && (!is_error_type(&name)
@@ -1362,7 +1362,10 @@ impl Emitter<'_> {
         }
         if !self.as3
             && self.analysis.resolve(self.scope, name).is_none()
-            && matches!(name, "Key" | "Mouse" | "Stage" | "LoadVars" | "TextFormat")
+            && matches!(
+                name,
+                "Key" | "Mouse" | "Stage" | "LoadVars" | "TextFormat" | "Sound"
+            )
         {
             return format!("__nfLegacy.{name}");
         }
@@ -1544,7 +1547,7 @@ impl Emitter<'_> {
                     .join(", ")
             ),
             Expr::NewBuiltin(name, args, _)
-                if matches!(name.as_str(), "LoadVars" | "TextFormat") =>
+                if matches!(name.as_str(), "LoadVars" | "TextFormat" | "Sound") =>
             {
                 format!(
                     "new __nfLegacy.{name}({})",

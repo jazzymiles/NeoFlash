@@ -20,6 +20,9 @@ const BUILTINS: &[&str] = &[
     "flash.text.TextField",
     "flash.text.TextFormat",
     "flash.text.TextFormatAlign",
+    "flash.media.Sound",
+    "flash.media.SoundChannel",
+    "flash.media.SoundTransform",
     "flash.geom.Point",
     "flash.geom.Rectangle",
     "flash.geom.Matrix",
@@ -529,6 +532,16 @@ fn parse_class(
             &header.script,
             0,
             "TextField and TextFormat native subclass initialization is outside this profile; construct the native facade and use composition. TextFormatAlign supplies constants only.",
+        ));
+    }
+    if base
+        .as_ref()
+        .is_some_and(|base| base.starts_with("flash.media."))
+    {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "Sound, SoundChannel and SoundTransform native subclass initialization is outside this profile; use a Sound instance, its playback channel and a SoundTransform value.",
         ));
     }
     if base.as_ref().is_some_and(|base| {
