@@ -387,13 +387,17 @@ impl<'a> Analysis<'a> {
             }
         }
         match expr {
+            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "RegExp" | "JSON") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset, format!("{name} is an AS3 native family; AS2 has no native {name} in this profile. A declared user binding/class with that name is supported."))),
+            Expr::TypeTest(_, _, name, offset) if self.resolve(scope,name.split('.').next().unwrap()).is_some() => return Err(self.error(*offset, "is/as requires a resolved type name; a shadowed value or dynamic class alias is outside this profile.")),
+            Expr::NewBuiltin(name, _, offset) if matches!(name.as_str(), "RegExp" | "JSON") && self.script.language == ScriptLanguage::ActionScript2 => return Err(self.error(*offset, format!("{name} is an AS3 native family, not an AS2 constructor."))),
+            Expr::NewBuiltin(name, _, offset) if name == "JSON" => return Err(self.error(*offset, "JSON supplies parse/stringify static functions and is not constructible.")),
             Expr::Name(name) if self.script.language==ScriptLanguage::ActionScript2 && name=="AsBroadcaster" && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"AS2 AsBroadcaster is not implemented yet; Key/Mouse/Stage support listener objects directly.")),
             Expr::Name(name) if self.context.static_method && self.resolve(scope,name).is_some_and(|(id,b)|id==0&&b.kind==BindingKind::Field) && !self.context.static_members.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"A static method cannot access an instance member without an explicit object receiver.")),
             Expr::Name(name) if self.context.static_method && name=="super" => return Err(self.error(self.scopes[&scope].offset,"Static methods cannot use instance super access.")),
             Expr::Member(base,_) if self.script.language==ScriptLanguage::ActionScript2 && matches!(base.as_ref(),Expr::Name(n)if n=="super") && !direct_callee => return Err(self.error(self.scopes[&scope].offset,"AS2 super property values and method extraction are outside this profile; call super.method(...) directly.")),
             Expr::Name(name) if is_error_type(name) && self.resolve(scope, name).is_none() => return Err(self.error(self.scopes[&scope].offset, "Core Error class values and constructor aliases are not supported; use an explicit new Error-family constructor.")),
             Expr::NewError(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Error constructor cannot be resolved as a core type; arbitrary constructor calls are unsupported.")),
-            Expr::NewBuiltin(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Array/String/LoadVars/TextFormat/Sound constructor requires arbitrary user-constructor semantics not supported here. Ordinary calls to the local binding remain supported.")),
+            Expr::NewBuiltin(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed native constructor requires arbitrary user-constructor semantics not supported here. Ordinary calls to the local binding remain supported.")),
             Expr::NewBuiltin(name, args, offset) if name == "LoadVars" && !args.is_empty() => return Err(self.error(*offset,"AS2 LoadVars construction takes no arguments in this profile.")),
             Expr::NewBuiltin(name, args, offset) if name == "Sound" && !args.is_empty() => return Err(self.error(*offset,"AS2 Sound construction takes no target argument in this profile; create Sound() and load a non-streaming resource.")),
             Expr::NewClass(name, _, offset) if name == "flash.media.SoundChannel" => return Err(self.error(*offset,"SoundChannel is returned by Sound.play and cannot be directly constructed in this profile.")),
@@ -413,8 +417,11 @@ impl<'a> Analysis<'a> {
             Expr::Call(callee,args,offset) => {
                 let binding=if let Expr::Name(name)=callee.as_ref() {self.resolve(scope,name)}else{None};
                 if self.script.language==ScriptLanguage::ActionScript2 && binding.is_none()
-                    && matches!(callee.as_ref(),Expr::Name(name)if self.context.types.contains_key(name)&&!matches!(name.as_str(),"Array"|"String")) {
+                    && matches!(callee.as_ref(),Expr::Name(name)if self.context.types.contains_key(name)&&!matches!(name.as_str(),"Array"|"String")&&!self.context.intrinsic_type(name,false)) {
                     return Err(self.error(*offset,"AS2 class casts and class-as-function calls are not implemented in this profile; construct with new or use the existing instance directly."));
+                }
+                if binding.is_none() && matches!(callee.as_ref(),Expr::Name(name) if name == "JSON" && self.context.intrinsic_type(name,true)) {
+                    return Err(self.error(*offset,"JSON supplies static parse/stringify functions and cannot be called as a function."));
                 }
                 if self.script.language == ScriptLanguage::ActionScript3 && binding.is_none()
                     && matches!(callee.as_ref(), Expr::Name(name) if name == "parseInt") && args.len() > 2 {
@@ -444,7 +451,7 @@ impl<'a> Analysis<'a> {
             }
             Expr::Assign(_,left,_) | Expr::Update(_,left,_) => {
                 if let Expr::Name(name)=left.as_ref() && self.resolve(scope,name).is_some_and(|(_,b)|b.kind==BindingKind::SelfName) { return Err(self.error(self.scopes[&scope].offset,"A named function expression's self binding cannot be assigned.")); }
-                if let Expr::Name(name)=left.as_ref() && is_global(name) && self.resolve(scope,name).is_none() {return Err(self.error(self.scopes[&scope].offset,"Cannot assign to an unshadowed built-in name in this ActionScript subset."));}
+                if let Expr::Name(name)=left.as_ref() && (is_global(name) || self.context.intrinsic_type(name,self.script.language == ScriptLanguage::ActionScript3)) && self.resolve(scope,name).is_none() {return Err(self.error(self.scopes[&scope].offset,"Cannot assign to an unshadowed built-in name in this ActionScript subset."));}
             }
             _=>{}
         }
@@ -543,7 +550,10 @@ fn statements(stmt: &Stmt) -> Vec<&Stmt> {
 }
 fn children(expr: &Expr) -> Vec<&Expr> {
     match expr {
-        Expr::Member(v, _) | Expr::Unary(_, v) | Expr::Update(_, v, _) => vec![v],
+        Expr::Member(v, _)
+        | Expr::Unary(_, v)
+        | Expr::Update(_, v, _)
+        | Expr::TypeTest(_, v, _, _) => vec![v],
         Expr::Index(a, b) | Expr::Binary(_, a, b) | Expr::Assign(_, a, b) => vec![a, b],
         Expr::Array(v) => v.iter().collect(),
         Expr::Object(v) => v.iter().map(|(_, e)| e).collect(),

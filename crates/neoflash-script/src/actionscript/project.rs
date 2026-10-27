@@ -447,6 +447,18 @@ fn context(
             c.types.insert(short.into(), name.clone());
         }
     }
+    // Source classes/imports win over these top-level native names. In
+    // particular, AS2 projects may define their own JSON or RegExp classes.
+    for name in if language == ScriptLanguage::ActionScript3 {
+        &["Date", "RegExp", "JSON"][..]
+    } else {
+        &["Date"][..]
+    } {
+        if !c.types.contains_key(*name) {
+            c.types.insert((*name).into(), (*name).into());
+            c.intrinsic_types.insert((*name).into());
+        }
+    }
     Ok(c)
 }
 fn parse_class(
@@ -463,6 +475,18 @@ fn parse_class(
     )
     .map_err(|m| Diagnostic::at(&header.script, 0, m))?;
     c.class_name = Some(header.name.clone());
+    if header.base.as_ref().is_some_and(|name| {
+        c.intrinsic_type(
+            name,
+            header.script.language == ScriptLanguage::ActionScript3,
+        )
+    }) {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "Native Date/RegExp subclass initialization is outside this profile; use composition. JSON supplies static functions and cannot be a base class.",
+        ));
+    }
     let base = header
         .base
         .as_ref()

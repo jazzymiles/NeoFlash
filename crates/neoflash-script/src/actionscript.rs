@@ -12,6 +12,7 @@ mod scope;
 #[derive(Clone, Default)]
 struct CompileContext {
     types: std::collections::BTreeMap<String, String>,
+    intrinsic_types: std::collections::BTreeSet<String>,
     functions: std::collections::BTreeMap<String, String>,
     interfaces: std::collections::BTreeSet<String>,
     members: std::collections::BTreeMap<String, Option<String>>,
@@ -20,6 +21,13 @@ struct CompileContext {
     class_name: Option<String>,
     method_id: Option<usize>,
     project: bool,
+}
+
+impl CompileContext {
+    fn intrinsic_type(&self, name: &str, as3: bool) -> bool {
+        (matches!(name, "Date") || (as3 && matches!(name, "RegExp" | "JSON")))
+            && (!self.project || self.intrinsic_types.contains(name))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -202,6 +210,7 @@ enum Expr {
     Object(Vec<(PropertyKey, Expr)>),
     Unary(String, Box<Expr>),
     Binary(String, Box<Expr>, Box<Expr>),
+    TypeTest(String, Box<Expr>, String, usize),
     Assign(String, Box<Expr>, Box<Expr>),
     Update(String, Box<Expr>, bool),
     Conditional(Box<Expr>, Box<Expr>, Box<Expr>),
@@ -257,7 +266,10 @@ impl Expr {
     fn depth(&self) -> usize {
         1 + match self {
             Self::Literal(_) | Self::Name(_) | Self::Function(_) => 0,
-            Self::Member(v, _) | Self::Unary(_, v) | Self::Update(_, v, _) => v.depth(),
+            Self::Member(v, _)
+            | Self::Unary(_, v)
+            | Self::Update(_, v, _)
+            | Self::TypeTest(_, v, _, _) => v.depth(),
             Self::Index(a, b) | Self::Binary(_, a, b) | Self::Assign(_, a, b) => {
                 a.depth().max(b.depth())
             }
@@ -737,11 +749,12 @@ impl<'a> Frontend<'a> {
             name.as_str(),
             "Number" | "String" | "Boolean" | "Function" | "Array" | "Object"
         ) || (as3 && matches!(name.as_str(), "int" | "uint" | "*"))
+            || (name != "JSON" && self.context.intrinsic_type(&name, as3))
             || (!as3 && matches!(name.as_str(), "LoadVars" | "TextFormat" | "Sound"))
             || (self.context.project && self.context.types.contains_key(&name))
             || (is_error_type(&name) && (as3 || name == "Error"))
             || (returns && name == if as3 { "void" } else { "Void" });
-        if !supported {
+        if !supported || (name == "JSON" && self.context.intrinsic_type(&name, as3)) {
             return Err(self.error(format!("Type '{name}' is not supported in this ActionScript annotation. Supported types are primitive types and Function; void/Void is return-only.")));
         }
         Ok(Some(name))
@@ -908,10 +921,30 @@ impl<'a> Frontend<'a> {
                 continue;
             }
             let operator = self.token_text();
-            if matches!(
-                operator.as_str(),
-                "as" | "is" | "in" | "instanceof" | "::" | ".." | "@"
-            ) {
+            if matches!(operator.as_str(), "is" | "as") {
+                if min_bp > 15 {
+                    break;
+                }
+                if self.script.language != ScriptLanguage::ActionScript3 {
+                    return Err(self.error("AS2 does not support the AS3 is/as type operators."));
+                }
+                let offset = self.token().offset;
+                self.pos += 1;
+                let mut name = self.ident()?;
+                while self.context.project && self.eat(".") {
+                    name.push('.');
+                    name.push_str(&self.ident()?);
+                }
+                if (name == "JSON" && self.context.intrinsic_type(&name, true))
+                    || (!self.context.intrinsic_type(&name, true)
+                        && !self.context.types.contains_key(&name))
+                {
+                    return Err(self.error("is/as currently requires Date, RegExp or a resolved project/native type; dynamic class expressions are unsupported."));
+                }
+                lhs = Expr::TypeTest(operator, Box::new(lhs), name, offset);
+                continue;
+            }
+            if matches!(operator.as_str(), "in" | "instanceof" | "::" | ".." | "@") {
                 return Err(self.error(format!("ActionScript operator '{operator}' requires compatibility semantics not implemented yet.")));
             }
             let Some((left_bp, right_bp, assignment)) = binding_power(&operator) else {
@@ -952,6 +985,12 @@ impl<'a> Frontend<'a> {
             }
             let class = self.context.types.get(&name).cloned();
             let builtin = matches!(name.as_str(), "Array" | "String")
+                || self
+                    .context
+                    .intrinsic_type(&name, self.script.language == ScriptLanguage::ActionScript3)
+                || (self.script.language == ScriptLanguage::ActionScript2
+                    && class.is_none()
+                    && matches!(name.as_str(), "RegExp" | "JSON"))
                 || (self.script.language == ScriptLanguage::ActionScript2
                     && matches!(name.as_str(), "LoadVars" | "TextFormat" | "Sound"));
             if !builtin
@@ -1060,6 +1099,8 @@ impl<'a> Frontend<'a> {
                         | "parseFloat"
                         | "isNaN"
                         | "isFinite"
+                        | "Date"
+                        | "RegExp"
                 ) || is_timeline_method(name)
             }
             Expr::Member(base, name) if matches!(base.as_ref(), Expr::Name(n) if n == "Math") => {
@@ -1151,6 +1192,55 @@ fn is_family_method(name: &str) -> bool {
             | "valueOf"
             | "fromCharCode"
             | "toFixed"
+            | "match"
+            | "search"
+            | "exec"
+            | "test"
+            | "UTC"
+            | "parse"
+            | "stringify"
+            | "getDate"
+            | "getDay"
+            | "getFullYear"
+            | "getHours"
+            | "getMilliseconds"
+            | "getMinutes"
+            | "getMonth"
+            | "getSeconds"
+            | "getTime"
+            | "getTimezoneOffset"
+            | "getUTCDate"
+            | "getUTCDay"
+            | "getUTCFullYear"
+            | "getUTCHours"
+            | "getUTCMilliseconds"
+            | "getUTCMinutes"
+            | "getUTCMonth"
+            | "getUTCSeconds"
+            | "getYear"
+            | "setDate"
+            | "setFullYear"
+            | "setHours"
+            | "setMilliseconds"
+            | "setMinutes"
+            | "setMonth"
+            | "setSeconds"
+            | "setTime"
+            | "setUTCDate"
+            | "setUTCFullYear"
+            | "setUTCHours"
+            | "setUTCMilliseconds"
+            | "setUTCMinutes"
+            | "setUTCMonth"
+            | "setUTCSeconds"
+            | "setYear"
+            | "toDateString"
+            | "toTimeString"
+            | "toUTCString"
+            | "toLocaleDateString"
+            | "toLocaleTimeString"
+            | "toLocaleString"
+            | "toJSON"
     )
 }
 
@@ -1333,6 +1423,11 @@ impl Emitter<'_> {
             Some("Array") => format!(
                 "((__nfValue) => {{ if (__nfValue == null || __nfArrayIsArray(__nfValue)) return __nfValue == null ? null : __nfValue; throw new __nfTypeError('AS3 Array value required'); }})({value})"
             ),
+            Some(ty @ ("Date" | "RegExp")) if self.analysis.context.intrinsic_type(ty, true) => {
+                format!(
+                    "((__nfValue) => {{ if (__nfValue == null) return null; if (__nf{ty}Is(__nfValue)) return __nfValue; throw new __nfTypeError('AS3 {ty} value required'); }})({value})"
+                )
+            }
             Some(ty) if is_error_type(ty) => format!(
                 "((__nfValue) => {{ if (__nfValue == null) return null; if (__nfCatchType(__nfValue, {ty:?})) return __nfValue; throw new __nfTypeError('AS3 {ty} value required'); }})({value})"
             ),
@@ -1379,6 +1474,15 @@ impl Emitter<'_> {
         }
         if self.analysis.resolve(self.scope, name).is_none() && matches!(name, "Array" | "String") {
             return format!("__nf{name}Class({})", self.as3);
+        }
+        if self.analysis.resolve(self.scope, name).is_none()
+            && self.analysis.context.intrinsic_type(name, self.as3)
+        {
+            return if name == "JSON" {
+                "__nfJSON".into()
+            } else {
+                format!("__nf{name}Class({})", self.as3)
+            };
         }
         if name == "__nfProgram" && self.analysis.context.project {
             return name.into();
@@ -1427,6 +1531,9 @@ impl Emitter<'_> {
             Some("Number") => "NaN",
             Some("Boolean") => "false",
             Some("String" | "Function" | "Object" | "Array") => "null",
+            Some(ty @ ("Date" | "RegExp")) if self.analysis.context.intrinsic_type(ty, true) => {
+                "null"
+            }
             Some(ty) if is_error_type(ty) => "null",
             Some("int" | "uint") => "0",
             Some(ty) if self.analysis.context.types.contains_key(ty) => "null",
@@ -1514,6 +1621,7 @@ impl Emitter<'_> {
         if self.analysis.context.project
             && let Some(name) = qualified_name(expr)
             && !matches!(name.as_str(), "Array" | "String")
+            && !self.analysis.context.intrinsic_type(&name, self.as3)
             && self
                 .analysis
                 .resolve(self.scope, name.split('.').next().unwrap())
@@ -1603,6 +1711,25 @@ impl Emitter<'_> {
                 self.expression(left),
                 self.expression(right)
             ),
+            Expr::TypeTest(op, value, ty, _) => {
+                let predicate = if self.analysis.context.intrinsic_type(ty, true) {
+                    format!("__nf{ty}Is(__nfValue)")
+                } else {
+                    format!(
+                        "__nfProgram.is(__nfValue, {:?})",
+                        self.analysis.context.types[ty]
+                    )
+                };
+                format!(
+                    "((__nfValue) => {} )({})",
+                    if op == "is" {
+                        predicate
+                    } else {
+                        format!("{predicate} ? __nfValue : null")
+                    },
+                    self.expression(value)
+                )
+            }
             Expr::Assign(op, left, right) => {
                 let target = self.lvalue(left);
                 let value = self.expression(right);
@@ -1709,6 +1836,18 @@ impl Emitter<'_> {
                 if let Expr::Name(name) = callee.as_ref()
                     && self.analysis.resolve(self.scope, name).is_none()
                 {
+                    if matches!(name.as_str(), "Date" | "RegExp")
+                        && self.analysis.context.intrinsic_type(name, self.as3)
+                    {
+                        return format!(
+                            "__nf{name}Class({})({})",
+                            self.as3,
+                            args.iter()
+                                .map(|a| self.expression(a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
                     if matches!(name.as_str(), "Array" | "String") {
                         return format!(
                             "__nf{name}Create({}, [{}]{})",
@@ -2005,11 +2144,15 @@ fn embedded_helpers() -> String {
         include_str!("actionscript/exceptions.js"),
         include_str!("actionscript/intrinsics.js"),
         include_str!("actionscript/collections.js"),
+        include_str!("actionscript/dates.js"),
+        include_str!("actionscript/regexp.js"),
         include_str!("actionscript/strings.js"),
+        include_str!("actionscript/json.js"),
         r#"
 function __nfFamilyValue(value, as3) {
     value = __nfArrayMethodValue(value);
     value = __nfStringMethodValue(value);
+    value = __nfDateMethodValue(value);
     return as3 ? __nfMethodValue(value) : value;
 }
 function __nfFamilyPropertyValue(receiver, key, as3) {
@@ -2018,6 +2161,7 @@ function __nfFamilyPropertyValue(receiver, key, as3) {
 function __nfMemberMethod(receiver, key, as3) {
     if (__nfArrayIsArray(receiver)) return __nfArrayMethod(receiver, key, as3);
     if (typeof receiver === 'string') return __nfStringMethod(receiver, key, as3);
+    if (__nfDateIs(receiver)) return __nfDateMethod(receiver, key, as3);
     if (as3 && key === 'toFixed') return __nfFixedMethod(receiver);
     // No family lookup has read this property. Preserve one getter invocation,
     // the original receiver and argument evaluation order for custom methods.

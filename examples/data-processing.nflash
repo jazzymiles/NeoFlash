@@ -1,0 +1,585 @@
+{
+  "format_version": 3,
+  "name": "Data processing with JSON, RegExp and Date",
+  "width": 960,
+  "height": 700,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    34,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Data processing with JSON, RegExp and Date",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 32,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "NEOFLASH / JSON + REGEXP + DATE",
+                      "width": 864,
+                      "height": 40,
+                      "format": {
+                        "font": "Arial",
+                        "size": 13,
+                        "color": 11718112,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 4,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 70,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "From data to a working interface.",
+                      "width": 864,
+                      "height": 40,
+                      "format": {
+                        "font": "Arial",
+                        "size": 32,
+                        "color": 15661055,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 4,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 122,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Load embedded JSON, extract codes, compute UTC dates and serialize a class with a public getter.",
+                      "width": 864,
+                      "height": 54,
+                      "format": {
+                        "font": "Arial",
+                        "size": 17,
+                        "color": 11718112,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 4,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "data-card",
+                    "name": "data-card",
+                    "transform": {
+                      "x": 48,
+                      "y": 190,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 560,
+                      "height": 215,
+                      "fill": [
+                        23,
+                        35,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-card",
+                    "name": "legacy-card",
+                    "transform": {
+                      "x": 632,
+                      "y": 190,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 280,
+                      "height": 215,
+                      "fill": [
+                        23,
+                        35,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "data-heading",
+                    "name": "data-heading",
+                    "transform": {
+                      "x": 64,
+                      "y": 204,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "AS3 / JSON + REGEXP + DATE",
+                      "width": 528,
+                      "height": 40,
+                      "format": {
+                        "font": "Arial",
+                        "size": 13,
+                        "color": 11718112,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 4,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "dataStatus",
+                    "name": "dataStatus",
+                    "transform": {
+                      "x": 64,
+                      "y": 240,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Loading the original planning data\u2026",
+                      "width": 528,
+                      "height": 150,
+                      "format": {
+                        "font": "Arial",
+                        "size": 17,
+                        "color": 15661055,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 2,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-heading",
+                    "name": "legacy-heading",
+                    "transform": {
+                      "x": 648,
+                      "y": 204,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "AS2 / DATE",
+                      "width": 248,
+                      "height": 40,
+                      "format": {
+                        "font": "Arial",
+                        "size": 13,
+                        "color": 11718112,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 4,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyStatus",
+                    "name": "legacyStatus",
+                    "transform": {
+                      "x": 648,
+                      "y": 240,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Preparing UTC clock\u2026",
+                      "width": 248,
+                      "height": 150,
+                      "format": {
+                        "font": "Arial",
+                        "size": 18,
+                        "color": 6741936,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 4,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "advance-button",
+                    "name": "advance-button",
+                    "transform": {
+                      "x": 48,
+                      "y": 430,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "advance-button-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.advance();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Advance one day",
+                      "description": "Advance every due date and the independent AS2 clock by one UTC day.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 296,
+                      "y": 432,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "The first pipeline runs automatically.",
+                      "width": 616,
+                      "height": 60,
+                      "format": {
+                        "font": "Arial",
+                        "size": 16,
+                        "color": 11718112,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 4,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "reportHeading",
+                    "name": "reportHeading",
+                    "transform": {
+                      "x": 48,
+                      "y": 500,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "JSON REPORT / DECLARED FIELDS + PUBLIC GETTER",
+                      "width": 864,
+                      "height": 40,
+                      "format": {
+                        "font": "Arial",
+                        "size": 13,
+                        "color": 11718112,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 4,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "reportStatus",
+                    "name": "reportStatus",
+                    "transform": {
+                      "x": 48,
+                      "y": 535,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Waiting for data\u2026",
+                      "width": 864,
+                      "height": 85,
+                      "format": {
+                        "font": "Arial",
+                        "size": 17,
+                        "color": 15661055,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 4,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 640,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Restart restores the original data, dates and one control callback. All source data is embedded.",
+                      "width": 864,
+                      "height": 40,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 11718112,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 4,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  }
+                ],
+                "label": "",
+                "tween": null
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "var legacyDate:Date = new Date(Date.UTC(2026,9,27,9,30,0,0));\nfunction legacyAdvance(offset:Number):Void {\n    legacyDate.setTime(Date.UTC(2026,9,27,9,30,0,0));\n    legacyDate.setUTCDate(legacyDate.getUTCDate()+offset);\n    legacyStatus.text = \"UTC \" + legacyDate.getUTCFullYear() + \"-\" + (legacyDate.getUTCMonth()+1) + \"-\" + legacyDate.getUTCDate() + \"\\n09:30 / offset \" + offset + \" day(s)\\nTimestamp \" + legacyDate.getTime();\n}\nlegacyAdvance(0);\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "advance-button-symbol",
+      "name": "Advance one day",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "advance-button-symbol-content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "advance-background",
+                    "name": "advance-background",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 42,
+                      "fill": [
+                        42,
+                        212,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "advance-label",
+                    "name": "advance-label",
+                    "transform": {
+                      "x": 16,
+                      "y": 8,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Advance one day",
+                      "width": 188,
+                      "height": 32,
+                      "format": {
+                        "font": "Arial",
+                        "size": 17,
+                        "color": 1054242,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 4,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  }
+                ],
+                "label": "",
+                "tween": null
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n    import flash.display.MovieClip;\n    import flash.net.URLLoader;\n    import flash.net.URLRequest;\n    import flash.events.Event;\n    import flash.events.IOErrorEvent;\n    import app.Report;\n    public class Main extends MovieClip {\n        public var loader:URLLoader;\n        public var rows:Array;\n        public var ready:Boolean=false;\n        public var shift:int=0;\n        public var totalHours:int=0;\n        public var report:Report;\n        public var serialized:String;\n        public var codePattern:RegExp;\n        public var lastDate:Date;\n        public function Main() {\n            stop();\n            codePattern = new RegExp(\"^([a-z]+)-(\\\\d+)$\", \"i\");\n            loader = new URLLoader();\n            loader.addEventListener(Event.COMPLETE, loaded);\n            loader.addEventListener(IOErrorEvent.IO_ERROR, failed);\n            loader.load(new URLRequest(\"data/planning.json\"));\n        }\n        public function revive(key:String,value:*):* {\n            if (key == \"hours\") { return Number(value); }\n            return value;\n        }\n        public function loaded(event:Event):void {\n            rows = JSON.parse(loader.data,revive).items;\n            ready = true;\n            renderReport();\n        }\n        public function failed(event:IOErrorEvent):void { dataStatus.text = \"Data could not be loaded: \" + event.text; }\n        public function advance():void { if (ready) { shift++; renderReport(); } }\n        public function renderReport():void {\n            var output:String=\"\";\n            totalHours=0;\n            for (var i:int=0;i<rows.length;i++) {\n                var row:Object=rows[i];\n                var match:Object=codePattern.exec(row.code);\n                var pieces:Array=row.date.split(\"-\");\n                var due:Date=new Date(Date.UTC(Number(pieces[0]),Number(pieces[1])-1,Number(pieces[2]),9,30,0,0));\n                due.setUTCDate(due.getUTCDate()+shift);\n                lastDate=due;\n                var title:String=row.title.replace(new RegExp(\"\\\\s+\",\"g\"),\" \");\n                if (i>0) { output += \"\\n\"; }\n                output += match[1].toUpperCase() + \" #\" + match[2] + \" / \" + due.fullYearUTC + \"-\" + (due.monthUTC+1) + \"-\" + due.dateUTC + \"\\n\" + title + \" / \" + row.hours + \" h\";\n                totalHours += row.hours;\n            }\n            dataStatus.text=output;\n            report=new Report(rows.length,totalHours);\n            serialized=JSON.stringify(report);\n            var roundtrip:Object=JSON.parse(serialized);\n            reportStatus.text=serialized;\n            this.legacyAdvance(shift);\n            status.text=\"Day +\" + shift + \" / \" + roundtrip.summary + \" / JSON roundtrip passed\";\n            trace(\"data pipeline\",shift,roundtrip.count,roundtrip.hours,roundtrip.summary);\n        }\n    }\n}\n"
+    },
+    {
+      "id": "report-source",
+      "path": "app/Report.as",
+      "language": "action_script3",
+      "source": "package app {\n    public class Report {\n        public var count:int;\n        public var hours:int;\n        public function Report(count:int,hours:int) { this.count=count; this.hours=hours; }\n        public function get summary():String { return count + \" items / \" + hours + \" hours\"; }\n    }\n}\n"
+    }
+  ],
+  "resources": [
+    {
+      "id": "planning-data",
+      "path": "data/planning.json",
+      "media_type": "application/json",
+      "data_base64": "eyJpdGVtcyI6W3siY29kZSI6IndlYi0xMDQiLCJ0aXRsZSI6IkJ1aWxkICAgZGFzaGJvYXJkIiwiZGF0ZSI6IjIwMjYtMTAtMjciLCJob3VycyI6IjYifSx7ImNvZGUiOiJHQU1FLTIwNSIsInRpdGxlIjoiUHJvdG90eXBlICBjb250cm9scyIsImRhdGUiOiIyMDI2LTEwLTI4IiwiaG91cnMiOiI0In0seyJjb2RlIjoiYW5pbS0zMDYiLCJ0aXRsZSI6IkFuaW1hdGUgICBuYXZpZ2F0aW9uIiwiZGF0ZSI6IjIwMjYtMTAtMjkiLCJob3VycyI6IjMifV19"
+    }
+  ]
+}

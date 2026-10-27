@@ -13,8 +13,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 250 | 1,925 | 117 |
-| AS3 | 43,740 | 15 | 361 | 43,113 | 251 |
+| AS2 | 2,307 | 15 | 264 | 1,911 | 117 |
+| AS3 | 43,740 | 15 | 378 | 43,096 | 251 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -77,6 +77,8 @@ For object editing, **Selection (V)** moves objects; Shift-click toggles objects
 **Actions → Project files** stores reusable source code inside the project. Add or import source files, set the document class or a nested symbol's class, and use **Check project** for compiler feedback. Project programs support bounded public AS3 classes with typed fields, bound methods, getters/setters and project interfaces, and AS2 classes with erased annotations and shared prototypes. Both support exact imports and inheritance; unsupported constructs report diagnostics. Set an **Export identifier** on a MovieClip symbol to enable AS3 class construction from its library timeline or AS2 `attachMovie`. Projects with source files use document version 2. Older projects remain readable, and linked-symbol clipboard transfers preserve source files.
 
 **Library → Resource files** imports text, data and media bytes into the project. Use the displayed project path in scripts, edit its content type/path, or remove it with Undo. Resource documents use version 3 so older editors refuse them safely; versions 1 and 2 remain readable. Embedded files travel with HTML5 publication and work offline. AS3 URLLoader/URLVariables and AS2 LoadVars also support bounded browser HTTP(S) data requests. Select a PNG/JPEG resource and choose **Place image** to add it to the stage; Properties controls smoothing. AS3 Bitmap/BitmapData and AS2 BitmapData/attachBitmap share bounded Rust pixel buffers in HTML5. AS3 Sound/SoundChannel/SoundTransform and AS2 Sound provide complete-file MP3/WAV loading, playback, repeats, volume/pan and completion callbacks in HTML5. A browser gesture enables playback; streaming, timeline audio, video and font embedding remain planned.
+
+**Data in scripts:** Date works in AS2 and AS3; AS3 adds JSON and constructor-based RegExp with String matching/replacement. The data-processing example loads embedded JSON, computes UTC dates and serializes a project class including its public getter. These are bounded modern browser profiles; historical Flash parser/locale/regex parity remains unfinished.
 
 Example frame script:
 

@@ -1,6 +1,8 @@
 # Roadmap
 
-Independent fba17ae acceptance (`TEXT-LAYOUT-HTML5-20261027T0409Z`) confirms dynamic AS2/AS3 fields, actual width-driven wrapping/alignment, independent current/default uniform formats, content-preserving mixed/range refusal and Restart. Exact members remain partial; rich text/input/IME/font embedding are unsupported and native editing remains unverified. See [the independent record](VERIFICATION.md#independent-text-layout-verification-of-fba17ae). Sound is already in development and requires its own delivery evidence.
+Independent d8f580a acceptance (`AUDIO-HTML5-20261027T0429Z`) confirms embedded AS3 and HTTP AS2 MP3 loading, native silent channel completion with different repeat counts, transform-copy/refusal behavior, Stop and active-playback Restart. Exact declarations remain partial; audible quality, WAV native decode, full mixer/timeline audio and pending-decode races are not inferred. See [the independent record](VERIFICATION.md#independent-audio-verification-of-d8f580a). Date/JSON/RegExp/String now has a separate [main-delivery record](VERIFICATION.md#date-regexp-and-json-data-processing-batch); independent declaration acceptance remains separate.
+
+Independent fba17ae acceptance (`TEXT-LAYOUT-HTML5-20261027T0409Z`) confirms dynamic AS2/AS3 fields, actual width-driven wrapping/alignment, independent current/default uniform formats, content-preserving mixed/range refusal and Restart. Exact members remain partial; rich text/input/IME/font embedding are unsupported and native editing remains unverified. See [the independent record](VERIFICATION.md#independent-text-layout-verification-of-fba17ae). The later d8f580a Sound family has a separate independent record.
 
 Independent `BITMAP-HTML5-20261027T0345Z` acceptance on `1bd0e3c` confirms bounded PNG/shared pixel edits, independent clone/copy/scroll, AS2 attachment, disposal and Restart. Only 24 positively observed declarations receive partial evidence; diagnostic-only AS3 BitmapData construction remains needs_review. JPEG, rasterization options and native image authoring are not inferred. See [the independent record](VERIFICATION.md#independent-bitmap-verification-of-1bd0e3c). The later fba17ae text family has a separate independent record.
 
@@ -41,3 +43,6 @@ The text family adds authored TextBox, runtime-created TextField, uniform TextFo
 
 
 The audio family adds complete-file scripted Sound playback through the existing portable resource/HTTP service, with AS3 channels/transforms and the AS2 adapter. Gesture controls, bounded PCM reservations and publication cleanup support ordinary web playback. Streaming, sound linkage, audio tracks/synchronization, video and richer DOM applications remain subsequent families; partial playback does not imply native timeline audio.
+
+
+Date, JSON and regular expressions connect resource loading to real scripted web interfaces. The delivered partial profile combines AS2/AS3 UTC calendar calculations, AS3 JSON callbacks/class getter serialization and constructor-based RegExp/String operations, with one shared regression and combined browser workflow. Historical locale/regex conformance and slash literals remain separate follow-ups; this does not shrink the goal to display animation alone.

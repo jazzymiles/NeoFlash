@@ -14,6 +14,7 @@ import { verifyResourceLoading } from './resource-loading.mjs';
 import { verifyBitmapPixels } from './bitmap-pixels.mjs';
 import { verifyTextLayout } from './text-layout.mjs';
 import { verifySoundPlayback } from './sound-playback.mjs';
+import { verifyDataProcessing } from './data-processing.mjs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
@@ -24,6 +25,11 @@ const source=(id,path,source)=>({id,path,language:'action_script3',source});
 const project={format_version:2,name:'Original program fixture',width:320,height:180,fps:24,background:[255,255,255,255],root:'scene',
   symbols:[{id:'scene',name:'Scene',kind:'movie_clip',timeline:{frame_count:1,layers:[],scripts:[]}}],
   sources:[
+    source('data-base','model/DataBase.as','package model { public class DataBase { public var value:int=2; public static var reads:int=0; public function DataBase(){} public function get doubled():int { DataBase.reads++; return value*2; } public function set writeOnly(next:int):void {value=next;} } }'),
+    source('data-record','model/DataRecord.as','package model { public class DataRecord extends DataBase { public var when:Date; public var pattern:RegExp; public function DataRecord(){super();} public function accept(date:Date,regex:RegExp):Boolean {when=date;pattern=regex;return date is Date && regex is RegExp;} public function serialize():String {return JSON.stringify(this,function(key:String,value:*):* {if(key=="pattern")return value.source;return value;});} } }'),
+    {id:'user-json',path:'legacy/JSON.as',language:'action_script2',source:'class legacy.JSON {public function JSON(){} public function parse(value:String):String{return "user:"+value;}}'},
+    {id:'user-regex',path:'legacy/RegExp.as',language:'action_script2',source:'class legacy.RegExp {public function RegExp(){} public function test(value:String):Boolean{return value=="user";}}'},
+    {id:'user-date',path:'legacy/Date.as',language:'action_script2',source:'class legacy.Date {public function Date(){} public function getTime():Number{return 17;}}'},
     source('offset-point','app/OffsetPoint.as','package app { import flash.geom.Point; public class OffsetPoint extends Point { public function OffsetPoint() {super(3,4);} public function shifted():Point {return super.add(new Point(1,2));} } }'),
     source('pulse','app/Pulse.as','package app { import flash.utils.Timer; public class Pulse extends Timer { public function Pulse() {super(10,1);} public function begin():void {super.start();} } }'),
     {id:'legacy-model',path:'legacy/Model.as',language:'action_script2',source:'class legacy.Model { public var value:Number=1; public var missing:String; public var items:Array; public static var created:Number=0; public function Model(seed:Number) { value=seed; items=[]; created++; } public function increment(step:Number):Number { value+=step; return value; } public static function total():Number { return created; } }'},
@@ -33,7 +39,8 @@ const project={format_version:2,name:'Original program fixture',width:320,height
     source('watcher','app/Watcher.as','package app { import flash.events.Event; import flash.events.EventDispatcher; public class Watcher extends EventDispatcher { public var count:int=0; public function Watcher() { super(); addEventListener(Event.CHANGE,changed); } public function changed(e:Event):void { count++; } public function close():void { removeEventListener(Event.CHANGE,changed); } } }'),
   ]};
 const scripts=[{language:'action_script3',source:'import flash.utils.getTimer; import model.Counter; import app.Watcher; import flash.events.Event; var a:Counter=new Counter(2); var b:Counter=new Counter(7); first=a.increment(); second=b.value; total=Counter.created; var cb:Function=a.callback(); detached=cb(); var w:Watcher=new Watcher(); w.dispatchEvent(new Event(Event.CHANGE)); w.close(); w.dispatchEvent(new Event(Event.CHANGE)); events=w.count; collection=a.summarize(new Array(30,2,11)); shadowed=a.localTypes(function(value:*):String { return "local:"+value; },function(value:int):int { return value+3; }); lookupResult=this.probe["sort"](this.argument()); var clock:Function=getTimer; elapsed=clock(); qualified=flash.utils.getTimer(); function localClock(getTimer:Function):Number {return getTimer();} localTime=localClock(function():Number{return 77;});'}];
-scripts.push({language:'action_script2',source:'legacyElapsed=getTimer();'});
+scripts[0].source='import model.DataRecord; '+scripts[0].source+' var record:DataRecord=new DataRecord(); emptySlots=(record.when==null&&record.pattern==null); var foreignDate:Date=new Date(0); var foreignRegex:RegExp=new RegExp("x"); accepted=record.accept(foreignDate,foreignRegex); record.extra="dynamic"; serialized=record.serialize();';
+scripts.push({language:'action_script2',source:'import legacy.JSON; import legacy.RegExp; import legacy.Date; legacyElapsed=getTimer(); var userJSON=new JSON(); var userRegex=new RegExp(); var userDate=new Date(); userText=userJSON.parse("value"); userMatch=userRegex.test("user"); userTime=userDate.getTime(); function localNative(JSON:Object,RegExp:Object):String{return JSON.parse("local")+RegExp.test("local");} userShadow=localNative({parse:function(value:String):String{return value;}},{test:function(value:String):Boolean{return true;}});'});
 const result=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-script','--example','compile_project'],{cwd:root,input:JSON.stringify({project,scripts}),encoding:'utf8'});
 assert.equal(result.status,0,result.error?.message || result.stderr);
 const compiled=JSON.parse(result.stdout);assert.ok(compiled.Ok,JSON.stringify(compiled));
@@ -49,8 +56,20 @@ const lookup=[], probe=[];
 Object.defineProperty(probe,'sort',{get(){lookup.push('lookup');return function(value){assert.equal(this,probe);lookup.push('call');return value;};}});
 const context={probe,argument(){lookup.push('argument');return 16;}};
 new Function('__nfProgram','trace',compiled.Ok.scripts[0]).call(context,program,()=>{});
-new Function('__nfProgram','trace',compiled.Ok.scripts[1]).call(context,program,()=>{});
+new Function('__nfProgram','trace','__nfAs2Value','__nfAs2Method',compiled.Ok.scripts[1]).call(context,program,()=>{},bridge.value,bridge.method);
 assert.equal(context.legacyElapsed,0);
+assert.deepEqual([context.userText,context.userMatch,context.userTime,context.userShadow],['user:value',true,17,'localtrue']);
+assert.equal(context.emptySlots,true); assert.equal(context.accepted,true);
+assert.equal(program.is(context.foreignDate,'Date'),true); assert.equal(program.is(context.foreignRegex,'RegExp'),true);
+assert.equal(program.cast('Date',context.foreignDate),context.foreignDate); assert.throws(()=>program.cast('RegExp',{}),/value required/);
+assert.throws(()=>context.record.accept({},context.foreignRegex),/Date value required/);
+const serialized=JSON.parse(context.serialized);
+assert.equal(serialized.value,2); assert.equal(serialized.doubled,4); assert.equal(serialized.extra,'dynamic');
+assert.equal(serialized.pattern,'x','a replacer explicitly projects unsupported native values');
+assert.equal(serialized.when,context.foreignDate.toString()); assert.equal(Object.hasOwn(serialized,'writeOnly'),false); assert.equal(Object.hasOwn(serialized,'serialize'),false);
+assert.equal(program.type('model.DataBase').reads,1,'inherited getter executes once, only during JSON traversal');
+assert.ok(program.jsonKeys(context.record).includes('doubled')); assert.equal(program.type('model.DataBase').reads,1,'listing JSON keys does not call getters');
+assert.equal(program.jsonKeys({plain:true}),null);
 assert.equal(context.first,15);assert.equal(context.second,9);assert.equal(context.total,2);assert.equal(context.detached,16);
 assert.equal(context.collection,'A2,11,30');
 assert.deepEqual([context.elapsed,context.qualified,context.localTime],[0,0,77]);
@@ -123,4 +142,5 @@ await verifyResourceLoading(root,cargo);
 await verifyBitmapPixels(root,cargo);
 await verifyTextLayout(root,cargo);
 await verifySoundPlayback(root,cargo);
+await verifyDataProcessing(root,cargo);
 console.log('Project program: imports, inheritance/super, typed fields, constructors, static/const, stable methods, independent instances and actual EventDispatcher passed.');

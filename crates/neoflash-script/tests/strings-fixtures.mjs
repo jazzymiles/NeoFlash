@@ -15,7 +15,7 @@ export const stringsProfile = {
     'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/StringClass.cpp',
     'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/StringObject.cpp',
   ],
-  boundary: 'Primitive UTF-16 strings, at most 1000000 code units/results. AS2 follows the named AVM1 implementation for later-SWF defaults and integer positions, not an original-player oracle. No AS2 boxed String, native method extraction, prototype augmentation, RegExp, locale methods or custom pattern objects. Unicode casing and general object conversion retain the JavaScript-backed profile, not historical Flash tables/complete AVM coercion. AS2 extra arguments are evaluated then ignored; AS3 fixed-arity methods diagnose excess arguments because their arity behavior is not verified. This is not a claimed Flash ArgumentError. Constructor arguments after the first are ignored as in the pinned implementation.',
+  boundary: 'Primitive UTF-16 strings, at most 1000000 code units/results. AS2 follows the named AVM1 implementation for later-SWF defaults and integer positions, not an original-player oracle. AS3 constructor-based RegExp supports matching/search/replacement/split through a bounded JavaScript-engine facade; regex literals, AS2 native RegExp, PCRE-only syntax and custom pattern objects remain unsupported. No AS2 boxed String, native method extraction, prototype augmentation or locale String methods. Unicode casing, browser Date parsing/timezone and general object conversion retain the JavaScript-backed profile, not historical Flash tables/complete AVM coercion. AS2 extra arguments are evaluated then ignored; AS3 fixed-arity methods diagnose excess arguments because their arity behavior is not verified. This is not a claimed Flash ArgumentError. Constructor arguments after the first are ignored as in the pinned implementation.',
   distinctions: 'AS2 fromCharCode stops at zero; missing search/slice/substr/substring arguments return undefined. AS3 nullable typed search arguments do not match, explicit undefined numeric endpoints convert to zero, and string-pattern replace inserts replacement text literally after converting it before the pattern. AS3 split follows StringClass.cpp: undefined delimiter becomes the text undefined; an empty subject gives one empty result when limit is nonzero. These pinned VM details are more specific than the reference summaries. AS3 new String returns a primitive; constructor aliases under new are not supported.',
 };
 
@@ -52,6 +52,13 @@ var aliases = String;
 var converted = aliases(17);
 var stringify = "x".toString();
 var unbox = "x".valueOf();
+var moment = new Date(Date.UTC(2024,1,28,12,30,0));
+moment.setUTCDate(moment.getUTCDate()+1);
+var leapDay = moment.getUTCDate();
+var epoch = moment.getTime();
+var dateRoundtrip = Date.parse(moment.toUTCString());
+function dateShadow(Date:Function):String { return Date(7); }
+var localDate = dateShadow(function(value:Number):String { return "local:"+value; });
 trace("TEXT", result, suffix, heading, firstCode, lower);`;
 
 export const stringSources = {
@@ -63,6 +70,31 @@ var callbackReplacement = "red red".replace("red", function(match:String, index:
     return match.toUpperCase() + ":" + index + ":" + source.length;
 });
 var untouched = "blue".replace("red", function(match:String, index:int, source:String):String { throw new Error("unmatched callback ran"); });
+var absentDate:Date; var absentPattern:RegExp;
+var pattern:RegExp = new RegExp("([a-z]+):([0-9]+)","g");
+pattern.lastIndex = 4;
+var regexMatches = "level:3 score:12".match(pattern);
+var resetIndex = pattern.lastIndex;
+var transformed = "level:3 score:12".replace(pattern,"$1=$2");
+var searched = "level:3 score:12".search(new RegExp("score"));
+var captured = "left, right; end".split(new RegExp("[,;] *"));
+var callback = "a:2".replace(pattern,function(whole:String,key:String,value:String,index:int,subject:String):String {return key.toUpperCase()+":"+(Number(value)+index+subject.length);});
+var alias = RegExp; var samePattern = alias(pattern);
+var clone:RegExp = new RegExp(pattern); var cloneIndex = clone.lastIndex;
+var typedDate:Date = moment; var typeReads:int = 0;
+function chooseDate():Object {typeReads++; return typedDate;}
+var dateIs:Boolean = chooseDate() is Date;
+var dateAs:Date = chooseDate() as Date;
+var wrongAs:RegExp = moment as RegExp;
+var regexIs:Boolean = pattern is RegExp;
+var dateRejected:Boolean=false; try {typedDate={};} catch(error:TypeError) {dateRejected=true;}
+var regexRejected:Boolean=false; try {pattern={};} catch(error:TypeError) {regexRejected=true;}
+var report = JSON.parse('{"value":3,"omit":1}',function(key:String,value:*):* {if(key=="omit")return undefined;if(key=="value")return value+1;return value;});
+var jsonText = JSON.stringify(report,function(key:String,value:*):* {if(key=="value")return value*2;return value;});
+var jsonRoot = JSON.stringify(undefined);
+var dateJSON = JSON.parse(JSON.stringify(moment));
+function localJSON(JSON:Object):String {return JSON.stringify(5);}
+var shadowJSON=localJSON({stringify:function(value:int):String{return "user:"+value;}});
 trace("REPLACE", literalReplacement, callbackReplacement, untouched);`,
 };
 
@@ -76,6 +108,8 @@ export const stringsFixtures = ['as2','as3'].map(language => ({
     assert.equal(c.wrapped,'bcde'); assert.equal(c.negativeSearch,-1);
     assert.equal(c.units,2); assert.equal(c.firstUnit,55357); assert.equal(c.converted,'17');
     assert.equal(c.stringify,'x'); assert.equal(c.unbox,'x');
+    assert.equal(c.leapDay,29); assert.equal(c.epoch,Date.UTC(2024,1,29,12,30));
+    assert.equal(c.dateRoundtrip,c.epoch); assert.equal(c.localDate,'local:7');
     const expected=[['TEXT',c.result,'flash','Title',84,'title']];
     if(language === 'as3') {
       assert.equal(c.omitted,c.raw); assert.equal(c.explicitEnd,''); assert.equal(c.nullSearch,-1);
@@ -83,6 +117,13 @@ export const stringsFixtures = ['as2','as3'].map(language => ({
       assert.deepEqual(c.defaultParts,['','x','']); assert.deepEqual(c.emptyParts,['']);
       assert.equal(c.constructed,'primitive'); assert.equal(typeof c.constructed,'string');
       assert.equal(c.literalReplacement,'$& red'); assert.equal(c.callbackReplacement,'RED:0:7 red');
+      assert.equal(c.absentDate,null); assert.equal(c.absentPattern,null);
+      assert.deepEqual(c.regexMatches,['level:3','score:12']); assert.equal(c.resetIndex,0);
+      assert.equal(c.transformed,'level=3 score=12'); assert.equal(c.searched,8); assert.deepEqual(c.captured,['left','right','end']);
+      assert.equal(c.callback,'A:5'); assert.equal(c.samePattern,c.pattern); assert.notEqual(c.clone,c.pattern); assert.equal(c.cloneIndex,0);
+      assert.equal(c.dateIs,true); assert.equal(c.regexIs,true); assert.equal(c.dateAs,c.moment); assert.equal(c.wrongAs,null); assert.equal(c.typeReads,2);
+      assert.equal(c.dateRejected,true); assert.equal(c.regexRejected,true); assert.equal(c.jsonText,'{"value":8}'); assert.equal(c.jsonRoot,null);
+      assert.equal(c.dateJSON,c.moment.toString()); assert.equal(c.shadowJSON,'user:5');
       assert.equal(c.untouched,'blue'); expected.push(['REPLACE','$& red','RED:0:7 red','blue']);
     } else {
       assert.equal(c.omitted,undefined); assert.equal(c.explicitEnd,'bcd'); assert.equal(c.nullSearch,0);
@@ -97,8 +138,8 @@ export const stringsFixtures = ['as2','as3'].map(language => ({
 // the same two source scenarios into the shared emitted-code executor.
 export function verifyStringsAdapter() {
   const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
-  const code=readFileSync(resolve(root,'crates/neoflash-script/src/actionscript/strings.js'),'utf8');
-  const api=new Function('__nfTypeError',code+'\nreturn {method:__nfStringMethod,create:__nfStringCreate,type:__nfStringClass,value:__nfStringMethodValue};')(TypeError);
+  const code=['regexp.js','strings.js'].map(name=>readFileSync(resolve(root,'crates/neoflash-script/src/actionscript',name),'utf8')).join('\n');
+  const api=new Function('__nfTypeError','__nfString','__nfNumber','__nfErrorTypes',code+'\nreturn {method:__nfStringMethod,create:__nfStringCreate,type:__nfStringClass,value:__nfStringMethodValue};')(TypeError,String,Number,{SyntaxError});
   const originalLower=String.prototype.toLowerCase;
   for(const as3 of [false,true]) {
     const call=(text,name,...args)=>api.method(text,name,as3)(...args);

@@ -43,6 +43,13 @@ fn module_resolution_fails_with_original_source_path() {
 fn class_syntax_outside_profile_is_never_erased() {
     for source in [
         "package { public class A {private var secret:int;} }",
+        "package { public class A extends Date {} }",
+        "package { public class A extends RegExp {} }",
+        "package { public class A extends JSON {} }",
+        "package { public class A {public function A(){new JSON();}} }",
+        "package { public class A {public var json:JSON;} }",
+        "package { public class A {public function A(){JSON(3);}} }",
+        "package { public class A {public function check(Date:Object):Boolean{return null is Date;}} }",
         "package { public class A { public function get value(arg:int):int{return arg;} } }",
         "package { public class A { public function set value(arg:int):int{return arg;} } }",
         "package { public class A { public function get value():int{return 1;} public function set value(arg:Number):void{} } }",
@@ -98,6 +105,9 @@ fn class_syntax_outside_profile_is_never_erased() {
     );
     for source in [
         "interface A {function value():Number;}",
+        "class A extends Date {}",
+        "class A {public function A(){new RegExp(\"x\");}}",
+        "class A {public function A(){JSON.parse(\"{}\");}}",
         "class A {public function get value():Number{return 1;}}",
         "class A extends TextField {}",
         "class A extends TextFormat {}",

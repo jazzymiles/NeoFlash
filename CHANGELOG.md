@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Independently verified the d8f580a Sound delivery: preserved MP3 bytes, embedded AS3 and HTTP AS2 loading, real silent channel completion with bounded repeats, transform-copy/refusal behavior, Stop and active-playback Restart. One five-project browser batch preserves text, bitmap, linked-timeline and collection behavior. Audible quality, WAV native decode and full mixer/timeline audio remain outside this evidence.
+
+- Added one data-processing family: AS2/AS3 Date, AS3 constructor-based RegExp with String matching/replacement/splitting, bounded JSON callbacks and public class getter serialization, and typed Date/RegExp plus resolved AS3 is/as operations. A combined embedded-data project renders UTC planning dates and a serialized report. Modern browser date/regex behavior is explicitly partial; regex literals, historical locale/PCRE parity and unsupported native JSON encodings remain follow-ups.
+
 - Added bounded complete-file Sound playback: AS3 Sound/SoundChannel/SoundTransform, AS2 Sound load/start/stop/volume/pan and completion, portable-resource loading, browser gesture gating and visible audio controls. MP3/WAV metadata preflight reserves decoded PCM before native allocation; Restart retires prior sessions. One original MP3 publication passes ordinary export/real WASM with a silent injected scheduler; a separate silent in-app-browser pass verifies actual MP3 decoding/offline PCM, native channel lifecycle and ordinary AS2/AS3 Play/Stop/Restart. Streaming, ID3/sampleData/extract, full mixing parity and native timeline audio are not claimed.
 
 - Independently verified the fba17ae dynamic text/layout delivery: real width-driven reflow, uniform current/default format ownership, content-preserving refusal, whole-text replacement and Restart. One five-project browser batch preserves bitmap, resource, linked-timeline and older authored-text behavior. Exact per-declaration coverage and limits are recorded separately.

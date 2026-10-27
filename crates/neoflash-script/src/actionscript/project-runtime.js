@@ -3,7 +3,7 @@ const __nfProgram = (() => {
     const definitions = new Map(), interfaces = new Map(), identities = new WeakMap(), fieldStates = new WeakMap();
     const accessorStates = new WeakMap();
     const initialized = new WeakMap(), superMethods = new WeakMap(), failed = new WeakMap();
-    const builtins = { Object, Array: __nfArrayClass(true), ...__nfBuiltins };
+    const builtins = { Object, Array: __nfArrayClass(true), Date: __nfDateClass(true), RegExp: __nfRegExpClass(true), JSON: __nfJSON, ...__nfBuiltins };
     function type(name) {
         const value = definitions.get(name)?.facade ?? interfaces.get(name) ?? builtins[name];
         if (value === undefined) throw new Error(`Project type ${name} has no runtime implementation.`);
@@ -32,6 +32,19 @@ const __nfProgram = (() => {
         const result = [];
         for (let current = definitions.get(name); current; current = definitions.get(current.base)) result.unshift(current);
         return result;
+    }
+    function jsonKeys(value) {
+        const name = identities.get(value);
+        if (!name) return null;
+        const keys = new Set();
+        for (const definition of chain(name)) {
+            for (const field of definition.fields) if (!field.static) keys.add(field.name);
+            // A setter-only override preserves the inherited getter. This
+            // metadata lookup must not execute the getter while listing keys.
+            for (const accessor of definition.accessors) if (!accessor.static && accessor.get) keys.add(accessor.name);
+        }
+        for (const key of Object.keys(value)) keys.add(key);
+        return [...keys];
     }
     function installFields(receiver, definition, isStatic) {
         if (definition.dialect === 'as2') {
@@ -215,6 +228,6 @@ const __nfProgram = (() => {
         }
         for (const definition of definitions.values()) initializeFields(definition.name, definition.facade, true);
     }
-    return Object.freeze({ type, is, cast, define, defineInterface, attach, construct, superConstruct, superView, initializeFields, initializeStatics,
+    return Object.freeze({ type, is, cast, define, defineInterface, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys,
         dialect:name=>definitions.get(name)?.dialect });
 })();

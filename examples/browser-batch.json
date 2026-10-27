@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "data-processing",
+      "path": "examples/data-processing.nflash",
+      "title": "JSON, RegExp and AS2/AS3 Date data processing",
+      "checks": [
+        "Embedded JSON becomes three normalized task codes/titles and UTC dates; the AS2 clock begins 2026-10-27.",
+        "Advance one day shifts all AS3 dates and the independent AS2 clock once while the report stays at 3 items / 13 hours. The serialized report includes the public summary getter.",
+        "Restart restores original dates and data; the next Advance reports day +1 exactly once."
+      ]
+    },
+    {
       "id": "sound-playback",
       "path": "examples/sound-playback.nflash",
       "title": "AS3 and AS2 complete-file Sound playback",

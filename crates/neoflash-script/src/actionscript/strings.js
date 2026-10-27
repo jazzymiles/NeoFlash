@@ -1,4 +1,4 @@
-// Bounded primitive String family, embedded after the captured compiler intrinsics.
+// Bounded primitive String family, embedded after intrinsics and RegExp helpers.
 // Original implementation. Pinned Adobe/AVM1 references and deliberate boundaries
 // are recorded in tests/strings-fixtures.mjs. No browser prototype is modified.
 const __nfStringNative = String;
@@ -14,7 +14,8 @@ const __nfStringNativeMethods = new Set(Object.values(__nfStringMethods));
 const __nfStringClasses = new Map();
 const __nfStringLimit = 1000000;
 const __nfStringArity = Object.freeze({ charAt: 1, charCodeAt: 1, indexOf: 2, lastIndexOf: 2,
-    slice: 2, substring: 2, substr: 2, split: 2, replace: 2, toLowerCase: 0, toUpperCase: 0, toString: 0, valueOf: 0 });
+    slice: 2, substring: 2, substr: 2, split: 2, replace: 2, match: 1, search: 1,
+    toLowerCase: 0, toUpperCase: 0, toString: 0, valueOf: 0 });
 
 function __nfStringUnsupported(detail) {
     throw new __nfTypeError('Unsupported ActionScript String operation: ' + detail);
@@ -76,7 +77,7 @@ function __nfStringPlain(value, operation) {
     // AS's RegExp recognition differs from JS Symbol.match/Symbol.split hooks.
     // Keep this profile explicit rather than invoking either by accident.
     if (value !== null && (typeof value === 'object' || typeof value === 'function')) {
-        __nfStringUnsupported(operation + ' currently requires a primitive pattern/delimiter; RegExp and custom pattern objects are not implemented.');
+        __nfStringUnsupported(operation + ' requires a primitive pattern/delimiter or supported AS3 RegExp; native JavaScript RegExp and custom pattern objects are not supported.');
     }
     return __nfStringNative(value);
 }
@@ -88,6 +89,7 @@ function __nfStringSplit(receiver, args, as3) {
     if (as3 && limit === 0) return [];
     if (as3 && receiver.length === 0) return [''];
     if (!as3 && delimiter === undefined) return [receiver];
+    if (as3 && __nfRegExpIs(delimiter)) return __nfRegExpSplit(receiver, delimiter, limit);
     const pattern = __nfStringPlain(delimiter, 'split');
     if (limit === 0) return [];
     const result = [];
@@ -109,6 +111,7 @@ function __nfStringSplit(receiver, args, as3) {
     return result;
 }
 function __nfStringReplace(receiver, args) {
+    if (__nfRegExpIs(args[0])) return __nfRegExpReplace(receiver, args[0], args[1]);
     // Adobe's string-pattern path converts replacement BEFORE pattern; `$&`
     // and similar text is literal here, unlike JavaScript String.replace.
     const callback = typeof args[1] === 'function' ? args[1] : null;
@@ -181,10 +184,13 @@ function __nfStringMethod(receiver, name, as3) {
                 return __nfStringApply(__nfStringMethods.slice, receiver, [from, to]);
             }
             case 'split': return __nfStringSplit(receiver, args, as3);
+            case 'match': case 'search':
+                if (!as3) __nfStringUnsupported(name + ' is not an AS2 native String method.');
+                return name === 'match' ? __nfRegExpMatch(receiver, args[0]) : __nfRegExpSearch(receiver, args[0]);
             case 'replace':
                 if (!as3) __nfStringUnsupported('replace is not an AS2 native String method.');
                 return __nfStringReplace(receiver, args);
-            default: __nfStringUnsupported(name + ' is outside the supported primitive String profile (RegExp, locale and modern JavaScript-only methods remain pending).');
+            default: __nfStringUnsupported(name + ' is outside the supported String profile (locale and modern JavaScript-only methods remain pending).');
         }
     };
 }
