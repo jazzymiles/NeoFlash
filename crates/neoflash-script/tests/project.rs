@@ -68,7 +68,12 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { public interface A { function value():int{return 1;} } }",
         "package { public interface A { function A(); } }",
         "package { public interface A { var value:int; } }",
-        "package { public class A { public function A(value:int=0){} } }",
+        "package { public class A { public function A(value:int=0,required:int){} } }",
+        "package { public class A { public function A(value:int=Number(1)){} } }",
+        "package { public class A { public function get value(...items):int{return 1;} } }",
+        "package { public class A { public function set value(next:int=1):void{} } }",
+        "package { public class A { public function set value(next:int,...items):void{} } }",
+        "package { public class A { public function run(value:int,...value):void{} } }",
         "package { public class A implements Missing {} }",
         "package { import flash.display.Bitmap; public class A extends Bitmap {} }",
         "package { import flash.display.Loader; public class A extends Loader {} }",
@@ -145,6 +150,8 @@ fn class_syntax_outside_profile_is_never_erased() {
         "AS3 package syntax must not be accepted as AS2"
     );
     for source in [
+        "class A {public function A(value:Number=0){}}",
+        "class A {public function run(...values):Void{}}",
         "interface A {function value():Number;}",
         "class A extends Date {}",
         "import flash.geom.Transform; class A extends Transform {}",
@@ -248,6 +255,36 @@ fn class_syntax_outside_profile_is_never_erased() {
         vec![
             (
                 "I.as",
+                "package {public interface I {function run(value:int=1):int;}}",
+            ),
+            (
+                "A.as",
+                "package {public class A implements I {public function run(value:int):int{return value;}}}",
+            ),
+        ],
+        vec![
+            (
+                "B.as",
+                "package {public class B {public function run(value:int=1):int{return value;}}}",
+            ),
+            (
+                "A.as",
+                "package {public class A extends B {public override function run(value:int):int{return value;}}}",
+            ),
+        ],
+        vec![
+            (
+                "I.as",
+                "package {public interface I {function run(...values):int;}}",
+            ),
+            (
+                "A.as",
+                "package {public class A implements I {public function run():int{return 0;}}}",
+            ),
+        ],
+        vec![
+            (
+                "I.as",
                 "package { public interface I {function run(value:int):int;} }",
             ),
             (
@@ -335,6 +372,26 @@ fn class_syntax_outside_profile_is_never_erased() {
                 .all(|e| e.message.contains(".as:"))
         );
     }
+    let optional_contracts = project(&[
+        (
+            "I.as",
+            "package {public interface I {function run(value:int=1,...values):int;}}",
+        ),
+        (
+            "B.as",
+            "package {public class B implements I {public function B(seed:int=0){} public function run(value:int=2,...values):int{return value+values.length;}}}",
+        ),
+        (
+            "A.as",
+            "package {public class A extends B {public function A(){super();} public override function run(value:int=3,...values):int{return super.run(value)+values.length;}}}",
+        ),
+    ]);
+    let result = neoflash_script::compile_project(&optional_contracts);
+    assert!(
+        result.is_ok(),
+        "optional contracts permit different default values: {:?}",
+        result.err()
+    );
 }
 #[test]
 fn linked_classes_are_resolved_before_publication() {

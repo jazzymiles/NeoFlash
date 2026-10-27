@@ -102,7 +102,7 @@ const __nfProgram = (() => {
     function installMethods(receiver, definition, isStatic) {
         for (const method of definition.methods.filter(method => method.static === isStatic)) {
             Object.defineProperty(receiver, method.name, { configurable: true, enumerable: false,
-                writable: definition.dialect === 'as2', value: definition.dialect === 'as2' ? method.fn : method.fn.bind(receiver) });
+                writable: definition.dialect === 'as2', value: definition.dialect === 'as2' ? method.fn : __nfBindFunction(method.fn,receiver) });
         }
     }
     function accessorDescriptor(name, pair, receiver) {
@@ -150,7 +150,7 @@ const __nfProgram = (() => {
         while (definitions.has(base)) {
             const definition = definitions.get(base);
             for (const method of definition.methods.filter(method => !method.static)) {
-                if (!Object.hasOwn(view, method.name)) view[method.name] = method.fn.bind(receiver);
+                if (!Object.hasOwn(view, method.name)) view[method.name] = __nfBindFunction(method.fn,receiver);
             }
             for (const accessor of definition.accessors.filter(accessor => !accessor.static)) {
                 const pair = accessors.get(accessor.name) || {};
@@ -164,7 +164,7 @@ const __nfProgram = (() => {
             const prototype = type(base).prototype;
             if (prototype) for (const key of Object.getOwnPropertyNames(prototype)) {
                 const method = Object.getOwnPropertyDescriptor(prototype,key)?.value;
-                if (key !== 'constructor' && !Object.hasOwn(view, key) && typeof method === 'function') view[key] = method.bind(receiver);
+                if (key !== 'constructor' && !Object.hasOwn(view, key) && typeof method === 'function') view[key] = __nfBindFunction(method,receiver);
             }
         }
         cache.set(name, view);

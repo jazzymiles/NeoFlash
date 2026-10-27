@@ -1,6 +1,8 @@
 # Backlog
 
-Independent eddcc30 acceptance (`STORAGE-AMF-HTML5-20261027T0728Z`) confirms bounded AS2/AS3 saved graphs through reload/Restart/path isolation/clear and AMF packet values in a separate catch(*) positive control. The original batch remains four ready/one runtime error: P1 AMF-TYPED-CATCH-001 records malformed readObject throwing a raw string past catch(Error). Full error/codec/storage semantics are not inferred. See [the independent record](VERIFICATION.md#independent-storage-and-amf-verification-of-eddcc30). Editable TextField/focus/selection/forms are already in development and require separate evidence.
+Independent 5395375 acceptance (`FILTERS-HTML5-20261027T0844Z`) confirms representative Blur/Glow/DropShadow/ColorMatrix effects over whole vector/text/bitmap cards, copied settings, unchanged shared pixels, bounded source/halo input and clear/restore/Restart. Filtered native editing, mask/scroll composition, HiDPI/cache limits and exact Flash kernels remain unverified. See [the independent record](VERIFICATION.md#independent-filter-verification-of-5395375). Later Function work has separate delivery evidence and inherits no filter pass.
+
+Independent eddcc30 acceptance (`STORAGE-AMF-HTML5-20261027T0728Z`) confirms bounded AS2/AS3 saved graphs through reload/Restart/path isolation/clear and AMF packet values in a separate catch(*) positive control. The original batch remains four ready/one runtime error: P1 AMF-TYPED-CATCH-001 records malformed readObject throwing a raw string past catch(Error). Full error/codec/storage semantics are not inferred. See [the independent record](VERIFICATION.md#independent-storage-and-amf-verification-of-eddcc30). The later c10e19e Forms workflow has a separate bounded verification record.
 
 Independent 039afe6 acceptance (`LOADER-HTML5-20261027T0709Z`) confirms embedded PNG/HTTP JPEG, snapshotted loadBytes, canonical metadata and observed event order, retained pixels through replacement/unload/re-adoption, real Loader/AS2 input and pending responses suppressed after close→Restart and Restart. Pending HTTP close alone remains needs_review; progress events, full transition/reentry/GC semantics and native UI are not inferred. See [the independent record](VERIFICATION.md#independent-image-loader-verification-of-039afe6). The later eddcc30 persistence/AMF family has a separate independent record.
 
@@ -73,7 +75,7 @@ Vector, Dictionary, original-key indexed operations and for-in/for-each now form
 
 ## Runtime gradient Graphics batch
 
-The existing dynamic-display workflow now covers linear/radial gradient fills and strokes, cubic paths, rounded rectangles, Vector drawPath and independent Graphics.copyFrom state. Its shared delivery and browser acceptance passed. Rust retains the drawing intent; Canvas paints it and picks the same shared curves. The first profile uses pad/rgb and explicit limits. Native gradient authoring, bitmap fills, masks/filters, repeat/reflect and linearRGB remain follow-ups. Keep one combined ordinary export and browser workflow rather than per-method acceptance. See [the decision](decisions/0022-runtime-gradient-graphics.md).
+The existing dynamic-display workflow now covers linear/radial gradient fills and strokes, cubic paths, rounded rectangles, Vector drawPath and independent Graphics.copyFrom state. Its shared delivery and browser acceptance passed. Rust retains the drawing intent; Canvas paints it and picks the same shared curves. The first profile uses pad/rgb and explicit limits. Native gradient/mask/filter authoring, bitmap fills, repeat/reflect and linearRGB remain follow-ups; runtime clipping and filter profiles have separate records. Keep one combined ordinary export and browser workflow rather than per-method acceptance. See [the decision](decisions/0022-runtime-gradient-graphics.md).
 
 ## Runtime masks and scroll rectangles
 
@@ -178,3 +180,7 @@ The input family connects Rust text/selection to native browser fields, Stage fo
 ## Runtime display-filter follow-ups
 
 Blur, Glow, DropShadow and ColorMatrix now share copied state, bounded Rust pixel kernels and nested whole-subtree rendering. Follow-ups: native authoring controls, remaining filter families and BitmapData.applyFilter, high-density raster quality, filtered DOM text-input composition, full cacheAsBitmap/bounds/coercion semantics and original-player differential. The filter gallery has separate evidence; prior gradients/clipping/bitmap checks do not certify new effects.
+
+## Source function family
+
+A combined function/command workflow covers optional/rest AS3 source parameters, supplied arguments, indirect calls and shared constructor/interface checks, with AS2 argument/receiver behavior kept separate. Complete AVM global-scope lookup, prototype/reflection, arguments.caller, runtime-built Function code and generalized compile-time defaults remain follow-ups. One shared regression and one representative publication are the delivery boundary; individual methods do not each get a browser cycle. See ADR 0028 and the source-function verification record.

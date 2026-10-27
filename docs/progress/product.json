@@ -203,7 +203,7 @@
       "title": "Gradients, masks and effects",
       "status": "partial",
       "scope": "Gradient and bitmap fills, masks, filters and their authoring operations. Scripted HTML5 filters add copied Blur/Glow/DropShadow/ColorMatrix values, shared bounded Rust RGBA kernels and ordered whole-subtree groups, including nested effects and deferred owner mask/scroll clipping.",
-      "limitations": "Scripted HTML5 Graphics now supports bounded linear/radial gradients and vector display masks. Native gradient/mask tools, bitmap fills, alpha masks and filters remain pending; runtime support does not complete authoring operations. This runtime-only filter profile has its own gallery evidence; native filter authoring, remaining classes, BitmapData.applyFilter, cacheAsBitmap, exact Flash kernels/coercions and high-density raster fidelity remain pending. Active native DOM editing under a filtered ancestor is an explicit composition boundary. Original geometry supplies input and semantics; effect halos do not extend them.",
+      "limitations": "Scripted HTML5 Graphics now supports bounded linear/radial gradients and vector display masks. Native gradient/mask/filter tools, bitmap fills and alpha masks remain pending; runtime support does not complete authoring operations. This runtime-only filter profile has its own gallery evidence; native filter authoring, remaining classes, BitmapData.applyFilter, cacheAsBitmap, exact Flash kernels/coercions and high-density raster fidelity remain pending. Active native DOM editing under a filtered ancestor is an explicit composition boundary. Original geometry supplies input and semantics; effect halos do not extend them. Independent 5395375 evidence (FILTERS-HTML5-20261027T0844Z) confirms only the scripted filter-gallery publication and common browser regression. Runtime pixels and input do not complete native effect authoring, exact Flash kernels or filtered-input composition.",
       "evidence": [
         "docs/BACKLOG.md",
         "docs/ROADMAP.md",
@@ -217,7 +217,8 @@
         "web/filters.js",
         "examples/filter-gallery.nflash",
         "crates/neoflash-script/tests/filter-gallery.mjs",
-        "docs/decisions/0027-runtime-display-filters.md"
+        "docs/decisions/0027-runtime-display-filters.md",
+        "docs/VERIFICATION.md"
       ]
     },
     {

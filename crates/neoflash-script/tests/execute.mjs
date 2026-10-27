@@ -140,9 +140,9 @@ const fixtures = [
   },
   {
     language: 'action_script2',
-    source: 'function echo(value:Number):Number { return value; } result = echo("uncoerced"); missing = echo(); function newline() { return\n 23; } early = newline();',
+    source: 'function echo(value:Number):Number { return value; } result = echo("uncoerced"); missing = echo(); function newline() { return\n 23; } early = newline(); function inspect(value:Number):Array {var saved=arguments[0];value=88;return [saved,arguments.length,arguments.callee===inspect,arguments[1]];} raw=inspect("unchanged","extra");var dynamic=function(step){return this.value+step;};called=dynamic.call({value:10},2);applied=dynamic.apply({value:20},[3]);function forward(){return dynamic.apply({value:30},arguments);}forwarded=forward(4);',
     context: {},
-    verify(c) { assert.equal(c.result, 'uncoerced'); assert.equal(c.missing, undefined); assert.equal(c.early, undefined); },
+    verify(c) { assert.equal(c.result, 'uncoerced'); assert.equal(c.missing, undefined); assert.equal(c.early, undefined); assert.deepEqual(c.raw,['unchanged',2,true,'extra']);assert.equal(c.called,12);assert.equal(c.applied,23);assert.equal(c.forwarded,34); },
   },
   {
     language: 'action_script3',
@@ -158,9 +158,26 @@ const fixtures = [
   },
   {
     language: 'action_script3',
-    source: 'function expects(value:int):int { return value; }',
+    source: `function expects(value:int):int { return value; }
+      function defaults(value:Number=7,label:String="ready"):Array {return [value,label];}
+      omitted=defaults();explicit=defaults(undefined,undefined);
+      function gather(head:int=3,...items:Array):Array {return [head,items.length,items.join(":")];}
+      noRest=gather();rest=gather("4.8","a","b");
+      function inspect(value:int):Array {var count:int=arguments.length;var supplied:int=arguments[0];value=99;arguments[0]=66;return [count,supplied,value,arguments[0],arguments[1],arguments.callee===inspect];}
+      original=inspect("4.8","raw");
+      var dynamic:Function=function(step:int=1):int {return this.value+step;};
+      called=dynamic.call({value:8});applied=dynamic["apply"]({value:10},[]);
+      var custom={call:function(value:int):int{return value+10;}};customCall=custom.call(5);
+      var aliasFailed:Boolean=false;try{var alias:Function=dynamic.apply;}catch(e:TypeError){aliasFailed=true;}
+      var missingArgument:Boolean=false;try{expects();}catch(e:ArgumentError){missingArgument=true;}
+      var arrayLikeFailed:Boolean=false;try{dynamic.apply(this,{length:0});}catch(e:TypeError){arrayLikeFailed=true;}
+      var nativeConstructorFailed:Boolean=false;try{Function.call(null,"return 1");}catch(e:TypeError){nativeConstructorFailed=true;}`,
     context: {},
-    verify(c) { assert.throws(() => c.expects(), /expects 1 arguments/); assert.throws(() => c.expects(1,2), /expects 1 arguments/); assert.equal(c.expects('12.8'), 12); },
+    verify(c) { assert.throws(() => c.expects(), /expects 1 arguments/); assert.throws(() => c.expects(1,2), /expects 1 arguments/); assert.equal(c.expects('12.8'), 12);
+      assert.deepEqual(c.omitted,[7,'ready']);assert.ok(Number.isNaN(c.explicit[0]));assert.equal(c.explicit[1],null);
+      assert.deepEqual(c.noRest,[3,0,'']);assert.deepEqual(c.rest,[4,2,'a:b']);assert.deepEqual(c.original,[2,4,99,66,'raw',true]);
+      assert.equal(c.called,9);assert.equal(c.applied,11);assert.equal(c.customCall,15);assert.ok(c.aliasFailed&&c.missingArgument&&c.arrayLikeFailed&&c.nativeConstructorFailed);
+    },
   },
   {
     language: 'action_script2',

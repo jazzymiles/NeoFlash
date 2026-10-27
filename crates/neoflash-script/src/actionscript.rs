@@ -191,10 +191,10 @@ impl<'a> Lexer<'a> {
             } else {
                 self.offset = start;
                 const OPERATORS: &[&str] = &[
-                    ">>>=", "===", "!==", ">>>", "<<=", ">>=", "&&=", "||=", "++", "--", "+=",
-                    "-=", "*=", "/=", "%=", "==", "!=", "<=", ">=", "&&", "||", "<<", ">>", "&=",
-                    "|=", "^=", "::", "..", "{", "}", "(", ")", "[", "]", ";", ",", ".", ":", "?",
-                    "+", "-", "*", "/", "%", "=", "!", "~", "<", ">", "&", "|", "^", "@",
+                    ">>>=", "===", "!==", ">>>", "...", "<<=", ">>=", "&&=", "||=", "++", "--",
+                    "+=", "-=", "*=", "/=", "%=", "==", "!=", "<=", ">=", "&&", "||", "<<", ">>",
+                    "&=", "|=", "^=", "::", "..", "{", "}", "(", ")", "[", "]", ";", ",", ".", ":",
+                    "?", "+", "-", "*", "/", "%", "=", "!", "~", "<", ">", "&", "|", "^", "@",
                 ];
                 let Some(operator) = OPERATORS
                     .iter()
@@ -308,7 +308,7 @@ enum Expr {
     Update(String, Box<Expr>, bool),
     Conditional(Box<Expr>, Box<Expr>, Box<Expr>),
     Call(Box<Expr>, Vec<Expr>, usize),
-    Function(Function),
+    Function(Box<Function>),
     NewError(String, Vec<Expr>, usize),
     NewClass(String, Vec<Expr>, usize),
     NewBuiltin(String, Vec<Expr>, usize),
@@ -329,9 +329,25 @@ struct Function {
     offset: usize,
     name: Option<String>,
     params: Vec<(String, Option<String>)>,
+    defaults: Vec<Option<Expr>>,
+    rest: Option<String>,
     returns: Option<String>,
     body: Vec<Stmt>,
     declaration: bool,
+}
+
+fn constant_default(expr: &Expr) -> bool {
+    fn numeric(expr: &Expr) -> bool {
+        match expr {
+            Expr::Literal(value) => {
+                value.starts_with(|ch: char| ch.is_ascii_digit() || ch == '.')
+                    || matches!(value.as_str(), "NaN" | "Infinity")
+            }
+            Expr::Unary(op, value) if matches!(op.as_str(), "+" | "-") => numeric(value),
+            _ => false,
+        }
+    }
+    matches!(expr, Expr::Literal(_)) || numeric(expr)
 }
 
 #[derive(Clone, Debug)]
@@ -417,7 +433,7 @@ enum Stmt {
     Continue(Option<String>),
     Throw(Expr),
     Try(Vec<Stmt>, Vec<CatchClause>, Option<Vec<Stmt>>),
-    Function(Function),
+    Function(Box<Function>),
     Return(Option<Expr>, usize),
 }
 
@@ -688,7 +704,7 @@ impl<'a> Frontend<'a> {
             return Ok(Stmt::DoWhile(Box::new(body), test));
         }
         if self.is("function") {
-            return Ok(Stmt::Function(self.function(true)?));
+            return Ok(Stmt::Function(Box::new(self.function(true)?)));
         }
         if self.is("return") {
             let offset = self.token().offset;
@@ -1006,20 +1022,61 @@ impl<'a> Frontend<'a> {
         };
         self.expect("(")?;
         let mut params = Vec::new();
+        let mut defaults = Vec::new();
+        let mut rest = None;
         if !self.is(")") {
             loop {
-                if self.is("..") {
-                    return Err(self.error("Rest parameters are not implemented yet."));
+                if self.eat("...") {
+                    if self.script.language != ScriptLanguage::ActionScript3 {
+                        return Err(self.error("Rest parameter syntax requires AS3. AS2 functions receive extra values through arguments."));
+                    }
+                    let name = self.ident()?;
+                    if invalid_binding(&name, true) {
+                        return Err(self.error("Invalid or reserved rest parameter name."));
+                    }
+                    let ty = self.annotation(false)?;
+                    if ty.as_deref().is_some_and(|ty| ty != "Array") {
+                        return Err(
+                            self.error("A rest parameter may be unannotated or typed Array.")
+                        );
+                    }
+                    if !self.is(")") {
+                        return Err(self.error(
+                            "The rest parameter must be last and cannot have a default value.",
+                        ));
+                    }
+                    rest = Some(name);
+                    break;
                 }
                 let name = self.ident()?;
                 if invalid_binding(&name, true) {
                     return Err(self.error("Invalid or reserved parameter name."));
                 }
                 let ty = self.annotation(false)?;
-                if self.is("=") {
-                    return Err(self.error("Default parameters are not implemented yet."));
-                }
+                let default = if self.eat("=") {
+                    if self.script.language != ScriptLanguage::ActionScript3 {
+                        return Err(self.error("Default parameter syntax requires AS3. AS2 functions can test omitted values explicitly."));
+                    }
+                    let value = self.expression(0)?;
+                    if !constant_default(&value) {
+                        return Err(self.error("Optional parameters currently require primitive literals, undefined/NaN/Infinity or signed numeric literals; computed/class constants are not supported."));
+                    }
+                    Some(value)
+                } else {
+                    if defaults.iter().any(Option::is_some) {
+                        return Err(
+                            self.error("Required parameters cannot follow optional parameters.")
+                        );
+                    }
+                    None
+                };
                 params.push((name, ty));
+                defaults.push(default);
+                if params.len() > 256 {
+                    return Err(
+                        self.error("A source function supports at most 256 normal parameters.")
+                    );
+                }
                 if !self.eat(",") {
                     break;
                 }
@@ -1050,6 +1107,8 @@ impl<'a> Frontend<'a> {
                 offset,
                 name,
                 params,
+                defaults,
+                rest,
                 returns,
                 body,
                 declaration,
@@ -1373,7 +1432,7 @@ impl<'a> Frontend<'a> {
             return Ok(Expr::NewError(name, args, offset));
         }
         if self.is("function") {
-            return Ok(Expr::Function(self.function(false)?));
+            return Ok(Expr::Function(Box::new(self.function(false)?)));
         }
         let token = self.token().clone();
         match token.kind {
@@ -1512,7 +1571,9 @@ fn is_timeline_method(name: &str) -> bool {
 fn is_family_method(name: &str) -> bool {
     matches!(
         name,
-        "push"
+        "call"
+            | "apply"
+            | "push"
             | "pop"
             | "shift"
             | "unshift"
@@ -1716,7 +1777,6 @@ fn is_unsupported_keyword(name: &str) -> bool {
             | "super"
             | "get"
             | "set"
-            | "arguments"
     )
 }
 
@@ -1858,6 +1918,9 @@ impl Emitter<'_> {
             .is_some_and(|(_, b)| b.ty.is_some())
     }
     fn name(&self, name: &str) -> String {
+        if name == "arguments" {
+            return "__nfArgumentsValue".into();
+        }
         if self.analysis.resolve(self.scope, name).is_none() && (!self.as3 && name == "getTimer") {
             return "__nfProgram.type(\"flash.utils.getTimer\")".into();
         }
@@ -1967,13 +2030,42 @@ impl Emitter<'_> {
         if self.analysis.context.method_id == Some(f.id) {
             prologue.push_str("const __nfFrame = this;\n");
         }
-        if self.as3 {
-            prologue.push_str(&format!("if (arguments.length !== {}) throw new __nfTypeError('AS3 function expects {} arguments');\n",f.params.len(),f.params.len()));
+        if !f.declaration
+            && let Some(name) = &f.name
+        {
+            prologue.push_str(&format!("const {name} = __nfActivation.callee;\n"));
         }
-        for (name, ty) in &f.params {
+        for (index, (name, ty)) in f.params.iter().enumerate() {
+            let value = format!("__nfActivation.values[{index}]");
+            let value = if let Some(default) = &f.defaults[index] {
+                format!(
+                    "(__nfActivation.values.length > {index} ? {value} : {})",
+                    inner.expression(default)
+                )
+            } else {
+                value
+            };
+            prologue.push_str(&format!("var {name} = {value};\n"));
             if self.as3 && ty.is_some() {
                 prologue.push_str(&format!("{name} = {};\n", inner.coerce(name, name.clone())));
             }
+        }
+        if let Some(name) = &f.rest {
+            prologue.push_str(&format!(
+                "var {name} = __nfActivation.values.slice({});\n",
+                f.params.len()
+            ));
+        }
+        let uses_arguments = self.analysis.scopes[&f.id].uses_arguments;
+        if uses_arguments {
+            prologue.push_str(&format!(
+                "const __nfArgumentsValue = __nfFunctionArguments(__nfActivation, [{}]);\n",
+                f.params
+                    .iter()
+                    .map(|(name, _)| name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
         for (name, binding) in &self.analysis.scopes[&f.id].bindings {
             if binding.kind == scope::BindingKind::Variable {
@@ -1983,19 +2075,17 @@ impl Emitter<'_> {
                 ));
             }
         }
-        let name = if f.declaration && self.scope == 0 {
-            ""
-        } else {
-            f.name.as_deref().unwrap_or("")
-        };
+        let required = f
+            .defaults
+            .iter()
+            .take_while(|value| value.is_none())
+            .count();
         format!(
-            "function {name}({}) {{\n{prologue}{}\n}}",
-            f.params
-                .iter()
-                .map(|(name, _)| name.as_str())
-                .collect::<Vec<_>>()
-                .join(", "),
-            inner.body(&f.body)
+            "__nfSourceFunction(function(__nfActivation) {{\n{prologue}{}\n}}, {{as3:{}, length:{}, required:{required}, allowExtra:{}, defaultReceiver:typeof __nfFrame === 'undefined' ? undefined : __nfFrame}})",
+            inner.body(&f.body),
+            self.as3,
+            f.params.len(),
+            !self.as3 || f.rest.is_some() || uses_arguments,
         )
     }
     fn body(&self, body: &[Stmt]) -> String {
@@ -2005,12 +2095,16 @@ impl Emitter<'_> {
                 let code = self.function(f);
                 if self.scope == 0 {
                     output.push_str(&format!(
-                        "this.{} = ({code}){};\n",
+                        "this.{} = {};\n",
                         f.name.as_deref().unwrap(),
-                        if self.as3 { ".bind(__nfFrame)" } else { "" }
+                        if self.as3 {
+                            format!("__nfBindFunction({code}, __nfFrame)")
+                        } else {
+                            code
+                        }
                     ));
                 } else {
-                    output.push_str(&format!("{code}\n"));
+                    output.push_str(&format!("var {} = {code};\n", f.name.as_deref().unwrap()));
                 }
             }
         }
@@ -2489,6 +2583,19 @@ impl Emitter<'_> {
                     _ => None,
                 };
                 if let Some((base, name)) = &member
+                    && matches!(name.as_str(), "call" | "apply")
+                {
+                    return format!(
+                        "__nfFunctionMethod({}, {name:?}, {})({})",
+                        self.expression(base),
+                        self.as3,
+                        args.iter()
+                            .map(|arg| self.expression(arg))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
+                if let Some((base, name)) = &member
                     && is_family_method(name)
                 {
                     return format!(
@@ -2777,6 +2884,7 @@ fn embedded_helpers() -> String {
     [
         include_str!("actionscript/exceptions.js"),
         include_str!("actionscript/intrinsics.js"),
+        include_str!("actionscript/functions.js"),
         include_str!("actionscript/collections.js"),
         include_str!("actionscript/dates.js"),
         include_str!("actionscript/regexp.js"),
@@ -2845,6 +2953,7 @@ function __nfVectorDescriptor(element) {
     return Object.freeze({token,coerce:value=>__nfVectorCast(value,token),defaultValue:null,name:'Vector.<'+element.name+'>'});
 }
 function __nfFamilyValue(value, as3) {
+    value = __nfFunctionMethodValue(value);
     value = __nfArrayMethodValue(value);
     value = __nfStringMethodValue(value);
     value = __nfDateMethodValue(value);
@@ -3020,22 +3129,26 @@ mod tests {
     fn function_semantics_outside_the_supported_boundary_are_diagnostics() {
         for source in [
             "return 1;",
-            "function f(a:int = 2):int { return a; }",
-            "function f(...args) {}",
+            "function f(a:int = 2, b:int):int { return a+b; }",
+            "function f(a:int = Number(2)):int { return a; }",
+            "function f(a:Object = {}):Object { return a; }",
+            "function f(...args:int) {}",
+            "function f(...args, later) {}",
+            "function f(...args) { return arguments.length; }",
+            "function f(arguments) {}",
+            "function f(){ var arguments = []; }",
+            "arguments[0];",
             "function f(a, a) {}",
             "function f():void { return 1; }",
             "function f():int { return; }",
             "function f(x:int):int { if (x > 0) return x; }",
-            "function f(){ return this.x; } var callback = function(){ return this; };",
             "while (true) { var f = function(){ break; }; }",
             "if (true) { function f() {} }",
             "var f = function named(){ named = 2; };",
-            "function f(){ return arguments[0]; }",
             "function f(){ var fn:Number = 2; fn(); }",
             "var n:Number = function() {}; n();",
             "function f(){ return 1; } child.f();",
             "var obj = {}; obj.unavailable();",
-            "var f = function() {}; f.call(this);",
             "function f(trace:Number) { trace(); }",
             "function f(Math) { Math.sin(1); }",
             "function __nfFrame() {}",
@@ -3045,6 +3158,24 @@ mod tests {
             "trace++;",
         ] {
             assert!(compile_as(source).is_err(), "must reject {source}");
+        }
+        for source in [
+            "function f(a:int = 2):int { return a; }",
+            "function f(a:String = null,...args:Array):int { return args.length; }",
+            "function f(){ return arguments[0]; }",
+            "var f=function(){return this.x;}; f.call(this); f['apply'](this,[]);",
+            "var f=function(n:int):int {if(n<=1)return 1;return n*arguments.callee(n-1);};",
+        ] {
+            assert!(compile_as(source).is_ok(), "must accept {source}");
+        }
+        for source in ["function f(a=2){}", "function f(...rest){}"] {
+            assert!(
+                compile(&Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: source.into()
+                })
+                .is_err()
+            );
         }
         let error = compile_as("function ok() {}\nmissing();").unwrap_err();
         assert_eq!(error.line, 2);

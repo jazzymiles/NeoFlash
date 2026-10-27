@@ -1,0 +1,1042 @@
+{
+  "format_version": 2,
+  "name": "Function command workflow",
+  "width": 1040,
+  "height": 740,
+  "fps": 24,
+  "background": [
+    17,
+    24,
+    39,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Function command workflow",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 30,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / SOURCE FUNCTIONS / AS2 + AS3",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 65,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "One command. Different receivers.",
+                      "font_family": "Arial",
+                      "font_size": 34,
+                      "color": [
+                        235,
+                        241,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 112,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Send commands to independent models. Each control runs both dialects; Restart resets the session.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modern-panel",
+                    "name": "modern-panel",
+                    "transform": {
+                      "x": 48,
+                      "y": 160,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 456,
+                      "height": 400,
+                      "fill": [
+                        25,
+                        36,
+                        55,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-panel",
+                    "name": "legacy-panel",
+                    "transform": {
+                      "x": 536,
+                      "y": 160,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 456,
+                      "height": 400,
+                      "fill": [
+                        25,
+                        36,
+                        55,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modern-heading",
+                    "name": "modern-heading",
+                    "transform": {
+                      "x": 72,
+                      "y": 182,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 / BOUND COMMAND BUS",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        100,
+                        215,
+                        177,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modern-values",
+                    "name": "modern-values",
+                    "transform": {
+                      "x": 72,
+                      "y": 222,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Preparing models…",
+                      "font_family": "Arial",
+                      "font_size": 29,
+                      "color": [
+                        235,
+                        241,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modern-detail",
+                    "name": "modern-detail",
+                    "transform": {
+                      "x": 72,
+                      "y": 274,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Default values are part of each implementation.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modern-args",
+                    "name": "modern-args",
+                    "transform": {
+                      "x": 72,
+                      "y": 320,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Omitted vs explicit undefined",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        133,
+                        188,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modern-length",
+                    "name": "modern-length",
+                    "transform": {
+                      "x": 72,
+                      "y": 354,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Normal parameter count and rest",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modern-binding",
+                    "name": "modern-binding",
+                    "transform": {
+                      "x": 72,
+                      "y": 404,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Borrow receiver: ready",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        100,
+                        215,
+                        177,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modern-note",
+                    "name": "modern-note",
+                    "transform": {
+                      "x": 72,
+                      "y": 454,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Optional interface + override; one rest array.",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modern-note2",
+                    "name": "modern-note2",
+                    "transform": {
+                      "x": 72,
+                      "y": 484,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Stable methods keep their original model.",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-heading",
+                    "name": "legacy-heading",
+                    "transform": {
+                      "x": 560,
+                      "y": 182,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 / DYNAMIC RECEIVERS",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        133,
+                        188,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-values",
+                    "name": "legacy-values",
+                    "transform": {
+                      "x": 560,
+                      "y": 222,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Preparing legacy models…",
+                      "font_family": "Arial",
+                      "font_size": 29,
+                      "color": [
+                        235,
+                        241,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-detail",
+                    "name": "legacy-detail",
+                    "transform": {
+                      "x": 560,
+                      "y": 274,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "One shared method; explicit call/apply receiver.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-args",
+                    "name": "legacy-args",
+                    "transform": {
+                      "x": 560,
+                      "y": 320,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "arguments retains actual supplied values.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        133,
+                        188,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-identity",
+                    "name": "legacy-identity",
+                    "transform": {
+                      "x": 560,
+                      "y": 354,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Shared prototype methods",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-binding",
+                    "name": "legacy-binding",
+                    "transform": {
+                      "x": 560,
+                      "y": 404,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Borrow receiver: ready",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        100,
+                        215,
+                        177,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-note",
+                    "name": "legacy-note",
+                    "transform": {
+                      "x": 560,
+                      "y": 454,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Missing and extra arguments remain accepted.",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-note2",
+                    "name": "legacy-note2",
+                    "transform": {
+                      "x": 560,
+                      "y": 484,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Defaults here are ordinary source code.",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "guide",
+                    "name": "guide",
+                    "transform": {
+                      "x": 48,
+                      "y": 580,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Default: +1 / +2     Batch: +3 / +3     Borrow: a bound method and an ordinary function",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 698,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Optional + rest parameters · actual arguments · call / apply · interface signatures · fresh Restart",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        154,
+                        178,
+                        204,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "default-command",
+                    "name": "default-command",
+                    "transform": {
+                      "x": 48,
+                      "y": 620,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "default-command-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.sendDefault();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.runLegacyDefault();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Default command",
+                      "description": "Run the corresponding command in both the AS3 and AS2 model panels.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "batch-command",
+                    "name": "batch-command",
+                    "transform": {
+                      "x": 368,
+                      "y": 620,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "batch-command-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.sendBatch();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.runLegacyBatch();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Batch command",
+                      "description": "Run the corresponding command in both the AS3 and AS2 model panels.",
+                      "role": "button",
+                      "tab_order": 1,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "borrow-command",
+                    "name": "borrow-command",
+                    "transform": {
+                      "x": 688,
+                      "y": 620,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "borrow-command-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.borrowReceiver();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.runLegacyBorrow();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Borrow receiver",
+                      "description": "Run the corresponding command in both the AS3 and AS2 model panels.",
+                      "role": "button",
+                      "tab_order": 2,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import legacy.Counter;\nvar legacyOne:Counter=new Counter(0);\nvar legacyOther:Counter=new Counter(20);\nvar legacyFn:Function=legacyOne.add;\nvar legacyShared:Boolean=legacyFn===legacyOther.add;\nvar legacyExtra:Number=0;\nvar legacyPipe:Function=function():Number {\n    var sum:Number=0;\n    for(var i:Number=0;i<arguments.length;i++) sum+=arguments[i];\n    this.value+=sum; this.seen=arguments.length; return this.value;\n};\nfunction refreshLegacy():Void {\n    this[\"legacy-values\"].text=legacyOne.value+\" first / \"+legacyOther.value+\" other\";\n    this[\"legacy-args\"].text=\"argc: first \"+legacyOne.seen+\" / other \"+legacyOther.seen;\n    this[\"legacy-identity\"].text=\"Shared method identity: \"+legacyShared;\n    this[\"legacy-binding\"].text=\"Last return: \"+legacyExtra+\" / receiver kept\";\n}\nfunction runLegacyDefault():Void {\n    legacyExtra=legacyFn.call(legacyOther); refreshLegacy();\n}\nfunction runLegacyBatch():Void {\n    legacyExtra=legacyPipe.apply(legacyOne,[2,3]); refreshLegacy();\n}\nfunction runLegacyBorrow():Void {\n    legacyExtra=legacyFn.apply(legacyOne,[4,\"ignored\"]); refreshLegacy();\n}\nrefreshLegacy();"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "default-command-symbol",
+      "name": "Default command",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "default-command-symbol-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "default-command-symbol-face",
+                    "name": "default-command-symbol-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 272,
+                      "height": 48,
+                      "fill": [
+                        100,
+                        215,
+                        177,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "default-command-symbol-label",
+                    "name": "default-command-symbol-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 13,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Default command",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        17,
+                        24,
+                        39,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "batch-command-symbol",
+      "name": "Batch command",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "batch-command-symbol-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "batch-command-symbol-face",
+                    "name": "batch-command-symbol-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 272,
+                      "height": 48,
+                      "fill": [
+                        133,
+                        188,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "batch-command-symbol-label",
+                    "name": "batch-command-symbol-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 13,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Batch command",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        17,
+                        24,
+                        39,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "borrow-command-symbol",
+      "name": "Borrow receiver",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "borrow-command-symbol-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "borrow-command-symbol-face",
+                    "name": "borrow-command-symbol-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 272,
+                      "height": 48,
+                      "fill": [
+                        100,
+                        215,
+                        177,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "borrow-command-symbol-label",
+                    "name": "borrow-command-symbol-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 13,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Borrow receiver",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        17,
+                        24,
+                        39,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "source-0",
+      "path": "app/ICommand.as",
+      "language": "action_script3",
+      "source": "package app {\n    public interface ICommand { function execute(amount:int=1, label:String=\"tap\"):int; }\n}\n"
+    },
+    {
+      "id": "source-1",
+      "path": "app/Counter.as",
+      "language": "action_script3",
+      "source": "package app {\n    public class Counter implements ICommand {\n        public var value:int;\n        public var label:String;\n        public var last:String=\"ready\";\n        public function Counter(seed:int=0, name:String=\"Primary\") { value=seed; label=name; }\n        public function execute(amount:int=1, label:String=\"tap\"):int {\n            value+=amount; last=label; return value;\n        }\n    }\n}\n"
+    },
+    {
+      "id": "source-2",
+      "path": "app/BonusCounter.as",
+      "language": "action_script3",
+      "source": "package app {\n    public class BonusCounter extends Counter {\n        public function BonusCounter(seed:int=10, name:String=\"Secondary\") { super(seed,name); }\n        public override function execute(amount:int=2, label:String=\"bonus\"):int {\n            return super.execute(amount,label);\n        }\n    }\n}\n"
+    },
+    {
+      "id": "source-3",
+      "path": "app/CommandBus.as",
+      "language": "action_script3",
+      "source": "package app {\n    public class CommandBus {\n        public var listeners:Array=[];\n        public function add(listener:Function):void { listeners.push(listener); }\n        public function run(...values:Array):int {\n            var total:int=0;\n            for(var i:int=0;i<listeners.length;i++) total+=listeners[i].apply(null,values);\n            return total;\n        }\n    }\n}\n"
+    },
+    {
+      "id": "source-4",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n    import flash.display.MovieClip;\n    public class Main extends MovieClip {\n        public var primary:Counter;\n        public var secondary:Counter;\n        public var bus:CommandBus;\n        public var commands:int=0;\n        public var total:int=0;\n        public var argumentSummary:String;\n        public var argumentTyped:String;\n        public var argumentValueType:String;\n        public var calleeMatches:Boolean=false;\n        public var borrowed:Object;\n        public var boundResult:int=0;\n        public var ordinaryResult:int=0;\n        public function Main() {\n            super(); stop();\n            this[\"default-command\"][\"default-command-symbol-label\"].selectable=false;\n            this[\"batch-command\"][\"batch-command-symbol-label\"].selectable=false;\n            this[\"borrow-command\"][\"borrow-command-symbol-label\"].selectable=false;\n            primary=new Counter(); secondary=new BonusCounter();\n            bus=new CommandBus(); bus.add(primary.execute); bus.add(secondary.execute);\n            argumentSummary=inspect()+\" | \"+inspect(undefined);\n            argumentTyped=inspect(\"7\",\"extra\");\n            borrowed={value:100};\n            render(); trace(\"functions ready\",primary.value,secondary.value);\n        }\n        public function inspect(seed:int=5):String {\n            calleeMatches=arguments.callee===inspect;\n            argumentValueType=typeof arguments[0];\n            return seed+\" / argc \"+arguments.length;\n        }\n        public function sendDefault():void {\n            commands++; total=bus.run(); render(); trace(\"functions default\",primary.value,secondary.value);\n        }\n        public function sendBatch():void {\n            commands++; total=bus.run(3,\"batch\"); render(); trace(\"functions batch\",primary.value,secondary.value);\n        }\n        public function borrowReceiver():void {\n            var command:Function=primary.execute;\n            boundResult=command.call(borrowed,4,\"bound\");\n            var ordinary:Function=function(amount:int=1):int {this.value+=amount;return this.value;};\n            ordinaryResult=ordinary.call(borrowed,3);\n            commands++; render(); trace(\"functions borrow\",primary.value,borrowed.value);\n        }\n        public function render():void {\n            this[\"modern-values\"].text=primary.value+\" primary / \"+secondary.value+\" secondary\";\n            this[\"modern-detail\"].text=\"Commands \"+commands+\" / last \"+primary.last+\" + \"+secondary.last;\n            this[\"modern-args\"].text=argumentSummary;\n            this[\"modern-length\"].text=\"execute.length \"+primary.execute.length+\" / run.length \"+bus.run.length;\n            this[\"modern-binding\"].text=\"Other receiver: \"+borrowed.value+\" / callee \"+calleeMatches;\n        }\n    }\n}\n"
+    },
+    {
+      "id": "source-5",
+      "path": "legacy/Counter.as",
+      "language": "action_script2",
+      "source": "class legacy.Counter {\n    public var value:Number;\n    public var seen:Number;\n    public function Counter(seed:Number) { value=seed; seen=0; }\n    public function add(step:Number):Number {\n        seen=arguments.length;\n        if(step===undefined) step=1;\n        value+=step; return value;\n    }\n}\n"
+    }
+  ]
+}

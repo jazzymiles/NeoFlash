@@ -11,6 +11,7 @@ pub(super) enum BindingKind {
     SelfName,
     Catch,
     Field,
+    Arguments,
 }
 pub(super) struct Binding {
     pub ty: Option<String>,
@@ -23,6 +24,8 @@ pub(super) struct Scope {
     pub allow_this: bool,
     pub offset: usize,
     pub function: usize,
+    pub uses_arguments: bool,
+    pub has_rest: bool,
     members: HashSet<Vec<String>>,
 }
 pub(super) struct Analysis<'a> {
@@ -52,6 +55,8 @@ impl<'a> Analysis<'a> {
                 allow_this: true,
                 offset: 0,
                 function: 0,
+                uses_arguments: false,
+                has_rest: false,
                 members: HashSet::new(),
             },
         );
@@ -202,20 +207,17 @@ impl<'a> Analysis<'a> {
         {
             return Err(self.error(f.offset, "AS2 functions inside catch require verified catch-register closure semantics and are not supported yet."));
         }
-        let allow_this = self.script.language == ScriptLanguage::ActionScript2
-            || (f.declaration
-                && parent == 0
-                && self.script.language == ScriptLanguage::ActionScript3)
-            || self.context.method_id == Some(f.id);
         self.scopes.insert(
             f.id,
             Scope {
                 parent: Some(parent),
                 bindings: BTreeMap::new(),
                 returns: f.returns.clone(),
-                allow_this,
+                allow_this: true,
                 offset: f.offset,
                 function: f.id,
+                uses_arguments: false,
+                has_rest: f.rest.is_some(),
                 members: HashSet::new(),
             },
         );
@@ -227,6 +229,15 @@ impl<'a> Analysis<'a> {
         for (name, ty) in &f.params {
             self.bind(f.id, name, ty.clone(), BindingKind::Parameter)?;
         }
+        if let Some(name) = &f.rest {
+            self.bind(f.id, name, Some("Array".into()), BindingKind::Parameter)?;
+        }
+        self.bind(
+            f.id,
+            "arguments",
+            Some("Array".into()),
+            BindingKind::Arguments,
+        )?;
         self.body(f.id, &f.body)?;
         if self.script.language == ScriptLanguage::ActionScript3
             && f.returns
@@ -314,6 +325,8 @@ impl<'a> Analysis<'a> {
                         allow_this: enclosing.allow_this,
                         offset: catch.offset,
                         function: enclosing.function,
+                        uses_arguments: false,
+                        has_rest: false,
                         members: HashSet::new(),
                     },
                 );
@@ -338,6 +351,11 @@ impl<'a> Analysis<'a> {
         }
     }
     fn known_member(&self, mut scope: usize, expr: &Expr) -> bool {
+        if matches!(expr,Expr::Member(base,name) if name=="callee" && matches!(base.as_ref(),Expr::Name(name) if name=="arguments"))
+            || matches!(expr,Expr::Index(base,index) if literal_property_name(index).as_deref()==Some("callee") && matches!(base.as_ref(),Expr::Name(name) if name=="arguments"))
+        {
+            return self.resolve(scope, "arguments").is_some();
+        }
         let Some(path) = self.path(scope, expr) else {
             return false;
         };
@@ -370,6 +388,19 @@ impl<'a> Analysis<'a> {
         expr: &Expr,
         direct_callee: bool,
     ) -> Result<(), Diagnostic> {
+        if matches!(expr,Expr::Name(name) if name=="arguments") {
+            let function = self.scopes[&scope].function;
+            if function == 0 {
+                return Err(self.error(self.scopes[&scope].offset,"arguments is available only inside a source function, not at the top level of a frame handler."));
+            }
+            if self.scopes[&function].has_rest {
+                return Err(self.error(
+                    self.scopes[&scope].offset,
+                    "AS3 rest parameters make arguments unavailable; use the rest Array instead.",
+                ));
+            }
+            self.scopes.get_mut(&function).unwrap().uses_arguments = true;
+        }
         if self.script.language == ScriptLanguage::ActionScript2 && !direct_callee {
             let timeline_alias = match expr {
                 Expr::Name(name) => {
@@ -474,6 +505,7 @@ impl<'a> Analysis<'a> {
                 }
             }
             Expr::Assign(_,left,_) | Expr::Update(_,left,_) => {
+                if matches!(left.as_ref(),Expr::Name(name) if name=="arguments") {return Err(self.error(self.scopes[&scope].offset,"Replacing the implicit arguments binding is unsupported; its indexed elements remain mutable."));}
                 if let Expr::Name(name)=left.as_ref() && self.resolve(scope,name).is_some_and(|(_,b)|b.kind==BindingKind::SelfName) { return Err(self.error(self.scopes[&scope].offset,"A named function expression's self binding cannot be assigned.")); }
                 if let Expr::Name(name)=left.as_ref() && (is_global(name) || self.context.intrinsic_type(name,self.script.language == ScriptLanguage::ActionScript3) || self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)) && self.resolve(scope,name).is_none() {return Err(self.error(self.scopes[&scope].offset,"Cannot assign to an unshadowed built-in name in this ActionScript subset."));}
             }

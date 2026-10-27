@@ -13,8 +13,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 327 | 1,855 | 110 |
-| AS3 | 43,740 | 15 | 515 | 42,990 | 220 |
+| AS2 | 2,307 | 15 | 330 | 1,852 | 110 |
+| AS3 | 43,740 | 15 | 524 | 42,981 | 220 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -129,7 +129,9 @@ Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two indep
 
 [resource-loading.nflash](examples/resource-loading.nflash) loads embedded text, repeated form fields and a 50-byte binary packet through AS3 URLLoader and AS2 LoadVars, handles an absent file and cancels a load. When served over HTTP, **Load HTTP notes** reads the published README and displays the response status/size. Restart repeats the portable pipeline.
 
-[filter-gallery.nflash](examples/filter-gallery.nflash) applies Blur, Glow, DropShadow and ColorMatrix to complete vector/text/bitmap subtrees, including nested filters and an AS2 strip. Cycle changes styles, clears effects and restores them while retaining the same objects and shared source pixels.
+[function-workflow.nflash](examples/function-workflow.nflash) connects reusable AS3 commands with optional/rest parameters and bound callbacks, alongside AS2 dynamic receivers and arguments. The two dialects update independent visible models; Restart recreates their state.
+
+[filter-gallery.nflash](examples/filter-gallery.nflash) applies Blur, Glow, DropShadow and ColorMatrix to complete vector/text/bitmap subtrees, including nested filters and an AS2 strip. Cycle changes styles, clears effects and restores them while retaining the same objects and shared source pixels. Independent `FILTERS-HTML5-20261027T0844Z` confirms the representative visible styles, copied settings, unchanged source pixels, observed source hits/halo exclusion and Restart. Filtered editing, mask/scroll combinations, native effect authoring and exact Flash raster fidelity remain unverified; see [the verification record](docs/VERIFICATION.md).
 
 [text-form.nflash](examples/text-form.nflash) combines native browser text entry, UTF-16 selection, user-only input filters/length limits, AS3 events, AS2 Selection and a saved profile. Input controls follow stage transforms and vector clips; browser text shaping and the active DOM control’s foreground layering remain explicit limitations.
 

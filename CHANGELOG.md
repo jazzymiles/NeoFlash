@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Independently verified frozen 5395375 filters (`FILTERS-HTML5-20261027T0844Z`): visible whole-card styles, copied settings and bounded refusals, unchanged shared bitmap pixels, observed source hits/halo exclusion and clear/restore/Restart, with one common browser regression. Native/filtered editing, clip composition, HiDPI/cache bounds and exact Flash raster behavior remain unverified.
+
+- Added a coordinated source-function family: AS3 scalar optional defaults and rest, supplied arguments, Function.call/apply and shared project signatures; AS2 retains separate argument and receiver behavior. One command workflow connects callbacks to visible scene state and Restart. Full VM global scope, reflection and generalized default expressions remain separate work.
+
 - Independently checked c10e19e text forms (`FORMS-HTML5-20261027T0811Z`): real typing/paste, bounded restrict/maxChars, focus/AS2 Selection, cancelled input, saved reload/Restart and active-edit reset. The malformed-AMF catch(Error) regression now catches generic Error and continues; EOFError/full Flash fidelity is not claimed. The initial four-ready/one-preparation-failure batch and targeted corrected export remain separate.
 
 - Added ordered display-object filters across AS2/AS3: Blur, Glow, DropShadow and ColorMatrix, copied filter values, shared Rust RGBA processing and nested subtree rendering with deferred owner clipping. One gallery combines styles, shared bitmap sources, legacy input, clear/restore and Restart.

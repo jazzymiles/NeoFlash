@@ -798,13 +798,19 @@ fn parse_class(
                 ));
             }
             if kind == MethodKind::Get
-                && (!f.params.is_empty() || f.returns.as_deref() == Some("void"))
+                && (!f.params.is_empty()
+                    || f.rest.is_some()
+                    || f.returns.as_deref() == Some("void"))
             {
                 return Err(p.error("A getter requires no parameters and cannot return void."));
             }
             if kind == MethodKind::Set {
-                if f.params.len() != 1 || f.returns.as_deref().is_some_and(|ty| ty != "void") {
-                    return Err(p.error("A setter requires exactly one parameter and a void or omitted return type."));
+                if f.params.len() != 1
+                    || f.rest.is_some()
+                    || f.defaults.iter().any(Option::is_some)
+                    || f.returns.as_deref().is_some_and(|ty| ty != "void")
+                {
+                    return Err(p.error("A setter requires exactly one required parameter, no rest parameter, and a void or omitted return type."));
                 }
                 f.returns = Some("void".into());
             }
@@ -814,9 +820,10 @@ fn parse_class(
             if f.params
                 .iter()
                 .map(|(name, _)| name)
+                .chain(f.rest.iter())
                 .collect::<BTreeSet<_>>()
                 .len()
-                != f.params.len()
+                != f.params.len() + usize::from(f.rest.is_some())
             {
                 return Err(p.error("Duplicate parameter name in method signature."));
             }
@@ -863,6 +870,10 @@ fn prefix(mut e: Diagnostic, path: &str) -> Diagnostic {
 #[derive(Clone, PartialEq, Eq)]
 struct Signature {
     params: Vec<String>,
+    optional: Vec<bool>,
+    // This bounded source profile requires the same rest shape. Default values
+    // themselves are not part of override/interface signature compatibility.
+    rest: bool,
     returns: String,
 }
 #[derive(Clone)]
@@ -880,6 +891,13 @@ fn method_contract(class: &Class, method: &Method) -> MethodContract {
                 .iter()
                 .map(|(_, ty)| canonical(ty.as_deref()))
                 .collect(),
+            optional: method
+                .function
+                .defaults
+                .iter()
+                .map(Option::is_some)
+                .collect(),
+            rest: method.function.rest.is_some(),
             returns: canonical(method.function.returns.as_deref()),
         },
         is_public: class.header.is_interface || method.is_public,
@@ -1543,7 +1561,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
                 )),
             );
         }
-        let body = vec![Stmt::Function(f.clone())];
+        let body = vec![Stmt::Function(Box::new(f.clone()))];
         let analysis = scope::Analysis::with_context(&c.header.script, &body, context)?;
         let emitter = Emitter {
             as3,
