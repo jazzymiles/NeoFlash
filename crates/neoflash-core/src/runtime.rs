@@ -70,6 +70,8 @@ struct Clock {
 /// leaf through its ancestors. These are NeoFlash's defined initial semantics.
 pub struct Player {
     pub(crate) graph: crate::runtime_graph::RuntimeGraph,
+    source_root: Option<Id>,
+    pub(crate) runtime_scripts: VecDeque<RuntimeScriptDispatch>,
     clocks: HashMap<Vec<Id>, Clock>,
     overrides: HashMap<Vec<Id>, DisplayPatch>,
     previous: HashMap<Vec<Id>, Node>,
@@ -77,14 +79,20 @@ pub struct Player {
     next_lifetime: u64,
     scripts: VecDeque<ScriptDispatch>,
     playing: bool,
-    budget: usize,
-    overflowed: bool,
+    pub(crate) budget: usize,
+    pub(crate) overflowed: bool,
 }
 
 impl Player {
     pub fn new(project: &Project) -> Self {
+        Self::with_source_root(project, None)
+    }
+
+    pub(crate) fn with_source_root(project: &Project, source_root: Option<Id>) -> Self {
         let mut player = Self {
             graph: crate::runtime_graph::RuntimeGraph::default(),
+            source_root,
+            runtime_scripts: VecDeque::new(),
             clocks: HashMap::new(),
             overrides: HashMap::new(),
             previous: HashMap::new(),
@@ -99,6 +107,10 @@ impl Player {
         player
     }
 
+    fn root_id<'a>(&'a self, project: &'a Project) -> &'a str {
+        self.source_root.as_deref().unwrap_or(&project.root)
+    }
+
     pub fn reset(&mut self, project: &Project) {
         self.graph.reset();
         self.clocks.clear();
@@ -106,13 +118,14 @@ impl Player {
         self.previous.clear();
         self.lifetimes.clear();
         self.scripts.clear();
+        self.runtime_scripts.clear();
         self.playing = true;
         self.budget = SCRIPT_BUDGET;
         self.overflowed = false;
         self.clocks.insert(
             vec![],
             Clock {
-                symbol_id: project.root.clone(),
+                symbol_id: self.root_id(project).into(),
                 frame: 0,
                 playing: true,
             },
@@ -135,10 +148,14 @@ impl Player {
     }
 
     pub fn tick(&mut self, project: &Project) {
+        self.tick_budgeted(project, SCRIPT_BUDGET);
+    }
+
+    pub(crate) fn tick_budgeted(&mut self, project: &Project, budget: usize) {
         if !self.playing {
             return;
         }
-        self.budget = SCRIPT_BUDGET;
+        self.budget = budget;
         self.overflowed = false;
         let mut entered = HashSet::new();
         for (path, clock) in &mut self.clocks {
@@ -150,6 +167,7 @@ impl Player {
             }
         }
         self.refresh(project, true, &entered);
+        self.tick_linked(project);
     }
 
     /// Explicit preview seek resets nested runtime state. Authoring scrub uses evaluate().
@@ -160,15 +178,16 @@ impl Player {
         self.previous.clear();
         self.lifetimes.clear();
         self.scripts.clear();
+        self.runtime_scripts.clear();
         self.budget = SCRIPT_BUDGET;
         self.overflowed = false;
         let count = project
-            .symbol(&project.root)
+            .symbol(self.root_id(project))
             .map_or(1, |s| s.timeline.frame_count.max(1));
         self.clocks.insert(
             vec![],
             Clock {
-                symbol_id: project.root.clone(),
+                symbol_id: self.root_id(project).into(),
                 frame: frame.min(count - 1),
                 playing: true,
             },
@@ -179,7 +198,7 @@ impl Player {
     fn snapshot(&self, project: &Project) -> Evaluation {
         snapshot(
             project,
-            &project.root,
+            self.root_id(project),
             self.frame(),
             &|path| Some(self.clocks.get(path).map_or(0, |c| c.frame)),
             &|path| self.overrides.get(path).cloned(),
@@ -212,7 +231,7 @@ impl Player {
                     None if matches!(node.kind, Some(ElementKind::Text { .. })) => "text",
                     None => "shape",
                 };
-                let class_name = if node.path.is_empty() {
+                let class_name = if node.path.is_empty() && self.source_root.is_none() {
                     project.document_class.clone()
                 } else {
                     symbol.and_then(|s| s.class_name.clone())
@@ -370,7 +389,7 @@ impl Player {
         self.snapshot(project)
     }
 
-    fn enqueue(&mut self, target_path: Vec<Id>, event: ScriptEvent, script: Script) {
+    pub(crate) fn enqueue(&mut self, target_path: Vec<Id>, event: ScriptEvent, script: Script) {
         if script.source.trim().is_empty() {
             return;
         }
@@ -519,6 +538,24 @@ impl Player {
                             handler.script.clone(),
                         );
                     }
+                }
+            }
+        }
+    }
+
+    pub(crate) fn placement_accessibility(&self, path: &[Id]) -> Option<&Accessibility> {
+        self.previous.get(path)?.accessibility.as_ref()
+    }
+    pub(crate) fn queue_object_click(&mut self, project: &Project, path: &[Id]) {
+        if let Some(node) = self
+            .snapshot(project)
+            .nodes
+            .into_iter()
+            .find(|node| node.path == path)
+        {
+            for handler in node.scripts {
+                if handler.event == ObjectEvent::Click {
+                    self.enqueue(node.path.clone(), ScriptEvent::Click, handler.script);
                 }
             }
         }

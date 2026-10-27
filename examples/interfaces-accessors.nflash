@@ -1,0 +1,281 @@
+{
+  "format_version": 2,
+  "name": "Interfaces and accessor components",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    34,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Interfaces and accessor components",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 42,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / AS3 INTERFACES + GET / SET",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 86,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "A contract. Two independent models.",
+                      "font_family": "Arial",
+                      "font_size": 34,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 132,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Click the stage: a typed interface updates one model through its inherited properties.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 48,
+                      "y": 235,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Preparing typed components…",
+                      "font_family": "Arial",
+                      "font_size": 27,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "measurements",
+                    "name": "measurements",
+                    "transform": {
+                      "x": 48,
+                      "y": 292,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Click the stage to increment the bounded model.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        153,
+                        204,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 500,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Public project interfaces • typed accessors • inheritance • bound methods",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "contractInfo",
+                    "name": "contractInfo",
+                    "transform": {
+                      "x": 48,
+                      "y": 353,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "One interface contract. Two independent instances.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "lifecycle",
+                    "name": "lifecycle",
+                    "transform": {
+                      "x": 48,
+                      "y": 399,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "The second model stays independent. Restart resets both.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "source-0",
+      "path": "app/IReadable.as",
+      "language": "action_script3",
+      "source": "package app {\n    public interface IReadable {\n        function get value():int;\n        function get label():String;\n    }\n}\n"
+    },
+    {
+      "id": "source-1",
+      "path": "app/IResettable.as",
+      "language": "action_script3",
+      "source": "package app {\n    public interface IResettable { function reset():void; }\n}\n"
+    },
+    {
+      "id": "source-2",
+      "path": "app/ICounter.as",
+      "language": "action_script3",
+      "source": "package app {\n    public interface ICounter extends IReadable, IResettable {\n        function set value(next:int):void;\n        function increment(amount:int):int;\n    }\n}\n"
+    },
+    {
+      "id": "source-3",
+      "path": "app/Counter.as",
+      "language": "action_script3",
+      "source": "package app {\n    public class Counter implements ICounter {\n        public var stored:int = 0;\n        public var reads:int = 0;\n        public var writes:int = 0;\n        public static var createdStore:int = 0;\n        public function Counter(seed:int) { value = seed; createdStore++; }\n        public function get value():int { reads++; return stored; }\n        public function set value(next:int):void { writes++; stored = next; }\n        public function get label():String { return \"counter:\" + stored; }\n        public function set command(next:int):void { value = next; }\n        public static function get created():int { return createdStore; }\n        public static function set created(next:int):void { createdStore = next; }\n        public function increment(amount:int):int { value += amount; return value; }\n        public function post():int { return value++; }\n        public function reset():void { value = 0; }\n        public function accept(other:ICounter):ICounter { return other; }\n    }\n}\n"
+    },
+    {
+      "id": "source-4",
+      "path": "app/BoundedCounter.as",
+      "language": "action_script3",
+      "source": "package app {\n    public class BoundedCounter extends Counter {\n        public function BoundedCounter(seed:int) { super(seed); }\n        public override function set value(next:int):void {\n            super.value = next < 0 ? 0 : next > 9 ? 9 : next;\n        }\n        public override function get label():String { return \"bounded:\" + super.value; }\n    }\n}\n"
+    },
+    {
+      "id": "source-5",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n    import flash.display.MovieClip;\n    import flash.events.MouseEvent;\n    public class Main extends MovieClip {\n        public var model:ICounter;\n        public var other:ICounter;\n        public var clicks:int = 0;\n        public function Main() {\n            super(); stop();\n            model = new BoundedCounter(2);\n            other = new Counter(7);\n            addEventListener(MouseEvent.CLICK, clicked);\n            render();\n            trace(\"interfaces ready\", Counter.created, model.value, other.value);\n        }\n        public function clicked(event:MouseEvent):void {\n            clicks++;\n            model.increment(1);\n            render();\n            trace(\"interfaces click\", clicks, model.value, other.value);\n        }\n        public function render():void {\n            status.text = model.label + \" | other:\" + other.value;\n            measurements.text = \"Clicks: \" + clicks + \" | model bound: 0…9 | created: \" + Counter.created;\n        }\n    }\n}\n"
+    }
+  ]
+}

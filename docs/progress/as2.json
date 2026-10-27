@@ -196,7 +196,7 @@
       "title": "Classes, inheritance and interfaces",
       "status": "partial",
       "scope": "One qualified class per matching source path; public/default instance/static members, scalar prototype defaults, same-dialect inheritance/super, shared unbound writable methods and constructor-created objects. Existing instances observe prototype method replacement.",
-      "limitations": "Interfaces/accessors, nonpublic access control, non-scalar inline defaults, mixed-dialect inheritance, class-as-function casts and unsupported super value extraction diagnose. Complete prototype/reflection, construction and static initialization order are pending. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
+      "limitations": "Interfaces/accessors, nonpublic access control, non-scalar inline defaults, mixed-dialect inheritance, class-as-function casts and unsupported super value extraction diagnose. Complete prototype/reflection, construction and static initialization order are pending. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified. The linked-movieclips ordinary-export/real-WASM host scenario passes; representative interactions and Restart also passed in the shared in-app-browser batch; VERIFICATION.md distinguishes visible evidence from host-only checks.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "docs/COMPATIBILITY.md",
@@ -207,15 +207,20 @@
         "crates/neoflash-script/tests/as2-project-input.mjs",
         "examples/as2-project-input.nflash",
         "docs/VERIFICATION.md",
-        "docs/progress/actionscript-audit.json"
+        "docs/progress/actionscript-audit.json",
+        "crates/neoflash-core/src/runtime_graph/linked.rs",
+        "crates/neoflash-core/tests/dynamic_display.rs",
+        "web/display.js",
+        "web/tests/display-family.test.cjs",
+        "examples/linked-movieclips.nflash"
       ]
     },
     {
       "id": "as2-imports",
       "title": "Imports and project linking",
       "status": "partial",
-      "scope": "Embedded AS2 sources support exact imports, same-package/qualified resolution and linked authored symbols. Class source paths match qualified names; the root document_class option is a NeoFlash extension.",
-      "limitations": "Wildcard and mixed-dialect imports, ambient filesystem/module loading and SWC dependencies are unsupported. Source compilation does not add FLA/XFL linkage extraction or a complete legacy linker.",
+      "scope": "Embedded AS2 sources support exact imports, same-package/qualified resolution and linked authored symbols. Class source paths match qualified names; the root document_class option is a NeoFlash extension. Explicit library linkage IDs connect runtime creation to authored MovieClip symbols; exported linked classes must ultimately extend MovieClip.",
+      "limitations": "Wildcard and mixed-dialect imports, ambient filesystem/module loading and SWC dependencies are unsupported. Source compilation does not add FLA/XFL linkage extraction or a complete legacy linker. The linked-movieclips ordinary-export/real-WASM host scenario passes; representative interactions and Restart also passed in the shared in-app-browser batch; VERIFICATION.md distinguishes visible evidence from host-only checks.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/src/actionscript/scope.rs",
@@ -225,7 +230,13 @@
         "crates/neoflash-script/src/actionscript/project-runtime.js",
         "crates/neoflash-script/tests/project-execute.mjs",
         "crates/neoflash-script/tests/as2-project-input.mjs",
-        "examples/as2-project-input.nflash"
+        "examples/as2-project-input.nflash",
+        "crates/neoflash-core/src/runtime_graph/linked.rs",
+        "crates/neoflash-core/tests/dynamic_display.rs",
+        "web/display.js",
+        "web/tests/display-family.test.cjs",
+        "examples/linked-movieclips.nflash",
+        "docs/VERIFICATION.md"
       ]
     },
     {
@@ -336,8 +347,8 @@
       "id": "as2-timeline",
       "title": "MovieClip and timelines",
       "status": "partial",
-      "scope": "play/stop, gotoAndPlay/gotoAndStop and nextFrame/prevFrame return undefined; current/total frames, named children and independent nested clocks remain available. AS2 labels use ASCII folding, first duplicate match and missing-label no-op; bounded numeric strings take precedence. Linked AS2 MovieClip classes retain the same captured timeline bridge and per-placement lifetime.",
-      "limitations": "This is a limited MovieClip facade; complete construction/re-entry, scenes, dynamic display lists and the Flash lifecycle are not implemented. Native goto aliases and complete historical numeric and lookup rules are unsupported. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
+      "scope": "play/stop, gotoAndPlay/gotoAndStop and nextFrame/prevFrame return undefined; current/total frames, named children and independent nested clocks remain available. AS2 labels use ASCII folding, first duplicate match and missing-label no-op; bounded numeric strings take precedence. Linked AS2 MovieClip classes retain the same captured timeline bridge and per-placement lifetime. Explicitly exported MovieClip symbols provide independent scoped authored timelines, nested clocks/scripts and linked class state; attachMovie resolves an exact export identifier at append-only depth with a bounded data-only initObject.",
+      "limitations": "This is a limited MovieClip facade; complete construction/re-entry, scenes, unrestricted authored-list mutation and the Flash lifecycle are not implemented. Native goto aliases and complete historical numeric and lookup rules are unsupported. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified. The linked-movieclips ordinary-export/real-WASM host scenario passes; representative interactions and Restart also passed in the shared in-app-browser batch; VERIFICATION.md distinguishes visible evidence from host-only checks.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -356,15 +367,18 @@
         "crates/neoflash-script/tests/as2-project-input.mjs",
         "examples/as2-project-input.nflash",
         "web/legacy-input.js",
-        "docs/progress/actionscript-audit.json"
+        "docs/progress/actionscript-audit.json",
+        "crates/neoflash-core/src/runtime_graph/linked.rs",
+        "crates/neoflash-core/tests/dynamic_display.rs",
+        "examples/linked-movieclips.nflash"
       ]
     },
     {
       "id": "as2-display",
       "title": "Display properties",
       "status": "partial",
-      "scope": "Position, scale, alpha, bounded finite rotation readback, visibility, root/parent and AS2 aliases including _name/_width/_height. The shared facade supplies name lookup, transformed bounds/coordinates and supported nonrotated dimension changes. Runtime createEmptyMovieClip/removeMovieClip and append-only getNextHighestDepth share stable identities with the dynamic graph.",
-      "limitations": "Full MovieClip APIs, general depth management, masks/filters and TextField/Button contracts remain incomplete. Rotated dimension writes and noninvertible coordinate conversions diagnose; legacy rotation/visibility coercion is not full AVM1 conformance. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified. Authored children cannot be moved/removed; detached runtime objects remain allocated until Restart, with a 4,096-object bound. attachMovie and linked dynamic timelines remain unsupported. The combined dynamic-display browser workflow and Restart passed.",
+      "scope": "Position, scale, alpha, bounded finite rotation readback, visibility, root/parent and AS2 aliases including _name/_width/_height. The shared facade supplies name lookup, transformed bounds/coordinates and supported nonrotated dimension changes. Runtime createEmptyMovieClip/removeMovieClip and append-only getNextHighestDepth share stable identities with the dynamic graph. Explicitly exported MovieClip symbols provide independent scoped authored timelines, nested clocks/scripts and linked class state; attachMovie resolves an exact export identifier at append-only depth with a bounded data-only initObject.",
+      "limitations": "Full MovieClip APIs, general depth management, masks/filters and TextField/Button contracts remain incomplete. Rotated dimension writes and noninvertible coordinate conversions diagnose; legacy rotation/visibility coercion is not full AVM1 conformance. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified. Authored children cannot be moved/removed; detached runtime objects remain allocated until Restart, with a 4,096-object bound. General Flash depth replacement and full linked construction order remain unsupported. The combined dynamic-display browser workflow and Restart passed. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. The linked-movieclips ordinary-export/real-WASM host scenario passes; representative interactions and Restart also passed in the shared in-app-browser batch; VERIFICATION.md distinguishes visible evidence from host-only checks.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -382,7 +396,10 @@
         "crates/neoflash-core/src/runtime_graphics.rs",
         "crates/neoflash-web/src/lib.rs",
         "web/events.js",
-        "examples/dynamic-display.nflash"
+        "examples/dynamic-display.nflash",
+        "crates/neoflash-core/src/runtime_graph/linked.rs",
+        "crates/neoflash-core/tests/dynamic_display.rs",
+        "examples/linked-movieclips.nflash"
       ]
     },
     {
@@ -411,7 +428,7 @@
       "title": "Programmatic drawing",
       "status": "partial",
       "scope": "Runtime MovieClip beginFill/endFill/lineStyle/moveTo/lineTo/curveTo/clear use solid paths and percentage alpha through the shared Rust scene.",
-      "limitations": "Authored-owner drawing, hairlines, gradients, bitmap fills, non-round stroke modes, masks/filters and full legacy paint semantics remain unsupported. Graphics state is runtime-only and bounded to 100,000 commands/runs; the combined pointer/keyboard/dynamic-display workflow and Restart passed in the in-app browser.",
+      "limitations": "Authored-owner drawing, hairlines, gradients, bitmap fills, non-round stroke modes, masks/filters and full legacy paint semantics remain unsupported. Graphics state is runtime-only and bounded to 100,000 commands/runs; the combined pointer/keyboard/dynamic-display workflow and Restart passed in the in-app browser. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",
@@ -422,7 +439,9 @@
         "web/display.js",
         "web/events.js",
         "web/tests/display-family.test.cjs",
-        "examples/dynamic-display.nflash"
+        "examples/dynamic-display.nflash",
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -430,7 +449,7 @@
       "title": "TextField and text APIs",
       "status": "partial",
       "scope": "Existing authored Text elements now have live text/textColor, UTF-16 length, append/replace, line queries and partial Canvas text metrics through the shared runtime. Overrides leave authored content unchanged and clear with placement removal/replacement or Restart.",
-      "limitations": "Plain string values and RGB integers only; 1 MiB UTF-8 text and bounded UTF-16 replacement ranges preserving complete characters. No rich formatting/HTML, wrapping, input/selection, embedded fonts or dynamic TextField creation. Canvas width and 1.2×font-size line height are not full Flash layout. Shared helpers do not establish every historical AS2 method. The combined collection/text browser scenario passed; this does not establish every method.",
+      "limitations": "Plain string values and RGB integers only; 1 MiB UTF-8 text and bounded UTF-16 replacement ranges preserving complete characters. No rich formatting/HTML, wrapping, input/selection, embedded fonts or dynamic TextField creation. Canvas width and 1.2\u00d7font-size line height are not full Flash layout. Shared helpers do not establish every historical AS2 method. The combined collection/text browser scenario passed; this does not establish every method.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",

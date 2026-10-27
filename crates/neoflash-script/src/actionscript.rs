@@ -13,6 +13,7 @@ mod scope;
 struct CompileContext {
     types: std::collections::BTreeMap<String, String>,
     functions: std::collections::BTreeMap<String, String>,
+    interfaces: std::collections::BTreeSet<String>,
     members: std::collections::BTreeMap<String, Option<String>>,
     static_members: std::collections::BTreeMap<String, String>,
     static_method: bool,
@@ -745,8 +746,31 @@ impl<'a> Frontend<'a> {
         Ok(Some(name))
     }
     fn function(&mut self, declaration: bool) -> Result<Function, Diagnostic> {
+        self.project_function(declaration, false, false)
+            .map(|(function, _)| function)
+    }
+    fn project_function(
+        &mut self,
+        declaration: bool,
+        member: bool,
+        signature_only: bool,
+    ) -> Result<(Function, Option<String>), Diagnostic> {
         let offset = self.token().offset;
         self.expect("function")?;
+        let accessor = if member
+            && (self.is("get") || self.is("set"))
+            && matches!(
+                self.tokens.get(self.pos + 1).map(|token| &token.kind),
+                Some(Kind::Ident(_))
+            ) {
+            let kind = self.ident()?;
+            if self.script.language != ScriptLanguage::ActionScript3 {
+                return Err(self.error("Project get/set accessors currently require AS3; AS2 accessor semantics remain unsupported."));
+            }
+            Some(kind)
+        } else {
+            None
+        };
         let name = if declaration || !self.is("(") {
             let name = self.ident()?;
             if invalid_binding(&name, !declaration || self.function_depth > 0) {
@@ -779,23 +803,32 @@ impl<'a> Frontend<'a> {
         }
         self.expect(")")?;
         let returns = self.annotation(true)?;
-        self.expect("{")?;
         let id = self.next_function;
         self.next_function += 1;
-        let outer_controls = std::mem::take(&mut self.controls);
-        self.function_depth += 1;
-        let body = self.statements(true)?;
-        self.function_depth -= 1;
-        self.controls = outer_controls;
-        Ok(Function {
-            id,
-            offset,
-            name,
-            params,
-            returns,
-            body,
-            declaration,
-        })
+        let body = if signature_only {
+            self.expect(";")?;
+            Vec::new()
+        } else {
+            self.expect("{")?;
+            let outer_controls = std::mem::take(&mut self.controls);
+            self.function_depth += 1;
+            let body = self.statements(true)?;
+            self.function_depth -= 1;
+            self.controls = outer_controls;
+            body
+        };
+        Ok((
+            Function {
+                id,
+                offset,
+                name,
+                params,
+                returns,
+                body,
+                declaration,
+            },
+            accessor,
+        ))
     }
     fn expression(&mut self, min_bp: u8) -> Result<Expr, Diagnostic> {
         self.enter()?;
@@ -1319,11 +1352,10 @@ impl Emitter<'_> {
         {
             return format!("__nfLegacy.{name}");
         }
-        if !self.as3
-            && self
-                .analysis
-                .resolve(self.scope, name)
-                .is_some_and(|(id, binding)| id == 0 && binding.kind == scope::BindingKind::Field)
+        if self
+            .analysis
+            .resolve(self.scope, name)
+            .is_some_and(|(id, binding)| id == 0 && binding.kind == scope::BindingKind::Field)
             && let Some(owner) = self.analysis.context.static_members.get(name)
         {
             return format!("__nfProgram.type({owner:?}).{name}");

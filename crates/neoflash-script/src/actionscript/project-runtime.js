@@ -1,10 +1,11 @@
 // Per-publication class registry. No ambient language switch or global patches.
 const __nfProgram = (() => {
-    const definitions = new Map(), identities = new WeakMap(), fieldStates = new WeakMap();
+    const definitions = new Map(), interfaces = new Map(), identities = new WeakMap(), fieldStates = new WeakMap();
+    const accessorStates = new WeakMap();
     const initialized = new WeakMap(), superMethods = new WeakMap(), failed = new WeakMap();
     const builtins = { Object, Array: __nfArrayClass(true), ...__nfBuiltins };
     function type(name) {
-        const value = definitions.get(name)?.facade ?? builtins[name];
+        const value = definitions.get(name)?.facade ?? interfaces.get(name) ?? builtins[name];
         if (value === undefined) throw new Error(`Project type ${name} has no runtime implementation.`);
         return value;
     }
@@ -13,9 +14,10 @@ const __nfProgram = (() => {
         let current = identities.get(value);
         while (current) {
             if (current === name) return true;
+            if (definitions.get(current)?.interfaces.includes(name)) return true;
             current = definitions.get(current)?.base;
         }
-        if (definitions.has(name)) return false;
+        if (definitions.has(name) || interfaces.has(name)) return false;
         const ctor = type(name);
         if (typeof ctor.__nfIs === 'function') return ctor.__nfIs(value);
         if (name === 'Object') return true;
@@ -68,6 +70,21 @@ const __nfProgram = (() => {
                 writable: definition.dialect === 'as2', value: definition.dialect === 'as2' ? method.fn : method.fn.bind(receiver) });
         }
     }
+    function accessorDescriptor(name, pair, receiver) {
+        return { configurable: true, enumerable: false,
+            get: pair.get ? () => Reflect.apply(pair.get, receiver, []) : () => { throw new TypeError(`AS3 property ${name} is write-only.`); },
+            set: pair.set ? value => Reflect.apply(pair.set, receiver, [value]) : () => { throw new TypeError(`AS3 property ${name} is read-only.`); } };
+    }
+    function installAccessors(receiver, definition, isStatic) {
+        let slots = accessorStates.get(receiver);
+        if (!slots) accessorStates.set(receiver, slots = new Map());
+        for (const accessor of definition.accessors.filter(accessor => accessor.static === isStatic)) {
+            const inherited = slots.get(accessor.name);
+            const pair = { get: accessor.get || inherited?.get, set: accessor.set || inherited?.set };
+            slots.set(accessor.name, pair);
+            Object.defineProperty(receiver, accessor.name, accessorDescriptor(accessor.name, pair, receiver));
+        }
+    }
     function invokeConstructor(name, receiver, args) {
         let seen = initialized.get(receiver);
         if (!seen) initialized.set(receiver, seen = new Set());
@@ -93,14 +110,21 @@ const __nfProgram = (() => {
         if (!cache) superMethods.set(receiver, cache = new Map());
         if (cache.has(name)) return cache.get(name);
         const view = Object.create(null);
+        const accessors = new Map();
         let base = definitions.get(name).base;
         while (definitions.has(base)) {
             const definition = definitions.get(base);
             for (const method of definition.methods.filter(method => !method.static)) {
                 if (!Object.hasOwn(view, method.name)) view[method.name] = method.fn.bind(receiver);
             }
+            for (const accessor of definition.accessors.filter(accessor => !accessor.static)) {
+                const pair = accessors.get(accessor.name) || {};
+                pair.get ||= accessor.get; pair.set ||= accessor.set;
+                accessors.set(accessor.name, pair);
+            }
             base = definition.base;
         }
+        for (const [key,pair] of accessors) Object.defineProperty(view,key,accessorDescriptor(key,pair,receiver));
         if (base) {
             const prototype = type(base).prototype;
             if (prototype) for (const key of Object.getOwnPropertyNames(prototype)) {
@@ -125,6 +149,7 @@ const __nfProgram = (() => {
             else {
                 for (const definition of chain(name)) installFields(receiver, definition, false);
                 for (const definition of chain(name)) installMethods(receiver, definition, false);
+                for (const definition of chain(name)) installAccessors(receiver, definition, false);
             }
             invokeConstructor(name, receiver, args);
         } catch (error) {
@@ -134,6 +159,7 @@ const __nfProgram = (() => {
         return receiver;
     }
     function construct(name, args = []) {
+        if (interfaces.has(name)) throw new TypeError(`Interface ${name} cannot be constructed.`);
         if (!definitions.has(name)) {
             const ctor = type(name);
             if (typeof ctor !== 'function') throw new TypeError(`${name} is not constructible.`);
@@ -152,13 +178,22 @@ const __nfProgram = (() => {
         }
         return attach(name, receiver, args);
     }
-    function define(name, base, fields, methods, ctor, dialect = 'as3') {
+    function defineInterface(name) {
+        const facade = function(value) {
+            if (new.target) throw new TypeError(`Interface ${name} cannot be constructed.`);
+            if (arguments.length !== 1) throw new TypeError(`Interface ${name} conversion expects one value.`);
+            return cast(name,value);
+        };
+        Object.defineProperty(facade, Symbol.hasInstance, { value: value => is(value,name) });
+        interfaces.set(name,facade);
+    }
+    function define(name, base, fields, methods, ctor, dialect = 'as3', accessors = [], implemented = []) {
         const facade = function(...args) {
             if (dialect === 'as2' && !new.target) throw new TypeError('AS2 class-as-function casts are not supported; use new or the existing instance.');
             return construct(name, args);
         };
         Object.defineProperty(facade, Symbol.hasInstance, { value: value => is(value, name) });
-        const definition = { name, base, fields, methods, ctor, facade, dialect };
+        const definition = { name, base, fields, methods, ctor, facade, dialect, accessors, interfaces:implemented };
         definitions.set(name, definition);
         if (dialect === 'as2') {
             const parent = base ? type(base) : Object;
@@ -176,9 +211,10 @@ const __nfProgram = (() => {
         for (const definition of definitions.values()) {
             installFields(definition.facade, definition, true);
             installMethods(definition.facade, definition, true);
+            installAccessors(definition.facade, definition, true);
         }
         for (const definition of definitions.values()) initializeFields(definition.name, definition.facade, true);
     }
-    return Object.freeze({ type, is, cast, define, attach, construct, superConstruct, superView, initializeFields, initializeStatics,
+    return Object.freeze({ type, is, cast, define, defineInterface, attach, construct, superConstruct, superView, initializeFields, initializeStatics,
         dialect:name=>definitions.get(name)?.dialect });
 })();

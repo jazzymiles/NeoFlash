@@ -25,4 +25,4 @@ Progress is tracked in the [reviewed capability ledger](progress/README.md), wit
 
 Independent a3fedc3 acceptance verifies the bounded AS2 class/input family and closes the observed shared mouse-click loss. The preceding a05a08d data-to-text acceptance remains separately recorded. New geometry/timer work inherits neither result; see VERIFICATION.md for the exact snapshots.
 
-Independent ed3c39b acceptance now confirms the bounded geometry/timer workflow, adjacent diagnostics and pending-session cleanup on Restart. Dynamic display/Graphics and ByteArray remain the next unverified families.
+Independent ed3c39b acceptance confirms bounded geometry/timers; independent 2b5deff acceptance now adds runtime-created solid Graphics, stable dynamic identity/input and bounded binary-to-text workflows. The next integrated source increment adds explicit linked dynamic MovieClips/attachMovie and public AS3 accessors/project interfaces; its verification is recorded separately. Richer text/resources and remaining typed/owner semantics follow. External binary interoperability and full Flash lifecycle conformance remain separate evidence requirements.

@@ -25,7 +25,8 @@ pub use runtime::{
 };
 pub use runtime_graph::{
     DisplayError, DisplayEvent, DisplayMutation, DynamicKind, MAX_DYNAMIC_OBJECTS, MutationResult,
-    ObjectRef, RuntimeAccessibleNode, RuntimeDrawItem, RuntimeObject, RuntimeSnapshot,
+    ObjectRef, RuntimeAccessibleNode, RuntimeDrawItem, RuntimeObject, RuntimeScriptDispatch,
+    RuntimeSnapshot,
 };
 pub use runtime_graphics::{GraphicsOp, MAX_GRAPHICS_COMMANDS, MAX_GRAPHICS_OPS};
 pub use validation::{ProjectError, ValidationIssue, validate};

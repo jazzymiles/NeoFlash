@@ -100,6 +100,7 @@ fn as2_resolves_only_the_target_timeline() {
     let mut project = fixture();
     project.symbols.push(Symbol {
         class_name: None,
+        linkage_id: None,
         id: "child-symbol".into(),
         name: "Child".into(),
         kind: SymbolKind::MovieClip,

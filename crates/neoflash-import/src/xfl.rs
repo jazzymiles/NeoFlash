@@ -662,6 +662,7 @@ impl Parser<'_> {
             );
             return Symbol {
                 class_name: None,
+                linkage_id: None,
                 id,
                 name: node.attribute("name").unwrap_or("Scene 1").into(),
                 kind,
@@ -888,6 +889,7 @@ impl Parser<'_> {
         timeline.layers.reverse();
         Symbol {
             class_name: None,
+            linkage_id: None,
             id,
             name: node.attribute("name").unwrap_or("Scene 1").into(),
             kind,

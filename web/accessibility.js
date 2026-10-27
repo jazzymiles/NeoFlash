@@ -95,6 +95,7 @@
     }
     return bounds && Object.values(bounds).every(Number.isFinite) ? bounds : null;
   }
+  const referenceKey=reference=>'ref:'+JSON.stringify(reference);
   function sceneBoundsByPath(scene, width, height, measureText) {
     const result=new Map();
     for (const item of scene) {
@@ -102,9 +103,14 @@
       if (!child) continue;
       const clipped={left:Math.max(0,child.left),top:Math.max(0,child.top),right:Math.min(width,child.right),bottom:Math.min(height,child.bottom)};
       if (!(clipped.right>clipped.left && clipped.bottom>clipped.top)) continue;
-      // Each leaf is measured once; bounded ancestry aggregation avoids targets × scene work.
-      for (let depth=0; depth<=item.instance_path.length; depth++) {
-        const key=JSON.stringify(item.instance_path.slice(0,depth));
+      // Stable object references distinguish identical relative paths in linked
+      // symbol namespaces; ancestry comes from the authoritative runtime graph.
+      for(const reference of item.ancestry_refs||(item.owner_ref?[item.owner_ref]:[])){
+        const key=referenceKey(reference);result.set(key,union(result.get(key),clipped));
+      }
+      // Legacy path-only projects/tests retain their original lookup contract.
+      for (let depth=0; depth<=(item.instance_path||[]).length; depth++) {
+        const key=JSON.stringify((item.instance_path||[]).slice(0,depth));
         result.set(key,union(result.get(key),clipped));
       }
     }
@@ -120,9 +126,9 @@
       const doc=this.container.ownerDocument, previouslyFocused=doc.activeElement, wanted=[];
       const boundsByPath=sceneBoundsByPath(scene,project.width,project.height,measureText);
       for (const node of nodes) {
-        const bounds=boundsByPath.get(JSON.stringify(node.instance_path));
+        const bounds=boundsByPath.get(node.owner_ref?referenceKey(node.owner_ref):JSON.stringify(node.instance_path));
         if (!bounds) continue;
-        const key=JSON.stringify(node.instance_path)+'\u0000'+node.lifetime_id, metadata=node.accessibility;
+        const key=node.owner_ref?referenceKey(node.owner_ref):JSON.stringify(node.instance_path)+'\u0000'+node.lifetime_id, metadata=node.accessibility;
         let record=this.records.get(key);
         if (record && record.role!==metadata.role) { record.element.remove(); this.records.delete(key); record=null; }
         if (!record) {

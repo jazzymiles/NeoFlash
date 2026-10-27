@@ -33,7 +33,7 @@
       "category": "editor",
       "title": "Classic workspace",
       "status": "partial",
-      "scope": "Stage, tools, timeline, library, Properties and Actions; Light/Dark themes, saved panel layout and detached Tools/Timeline/Actions. Actions now includes Sources editing, source import/removal, linkage fields and source-specific project-check feedback.",
+      "scope": "Stage, tools, timeline, library, Properties and Actions; Light/Dark themes, saved panel layout and detached Tools/Timeline/Actions. Actions now includes Sources editing, source import/removal, linkage fields and source-specific project-check feedback. MovieClip export identifiers use the existing source-panel undo and validation flow.",
       "limitations": "Native Sources editing/feedback/save/reopen acceptance is pending. Drag-to-dock, tabs/splits and named presets are missing; VoiceOver/IME and multiple monitors are not fully verified. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
       "evidence": [
         "crates/neoflash-editor/src/panels.rs",
@@ -43,7 +43,10 @@
         "docs/WORKSPACE.md",
         "docs/VERIFICATION.md",
         "crates/neoflash-editor/src/sources.rs",
-        "docs/progress/actionscript-audit.json"
+        "docs/progress/actionscript-audit.json",
+        "crates/neoflash-core/src/model.rs",
+        "crates/neoflash-core/src/clipboard.rs",
+        "examples/linked-movieclips.nflash"
       ]
     },
     {
@@ -129,12 +132,16 @@
       "category": "editor",
       "title": "Library and nested editing",
       "status": "implemented",
-      "scope": "Convert to Symbol, place instances, open symbols and navigate nesting while preserving identity and scripts.",
+      "scope": "Convert to Symbol, place instances, open symbols and navigate nesting while preserving identity and scripts. Explicit runtime export identifiers and their dependent symbol closures are preserved with program clipboard snapshots; equivalent exported closures reuse library identity and conflicts fail atomically.",
       "limitations": "Linkage and document classes are outside this capability.",
       "evidence": [
         "crates/neoflash-editor/src/app.rs",
         "crates/neoflash-editor/src/tests.rs",
-        "README.md"
+        "README.md",
+        "crates/neoflash-core/src/model.rs",
+        "crates/neoflash-core/src/clipboard.rs",
+        "crates/neoflash-editor/src/sources.rs",
+        "examples/linked-movieclips.nflash"
       ]
     },
     {
@@ -251,7 +258,7 @@
       "category": "animation",
       "title": "Easing and custom curves",
       "status": "partial",
-      "scope": "The model includes Linear, EaseIn/Out/InOut and cubic Bézier evaluation.",
+      "scope": "The model includes Linear, EaseIn/Out/InOut and cubic B\u00e9zier evaluation.",
       "limitations": "A complete visual curve editor, overshoot and individual property curves are still needed.",
       "evidence": [
         "crates/neoflash-core/src/evaluate.rs",
@@ -343,8 +350,8 @@
       "category": "web",
       "title": "Shared Rust/WASM core",
       "status": "implemented",
-      "scope": "The browser uses the same timeline runtime; tests call the actual compiled WASM. Runtime-created object identity, hierarchy, solid drawing, transformed bounds/hits and captured lifecycle routes use the shared Rust/WASM scene while authored documents remain immutable.",
-      "limitations": "A shared implementation does not prove compatibility with Flash behavior. The combined dynamic-display browser workflow and Restart passed; authored/dynamic reordering and full Flash construction order remain bounded.",
+      "scope": "The browser uses the same timeline runtime; tests call the actual compiled WASM. Runtime-created object identity, hierarchy, solid drawing, transformed bounds/hits and captured lifecycle routes use the shared Rust/WASM scene while authored documents remain immutable. Explicit linked MovieClip namespaces reuse the shared timeline evaluator with independent frame scripts, nested clocks and ref-based semantic targets, including detached playback.",
+      "limitations": "A shared implementation does not prove compatibility with Flash behavior. The combined dynamic-display browser workflow and Restart passed; authored/dynamic reordering and full Flash construction order remain bounded. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified.",
       "evidence": [
         "crates/neoflash-web/src/lib.rs",
         "web/tests/wasm.test.cjs",
@@ -354,7 +361,11 @@
         "web/display.js",
         "web/events.js",
         "web/tests/display-family.test.cjs",
-        "examples/dynamic-display.nflash"
+        "examples/dynamic-display.nflash",
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json",
+        "crates/neoflash-core/src/runtime_graph/linked.rs",
+        "examples/linked-movieclips.nflash"
       ]
     },
     {
@@ -458,8 +469,8 @@
       "category": "web",
       "title": "Project sources, modules and debugging",
       "status": "partial",
-      "scope": "Embedded AS2/AS3 source units use distinct bounded class profiles with exact imports, shared publication programs, authored symbol linkage and source-path diagnostics. AS2 root document linkage is a NeoFlash extension. Sources can be edited in Actions. AS3 projects can import bounded ByteArray/Endian buffers; unsupported native inheritance and constructor forms produce source diagnostics.",
-      "limitations": "JS/TS modules, SWC dependencies, complete type checking, completion, debugger/source maps and full class semantics remain pending. Representative linked-class behavior and Restart passed in the shared in-app-browser batch; native Sources acceptance remains pending. The AS2 combined export/WASM/input scenario passes; representative coordinate clicks, keyboard and Restart also passed in the in-app browser. Binary-buffer workflow browser acceptance remains pending; binary memory support does not imply loaders, external IO or resource-document support.",
+      "scope": "Embedded AS2/AS3 source units use distinct bounded class profiles with exact imports, shared publication programs, authored symbol linkage and source-path diagnostics. AS2 root document linkage is a NeoFlash extension. Sources can be edited in Actions. AS3 projects can import bounded ByteArray/Endian buffers; unsupported native inheritance and constructor forms produce source diagnostics. Explicit exported MovieClip classes instantiate shared library timelines through AS3 construction or AS2 attachMovie, with independent namespace refs, nested clocks and script targets. Public AS3 get/set accessors and project interface contracts share the existing source compiler.",
+      "limitations": "JS/TS modules, SWC dependencies, complete type checking, completion, debugger/source maps and full class semantics remain pending. Representative linked-class behavior and Restart passed in the shared in-app-browser batch; native Sources acceptance remains pending. The AS2 combined export/WASM/input scenario passes; representative coordinate clicks, keyboard and Restart also passed in the in-app browser. Bounded binary-buffer workflow has independent browser evidence on 2b5deff; binary memory support does not imply loaders, external IO or resource-document support. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Linked MovieClip and accessor/interface workflows passed the shared in-app-browser batch; native Export identifier editing remains pending.",
       "evidence": [
         "docs/BACKLOG.md",
         "docs/COMPATIBILITY.md",
@@ -478,7 +489,13 @@
         "web/display.js",
         "web/byte-array.js",
         "crates/neoflash-script/tests/binary-data.mjs",
-        "examples/binary-data.nflash"
+        "examples/binary-data.nflash",
+        "docs/progress/actionscript-audit.json",
+        "crates/neoflash-core/src/model.rs",
+        "crates/neoflash-core/src/clipboard.rs",
+        "examples/linked-movieclips.nflash",
+        "examples/interfaces-accessors.nflash",
+        "crates/neoflash-script/tests/interfaces-accessors.mjs"
       ]
     },
     {

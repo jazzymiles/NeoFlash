@@ -149,8 +149,39 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
         symbol_ids.insert(symbol.id.as_str());
     }
     let mut elements_count = 0usize;
+    let mut export_ids = HashSet::new();
+    let mut exported_classes = HashSet::new();
     for (si, symbol) in project.symbols.iter().enumerate() {
         let sp = format!("symbols[{si}]");
+        if let Some(linkage) = &symbol.linkage_id {
+            if linkage.is_empty() || linkage.len() > 512 || linkage.chars().any(char::is_control) {
+                add(
+                    format!("{sp}.linkage_id"),
+                    "export identifier must contain 1..512 UTF-8 bytes and no control characters"
+                        .into(),
+                );
+            }
+            if !export_ids.insert(linkage.as_str()) {
+                add(
+                    format!("{sp}.linkage_id"),
+                    "export identifier must be unique".into(),
+                );
+            }
+            if symbol.id == project.root || symbol.kind != SymbolKind::MovieClip {
+                add(
+                    format!("{sp}.linkage_id"),
+                    "only a non-root MovieClip symbol can be exported for runtime creation".into(),
+                );
+            }
+            if let Some(class) = &symbol.class_name
+                && !exported_classes.insert(class.as_str())
+            {
+                add(
+                    format!("{sp}.class_name"),
+                    "an exported class must identify exactly one exported symbol".into(),
+                );
+            }
+        }
         if let Some(name) = &symbol.class_name
             && !class_name_valid(name)
         {

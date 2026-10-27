@@ -15,6 +15,7 @@ impl Project {
             root: root.clone(),
             symbols: vec![Symbol {
                 class_name: None,
+                linkage_id: None,
                 id: root,
                 name: "Scene 1".into(),
                 kind: SymbolKind::MovieClip,
@@ -51,6 +52,7 @@ impl Project {
         let dot = ellipse("Spark", 0., 0., 24., 24., orange);
         p.symbols.push(Symbol {
             class_name: None,
+            linkage_id: None,
             id: spark_id.clone(),
             name: "Spark".into(),
             kind: SymbolKind::Graphic,
@@ -120,6 +122,7 @@ impl Project {
             .collect();
         p.symbols.push(Symbol {
             class_name: None,
+            linkage_id: None,
             id: orbit_id.clone(),
             name: "Orbit".into(),
             kind: SymbolKind::MovieClip,

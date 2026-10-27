@@ -117,6 +117,9 @@ pub struct Symbol {
     pub timeline: Timeline,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub class_name: Option<String>,
+    /// Explicit runtime export identifier, independent of the library name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linkage_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -317,7 +320,7 @@ impl Project {
             || self
                 .symbols
                 .iter()
-                .any(|symbol| symbol.class_name.is_some())
+                .any(|symbol| symbol.class_name.is_some() || symbol.linkage_id.is_some())
     }
 
     /// Old documents remain version 1 until project-level code is authored.

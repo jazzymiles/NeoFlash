@@ -1,7 +1,7 @@
 //! Thin JavaScript bindings around the same Rust timeline runtime used by the editor.
 use neoflash_core::{
     DisplayMutation, DynamicKind, GraphicsOp, ObjectRef, PlaybackCommand, Player, Project,
-    ScriptDispatch,
+    RuntimeScriptDispatch, ScriptDispatch,
 };
 use wasm_bindgen::prelude::*;
 
@@ -86,11 +86,19 @@ impl WebPlayer {
     }
 
     pub fn scripts_json(&mut self) -> Result<String, JsValue> {
-        serde_json::to_string(&self.player.drain_scripts())
+        serde_json::to_string(&self.player.drain_runtime_scripts())
             .map_err(|error| JsValue::from_str(&error.to_string()))
     }
 
     pub fn is_dispatch_current(&self, json: &str) -> Result<bool, JsValue> {
+        let value: serde_json::Value = serde_json::from_str(json).map_err(display_error)?;
+        if value.get("target_ref").is_some() || value.get("namespace_ref").is_some() {
+            let dispatch: RuntimeScriptDispatch =
+                serde_json::from_value(value).map_err(display_error)?;
+            return Ok(self
+                .player
+                .is_runtime_dispatch_current(&self.project, &dispatch));
+        }
         let dispatch: ScriptDispatch =
             serde_json::from_str(json).map_err(|error| JsValue::from_str(&error.to_string()))?;
         Ok(self.player.is_dispatch_current(&self.project, &dispatch))
@@ -203,6 +211,25 @@ impl WebPlayer {
     }
     pub fn object_alive(&self, target: &str) -> Result<bool, JsValue> {
         Ok(self.player.object_alive(&object_ref(target)?))
+    }
+    pub fn create_linked(&mut self, linkage_id: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .create_linked(&self.project, linkage_id)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn object_click(&mut self, target: &str) -> Result<bool, JsValue> {
+        Ok(self
+            .player
+            .object_click(&self.project, &object_ref(target)?))
+    }
+    pub fn object_activate_accessible(&mut self, target: &str) -> Result<bool, JsValue> {
+        Ok(self
+            .player
+            .object_activate_accessible(&self.project, &object_ref(target)?))
     }
     pub fn create_display(&mut self, kind: &str) -> Result<String, JsValue> {
         let kind = match kind {

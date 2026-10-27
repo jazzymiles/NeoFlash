@@ -113,6 +113,7 @@ pub struct ProjectProgram {
     pub class_names: Vec<String>,
     names: BTreeSet<String>,
     languages: BTreeMap<String, ScriptLanguage>,
+    interfaces: BTreeSet<String>,
 }
 
 struct Header {
@@ -121,6 +122,8 @@ struct Header {
     package: String,
     name: String,
     base: Option<String>,
+    interfaces: Vec<String>,
+    is_interface: bool,
     imports: Vec<String>,
     tokens: Vec<Token>,
     body: usize,
@@ -137,11 +140,20 @@ struct Method {
     function: Function,
     is_static: bool,
     override_: bool,
+    is_public: bool,
+    kind: MethodKind,
+}
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum MethodKind {
+    Method,
+    Get,
+    Set,
 }
 struct Class {
     header: Header,
     context: CompileContext,
     base: Option<String>,
+    interfaces: Vec<String>,
     fields: Vec<Field>,
     methods: Vec<Method>,
 }
@@ -261,7 +273,15 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
             "Class modifiers final/dynamic/internal are outside the first public-class profile.",
         ));
     }
-    p.expect("class")?;
+    let is_interface = p.eat("interface");
+    if is_interface && as2 {
+        return Err(p.error(
+            "Project interfaces currently require AS3; AS2 interface semantics remain unsupported.",
+        ));
+    }
+    if !is_interface {
+        p.expect("class")?;
+    }
     let short = if as2 { qualified(&mut p)? } else { p.ident()? };
     if invalid_binding(short.rsplit('.').next().unwrap(), false) {
         return Err(p.error("Invalid or reserved class name."));
@@ -280,11 +300,33 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
             return Err(p.error("AS2 source path must match its qualified class name (app/Widget.as for app.Widget)."));
         }
     }
+    let mut interfaces = Vec::new();
     let base = if p.eat("extends") {
-        Some(qualified(&mut p)?)
+        if is_interface {
+            loop {
+                interfaces.push(qualified(&mut p)?);
+                if !p.eat(",") {
+                    break;
+                }
+            }
+            None
+        } else {
+            Some(qualified(&mut p)?)
+        }
     } else {
         None
     };
+    if p.eat("implements") {
+        if as2 || is_interface {
+            return Err(p.error("Only AS3 project classes can use implements in this profile."));
+        }
+        loop {
+            interfaces.push(qualified(&mut p)?);
+            if !p.eat(",") {
+                break;
+            }
+        }
+    }
     p.expect("{")?;
     let body = p.pos;
     let tokens = p.tokens;
@@ -294,6 +336,8 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
         package,
         name,
         base,
+        interfaces,
+        is_interface,
         imports,
         tokens,
         body,
@@ -305,9 +349,11 @@ fn context(
     package: &str,
     imports: &[String],
     language: ScriptLanguage,
+    interfaces: &BTreeSet<String>,
 ) -> Result<CompileContext, String> {
     let mut c = CompileContext {
         project: true,
+        interfaces: interfaces.intersection(names).cloned().collect(),
         ..Default::default()
     };
     for name in names {
@@ -360,12 +406,17 @@ fn context(
     }
     Ok(c)
 }
-fn parse_class(header: Header, names: &BTreeSet<String>) -> Result<Class, Diagnostic> {
+fn parse_class(
+    header: Header,
+    names: &BTreeSet<String>,
+    interface_names: &BTreeSet<String>,
+) -> Result<Class, Diagnostic> {
     let mut c = context(
         names,
         &header.package,
         &header.imports,
         header.script.language,
+        interface_names,
     )
     .map_err(|m| Diagnostic::at(&header.script, 0, m))?;
     c.class_name = Some(header.name.clone());
@@ -378,6 +429,38 @@ fn parse_class(header: Header, names: &BTreeSet<String>) -> Result<Class, Diagno
             })
         })
         .transpose()?;
+    if base
+        .as_ref()
+        .is_some_and(|name| interface_names.contains(name))
+    {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "A class cannot extend an interface; use implements.",
+        ));
+    }
+    let mut interfaces = Vec::new();
+    for name in &header.interfaces {
+        let resolved = c
+            .types
+            .get(name)
+            .filter(|name| interface_names.contains(*name))
+            .ok_or_else(|| {
+                Diagnostic::at(
+                    &header.script,
+                    0,
+                    format!("'{name}' is not a resolved project interface."),
+                )
+            })?;
+        if interfaces.contains(resolved) {
+            return Err(Diagnostic::at(
+                &header.script,
+                0,
+                format!("Duplicate interface '{name}'."),
+            ));
+        }
+        interfaces.push(resolved.clone());
+    }
     if matches!(
         base.as_deref(),
         Some("flash.utils.ByteArray" | "flash.utils.Endian" | "flash.display.Graphics")
@@ -400,8 +483,20 @@ fn parse_class(header: Header, names: &BTreeSet<String>) -> Result<Class, Diagno
         }
         let mut is_static = false;
         let mut override_ = false;
+        let mut is_public = false;
+        if header.is_interface
+            && matches!(
+                p.token_text().as_str(),
+                "public" | "static" | "override" | "private" | "protected" | "internal"
+            )
+        {
+            return Err(p.error(
+                "Interface method signatures cannot have access, static or override modifiers.",
+            ));
+        }
         loop {
             if p.eat("public") {
+                is_public = true;
             } else if p.eat("static") {
                 is_static = true;
             } else if p.eat("override") {
@@ -419,6 +514,11 @@ fn parse_class(header: Header, names: &BTreeSet<String>) -> Result<Class, Diagno
             return Err(p.error("This class profile supports public members; private/protected/internal access control is not yet implemented."));
         }
         if p.is("var") || p.is("const") {
+            if header.is_interface {
+                return Err(
+                    p.error("Interfaces contain method/getter/setter signatures, not fields.")
+                );
+            }
             let constant = p.eat("const");
             if as2 && constant {
                 return Err(p.error(
@@ -436,7 +536,9 @@ fn parse_class(header: Header, names: &BTreeSet<String>) -> Result<Class, Diagno
             };
             p.semicolon()?;
             for (name, ty, value) in vars {
-                if !seen.insert(name.clone()) {
+                if seen.iter().any(|(old, _)| old == &name)
+                    || !seen.insert((name.clone(), MethodKind::Method))
+                {
                     return Err(p.error(format!("Duplicate class member '{name}'.")));
                 }
                 if constant && value.is_none() {
@@ -460,18 +562,61 @@ fn parse_class(header: Header, names: &BTreeSet<String>) -> Result<Class, Diagno
                 });
             }
         } else if p.is("function") {
-            let f = p.function(true)?;
+            let (mut f, accessor) = p.project_function(true, true, header.is_interface)?;
+            let kind = match accessor.as_deref() {
+                Some("get") => MethodKind::Get,
+                Some("set") => MethodKind::Set,
+                _ => MethodKind::Method,
+            };
             let name = f.name.as_ref().unwrap();
-            if !seen.insert(name.clone()) {
+            if header.is_interface && name == header.name.rsplit('.').next().unwrap() {
+                return Err(p.error("Interfaces cannot declare constructors."));
+            }
+            if kind != MethodKind::Method && !header.is_interface && !is_public {
+                return Err(p.error(
+                    "This accessor profile requires explicit public get/set declarations.",
+                ));
+            }
+            if kind == MethodKind::Get
+                && (!f.params.is_empty() || f.returns.as_deref() == Some("void"))
+            {
+                return Err(p.error("A getter requires no parameters and cannot return void."));
+            }
+            if kind == MethodKind::Set {
+                if f.params.len() != 1 || f.returns.as_deref().is_some_and(|ty| ty != "void") {
+                    return Err(p.error("A setter requires exactly one parameter and a void or omitted return type."));
+                }
+                f.returns = Some("void".into());
+            }
+            if kind != MethodKind::Method && name == header.name.rsplit('.').next().unwrap() {
+                return Err(p.error("An accessor cannot use its containing type's constructor name in this profile."));
+            }
+            if f.params
+                .iter()
+                .map(|(name, _)| name)
+                .collect::<BTreeSet<_>>()
+                .len()
+                != f.params.len()
+            {
+                return Err(p.error("Duplicate parameter name in method signature."));
+            }
+            if seen.contains(&(name.clone(), kind))
+                || seen.iter().any(|(old, old_kind)| {
+                    old == name && (*old_kind == MethodKind::Method || kind == MethodKind::Method)
+                })
+            {
                 return Err(p.error(format!("Duplicate class member '{name}'.")));
             }
+            seen.insert((name.clone(), kind));
             methods.push(Method {
                 function: f,
                 is_static,
                 override_,
+                is_public,
+                kind,
             });
         } else {
-            return Err(p.error("Expected a public var/const field or function; accessors, interfaces and namespaces are not yet supported."));
+            return Err(p.error("Expected a supported public field, method or get/set accessor; namespaces remain unsupported."));
         }
     }
     p.expect("}")?;
@@ -479,12 +624,13 @@ fn parse_class(header: Header, names: &BTreeSet<String>) -> Result<Class, Diagno
         p.expect("}")?;
     }
     if p.token().kind != Kind::End {
-        return Err(p.error("A source unit must contain exactly one class."));
+        return Err(p.error("A source unit must contain exactly one class or interface."));
     }
     Ok(Class {
         header,
         context: c,
         base,
+        interfaces,
         fields,
         methods,
     })
@@ -492,6 +638,73 @@ fn parse_class(header: Header, names: &BTreeSet<String>) -> Result<Class, Diagno
 fn prefix(mut e: Diagnostic, path: &str) -> Diagnostic {
     e.message = format!("{path}: {}", e.message);
     e
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct Signature {
+    params: Vec<String>,
+    returns: String,
+}
+#[derive(Clone)]
+struct MethodContract {
+    signature: Signature,
+    is_public: bool,
+}
+fn method_contract(class: &Class, method: &Method) -> MethodContract {
+    let canonical = |ty: Option<&str>| {
+        let ty = ty.unwrap_or("*");
+        class
+            .context
+            .types
+            .get(ty)
+            .cloned()
+            .unwrap_or_else(|| ty.into())
+    };
+    MethodContract {
+        signature: Signature {
+            params: method
+                .function
+                .params
+                .iter()
+                .map(|(_, ty)| canonical(ty.as_deref()))
+                .collect(),
+            returns: canonical(method.function.returns.as_deref()),
+        },
+        is_public: class.header.is_interface || method.is_public,
+    }
+}
+fn check_accessor_pairs(
+    class: &Class,
+    contracts: &BTreeMap<(String, MethodKind), MethodContract>,
+    errors: &mut Vec<Diagnostic>,
+) {
+    for ((name, kind), getter) in contracts {
+        if *kind == MethodKind::Get
+            && let Some(setter) = contracts.get(&(name.clone(), MethodKind::Set))
+            && getter.signature.returns != setter.signature.params[0]
+        {
+            errors.push(Diagnostic::at(
+                &class.header.script,
+                0,
+                format!(
+                    "{}: getter and setter '{name}' must use the same property type",
+                    class.header.path
+                ),
+            ));
+        }
+        if *kind != MethodKind::Method
+            && contracts.contains_key(&(name.clone(), MethodKind::Method))
+        {
+            errors.push(Diagnostic::at(
+                &class.header.script,
+                0,
+                format!(
+                    "{}: accessor '{name}' conflicts with a method",
+                    class.header.path
+                ),
+            ));
+        }
+    }
 }
 
 // Native proxy APIs retain priority over class-owned descriptors. Redeclaration
@@ -675,11 +888,16 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         .iter()
         .map(|h| (h.name.clone(), h.script.language))
         .collect();
+    let interfaces: BTreeSet<_> = headers
+        .iter()
+        .filter(|h| h.is_interface)
+        .map(|h| h.name.clone())
+        .collect();
     let mut classes = BTreeMap::new();
     for h in headers {
         let path = h.path.clone();
         let visible = visible_names(&names, &languages, h.script.language);
-        match parse_class(h, &visible) {
+        match parse_class(h, &visible, &interfaces) {
             Ok(c) => {
                 classes.insert(c.header.name.clone(), c);
             }
@@ -696,8 +914,9 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         for name in pending.clone() {
             if classes[&name]
                 .base
-                .as_ref()
-                .is_none_or(|b| !pending.contains(b))
+                .iter()
+                .chain(&classes[&name].interfaces)
+                .all(|dependency| !pending.contains(dependency))
             {
                 pending.remove(&name);
                 order.push(name);
@@ -716,9 +935,64 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
     let mut resolved = BTreeMap::<String, BTreeMap<String, Option<String>>>::new();
     let mut static_members = BTreeMap::<String, BTreeMap<String, String>>::new();
     let mut native_bases = BTreeMap::<String, String>::new();
+    let mut contracts = BTreeMap::<String, BTreeMap<(String, MethodKind), MethodContract>>::new();
+    let mut interface_closures = BTreeMap::<String, BTreeSet<String>>::new();
     let mut registrations = String::new();
     for name in &order {
         let c = classes.get_mut(name).unwrap();
+        if c.header.is_interface {
+            let mut inherited = BTreeMap::new();
+            let mut closure = BTreeSet::from([name.clone()]);
+            for parent in &c.interfaces {
+                closure.extend(interface_closures[parent].iter().cloned());
+                for (key, contract) in &contracts[parent] {
+                    if inherited
+                        .get(key)
+                        .is_some_and(|old: &MethodContract| old.signature != contract.signature)
+                    {
+                        errors.push(Diagnostic::at(
+                            &c.header.script,
+                            0,
+                            format!(
+                                "{}: conflicting inherited interface signature '{}'",
+                                c.header.path, key.0
+                            ),
+                        ));
+                    }
+                    inherited.insert(key.clone(), contract.clone());
+                }
+            }
+            for method in &c.methods {
+                let key = (method.function.name.clone().unwrap(), method.kind);
+                let contract = method_contract(c, method);
+                if inherited
+                    .get(&key)
+                    .is_some_and(|old| old.signature != contract.signature)
+                {
+                    errors.push(Diagnostic::at(
+                        &c.header.script,
+                        method.function.offset,
+                        format!(
+                            "{}: incompatible interface signature '{}'",
+                            c.header.path, key.0
+                        ),
+                    ));
+                }
+                inherited.insert(key, contract);
+            }
+            check_accessor_pairs(c, &inherited, &mut errors);
+            contracts.insert(name.clone(), inherited);
+            interface_closures.insert(name.clone(), closure);
+            registrations.push_str(&format!("__nfProgram.defineInterface({name:?});\n"));
+            continue;
+        }
+        let mut contract = c
+            .base
+            .as_ref()
+            .and_then(|base| contracts.get(base))
+            .cloned()
+            .unwrap_or_default();
+        let inherited_contract = contract.clone();
         let native_base = c
             .base
             .as_ref()
@@ -748,6 +1022,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             .and_then(|b| resolved.get(b))
             .cloned()
             .unwrap_or_default();
+        let inherited_members = members.clone();
         for f in &c.fields {
             if members.contains_key(&f.name) {
                 errors.push(Diagnostic::at(
@@ -764,8 +1039,18 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         let short = c.header.name.rsplit('.').next().unwrap();
         for m in &c.methods {
             let n = m.function.name.as_ref().unwrap();
-            if n != short {
-                if m.override_ && !members.contains_key(n) {
+            if n != short || m.kind != MethodKind::Method {
+                let key = (n.clone(), m.kind);
+                let own_contract = method_contract(c, m);
+                let inherited = if m.is_static {
+                    None
+                } else {
+                    inherited_contract.get(&key)
+                };
+                let same_name = inherited_contract.keys().any(|(name, kind)| {
+                    name == n && (*kind == MethodKind::Method || m.kind == MethodKind::Method)
+                });
+                if m.override_ && inherited.is_none() {
                     errors.push(Diagnostic::at(
                         &c.header.script,
                         m.function.offset,
@@ -775,9 +1060,83 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                         ),
                     ));
                 }
-                members.insert(n.clone(), Some("Function".into()));
+                if c.header.script.language == ScriptLanguage::ActionScript3 {
+                    if let Some(base) = inherited {
+                        if !m.override_
+                            || base.signature != own_contract.signature
+                            || base.is_public != own_contract.is_public
+                        {
+                            errors.push(Diagnostic::at(&c.header.script, m.function.offset, format!("{}: inherited member '{n}' requires override and an identical public signature", c.header.path)));
+                        }
+                    } else if !m.is_static
+                        && (same_name
+                            || inherited_members.contains_key(n)
+                                && !inherited_contract.keys().any(|(name, _)| name == n))
+                    {
+                        errors.push(Diagnostic::at(
+                            &c.header.script,
+                            m.function.offset,
+                            format!(
+                                "{}: member '{n}' conflicts with an inherited field or method kind",
+                                c.header.path
+                            ),
+                        ));
+                    }
+                }
+                if !m.is_static {
+                    contract.insert(key, own_contract);
+                }
+                // Accessor invocation owns coercion. A second emitter coercion
+                // on a bare property would repeat observable conversions.
+                members.insert(
+                    n.clone(),
+                    if m.kind == MethodKind::Method {
+                        Some("Function".into())
+                    } else {
+                        None
+                    },
+                );
             }
         }
+        check_accessor_pairs(c, &contract, &mut errors);
+        let statics_contract = c
+            .methods
+            .iter()
+            .filter(|m| m.is_static)
+            .map(|m| {
+                (
+                    (m.function.name.clone().unwrap(), m.kind),
+                    method_contract(c, m),
+                )
+            })
+            .collect();
+        check_accessor_pairs(c, &statics_contract, &mut errors);
+        for getter in c.methods.iter().filter(|m| m.kind == MethodKind::Get) {
+            if c.methods.iter().any(|m| {
+                m.kind == MethodKind::Set
+                    && m.function.name == getter.function.name
+                    && m.is_static != getter.is_static
+            }) {
+                errors.push(Diagnostic::at(
+                    &c.header.script,
+                    getter.function.offset,
+                    format!("{}: getter and setter must agree on static", c.header.path),
+                ));
+            }
+        }
+        let mut implemented = BTreeSet::new();
+        for interface in &c.interfaces {
+            implemented.extend(interface_closures[interface].iter().cloned());
+            for (key, expected) in &contracts[interface] {
+                if !contract.get(key).is_some_and(|actual| {
+                    actual.is_public && actual.signature == expected.signature
+                }) {
+                    errors.push(Diagnostic::at(&c.header.script, 0, format!("{}: interface '{interface}' requires public member '{}' with the matching method/accessor signature", c.header.path, key.0)));
+                }
+            }
+        }
+        c.interfaces = implemented.into_iter().collect();
+        contracts.insert(name.clone(), contract);
         let mut statics = c
             .base
             .as_ref()
@@ -804,12 +1163,31 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         .iter()
         .chain(project.symbols.iter().filter_map(|s| s.class_name.as_ref()))
     {
-        if !classes.contains_key(linked) {
+        if !classes
+            .get(linked)
+            .is_some_and(|class| !class.header.is_interface)
+        {
             errors.push(Diagnostic {
                 language: ScriptLanguage::ActionScript3,
                 line: 1,
                 column: 1,
                 message: format!("Unknown linked project class '{linked}'."),
+            });
+        }
+    }
+    for symbol in project
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.linkage_id.is_some())
+    {
+        if let Some(class) = &symbol.class_name
+            && native_bases.get(class).map(String::as_str) != Some("flash.display.MovieClip")
+        {
+            errors.push(Diagnostic {
+                language: classes.get(class).map_or(ScriptLanguage::ActionScript3, |class| class.header.script.language),
+                line: 1,
+                column: 1,
+                message: format!("Exported MovieClip '{}' requires class '{class}' to ultimately extend flash.display.MovieClip.",symbol.name),
             });
         }
     }
@@ -828,9 +1206,13 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
     );
     Ok(ProjectProgram {
         code,
-        class_names: order,
+        class_names: order
+            .into_iter()
+            .filter(|name| !interfaces.contains(name))
+            .collect(),
         names,
         languages,
+        interfaces,
     })
 }
 
@@ -852,6 +1234,7 @@ pub fn compile_with_program(
         "",
         &imported,
         script.language,
+        &program.interfaces,
     )
     .map_err(|m| vec![Diagnostic::at(script, 0, m)])?;
     // Keep original byte positions/line numbers when removing import statements.
@@ -869,6 +1252,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
     let as3 = c.header.script.language == ScriptLanguage::ActionScript3;
     let mut fields = vec![];
     let mut methods = vec![];
+    let mut accessors = BTreeMap::<(String, bool), (Option<String>, Option<String>)>::new();
     let mut constructor = "null".to_owned();
     let short = c.header.name.rsplit('.').next().unwrap();
     let initializers: Vec<_> = c
@@ -906,7 +1290,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         context.static_method = method.is_static;
         let mut f = f.clone();
         f.name = Some(format!("__nfMethodBody{}", f.id));
-        let is_ctor = name == short;
+        let is_ctor = name == short && method.kind == MethodKind::Method;
         if is_ctor {
             if method.is_static || method.override_ || f.returns.is_some() {
                 return Err(Diagnostic::at(
@@ -952,15 +1336,34 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         let function = emitter.function(&f);
         if is_ctor {
             constructor = function;
-        } else {
+        } else if method.kind == MethodKind::Method {
             methods.push(format!(
                 "{{name:{name:?},static:{},fn:{function}}}",
                 method.is_static
             ));
+        } else {
+            let pair = accessors
+                .entry((name.clone(), method.is_static))
+                .or_default();
+            if method.kind == MethodKind::Get {
+                pair.0 = Some(function);
+            } else {
+                pair.1 = Some(function);
+            }
         }
     }
+    let accessors = accessors
+        .into_iter()
+        .map(|((name, is_static), (get, set))| {
+            format!(
+                "{{name:{name:?},static:{is_static},get:{},set:{}}}",
+                get.unwrap_or_else(|| "null".into()),
+                set.unwrap_or_else(|| "null".into())
+            )
+        })
+        .collect::<Vec<_>>();
     Ok(format!(
-        "__nfProgram.define({:?},{},[{}],[{}],{},{:?});\n",
+        "__nfProgram.define({:?},{},[{}],[{}],{},{:?},[{}],{:?});\n",
         c.header.name,
         c.base
             .as_ref()
@@ -969,6 +1372,8 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         fields.join(","),
         methods.join(","),
         constructor,
-        if as3 { "as3" } else { "as2" }
+        if as3 { "as3" } else { "as2" },
+        accessors.join(","),
+        c.interfaces
     ))
 }

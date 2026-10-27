@@ -26,7 +26,7 @@
   const unsupportedText=new Set(['htmlText','defaultTextFormat','styleSheet','type','selectable','multiline','wordWrap','autoSize','embedFonts','displayAsPassword','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','background','backgroundColor','border','borderColor','antiAliasType','gridFitType','sharpness','thickness','condenseWhite','getTextFormat','setTextFormat','getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineIndexOfChar','getLineMetrics','getLineOffset','getParagraphLength','getFirstCharInParagraph','setSelection','replaceSelectedText']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{}}) {
+  function create({player,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{}}) {
     const legacy = new Map();
     const graph=typeof player.runtime_snapshot_json==='function';
     const refKey=ref=>JSON.stringify(ref);
@@ -143,9 +143,10 @@
       const facade=new Proxy(Object.freeze(methods),{get:(target,name)=>{if(typeof name==='symbol'||name==='then')return undefined;if(Object.hasOwn(target,name))return target[name];throw new TypeError(`Graphics.${name} is not implemented in the solid path profile.`);},set:()=>{throw new TypeError('Graphics members are read-only.');}});
       graphicsInstances.add(facade);graphicsCache.set(target,facade);return facade;
     }
-    function mutate(operation) {
+    function mutate(operation,deliver=true) {
       const packet=JSON.parse(player.display_mutate(JSON.stringify(operation)));
-      onMutation(packet.events); // captured routes survive the completed reparent/removal
+      if(deliver)onMutation(packet.events); // captured routes survive the completed reparent/removal
+      return packet.events;
     }
     function containerMethods(target) {
       const ref=()=>{requireContainer(target);return referenceOf(target).objectRef;};
@@ -156,7 +157,7 @@
         removeChild:child=>{mutate({op:'remove',parent:ref(),child:childRef(child)});return child;},
         removeChildAt:index=>{const child=methods(target).getChildAt(index);mutate({op:'remove',parent:ref(),child:childRef(child)});return child;},
         setChildIndex:(child,index)=>{if(!Number.isInteger(index)||index<0)throw new RangeError('Child index requires a nonnegative integer.');mutate({op:'set_index',parent:ref(),child:childRef(child),index});},
-        swapChildren:(first,second)=>mutate({op:'swap',parent:ref(),first:childRef(first),second:childRef(second)}),
+        swapChildren:(first,second)=>{mutate({op:'swap',parent:ref(),first:childRef(first),second:childRef(second)});},
         swapChildrenAt:(first,second)=>{const api=methods(target);mutate({op:'swap',parent:ref(),first:childRef(api.getChildAt(first)),second:childRef(api.getChildAt(second))});},
       };
     }
@@ -174,7 +175,27 @@
           containerMethods(target).addChild(clip);return clip;
         },
         removeMovieClip:()=>{const parent=parentSpace(target);if(parent&&parent!==getStage())containerMethods(parent).removeChild(target);else if(descriptor(target).authored_path!==null)throw new TypeError('Authored timelines cannot be removed at runtime.');},
-        attachMovie:()=>{throw new TypeError('attachMovie and linked dynamic timelines are not implemented yet. Use createEmptyMovieClip for a runtime drawing container.');},
+        attachMovie:(identifier,name,depth,initObject)=>{
+          requireContainer(target);
+          if(typeof identifier!=='string'||!identifier)throw new TypeError('attachMovie requires the exact Export identifier of a MovieClip symbol.');
+          if(typeof name!=='string'||new TextEncoder().encode(name).length>4096)throw new TypeError('attachMovie requires a name of at most 4096 UTF-8 bytes.');
+          if(depth!==children(target).length)throw new RangeError('attachMovie currently supports append-only depth: pass getNextHighestDepth(). Flash depth replacement is pending.');
+          // The bounded initObject profile copies ordinary enumerable own data
+          // before the linked constructor, without invoking foreign getters.
+          const values=[];
+          if(initObject!==null&&typeof initObject==='object'){
+            const descriptors=Object.getOwnPropertyDescriptors(initObject);
+            for(const key of Object.keys(descriptors))if(descriptors[key].enumerable){
+              if(!Object.hasOwn(descriptors[key],'value'))throw new TypeError('attachMovie initObject currently requires enumerable data properties; accessors are unsupported.');
+              if(values.length>=1024)throw new RangeError('attachMovie initObject exceeds 1024 properties.');
+              values.push([key,descriptors[key].value]);
+            }
+          }
+          const clip=proxyForRef(JSON.parse(player.create_linked(identifier)));clip.name=name;
+          for(const [key,value]of values){if(key==='onEnterFrame'||key==='onPress')setLegacyCallback(clip,key,value);else clip[key]=value;}
+          const events=mutate({op:'add',parent:referenceOf(target).objectRef,child:referenceOf(clip).objectRef,index:null},false);
+          prepareLinked(clip,false);onMutation(events);return clip;
+        },
       };
     }
     function methods(target) {
@@ -288,7 +309,12 @@
       const allocation={Sprite:'sprite',Shape:'shape',MovieClip:'movie_clip'}[name];
       function allocate(){if(!graph||!allocation)throw new TypeError(`Dynamic new ${name}() is not supported. Use an authored instance for this owner.`);return proxyForRef(JSON.parse(player.create_display(allocation)));}
       function NativeDisplay(...args){if(args.length)throw new TypeError(`${name} construction requires no arguments.`);return allocate();}
-      if(allocation&&graph)NativeDisplay.__nfAllocate=()=>allocate();
+      if(allocation&&graph)NativeDisplay.__nfAllocate=({className}={})=>{
+        const symbol=project?.symbols.find(symbol=>symbol.linkage_id&&symbol.class_name===className);
+        if(!symbol)return allocate();
+        const receiver=proxyForRef(JSON.parse(player.create_linked(symbol.linkage_id)));
+        prepareLinked(receiver,true);return receiver;
+      };
       NativeDisplay.__nfIs=value=>{if(value&&value===getStage())return name==='DisplayObject'||name==='DisplayObjectContainer';try{const node=descriptor(value);return owners===null||owners.includes(node.owner);}catch(_){return false;}};
       NativeDisplay.__nfInitialize=(receiver,args)=>{if(args.length||!NativeDisplay.__nfIs(receiver))throw new TypeError(`${name} base initialization requires an existing compatible display instance and no arguments.`);if(name==='MovieClip')refreshLegacyCallbacks(receiver);};
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});

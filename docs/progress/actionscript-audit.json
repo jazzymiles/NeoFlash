@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "b611b3387811f91d7b181ceb65e8243c113e00a576654d96f29ba6a1701a46b9",
+  "catalogSha256": "7aa84662cc1ccbd56656bd0ecd26be044aed14d319de8084b1a534dae228dddb",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -83,8 +83,8 @@
       }
     ],
     "inputHashes": {
-      "implementation-audit.json": "d028337b24d7dc81a778a7d5d47383ece5fb9abeb3b7343261305f5fa796ed67",
-      "implementation-evidence.json": "91e24cfaf40bc2f28150be5acb621821d12a47203322a0a4e6c550d7d980a6e3",
+      "implementation-audit.json": "ee4f84cd0fc40e7d4e0a9fa4f0f46e912965eb389744865b85b9bbcd16c12d3a",
+      "implementation-evidence.json": "0b90518bd5930217ff7a23fd380ce048847435d55fabde19a5f59c9168bbca14",
       "as2.json": "160442a3ef962733440d4b187096b816398d5c4bc7fed87209e20bc157bf3791",
       "as2-components.json": "891666b00f6caf7c4bfc250187ab33cc19880715cb69468d8e0370a43a9aac82",
       "as2-components-supplement.json": "f7677e2c3a3e0f8baf899bdb4511de7bb14965bac4956b9de78a22be64eaa802",
@@ -305,29 +305,41 @@
         "originalFlashComparison": "documented_only",
         "decision": "accepted_bounded_geometry_timer_workflow_with_documented_limits",
         "currentSourceVerified": false
+      },
+      {
+        "id": "DYNAMIC-BINARY-HTML5-20261027T0220Z",
+        "recordedHead": "2b5deffee923b607b681d436a9b129f1661abe1f",
+        "sourceCapturedAt": "2026-10-27T02:22:51.194646+00:00",
+        "verifiedAt": "2026-10-27T02:31:00.850515+00:00",
+        "sourceManifestSha256": "0234c92e4d40b1fbe111f5a1bdba17944d4932353d17d64ba68d23f4e050854d",
+        "browser": "Codex in-app browser",
+        "engine": "Not separately identified; no other engine pass claimed",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_bounded_dynamic_display_graphics_binary_workflow_with_documented_limits",
+        "currentSourceVerified": false
       }
     ]
   },
   "summary": {
     "total": {
       "implemented_subset": 30,
-      "partial": 468,
-      "missing": 45182,
+      "partial": 515,
+      "missing": 45135,
       "needs_review": 367,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
         "implemented_subset": 15,
-        "partial": 211,
-        "missing": 1964,
+        "partial": 218,
+        "missing": 1957,
         "needs_review": 117,
         "total": 2307
       },
       "AS3": {
         "implemented_subset": 15,
-        "partial": 257,
-        "missing": 43218,
+        "partial": 297,
+        "missing": 43178,
         "needs_review": 250,
         "total": 43740
       }
@@ -370,8 +382,8 @@
       },
       "runtime": {
         "implemented_subset": 2,
-        "partial": 125,
-        "missing": 6028,
+        "partial": 172,
+        "missing": 5981,
         "needs_review": 3,
         "total": 6158
       }
@@ -415,8 +427,8 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 53,
-          "missing": 852,
+          "partial": 60,
+          "missing": 845,
           "needs_review": 2,
           "total": 908
         }
@@ -459,8 +471,8 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 72,
-          "missing": 5176,
+          "partial": 112,
+          "missing": 5136,
           "needs_review": 1,
           "total": 5250
         }
@@ -2319,6 +2331,768 @@
           "status": "missing",
           "evidenceKind": "independent_html5_browser",
           "scopeNote": "Setting HTML on an authored TextField raises the explicit plain-text-profile TypeError. A same-named MovieClip custom field remains usable. This closes silent acceptance for this case but does not implement HTML text."
+        }
+      ]
+    },
+    {
+      "id": "DYNAMIC-BINARY-HTML5-20261027T0220Z",
+      "title": "Independent HTML5 acceptance: DYNAMIC-BINARY-HTML5-20261027T0220Z",
+      "reason": "accepted bounded dynamic display graphics binary workflow with documented limits",
+      "limitations": "Exact tested declaration IDs only; no class-wide or inherited-declaration promotion. Runtime-created children only. Authored-prefix mutations, attachMovie/linkage, linked multi-frame dynamic timelines, depth replacement and complete reentrant Flash event ordering are outside this batch. Solid rectangles/circle/line triangle and bounded stroke only; no gradient, bitmap fill, masks, filters, curve/ellipse conformance or exact raster equivalence. Binary little-endian payload is a same-adapter round trip; only the default-big-endian header is checked against raw expected bytes. External binary interoperability, full allocation/UTF edge cases, native EOFError class/errorID and numeric coercion remain unverified. Compression/AMF/other code pages and AS2 ByteArray remain unsupported. A diagnostic is not an implemented API. Original Flash not executed: documented_only. Only Codex in-app browser checked; engine/version not separately identified. Native Sources/D-008 remains pending; existing unsaved native document untouched. Later source changes inherit no result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/Cargo.toml",
+          "sha256": "92cc029943b58f815950532bc446c724c8c87f947936708ea477990c4a6554f4"
+        },
+        {
+          "path": "crates/neoflash-core/src/clipboard.rs",
+          "sha256": "effbff989939c25986691531aee1d3e9254191c76a3b13deeed1d006200de8f5"
+        },
+        {
+          "path": "crates/neoflash-core/src/demo.rs",
+          "sha256": "9481dc1466aafc1c5deadd40cbb62f3e49b4240da33fc9e249ab29fffbc56e0d"
+        },
+        {
+          "path": "crates/neoflash-core/src/evaluate.rs",
+          "sha256": "e9d57510c0c65e8e04866d76f767c3d1c66db6e90ebb0646b77cf0f6be6a388a"
+        },
+        {
+          "path": "crates/neoflash-core/src/geometry.rs",
+          "sha256": "94b9531d20975840a8a9c998832f090fee17cfa66c5dbe78c12a30b0a527b2f8"
+        },
+        {
+          "path": "crates/neoflash-core/src/history.rs",
+          "sha256": "662c5cd0855fa1cccccac432fb374a7f86db680ed476559c92fbe324fff88441"
+        },
+        {
+          "path": "crates/neoflash-core/src/lib.rs",
+          "sha256": "4aca8411c5f44a9f9218d2aaa5de305e72d0e9115554f7e2f9b82db540bef1c0"
+        },
+        {
+          "path": "crates/neoflash-core/src/model.rs",
+          "sha256": "0d70db94a5b4139d209de77fa0742961fb0f6db358506e70ffd348b9e882e51f"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime.rs",
+          "sha256": "4d66f972fb0a428063d42d46366c6befbd0248438edca4fb4533067dd485abcf"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph.rs",
+          "sha256": "35c4630c0ffbbd937fb6af6f04c7e71f087d26901ec0dd96904201a321744db1"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graphics.rs",
+          "sha256": "ede41c458a261d9208baa9d35ad5ad2fb05b41cd90b4fd2d52176d7c90ae0ab4"
+        },
+        {
+          "path": "crates/neoflash-core/src/validation.rs",
+          "sha256": "cb9d507401852eadc7340820a2b4b82447a7af7d97863bb9d07b7f063fe94527"
+        },
+        {
+          "path": "crates/neoflash-editor/Cargo.toml",
+          "sha256": "8549dc2d0d3b59abd1336bb322e2ca39e4198372b5f5cdf3ace861521e8741d9"
+        },
+        {
+          "path": "crates/neoflash-editor/src/accessibility.rs",
+          "sha256": "7b02f21d880283cdf480a6c0579f732abf19fbe317917e4e18faf9b11d069369"
+        },
+        {
+          "path": "crates/neoflash-editor/src/app.rs",
+          "sha256": "a4ba48de3189000f0f11432e68b681d61e5cd283ac6a5361b21490775b64573c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard.rs",
+          "sha256": "e3ffc6db4a9567d2de9194bfbc8a4715e3ddb0b206dc593002cce2ec9eb169fe"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard_tests.rs",
+          "sha256": "2141e3ec04072a80a8dc58f3bfd27e9477c602c65ae804e1bbfa2e11b18418e5"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached.rs",
+          "sha256": "4857ae64827f7818f7f159fff43b3e14a6ff784bcd0148d161a25e7765e59b3d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached_tests.rs",
+          "sha256": "e66b38262cd5cf6d0a1f64887b19ba86950233cc6fd77c16a977bcba16f14ceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/fonts.rs",
+          "sha256": "b3b012e4712f82048b3aa174465c2a9070a4ab402d64c5522548f9c44ff96791"
+        },
+        {
+          "path": "crates/neoflash-editor/src/main.rs",
+          "sha256": "76fbfc0fefa7e191c5edf4b574fd07782081a79ebc1c6780baaffe4629579aec"
+        },
+        {
+          "path": "crates/neoflash-editor/src/native_screens.rs",
+          "sha256": "b3eb6e6612dfd09c9ddfb206b82c3039343730bcf616c380cbee383b92664440"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panel_tests.rs",
+          "sha256": "1f30578675e958423af68ba50fc07ca5cc466f91f5f0a7fee9a56f65ee98dd11"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panels.rs",
+          "sha256": "dd9f1b01b7f280f33b34d341f3251a4aae8199d1251a3c80dd4fd52c03db398b"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection.rs",
+          "sha256": "0c1ea7f8306eb81328d80672436993f0c4d270891d6c50ee81d6ef0243626859"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection_tests.rs",
+          "sha256": "7f00cde935e571026375a4ce1ee1edb3937add0aa377882d1b8ab084318e3ab2"
+        },
+        {
+          "path": "crates/neoflash-editor/src/sources.rs",
+          "sha256": "2cd368126055a9cae40f9af25aabfb8ef8646e4ccc9651176be62dce1c0978e3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage.rs",
+          "sha256": "53212c5224158f9edf528c2dd01eb283bc3931bcc0f33f0d8d4f8c780b4b67be"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_primitives.rs",
+          "sha256": "fe940d6123cb492a4c6a6a9e135b51da023fe4c47193a6c3cdc185bd679cfceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_selection.rs",
+          "sha256": "e7ca9975a795b79e376ad096bc440bc469b17247f66b166c801756e8bcaeed13"
+        },
+        {
+          "path": "crates/neoflash-editor/src/tests.rs",
+          "sha256": "a4b96abeb579c8d59014b974e97d883d8ff9802dfb5baca770340c60405c73d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/theme.rs",
+          "sha256": "98c946389cff79af8d415b3bd8a282633d097989e60d8643f2f8125f7f8c4936"
+        },
+        {
+          "path": "crates/neoflash-editor/src/timeline_paint.rs",
+          "sha256": "87a87535956dcfaa686e6222bb56f1953328b00be858a0b522094097759848d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_geometry.rs",
+          "sha256": "584f5b1d3d7cc50906d5fe647812678d97333fd8df4a7d31264e0b9f245c971f"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_gesture_tests.rs",
+          "sha256": "f8ae23fabe656e336cbac2d3937097149cd7798990b95e64b07ebb052fba3adb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/ui_icons.rs",
+          "sha256": "532a69689f893cb6ad5bf82f4106b6472315fa1cea8af335b2d459ac0eaed74e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector.rs",
+          "sha256": "0d3ae90b25ab48e3228149b0b96920b8f1367e86a609f8d2c10176653ae35f1c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector_gesture_tests.rs",
+          "sha256": "6f54dd33ea9edf03f1c08383e932cffcc47a26cb2a54e2dfe0d8fed07e84d77e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace.rs",
+          "sha256": "e5adb69dad73eba07bc70ebed9d7907d837290df1bb80cae44f4fcd64d9f3b45"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace_editor_tests.rs",
+          "sha256": "b41e9d80e196a5e58766db1ebd1a2c9e8be74b277006eb366c37af69eb8dc74a"
+        },
+        {
+          "path": "crates/neoflash-export/Cargo.toml",
+          "sha256": "577ab7bd07bb5614f4a0ef2e408b553befaad996024c65916121a52266cd0954"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "2fbaf4acb148c842bd332bd463a40a52c6fb626a792e05e19db7a654273eb423"
+        },
+        {
+          "path": "crates/neoflash-export/src/main.rs",
+          "sha256": "a174e11c87e970fc4ff37cb5966c525dd5435c744715b6ce93b0052c56bf89d8"
+        },
+        {
+          "path": "crates/neoflash-import/Cargo.toml",
+          "sha256": "ae07834a20cc84f4472c253088f5ce17127b137952daad3f066f34eca6ea96cc"
+        },
+        {
+          "path": "crates/neoflash-import/examples/contour_fixture.rs",
+          "sha256": "037f00320374630c556f0e45087b279071260e8de090fac6c81d059c362f3a59"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_binary_corpus.rs",
+          "sha256": "3ea8b650bcd5ced084b3c266f4f5865e2af96b43b3d3075588c6ae1414dea4d1"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_contour_candidates.rs",
+          "sha256": "9e6912139440480d7dee72ac4c6643c3690408f0ea19618df8f4d1276b20fe5e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy.rs",
+          "sha256": "9dfdb5573c5e1f63121cc4e7bc623bf151e55124ba47da8e688de153f65ccafa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents.rs",
+          "sha256": "adde25d4fa8736d8d47acbf215e78b054b9d31345fb80caef65009f2677cbffa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents/payload.rs",
+          "sha256": "b0c146ec3f5c56525f7e7c4e7b6a4bb28590e4711445b811766801caf685fedd"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours.rs",
+          "sha256": "f434f77c72359b53b18b42b137763d4d607b38b1f010a407b92f2575e7f7799e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours/certificate.rs",
+          "sha256": "fb4abe54a5984e47a05b1848e92f15adf61c4a35825edf7872e9103f8950caae"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/geometry.rs",
+          "sha256": "15797f76b2ed8a9b165b9f184ab8cf2d9439eefe702dcdc68e019c7ad9a191bf"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/mfc.rs",
+          "sha256": "2b79189ee7105947f7a18732860630e3f677ef82e55b2e91fcbde17959812021"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/timeline.rs",
+          "sha256": "7d5f4e1c0b44f6cc4e39628ed8f3724a99b81957394a0d8d07923ffd89f41f3a"
+        },
+        {
+          "path": "crates/neoflash-import/src/lib.rs",
+          "sha256": "3c54d4afecd01fde3e8f5db2bd9b42b0b0c5371be70d90ccc525027e2de53b8b"
+        },
+        {
+          "path": "crates/neoflash-import/src/main.rs",
+          "sha256": "2710f27ef30f4e62afb44537e56da44844aed04d4e8a864ccbda6edd75d4c2cc"
+        },
+        {
+          "path": "crates/neoflash-import/src/source.rs",
+          "sha256": "25662f5fd70d4e2cdafaf59518301dc8875fcf2f2e0636fd05e440823be5e9de"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl.rs",
+          "sha256": "7849526b7cdb15e131ee07e1a3387a3038b30b1512488e2c94fff00225cb698a"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/publish.rs",
+          "sha256": "0a631fa1a3c6b9c186eb76aef5115775b72b86e0d88462f3ea5028ee28b14c89"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/shape.rs",
+          "sha256": "2303fb011b22b32d56fccfe0505653af76057983da39540098b84be37abce1a5"
+        },
+        {
+          "path": "crates/neoflash-script/Cargo.toml",
+          "sha256": "2923af027d33f803b1fb9e876f0793be299b666fd437b22c81b70d7e15122b57"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_batch.rs",
+          "sha256": "c428fa1a84b3649229d9b8a6b33b3fa08ac274dd07679ca61de666b9bc069436"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_project.rs",
+          "sha256": "e7d780759bb4e62704d56c55e0d8e76c2ed9f5ae4a35f82e286aaea98a7c0ac6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "8d6d0712f5e708381e566a43de164e9eec76c4d00777c2f2d7278ef9c5125610"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/collections.js",
+          "sha256": "63d55193c51b297e35970684a20cf31d8608956aa1f87210af778f67c0ab8cd0"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/completion.rs",
+          "sha256": "94cea0172dc24782f16973e4dc0181db5e4ecc411f5bcf288c1eafb6c5d73346"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/control_tests.rs",
+          "sha256": "17588080043035299d94d9cd437e217ca2262b60c7f26be1d95e6fd2db92729a"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/exceptions.js",
+          "sha256": "534534a37d9d0c48b1898847615e0581b20661341d24ded64ed355785e8e366e"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/intrinsics.js",
+          "sha256": "65528ea334627dc829097e59627647382ffe716b39acb77e15c8bcbef68ebdb4"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "71c89d178614b10645d371e6be8b5248fc90fb6a6d1376bfc769f11bccd67dfa"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "d678eee70c8684e5972d719641213149cd82b0c66b41de8f74242ff3ce6e1916"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "8989500ce1d3bf2f4ff44fc74a41f93904194de8d46587c6d393ae77d65df66c"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/strings.js",
+          "sha256": "c307b5ae03320e2d3b8a2fd4370050b768cfee7e01fac27b0b3bed7df00f875c"
+        },
+        {
+          "path": "crates/neoflash-script/src/lib.rs",
+          "sha256": "3b7e634f008786775f3e8dd40dca84868b92e8af3e96f633ef28de5aa4464ec3"
+        },
+        {
+          "path": "crates/neoflash-web/Cargo.toml",
+          "sha256": "e4a23adb132e7030d23f844f33861b0f929c49b9ece3396cec154ebff42bf9b5"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "4fdb8584e3446f3b84452ab02e75f3fda2e3a316b1a61fa99ff105ec2e182453"
+        },
+        {
+          "path": "web/accessibility.js",
+          "sha256": "19d4bbba7af344a9d30fdb0d695dace234f6cfad5d0d5d9838c656c6a9bfedb9"
+        },
+        {
+          "path": "web/byte-array.js",
+          "sha256": "f17c806c2407aa483327a09a561f2837913741547903bca286acc0030d906758"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "a9c260b0fd8351ca247333d287638963fba7019fb2ee16d60547912560689da7"
+        },
+        {
+          "path": "web/events.js",
+          "sha256": "e72e7fea4c5a6630a2e3ef9e8fc1e350d82ef39e5a18c459db35999fe7f1a31e"
+        },
+        {
+          "path": "web/geom.js",
+          "sha256": "ce20faf6ab6a69c1df8bc4855eceedbdf86fe70faf24944f777facce423d7aa7"
+        },
+        {
+          "path": "web/legacy-input.js",
+          "sha256": "14ac0086abbbb5b1de591ea5ae35fafdce9f65f101b6e942871c62dc9c7b4c35"
+        },
+        {
+          "path": "web/path.js",
+          "sha256": "9286174f715ef1d1d37303aa010148a9fc593abfc2ee304599f6a2cd56f69da9"
+        },
+        {
+          "path": "web/preview.js",
+          "sha256": "1278996d0f1c0a7efe974919a8c496bbefebd5a0b5707926de03a708f4ca51fa"
+        },
+        {
+          "path": "web/progress/app.js",
+          "sha256": "b5f78ad52e27e498e0020ae33f59e4e545ed2d83c4f4abe8f9c3bd8fbc098780"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "58e57b0c41b25c64ae2da35ecb7890b852a7e2356579d088b8db2ddb1a2f8571"
+        },
+        {
+          "path": "web/stage.js",
+          "sha256": "22a028eb5580e04276a6fb63e042f8094fa5d77ba00d91b6629017d52f981dd4"
+        },
+        {
+          "path": "web/timers.js",
+          "sha256": "d42569c79bcda28ffd1b3712facb73e45e78e3b7dc22a1f194527781c9cdb9b1"
+        }
+      ],
+      "verification": {
+        "id": "DYNAMIC-BINARY-HTML5-20261027T0220Z",
+        "recordedHead": "2b5deffee923b607b681d436a9b129f1661abe1f",
+        "sourceCapturedAt": "2026-10-27T02:22:51.194646+00:00",
+        "verifiedAt": "2026-10-27T02:31:00.850515+00:00",
+        "sourceManifestSha256": "0234c92e4d40b1fbe111f5a1bdba17944d4932353d17d64ba68d23f4e050854d",
+        "browser": "Codex in-app browser",
+        "engine": "Not separately identified; no other engine pass claimed",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_bounded_dynamic_display_graphics_binary_workflow_with_documented_limits",
+        "currentSourceVerified": false
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:constructor:flash/utils/ByteArray.html#ByteArray()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Three independent no-argument buffers construct the packet/copy pipeline, plus a separate color buffer in dynamic-display. Constructor arguments, subclassing and allocation limits are not positive coverage."
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/ByteArray.html#length",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "packet.length is 50 and wire.length becomes 0 after clear. EOF read and unsupported compress preserve the relevant buffer length 50. Length-setter growth/truncation and cursor clamping are not exercised."
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/ByteArray.html#position",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "wire.position=3 and decoded.position=7 are accepted; readBytes preserves destination position7 before decoding from0. A readUnsignedInt overrun leaves decoded.position 50 unchanged, and unsupported compress leaves packet.position 50 unchanged. Arbitrary cursor/coercion cases and unobserved zero-gap bytes remain outside the scope."
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/ByteArray.html#bytesAvailable",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "After consuming the 50-byte packet, bytesAvailable is0; an added readUnsignedInt overrun leaves it 0 while cursor/length remain 50. Intermediate availability, cursor beyond length and read-only enforcement are not exercised."
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/ByteArray.html#endian",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The default header has raw bytes 78,70,66,49; setting LITTLE_ENDIAN permits the matching payload roundtrip. The original fixture does not independently inspect little-endian payload bytes, so exact payload wire order is not established by roundtrip alone."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeBoolean()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The packet writes true and the paired reader reproduces it in the browser trace. False/nonzero-byte decoding and coercion are outside this positive example; write return values are not inspected."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readBoolean()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The paired packet writer/reader roundtrip yields true. False/nonzero-byte decoding and coercion are outside this positive example; symmetric writer/reader errors require independent raw-byte evidence to exclude."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeByte()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The packet writes -7 and the paired reader reproduces it in the browser trace. Unsigned boundaries, truncation and coercion are outside this positive example; write return values are not inspected."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readByte()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The paired packet writer/reader roundtrip yields -7. Unsigned boundaries, truncation and coercion are outside this positive example; symmetric writer/reader errors require independent raw-byte evidence to exclude."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeShort()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The packet writes -1024 and the paired reader reproduces it in the browser trace. Full signed range, truncation and raw little-endian payload layout are outside this positive example; write return values are not inspected."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readShort()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The paired packet writer/reader roundtrip yields -1024. Full signed range, truncation and raw little-endian payload layout are outside this positive example; symmetric writer/reader errors require independent raw-byte evidence to exclude."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeInt()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The packet writes -1234567 and the paired reader reproduces it in the browser trace. Full signed range, truncation and raw little-endian payload layout are outside this positive example; write return values are not inspected."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readInt()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The paired packet writer/reader roundtrip yields -1234567. Full signed range, truncation and raw little-endian payload layout are outside this positive example; symmetric writer/reader errors require independent raw-byte evidence to exclude."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeUnsignedInt()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The packet writes default-endian header 1313227313 and payload 4275878552 and the paired reader reproduces it in the browser trace. Overflow/coercion and raw little-endian payload layout are outside this positive example; write return values are not inspected."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readUnsignedInt()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Positive packet reads yield default-endian header 1313227313 and payload 4275878552. At EOF the added readUnsignedInt probe raises RangeError: ByteArray read exceeds available data, with position 50/length 50/bytesAvailable 0 unchanged; the positive packet still completes and repeats after Restart. Full range/coercion, raw little-endian bytes and Flash EOFError/errorID equivalence are not established."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeFloat()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The packet writes 1.25 and the paired reader reproduces it in the browser trace. Rounding boundaries, nan/infinity and raw ieee payload layout are outside this positive example; write return values are not inspected."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readFloat()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The paired packet writer/reader roundtrip yields 1.25. Rounding boundaries, nan/infinity and raw ieee payload layout are outside this positive example; symmetric writer/reader errors require independent raw-byte evidence to exclude."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeDouble()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The packet writes 3.141592653589793 and the paired reader reproduces it in the browser trace. Rounding boundaries, nan/infinity and raw ieee payload layout are outside this positive example; write return values are not inspected."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readDouble()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The paired packet writer/reader roundtrip yields 3.141592653589793. Rounding boundaries, nan/infinity and raw ieee payload layout are outside this positive example; symmetric writer/reader errors require independent raw-byte evidence to exclude."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeUTF()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Writing NeoFlash π 🦀 and reading it back preserves BMP/supplementary Unicode in visible text; the total packet is 50 bytes. Raw length prefix, BOM/NUL, malformed input and 65535-byte limit are not positive coverage."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readUTF()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Reading the prefixed NeoFlash π 🦀 field yields the same visible string before the tail field. Raw prefix/byte order, malformed UTF and BOM/NUL semantics are not established by the original roundtrip."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeUTFBytes()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Writing unprefixed done and reading four bytes back yields the visible suffix. Empty input, malformed surrogates and size boundaries are not positive coverage."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readUTFBytes()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Reading four bytes after the prefixed Unicode label yields done and exhausts decoded bytes. BOM/NUL, malformed UTF, shorter lengths and overrun behavior are not positive coverage."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeBytes()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "wire.writeBytes(packet) copies the packet from default source offset 0 into destination offset 3, and later decoding reproduces all fields. Source cursor preservation, overlap and range-clamping semantics are not observed by the original example."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readBytes()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "wire.readBytes(decoded,0,50) transfers the packet while decoded.position remains 7 before decoding from 0. Same-buffer transfers, source-cursor readback, partial copy and bounds failures are not positive coverage."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#clear()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "wire.clear() leaves wire.length=0 while decoded packet output remains intact. Cleared position, capacity release and instance accounting are not inspected by the original example."
+        },
+        {
+          "catalogId": "AS3:constant:flash/utils/Endian.html#LITTLE_ENDIAN",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The named constant is accepted for packet/decoded byte order in the roundtrip. Raw little-endian payload bytes must be separately observed to validate byte ordering; BIG_ENDIAN is not explicitly referenced."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/Sprite.html#Sprite()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "new Sprite creates both panels and underlay; project Card extends Sprite and retains identity/state through detach/reparent. General native subclass semantics and authored allocation are not covered."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/Shape.html#Shape()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "new Shape creates the card badge with independent geometry and an assigned name; its hit can bubble to the card. Other Shape features and native subclassing are not covered."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#graphics",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Runtime Sprite.graphics supplies the typed Graphics facade used for panel/underlay/card solid drawing. Direct Graphics construction, assigning graphics and authored-owner drawing are not covered."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Shape.html#graphics",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Runtime Shape.graphics supplies the badge drawing facade. Direct Graphics construction, assigning graphics and authored-owner drawing are not covered."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#beginFill()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Solid RGB fills with default opaque alpha render the panels, underlay, card and badge. Other alpha values, gradients/bitmaps and unsupported-owner behavior are not positive coverage."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#endFill()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The explicit endFill calls complete the original panel/card/badge draw sequences. State transitions across later unfilled/filled commands are not independently discriminated."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#lineStyle()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "A 2-pixel RGB scaling round stroke renders the card and contributes 242x102 bounds around its 240x100 fill. Hairlines, other caps/joins/scale modes and invalid values are not positive coverage."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#drawRect()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Finite rectangles render the two panels, underlay and 240x100 card, with expected layering and bounds. Negative dimensions, transforms and other path primitives are not covered."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#drawCircle()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "A radius-19 filled circle renders the Shape badge and provides the descendant hit route to the card. Other radii, boundary tessellation fidelity and invalid coordinates are not covered."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#addChild()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Dynamic panels/Card/badge attach and the same Card reparents while preserving count/listeners. Added leftPanel.addChild(leftPanel) rejects the cycle before changing its valid parent/two children, after which the positive interactive workflow succeeds. Return values, authored-prefix mutation and Flash-native error type/code equivalence are not established."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#removeChild()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Removing the runtime Card makes parent null and removes it from the image/hit route; adding it again preserves count/listener state. Return value and authored removal are not positive coverage."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#swapChildren()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The Up cycle swaps Card/underlay and getChildIndex(card) becomes 0 before Card is moved back to the top. Return value and swapping authored children are not exercised."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#setChildIndex()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "After the cycle, setChildIndex(card,numChildren-1) restores the Card above the underlay and permits a subsequent badge/card click. Return value, invalid indices and authored-prefix movement are not positive coverage."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#getChildIndex()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The original cycle reads Card index 0 immediately after swapping it with underlay. Detached, absent and authored-child index cases are not exercised."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObjectContainer.html#numChildren",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Startup reports leftPanel=2, rightPanel=0, Card=1; child counts update with reparent/detach and do not count Graphics paints as children. Read-only enforcement and broad container shapes are not covered."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#createEmptyMovieClip()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "An empty runtime clip named legacy is created at the append depth and draws an interactive triangle. Arbitrary depth/replacement, linked symbols and historical AVM1 lifecycle are not covered."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getNextHighestDepth()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The append depth returned for the root is accepted by createEmptyMovieClip. Its numeric value, historical depth gaps and replacement semantics are not inspected."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#lineStyle()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "A 2-pixel RGB stroke with legacy 100-percent alpha outlines the triangle. Hairlines, alternate styles and other alpha values are not covered."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#beginFill()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "An RGB fill with legacy 100-percent alpha colors the runtime triangle. Other alpha values, gradients/bitmaps and authored-owner drawing are not covered."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#moveTo()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "moveTo(0,0) starts the triangle path on the new runtime clip. Other pen-state transitions and unsupported inputs are not covered."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#lineTo()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Three lineTo calls form the closed triangle through (36,30),(0,60),(0,0), including a visible/hittable interior. Other contour/winding behavior is not covered."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#endFill()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "endFill follows the closed triangle drawing sequence before pointer interaction. Later fill-state transitions and return values are not inspected."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#parent",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Card.parent changes leftPanel -> rightPanel -> null -> leftPanel while the same Card retains count/listeners. General authored reparenting and root parent behavior are not covered."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#root",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Card click resolves root.status after reparent/reattach and updates the authored root text. Detached root semantics and cross-root transitions are not exercised."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#name",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Runtime names leftPanel/rightPanel/card/badge are assigned and panel names appear after reparent. Duplicate names and name-lookup conflict behavior are not covered."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#x",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Explicit x offsets place runtime panels/card/badge, and reparenting preserves the local Card coordinates. Numeric coercion and singular/rotated transforms are not exercised."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#y",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Runtime y offsets and Timer-driven Card y increments affect the displayed position; local geometry survives reparent. Numeric coercion and timer scheduling precision are not covered."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#getBounds()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Card.getBounds(root) returns typed Rectangle width242/height102 after a detach/reparent/order cycle, including the 2-pixel stroke. Detached bounds, masks and arbitrary transforms are not exercised."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_name",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "New AS2 clip reads legacy in ready/press traces. Renaming and lookup conflicts are not covered."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_parent",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The new AS2 clip reports _parent equal to the root creator. Removal and reparenting through the AS2 facade are not exercised."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_x",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Assigning _x=462 positions the runtime AS2 triangle. Coercion and unusual values are not covered."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_y",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Assigning _y=235 positions the runtime AS2 triangle. Coercion and unusual values are not covered."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onPress",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Assigning a function to the runtime AS2 clip onPress produces dynamic AS2 press legacy on its real triangle hit. Other callbacks, pointer buttons and replacement are not covered."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#addEventListener()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Card MouseEvent.CLICK and Stage keyboard listeners remain effective after dynamic detach/reparent/reattach; the descendant badge click increments the same Card once. Actual ADDED/REMOVED payload/order is not observed by the original fixture."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#CLICK",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The dynamic Card callback receives its body/badge coordinate hit and preserves count through graph mutations. Other mouse event types and engines are not inferred."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/KeyboardEvent.html#KEY_DOWN",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Real Right/Space/Up drive reparent, detach/reattach and reorder through Stage keyboard input. Modifier, IME and repeat behavior are not covered."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#compress()",
+          "status": "missing",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The added packet.compress() probe raises TypeError: ByteArray.compress is not implemented in the bounded binary-buffer profile, retaining packet length 50, position 50 and first byte 78. Positive numeric/UTF packet decoding still succeeds and repeats after Restart. The diagnostic prevents silent loss; compression itself remains missing."
         }
       ]
     },

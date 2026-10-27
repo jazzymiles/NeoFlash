@@ -1,6 +1,26 @@
 {
   "cases": [
     {
+      "id": "linked-movieclips",
+      "path": "examples/linked-movieclips.nflash",
+      "title": "Linked MovieClips, independent timelines and attachMovie",
+      "checks": [
+        "Two AS3 instances share one exported symbol but keep separate child identities, frames and click counts; the AS2 instance sees its initObject during construction.",
+        "Click all three cards; Right steps the AS3 clips, Space detaches/reattaches the middle clip and Up uses frame labels. Nested badges keep independent clocks.",
+        "Restart creates fresh linked instances, counters and listeners."
+      ]
+    },
+    {
+      "id": "interfaces-accessors",
+      "path": "examples/interfaces-accessors.nflash",
+      "title": "AS3 interface contracts and property accessors",
+      "checks": [
+        "The component model implements inherited project interfaces and typed accessors, including a subclass getter using super.",
+        "Click the stage to update the bounded model through its property; the independent second model remains at seven and the first stops at nine.",
+        "Restart restores initial instance and static property state."
+      ]
+    },
+    {
       "id": "dynamic-display",
       "path": "examples/dynamic-display.nflash",
       "title": "Dynamic display, Graphics and shared identity",

@@ -4,6 +4,7 @@ use crate::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
+mod linked;
 
 pub const MAX_DYNAMIC_OBJECTS: usize = 4096;
 const MAX_GRAPH_DEPTH: usize = 64;
@@ -69,6 +70,8 @@ pub struct RuntimeObject {
     pub children: Vec<ObjectRef>,
     pub on_stage: bool,
     pub authored_path: Option<Vec<Id>>,
+    pub namespace_ref: Option<ObjectRef>,
+    pub source_path: Option<Vec<Id>>,
     /// Own Graphics paints; these are not display children.
     pub graphics: Vec<ElementKind>,
 }
@@ -83,6 +86,13 @@ pub struct RuntimeAccessibleNode {
     #[serde(flatten)]
     pub node: AccessibleNode,
     pub owner_ref: ObjectRef,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RuntimeScriptDispatch {
+    #[serde(flatten)]
+    pub dispatch: ScriptDispatch,
+    pub target_ref: ObjectRef,
+    pub namespace_ref: Option<ObjectRef>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct RuntimeSnapshot {
@@ -114,6 +124,17 @@ struct DynamicObject {
     graphics: GraphicsState,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct SourceAddress {
+    namespace: ObjectRef,
+    path: Vec<Id>,
+}
+struct LinkedNamespace {
+    player: Box<Player>,
+    nodes: usize,
+    depth: usize,
+}
+
 #[derive(Default)]
 pub(crate) struct RuntimeGraph {
     generation: u64,
@@ -126,6 +147,9 @@ pub(crate) struct RuntimeGraph {
     events: Vec<DisplayEvent>,
     events_overflowed: bool,
     graphics_cost: usize,
+    namespaces: BTreeMap<ObjectRef, LinkedNamespace>,
+    linked_authored: BTreeMap<SourceAddress, Authored>,
+    linked_paths: HashMap<ObjectRef, SourceAddress>,
 }
 
 impl RuntimeGraph {
@@ -144,6 +168,9 @@ impl RuntimeGraph {
         self.events.clear();
         self.events_overflowed = false;
         self.graphics_cost = 0;
+        self.namespaces.clear();
+        self.linked_authored.clear();
+        self.linked_paths.clear();
     }
     fn allocate(&mut self) -> ObjectRef {
         self.next_id = self
@@ -195,6 +222,7 @@ impl RuntimeGraph {
                 }
             }
             self.suffix.remove(parent);
+            self.prefix.remove(parent);
         }
         self.authored
             .retain(|path, node| active.get(path.as_slice()) == Some(&node.lifetime));
@@ -213,7 +241,8 @@ impl RuntimeGraph {
                 );
             }
         }
-        self.prefix.clear();
+        self.prefix
+            .retain(|reference, _| !self.paths.contains_key(reference));
         for (path, _) in placements {
             if !path.is_empty() {
                 let parent = &self.authored[&path[..path.len() - 1]].reference;
@@ -225,11 +254,25 @@ impl RuntimeGraph {
         }
     }
     fn alive(&self, id: &ObjectRef) -> bool {
-        self.paths.contains_key(id) || self.dynamic.contains_key(id)
+        self.paths.contains_key(id)
+            || self.dynamic.contains_key(id)
+            || self.linked_paths.contains_key(id)
     }
     fn parent(&self, id: &ObjectRef) -> Option<ObjectRef> {
         if let Some(dynamic) = self.dynamic.get(id) {
             return dynamic.parent.clone();
+        }
+        if let Some(address) = self.linked_paths.get(id) {
+            if address.path.len() == 1 {
+                return Some(address.namespace.clone());
+            }
+            return self
+                .linked_authored
+                .get(&SourceAddress {
+                    namespace: address.namespace.clone(),
+                    path: address.path[..address.path.len() - 1].into(),
+                })
+                .map(|node| node.reference.clone());
         }
         let path = self.paths.get(id)?;
         if path.is_empty() {
@@ -317,21 +360,52 @@ impl Player {
     }
 
     pub fn runtime_snapshot(&self, project: &Project) -> RuntimeSnapshot {
-        let authored = self.display_nodes(project);
-        let authored: HashMap<_, _> = authored
+        let mut authored: HashMap<_, _> = self
+            .display_nodes(project)
             .into_iter()
             .filter_map(|node| self.object_ref(&node.path).map(|id| (id, node)))
             .collect();
-        let items = self.authored_snapshot(project).items;
-        let items: HashMap<_, _> = items
+        let base = self.authored_snapshot(project);
+        let mut items: HashMap<_, _> = base
+            .items
             .into_iter()
             .filter_map(|item| self.object_ref(&item.instance_path).map(|id| (id, item)))
             .collect();
-        let mut result = RuntimeSnapshot::default();
-        let mut roots = vec![];
-        if let Some(root) = self.object_ref(&[]) {
-            roots.push(root);
+        let mut metadata: HashMap<_, _> = base
+            .nodes
+            .into_iter()
+            .filter_map(|node| {
+                node.accessibility.and_then(|accessibility| {
+                    self.object_ref(&node.path).map(|id| (id, accessibility))
+                })
+            })
+            .collect();
+        let mut linked_roots = HashMap::new();
+        for (namespace, scope) in &self.graph.namespaces {
+            for node in scope.player.display_nodes(project) {
+                if node.path.is_empty() {
+                    linked_roots.insert(namespace.clone(), node);
+                } else if let Some(reference) = self.graph.linked_ref(namespace, &node.path) {
+                    authored.insert(reference, node);
+                }
+            }
+            let source = scope.player.authored_snapshot(project);
+            for item in source.items {
+                if let Some(reference) = self.graph.linked_ref(namespace, &item.instance_path) {
+                    items.insert(reference, item);
+                }
+            }
+            for node in source.nodes {
+                if let Some(accessibility) = node.accessibility
+                    && let Some(reference) = self.graph.linked_ref(namespace, &node.path)
+                {
+                    metadata.insert(reference, accessibility);
+                }
+            }
         }
+        let mut result = RuntimeSnapshot::default();
+        let root = self.object_ref(&[]);
+        let mut roots: Vec<_> = root.iter().cloned().collect();
         roots.extend(
             self.graph
                 .dynamic
@@ -342,22 +416,43 @@ impl Player {
         let mut pending: Vec<_> = roots
             .into_iter()
             .rev()
-            .map(|id| (id, [1., 0., 0., 1., 0., 0.], 1., true, false))
+            .map(|id| (id, [1., 0., 0., 1., 0., 0.], 1., true, false, false, false))
             .collect();
-        while let Some((reference, parent_world, parent_alpha, parent_visible, parent_attached)) =
-            pending.pop()
+        while let Some((
+            reference,
+            parent_world,
+            parent_alpha,
+            parent_visible,
+            parent_attached,
+            parent_disabled,
+            parent_singular,
+        )) = pending.pop()
         {
-            let (display, authored_path, graphics, alpha, on_stage) =
+            let (mut display, authored_path, namespace_ref, source_path, graphics) =
                 if let Some(node) = authored.get(&reference) {
-                    let alpha = node.transform.alpha * parent_alpha;
-                    (node.clone(), Some(node.path.clone()), vec![], alpha, true)
+                    let namespace = self
+                        .graph
+                        .linked_paths
+                        .get(&reference)
+                        .map(|address| address.namespace.clone());
+                    (
+                        node.clone(),
+                        if namespace.is_none() {
+                            Some(node.path.clone())
+                        } else {
+                            None
+                        },
+                        namespace,
+                        Some(node.path.clone()),
+                        vec![],
+                    )
                 } else if let Some(node) = self.graph.dynamic.get(&reference) {
-                    let world = affine_multiply(parent_world, transform_matrix(node.transform));
                     let owner = match node.kind {
                         DynamicKind::Sprite => "sprite",
                         DynamicKind::Shape => "shape",
                         DynamicKind::MovieClip => "movie_clip",
                     };
+                    let linked = linked_roots.get(&reference);
                     let movie = node.kind == DynamicKind::MovieClip;
                     (
                         DisplayNode {
@@ -365,29 +460,65 @@ impl Player {
                             lifetime_id: reference.id.clone(),
                             name: node.name.clone(),
                             owner: owner.into(),
-                            class_name: None,
+                            class_name: linked.and_then(|source| source.class_name.clone()),
                             transform: node.transform,
-                            world,
+                            world: [0.; 6],
                             visible: node.visible,
-                            effective_visible: parent_visible && node.visible,
-                            frame: 0,
-                            total_frames: if movie { 1 } else { 0 },
+                            effective_visible: true,
+                            frame: linked.map_or(0, |source| source.frame),
+                            total_frames: linked
+                                .map_or(if movie { 1 } else { 0 }, |source| source.total_frames),
                             independent: movie,
                             kind: None,
                         },
                         None,
+                        linked.map(|_| reference.clone()),
+                        linked.map(|_| vec![]),
                         node.graphics.paints(),
-                        parent_alpha * node.transform.alpha,
-                        parent_attached,
                     )
                 } else {
                     continue;
                 };
+            display.world = affine_multiply(parent_world, transform_matrix(display.transform));
+            display.effective_visible = parent_visible && display.visible;
+            let alpha = parent_alpha * display.transform.alpha;
+            let on_stage = parent_attached || root.as_ref() == Some(&reference);
+            let singular = parent_singular
+                || display.transform.scale_x == 0.
+                || display.transform.scale_y == 0.;
+            let own_accessibility = metadata.get(&reference);
+            let disabled = parent_disabled
+                || own_accessibility
+                    .is_some_and(|a| a.role == AccessibleRole::Button && a.disabled);
+            if on_stage
+                && display.effective_visible
+                && alpha > 0.
+                && !singular
+                && (display.world[0] * display.world[3] - display.world[1] * display.world[2]).abs()
+                    >= 1e-12
+                && let Some(accessibility) = own_accessibility
+            {
+                let mut accessibility = accessibility.clone();
+                if parent_disabled {
+                    accessibility.disabled = true;
+                }
+                result.semantics.push(RuntimeAccessibleNode {
+                    node: AccessibleNode {
+                        instance_path: source_path.clone().unwrap_or_default(),
+                        lifetime_id: display.lifetime_id.clone(),
+                        accessibility,
+                    },
+                    owner_ref: reference.clone(),
+                });
+            }
             let children = self.graph.children(&reference);
             if on_stage && display.effective_visible {
-                if let Some(item) = items.get(&reference) {
+                if let Some(source) = items.get(&reference) {
+                    let mut item = source.clone();
+                    item.transform = display.world;
+                    item.alpha = alpha;
                     result.draws.push(RuntimeDrawItem {
-                        item: item.clone(),
+                        item,
                         owner_ref: reference.clone(),
                     });
                 }
@@ -413,6 +544,8 @@ impl Player {
                     alpha,
                     display.effective_visible,
                     on_stage,
+                    disabled,
+                    singular,
                 ));
             }
             result.objects.push(RuntimeObject {
@@ -422,17 +555,14 @@ impl Player {
                 children,
                 on_stage,
                 authored_path,
+                namespace_ref,
+                source_path,
                 graphics,
             });
         }
-        result.semantics = self
-            .accessibility_nodes(project)
-            .into_iter()
-            .filter_map(|node| {
-                self.object_ref(&node.instance_path)
-                    .map(|owner_ref| RuntimeAccessibleNode { node, owner_ref })
-            })
-            .collect();
+        result
+            .semantics
+            .sort_by_key(|node| node.node.accessibility.tab_order);
         result
     }
 
@@ -503,7 +633,10 @@ impl Player {
                 let depth = self.graph.route(&parent).len();
                 let height = subtree
                     .iter()
-                    .map(|id| self.graph.route(id).len() - self.graph.route(&child).len() + 1)
+                    .map(|id| {
+                        self.graph.route(id).len() - self.graph.route(&child).len()
+                            + self.graph.namespaces.get(id).map_or(1, |scope| scope.depth)
+                    })
                     .max()
                     .unwrap_or(1);
                 if depth + height > MAX_GRAPH_DEPTH {
@@ -699,6 +832,15 @@ impl Player {
         if !valid {
             return false;
         }
+        if let Some(address) = self.graph.linked_paths.get(reference).cloned() {
+            return self
+                .graph
+                .namespaces
+                .get_mut(&address.namespace)
+                .expect("namespace")
+                .player
+                .set_property(&address.path, name, value);
+        }
         if let Some(path) = self.graph.paths.get(reference).cloned() {
             return self.set_property(&path, name, value);
         }
@@ -725,6 +867,14 @@ impl Player {
         reference: &ObjectRef,
         name: &str,
     ) -> Option<f64> {
+        if let Some(address) = self.graph.linked_paths.get(reference) {
+            return self
+                .graph
+                .namespaces
+                .get(&address.namespace)?
+                .player
+                .property(project, &address.path, name);
+        }
         if let Some(path) = self.graph.paths.get(reference) {
             return self.property(project, path, name);
         }
@@ -740,6 +890,15 @@ impl Player {
         }
     }
     pub fn object_set_visible(&mut self, reference: &ObjectRef, value: bool) -> bool {
+        if let Some(address) = self.graph.linked_paths.get(reference).cloned() {
+            return self
+                .graph
+                .namespaces
+                .get_mut(&address.namespace)
+                .expect("namespace")
+                .player
+                .set_visible(&address.path, value);
+        }
         if let Some(path) = self.graph.paths.get(reference).cloned() {
             return self.set_visible(&path, value);
         }
@@ -750,12 +909,29 @@ impl Player {
         true
     }
     pub fn object_visible(&self, project: &Project, reference: &ObjectRef) -> Option<bool> {
+        if let Some(address) = self.graph.linked_paths.get(reference) {
+            return self
+                .graph
+                .namespaces
+                .get(&address.namespace)?
+                .player
+                .visible(project, &address.path);
+        }
         if let Some(path) = self.graph.paths.get(reference) {
             return self.visible(project, path);
         }
         self.graph.dynamic.get(reference).map(|node| node.visible)
     }
     pub fn object_set_name(&mut self, reference: &ObjectRef, name: &str) -> bool {
+        if let Some(address) = self.graph.linked_paths.get(reference).cloned() {
+            return self
+                .graph
+                .namespaces
+                .get_mut(&address.namespace)
+                .expect("namespace")
+                .player
+                .set_name(&address.path, name);
+        }
         if let Some(path) = self.graph.paths.get(reference).cloned() {
             return self.set_name(&path, name);
         }
@@ -769,12 +945,30 @@ impl Player {
         true
     }
     pub fn object_set_text(&mut self, reference: &ObjectRef, text: &str) -> bool {
+        if let Some(address) = self.graph.linked_paths.get(reference).cloned() {
+            return self
+                .graph
+                .namespaces
+                .get_mut(&address.namespace)
+                .expect("namespace")
+                .player
+                .set_text(&address.path, text);
+        }
         let Some(path) = self.graph.paths.get(reference).cloned() else {
             return false;
         };
         self.set_text(&path, text)
     }
     pub fn object_set_text_color(&mut self, reference: &ObjectRef, color: u32) -> bool {
+        if let Some(address) = self.graph.linked_paths.get(reference).cloned() {
+            return self
+                .graph
+                .namespaces
+                .get_mut(&address.namespace)
+                .expect("namespace")
+                .player
+                .set_text_color(&address.path, color);
+        }
         let Some(path) = self.graph.paths.get(reference).cloned() else {
             return false;
         };
@@ -786,6 +980,20 @@ impl Player {
         reference: &ObjectRef,
         command: PlaybackCommand,
     ) -> bool {
+        if let Some(address) = self.graph.source_address(reference) {
+            let result = self
+                .graph
+                .namespaces
+                .get_mut(&address.namespace)
+                .expect("namespace")
+                .player
+                .control(project, &address.path, command);
+            if result {
+                self.sync_linked(project);
+                self.collect_linked_scripts(&address.namespace);
+            }
+            return result;
+        }
         if let Some(path) = self.graph.paths.get(reference).cloned() {
             return self.control(project, &path, command);
         }
@@ -805,6 +1013,14 @@ impl Player {
         true
     }
     pub fn object_frame(&self, reference: &ObjectRef) -> Option<u32> {
+        if let Some(address) = self.graph.source_address(reference) {
+            return self
+                .graph
+                .namespaces
+                .get(&address.namespace)?
+                .player
+                .clip_frame(&address.path);
+        }
         if let Some(path) = self.graph.paths.get(reference) {
             return self.clip_frame(path);
         }
@@ -815,6 +1031,14 @@ impl Player {
             .map(|_| 0)
     }
     pub fn object_frame_count(&self, project: &Project, reference: &ObjectRef) -> Option<u32> {
+        if let Some(address) = self.graph.source_address(reference) {
+            return self
+                .graph
+                .namespaces
+                .get(&address.namespace)?
+                .player
+                .clip_frame_count(project, &address.path);
+        }
         if let Some(path) = self.graph.paths.get(reference) {
             return self.clip_frame_count(project, path);
         }
@@ -827,6 +1051,14 @@ impl Player {
         label: &str,
         as2: bool,
     ) -> Option<u32> {
+        if let Some(address) = self.graph.source_address(reference) {
+            let scope = &self.graph.namespaces.get(&address.namespace)?.player;
+            return if as2 {
+                scope.resolve_frame_as2(project, &address.path, label)
+            } else {
+                scope.resolve_frame(project, &address.path, label)
+            };
+        }
         let path = self.graph.paths.get(reference)?;
         if as2 {
             self.resolve_frame_as2(project, path, label)

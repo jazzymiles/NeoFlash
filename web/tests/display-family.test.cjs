@@ -138,6 +138,56 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     assert.throws(() => shape.x, /removed|replaced/);
     assert.throws(() => shape.graphics.clear(), /removed|replaced/);
     assert.equal(host.proxyFor([]).title.text, originalText);
+
+    // The public linked-symbol workflow exercises the same host with two
+    // independent authored namespaces, project constructors and AS2 attachMovie.
+    player.free();player=null;
+    const linkedDirectory=resolve(directory,'linked');
+    const linkedExport=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/linked-movieclips.nflash','--output',linkedDirectory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    assert.equal(linkedExport.status,0,linkedExport.error?.message||linkedExport.stderr);
+    const linkedSandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
+    vm.runInContext(fs.readFileSync(resolve(linkedDirectory,'bundle.js'),'utf8'),linkedSandbox);
+    const linkedBundle=vm.runInContext('NeoFlashBundle',linkedSandbox);
+    vm.runInContext(fs.readFileSync(resolve(linkedDirectory,'neoflash_web.js'),'utf8'),linkedSandbox);
+    linkedSandbox.wasmBytes=Buffer.from(linkedBundle.wasm,'base64');
+    const linkedWasm=await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)',linkedSandbox);
+    player=new linkedWasm.WebPlayer(JSON.stringify(linkedBundle.project));
+    const {host:linked,traceCalls:linkedTraces}=createRuntimeHost(root,player,Array.from(linkedBundle.scripts,item=>({script:{language:item.language,source:item.source},code:item.code,location:item.location})),{bundle:linkedBundle,context:{measureText:line=>({width:line.length*8})}});
+    linked.dispatchScripts();
+    const document=linked.proxyFor([]),a=document.a,b=document.b,classic=document.classic;
+    assert.notEqual(a,b);assert.notEqual(a.caption,b.caption);assert.notEqual(a.badge,b.badge);
+    assert.deepEqual([a.totalFrames,b.totalFrames,classic.totalFrames],[12,12,12]);
+    assert.equal(a.caption.text,'AS3 linked');assert.equal(classic.caption.text,'AS2 attached');
+    assert.equal(classic.tag,'init-before-constructor');assert.equal(classic.parent,document);
+    assert.equal(linkedTraces.filter(row=>row[0]==='linked constructor').length,2,'each exported class constructor runs exactly once');
+    assert.ok(linkedTraces.some(row=>row[0]==='legacy constructor'&&row[1]==='init-before-constructor'));
+    assert.ok(linkedTraces.some(row=>row.join(' ')==='linked frame left first'));
+    assert.ok(linkedTraces.some(row=>row.join(' ')==='linked frame right second'));
+    const firstBadge=a.badge.currentFrame;
+    linked.broadcastFrame();player.tick();linked.dispatchScripts();
+    assert.equal(a.currentFrame,1);assert.equal(b.currentFrame,8);assert.equal(a.badge.currentFrame,firstBadge+1);
+    linked.stage().handleKey('keydown',{key:'ArrowRight',code:'ArrowRight',keyCode:39});
+    assert.equal(a.currentFrame,2);assert.equal(b.currentFrame,7);
+    linked.stage().handlePointer('click',{},b);assert.equal(b.clicks,1);assert.equal(a.clicks,0);
+    b.gotoAndPlay(2);const rightIdentity=b.toJSON().object_ref;
+    linked.stage().stage.focus=b;document.removeChild(b);
+    assert.equal(b.stage,null);assert.equal(linked.stage().stage.focus,null);
+    linked.broadcastFrame();player.tick();linked.dispatchScripts();assert.equal(b.currentFrame,3,'detached timeline continues independently');
+    document.addChild(b);assert.equal(b.clicks,1);assert.deepEqual(b.toJSON().object_ref,rightIdentity);
+    const semantics=JSON.parse(player.runtime_snapshot_json()).semantics;
+    const twoCards=semantics.filter(node=>node.accessibility.name==='Activate linked card');
+    assert.equal(twoCards.length,2);assert.notDeepEqual(twoCards[0].owner_ref,twoCards[1].owner_ref);
+    assert.deepEqual(twoCards[0].instance_path,twoCards[1].instance_path,'matching source paths belong to different namespaces');
+    const legacyButton=semantics.find(node=>node.accessibility.name==='Activate legacy card');
+    assert.equal(linked.activateSemantic(legacyButton),true);assert.equal(classic.clicks,1);
+    assert.equal(classic.currentFrame,7);assert.equal(classic.root,document);
+    assert.ok(linkedTraces.some(row=>row[0]==='legacy linked click'&&row[1]==='classic'&&row[2]===1));
+    assert.throws(()=>document.attachMovie('linked card','wrong',document.getNextHighestDepth()),/identifier|linkage|export/i,'display names do not substitute for Export identifiers');
+    const oldBadge=a.badge;linked.resetProject();
+    assert.throws(()=>oldBadge.x,/removed|replaced/);assert.notEqual(linked.proxyFor([]).a,a);
+    assert.equal(linked.proxyFor([]).classic.tag,'init-before-constructor');
+    assert.equal(linked.activateSemantic(legacyButton),false,'stale semantic owner cannot activate a recreated namespace');
+    linked.disposeFamily();
   } finally {
     if (player) player.free();
     fs.rmSync(directory, { recursive: true, force: true });

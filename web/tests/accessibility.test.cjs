@@ -46,6 +46,17 @@ test('new lifetime and role changes replace DOM targets; images have no activati
  manager.update([node('2','image')],[rectangle()],project,1,measure);const image=container.firstElementChild;
  assert.equal(image.tagName,'span');assert.equal(image.getAttribute('role'),'img');assert.equal(image.events.click,undefined);
  manager.update([],[],project,1,measure);assert.equal(container.children.length,0);
+ // Two copies of one linked symbol have the same source path and different refs.
+ const first={...node('1','button','First copy'),owner_ref:{id:'31',generation:'7'}},second={...node('1','button','Second copy'),owner_ref:{id:'32',generation:'7'}};
+ const firstDraw={...rectangle(),owner_ref:{id:'41',generation:'7'},ancestry_refs:[{id:'41',generation:'7'},first.owner_ref]};
+ const secondDraw={...rectangle(['clip','shape'],[1,0,0,1,100,0]),owner_ref:{id:'42',generation:'7'},ancestry_refs:[{id:'42',generation:'7'},second.owner_ref]};
+ manager.update([first,second],[firstDraw,secondDraw],project,1,measure);
+ const [firstButton,secondButton]=container.children;assert.notEqual(firstButton,secondButton);
+ assert.equal(firstButton.style.left,'0px');assert.equal(secondButton.style.left,'100px');secondButton.focus();
+ manager.update([second],[{...secondDraw,transform:[1,0,0,1,150,0]}],project,1,measure);
+ assert.equal(container.firstElementChild,secondButton);assert.equal(secondButton.style.left,'150px');assert.equal(container.ownerDocument.activeElement,secondButton);
+ manager.update([{...second,owner_ref:{id:'52',generation:'7'}}],[{...secondDraw,ancestry_refs:[{id:'42',generation:'7'},{id:'52',generation:'7'}]}],project,1,measure);
+ assert.notEqual(container.firstElementChild,secondButton,'retired namespace placement cannot reuse the old semantic target');
 });
 test('native-button adapter forwards current lifetime once and suppresses disabled activation',()=>{
  const container=dom(),received=[],manager=new SemanticLayer(container,n=>received.push(n)),project={width:300,height:200};

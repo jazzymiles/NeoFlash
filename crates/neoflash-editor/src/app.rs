@@ -317,6 +317,7 @@ impl Editor {
             content.accessibility = None;
             s.project.symbols.push(Symbol {
                 class_name: None,
+                linkage_id: None,
                 id: id.clone(),
                 name: format!("{} symbol", element.name),
                 kind: SymbolKind::MovieClip,

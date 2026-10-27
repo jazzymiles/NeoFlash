@@ -1,6 +1,6 @@
 # Runtime display graph and Graphics
 
-Status: accepted for the first dynamic-only increment, 2026-10-27. Linked dynamic symbol timelines and historical depth replacement remain future work.
+Status: accepted for the dynamic graph and explicit linked MovieClip increments, 2026-10-27. Historical depth replacement remains future work.
 
 ## Context
 
@@ -49,3 +49,17 @@ Publication stays self-contained HTML5. The native editor and WASM share the cor
 Use one coherent workflow: construct and draw a component, reparent it without losing listener identity, change order, detach/reattach, exercise AS2 drawing and a typed buffer, then Restart. Verify core/WASM graph invariants and atomic rejection alongside ordinary exported pointer/keyboard behavior in the shared batch. Do not add a separate acceptance cycle for each Graphics method.
 
 References: [AS3 DisplayObjectContainer](https://airsdk.dev/reference/actionscript/3.0/flash/display/DisplayObjectContainer.html), [AS3 Graphics](https://airsdk.dev/reference/actionscript/3.0/flash/display/Graphics.html), [AS2 MovieClip](https://open-flash.github.io/mirrors/as2-language-reference/MovieClip.html). These references guide the bounded profile; this bounded implementation is not measured Flash Player conformance.
+
+## Explicit linked MovieClip increment
+
+A saved non-root MovieClip may opt into runtime creation through `Symbol.linkage_id`, a unique, exact UTF-8 export identifier. This is separate from its library display name and optional project `class_name`. Version 2 stores the field; older documents remain readable. The Actions source panel edits the identifier in the existing undo transaction. Validation rejects root/non-MovieClip exports, invalid/duplicate identifiers and ambiguous exported class names. Cross-document clipboard transfer preserves linkage and source files, including every explicitly exported symbol and its dependency closure when transferring a program snapshot. Repeated paste reuses a matching symbol closure independently of generated IDs; conflicting content fails before changing the destination.
+
+`create_linked(identifier)` allocates a stable root ref and a scoped timeline player over the existing immutable project. It does not clone the project. Descendant source addresses are `(namespace ObjectRef, relative authored path)`, so two instances of one symbol never share script targets, display refs or clocks. Each namespace uses the existing timeline evaluator, labels, nested clocks and authored replacement rules. The outer graph maps these placements into its ordinary refs, draw order, bounds, input and semantic targets. `target_ref` carries script dispatch identity across WASM; path-only addressing remains the compatibility route for the original scene.
+
+AS3 `new ExportedClass()` uses the native allocation hook before the class constructor. AS2 `attachMovie` resolves the exact export identifier, accepts append depth, applies bounded enumerable data properties from `initObject` before class construction and attaches to the requested parent. A linked class can use authored children in its constructor. Construction during project static initialization is explicitly unsupported. No implicit export by display name, depth replacement or full historical construction schedule is inferred.
+
+Each clip has independent playback controls, frame scripts and nested state. Detachment preserves the instance, fields, listeners and running clocks, while removing its rendered pixels and semantic targets from Stage. Authored replacements receive new refs; their dynamic child subtrees detach rather than becoming children of the replacement. Reset invalidates the full graph and program session.
+
+Allocation reserves worst-case expanded symbol nodes and nesting across keyframes before modifying the graph: 100,000 linked source nodes in total, depth 64 and the existing 4,096 dynamic roots/objects. Scoped and scene script work shares the bounded queue. Reservation includes detached namespaces until reset; automatic collection is not claimed.
+
+Acceptance extends the existing core and exported display-family scenarios. The public `linked-movieclips.nflash` combines two AS3 instances, an AS2 attachment, frame-label controls, nested animation, pointer/semantic activation, detachment and Restart in one workflow. Native editor acceptance remains separately recorded; core model tests do not establish that UI observation.

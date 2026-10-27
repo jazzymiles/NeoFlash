@@ -1,7 +1,7 @@
 //! Project code editing shares the existing Actions workspace and Undo history.
 use crate::app::Editor;
 use eframe::egui;
-use neoflash_core::{Script, ScriptLanguage, SourceUnit, new_id};
+use neoflash_core::{Script, ScriptLanguage, SourceUnit, SymbolKind, new_id};
 use std::hash::{Hash, Hasher};
 
 pub(crate) struct CodeFeedback {
@@ -26,6 +26,7 @@ impl Editor {
         for symbol in &self.project.symbols {
             symbol.id.hash(&mut hash);
             symbol.class_name.hash(&mut hash);
+            symbol.linkage_id.hash(&mut hash);
         }
         hash.finish()
     }
@@ -142,6 +143,7 @@ impl Editor {
         });
         let mut document_class = self.project.document_class.clone().unwrap_or_default();
         let mut symbol_class = self.symbol().class_name.clone().unwrap_or_default();
+        let mut linkage_id = self.symbol().linkage_id.clone().unwrap_or_default();
         ui.horizontal_wrapped(|ui| {
             ui.label("Document class");
             ui.add(
@@ -156,18 +158,30 @@ impl Editor {
                         .desired_width(180.)
                         .hint_text("ui.Component"),
                 );
+                if self.symbol().kind == SymbolKind::MovieClip {
+                    ui.label("Export identifier");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut linkage_id)
+                            .desired_width(160.)
+                            .hint_text("card-library-id"),
+                    );
+                }
             }
         });
         let document_class =
             (!document_class.trim().is_empty()).then(|| document_class.trim().to_owned());
         let symbol_class =
             (!symbol_class.trim().is_empty()).then(|| symbol_class.trim().to_owned());
-        if document_class != self.project.document_class || symbol_class != self.symbol().class_name
+        let linkage_id = (!linkage_id.trim().is_empty()).then(|| linkage_id.trim().to_owned());
+        if document_class != self.project.document_class
+            || symbol_class != self.symbol().class_name
+            || linkage_id != self.symbol().linkage_id
         {
             self.transact(|editor| {
                 editor.project.enable_program();
                 editor.project.document_class = document_class;
                 editor.symbol_mut().class_name = symbol_class;
+                editor.symbol_mut().linkage_id = linkage_id;
             });
         }
         let Some(index) = self

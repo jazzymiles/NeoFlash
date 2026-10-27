@@ -39,6 +39,7 @@ fn key(frame: u32, elements: Vec<Element>, tween: Option<Easing>) -> Keyframe {
 fn symbol(id: &str, frames: u32, keys: Vec<Keyframe>) -> Symbol {
     Symbol {
         class_name: None,
+        linkage_id: None,
         id: id.into(),
         name: id.into(),
         kind: SymbolKind::MovieClip,

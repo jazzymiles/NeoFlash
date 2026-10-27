@@ -49,7 +49,8 @@ pub struct PasteResult {
 
 impl ClipboardPayload {
     /// Capture sampled, ordered placements and all symbol definitions reachable
-    /// through every authored keyframe. Library order and frame indices survive.
+    /// through every authored keyframe, plus explicitly exported runtime library
+    /// roots. Library order and frame indices survive.
     pub fn capture(
         project: &Project,
         elements: Vec<Element>,
@@ -116,7 +117,7 @@ impl ClipboardPayload {
 
     /// Same-session live symbols retain their identity and current definition.
     /// Missing definitions are recovered from the snapshot. A different session
-    /// always imports fresh identities, even when names or original IDs match.
+    /// imports fresh identities except for an identical explicit export closure.
     /// No FPS conversion, grouping, script rewriting, or mutation of `destination`.
     pub fn paste_into(
         &self,
@@ -148,6 +149,12 @@ impl ClipboardPayload {
         let snapshots: HashMap<&str, &Symbol> =
             self.symbols.iter().map(|s| (s.id.as_str(), s)).collect();
         let mut pending: Vec<&str> = self.elements.iter().filter_map(reference).collect();
+        pending.extend(
+            self.symbols
+                .iter()
+                .filter(|symbol| symbol.linkage_id.is_some())
+                .map(|symbol| symbol.id.as_str()),
+        );
         let mut required = HashSet::new();
         let mut identities = HashMap::<Id, Id>::new();
         while let Some(id) = pending.pop() {
@@ -162,6 +169,45 @@ impl ClipboardPayload {
             let Some(symbol) = snapshots.get(id) else {
                 return invalid(format!("missing captured symbol {id}"));
             };
+            if let Some(linkage) = &symbol.linkage_id
+                && let Some(existing) = destination
+                    .symbols
+                    .iter()
+                    .find(|s| s.linkage_id.as_ref() == Some(linkage))
+            {
+                let Some(source_closure) = canonical_symbol_closure(id, &self.symbols) else {
+                    return invalid(
+                        "captured exported symbol closure exceeds its dependency budget",
+                    );
+                };
+                let Some(destination_closure) =
+                    canonical_symbol_closure(&existing.id, &destination.symbols)
+                else {
+                    return invalid(
+                        "destination exported symbol closure exceeds its dependency budget",
+                    );
+                };
+                if source_closure.symbols != destination_closure.symbols {
+                    return invalid(
+                        "an export identifier conflicts with different destination symbol content; resolve the linkage conflict before pasting",
+                    );
+                }
+                for (source_id, destination_id) in
+                    source_closure.ids.into_iter().zip(destination_closure.ids)
+                {
+                    if identities
+                        .get(&source_id)
+                        .is_some_and(|existing| existing != &destination_id)
+                    {
+                        return invalid(
+                            "exported closures have conflicting shared symbol identities; resolve the library conflict before pasting",
+                        );
+                    }
+                    required.remove(&source_id);
+                    identities.insert(source_id, destination_id);
+                }
+                continue;
+            }
             required.insert(id.to_owned());
             pending.extend(symbol_elements(symbol).filter_map(reference));
         }
@@ -298,6 +344,7 @@ impl ClipboardPayload {
         let mut symbols = self.symbols.clone();
         symbols.push(Symbol {
             class_name: None,
+            linkage_id: None,
             id: wrapper_id.clone(),
             name: "Clipboard selection".into(),
             kind: SymbolKind::MovieClip,
@@ -323,7 +370,9 @@ impl ClipboardPayload {
                 sources: self.sources.clone(),
                 document_class: None,
                 format_version: if self.sources.is_empty()
-                    && !symbols.iter().any(|symbol| symbol.class_name.is_some())
+                    && !symbols
+                        .iter()
+                        .any(|symbol| symbol.class_name.is_some() || symbol.linkage_id.is_some())
                 {
                     1
                 } else {
@@ -403,9 +452,72 @@ fn symbol_elements(symbol: &Symbol) -> impl Iterator<Item = &Element> {
         .flat_map(|l| &l.keyframes)
         .flat_map(|k| &k.elements)
 }
+
+/// Compare reusable export content independently of document-local entity IDs.
+/// Shared child/placement identities remain shared in the canonical closure.
+struct CanonicalClosure {
+    symbols: Vec<Symbol>,
+    ids: Vec<Id>,
+}
+fn canonical_symbol_closure(root: &str, symbols: &[Symbol]) -> Option<CanonicalClosure> {
+    let by_id: HashMap<_, _> = symbols.iter().map(|s| (s.id.as_str(), s)).collect();
+    let mut pending = vec![root];
+    let mut seen = HashSet::new();
+    let mut ordered = Vec::new();
+    while let Some(id) = pending.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        if seen.len() > MAX_SYMBOLS {
+            return None;
+        }
+        let symbol = *by_id.get(id)?;
+        pending.extend(symbol_elements(symbol).filter_map(reference));
+        ordered.push(symbol);
+    }
+    let mut identities = HashMap::<Id, Id>::new();
+    for symbol in &ordered {
+        for id in std::iter::once(&symbol.id)
+            .chain(symbol.timeline.layers.iter().map(|l| &l.id))
+            .chain(symbol_elements(symbol).map(|e| &e.id))
+        {
+            let next = identities.len();
+            identities
+                .entry(id.clone())
+                .or_insert_with(|| format!("entity-{next}"));
+        }
+    }
+    let ids = ordered.iter().map(|symbol| symbol.id.clone()).collect();
+    Some(CanonicalClosure {
+        ids,
+        symbols: ordered
+            .into_iter()
+            .map(|symbol| {
+                let mut result = symbol.clone();
+                result.id = identities[&result.id].clone();
+                for layer in &mut result.timeline.layers {
+                    layer.id = identities[&layer.id].clone();
+                    for element in layer.keyframes.iter_mut().flat_map(|k| &mut k.elements) {
+                        element.id = identities[&element.id].clone();
+                        remap_reference(element, &identities);
+                    }
+                }
+                result
+            })
+            .collect(),
+    })
+}
 fn reachable(elements: &[Element], symbols: &[Symbol]) -> Result<HashSet<Id>, ClipboardError> {
     let by_id: HashMap<&str, &Symbol> = symbols.iter().map(|s| (s.id.as_str(), s)).collect();
     let mut pending: Vec<&str> = elements.iter().filter_map(reference).collect();
+    // Dynamic creation can select exports through computed strings or class
+    // references; preserve this bounded library catalog with the program data.
+    pending.extend(
+        symbols
+            .iter()
+            .filter(|symbol| symbol.linkage_id.is_some())
+            .map(|symbol| symbol.id.as_str()),
+    );
     let mut seen = HashSet::new();
     while let Some(id) = pending.pop() {
         if !seen.insert(id.to_owned()) {

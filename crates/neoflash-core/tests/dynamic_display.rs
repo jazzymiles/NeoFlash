@@ -375,4 +375,284 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
         player.create_display(DynamicKind::Shape).unwrap();
     }
     assert!(player.create_display(DynamicKind::Sprite).is_err());
+    linked_timelines_are_independent_namespaces(project);
+}
+
+fn linked_timelines_are_independent_namespaces(mut project: Project) {
+    let script = |source: &str| Script {
+        language: ScriptLanguage::JavaScript,
+        source: source.into(),
+    };
+    let leaf = Element {
+        id: "linked-leaf".into(),
+        name: "action".into(),
+        transform: Transform {
+            x: 5.,
+            ..Transform::default()
+        },
+        kind: ElementKind::Rectangle {
+            width: 20.,
+            height: 20.,
+            fill: [10, 20, 30, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+        accessibility: Some(Accessibility {
+            role: AccessibleRole::Button,
+            name: "Action".into(),
+            description: String::new(),
+            tab_order: 1,
+            disabled: false,
+        }),
+        scripts: vec![
+            ObjectScript {
+                event: ObjectEvent::Load,
+                script: script("load();"),
+            },
+            ObjectScript {
+                event: ObjectEvent::Click,
+                script: script("click();"),
+            },
+        ],
+    };
+    let text = Element {
+        id: "linked-text".into(),
+        name: "caption".into(),
+        transform: Transform::default(),
+        accessibility: None,
+        scripts: vec![],
+        kind: ElementKind::Text {
+            text: "Original".into(),
+            font_family: "Arial".into(),
+            font_size: 16.,
+            color: [0, 0, 0, 255],
+        },
+    };
+    let nested = Element {
+        id: "linked-nested".into(),
+        name: "nested".into(),
+        transform: Transform {
+            x: 10.,
+            ..Transform::default()
+        },
+        kind: ElementKind::Instance {
+            symbol_id: "pulse".into(),
+            playback: InstancePlayback::Independent,
+        },
+        accessibility: None,
+        scripts: vec![],
+    };
+    let mut pulse = project.symbol("component").unwrap().clone();
+    pulse.id = "pulse".into();
+    pulse.name = "Pulse".into();
+    pulse.timeline.frame_count = 4;
+    pulse.timeline.layers[0].id = "pulse-layer".into();
+    pulse.timeline.layers[0].keyframes[0].elements = vec![leaf.clone()];
+    pulse.timeline.scripts = vec![FrameScript {
+        frame: 1,
+        script: script("pulse();"),
+    }];
+    project.symbols.push(pulse);
+    let component = project.symbol_mut("component").unwrap();
+    component.linkage_id = Some("ExportedClip".into());
+    component.timeline.frame_count = 3;
+    component.timeline.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            elements: vec![nested.clone(), text.clone()],
+            tween: None,
+            label: "Start".into(),
+        },
+        Keyframe {
+            frame: 1,
+            elements: vec![nested, text],
+            tween: None,
+            label: "Turn".into(),
+        },
+        Keyframe {
+            frame: 2,
+            elements: vec![],
+            tween: None,
+            label: "Empty".into(),
+        },
+    ];
+    component.timeline.scripts = vec![
+        FrameScript {
+            frame: 0,
+            script: script("initial();"),
+        },
+        FrameScript {
+            frame: 1,
+            script: script("turn();"),
+        },
+    ];
+    let root_id = project.root.clone();
+    let root = project.symbol_mut(&root_id).unwrap();
+    root.timeline.layers[0].keyframes[0].elements[0].accessibility = Some(Accessibility {
+        role: AccessibleRole::Button,
+        name: "Disabled holder".into(),
+        description: String::new(),
+        tab_order: 0,
+        disabled: true,
+    });
+    project.enable_program();
+    assert!(validate(&project).is_empty());
+    let mut player = Player::new(&project);
+    player.control(&project, &[], PlaybackCommand::Stop);
+    let root = player.object_ref(&[]).unwrap();
+    let holder = player.object_ref(&["authored-container".into()]).unwrap();
+    player.drain_runtime_scripts();
+    assert!(player.create_linked(&project, "Component").is_err()); // Never guess by symbol name.
+    let first = player.create_linked(&project, "ExportedClip").unwrap();
+    let second = player.create_linked(&project, "ExportedClip").unwrap();
+    let initial = player.drain_runtime_scripts();
+    assert!(
+        initial
+            .iter()
+            .any(|item| item.target_ref == first && item.dispatch.script.source == "initial();")
+    );
+    assert!(
+        initial
+            .iter()
+            .any(|item| item.target_ref == second && item.dispatch.script.source == "initial();")
+    );
+    assert!(
+        initial
+            .iter()
+            .all(|item| player.is_runtime_dispatch_current(&project, item))
+    );
+    let find = |player: &Player, namespace: &ObjectRef, path: &[&str]| {
+        player
+            .runtime_snapshot(&project)
+            .objects
+            .iter()
+            .find(|node| {
+                node.namespace_ref.as_ref() == Some(namespace)
+                    && node.source_path.as_deref()
+                        == Some(&path.iter().map(|part| part.to_string()).collect::<Vec<_>>())
+            })
+            .unwrap()
+            .object_ref
+            .clone()
+    };
+    let first_nested = find(&player, &first, &["linked-nested"]);
+    let first_leaf = find(&player, &first, &["linked-nested", "linked-leaf"]);
+    let second_leaf = find(&player, &second, &["linked-nested", "linked-leaf"]);
+    let first_text = find(&player, &first, &["linked-text"]);
+    let second_text = find(&player, &second, &["linked-text"]);
+    assert_ne!(first_leaf, second_leaf);
+    assert!(player.object_set_text(&first_text, "First only"));
+    assert!(
+        matches!(object(&player.runtime_snapshot(&project),&second_text).display.kind,Some(ElementKind::Text{ref text,..}) if text=="Original")
+    );
+    player.object_set_property(&first, "x", 100.);
+    add(&mut player, &project, &holder, &first);
+    add(&mut player, &project, &root, &second);
+    assert!(!player.object_activate_accessible(&project, &first_leaf));
+    assert!(
+        player
+            .runtime_snapshot(&project)
+            .semantics
+            .iter()
+            .any(|node| node.owner_ref == first_leaf && node.node.accessibility.disabled)
+    );
+    add(&mut player, &project, &root, &first);
+    assert!(player.object_activate_accessible(&project, &first_leaf));
+    let clicked = player.drain_runtime_scripts();
+    assert_eq!(
+        clicked
+            .iter()
+            .filter(|item| item.dispatch.event == ScriptEvent::Click)
+            .count(),
+        1
+    );
+    assert_eq!(clicked[0].target_ref, first_leaf);
+    assert_eq!(
+        object(&player.runtime_snapshot(&project), &first_leaf)
+            .display
+            .world[4],
+        115.
+    );
+    for property in ["alpha", "scale_x"] {
+        player.object_set_property(&first, property, 0.);
+        assert!(
+            !player
+                .runtime_snapshot(&project)
+                .semantics
+                .iter()
+                .any(|node| node.owner_ref == first_leaf)
+        );
+        player.object_set_property(&first, property, 1.);
+    }
+    player.object_set_visible(&first, false);
+    assert!(!player.object_click(&project, &first_leaf));
+    player.object_set_visible(&first, true);
+    assert_eq!(
+        player.object_resolve_frame(&project, &first, "turn", true),
+        Some(1)
+    );
+    assert_eq!(
+        player.object_resolve_frame(&project, &first, "turn", false),
+        None
+    );
+    player.object_control(&project, &first, PlaybackCommand::GotoAndStop(1));
+    player.object_control(&project, &second, PlaybackCommand::Stop);
+    let entered = player.drain_runtime_scripts();
+    player.tick(&project);
+    assert_eq!(player.object_frame(&first), Some(1));
+    assert_eq!(player.object_frame(&second), Some(0));
+    assert_eq!(player.object_frame(&first_nested), Some(1));
+    assert!(
+        player.drain_runtime_scripts().iter().any(
+            |item| item.target_ref == first_nested && item.dispatch.script.source == "pulse();"
+        )
+    );
+    let decoration = player.create_display(DynamicKind::Sprite).unwrap();
+    add(&mut player, &project, &first_nested, &decoration);
+    player.object_control(&project, &first, PlaybackCommand::GotoAndStop(2));
+    assert!(!player.object_alive(&first_leaf));
+    assert!(player.object_alive(&second_leaf));
+    assert!(
+        entered
+            .iter()
+            .all(|item| !player.is_runtime_dispatch_current(&project, item))
+    );
+    assert_eq!(
+        object(&player.runtime_snapshot(&project), &decoration).parent_ref,
+        None
+    );
+    player.object_control(&project, &first, PlaybackCommand::GotoAndStop(0));
+    let recreated = find(&player, &first, &["linked-nested", "linked-leaf"]);
+    assert_ne!(recreated, first_leaf);
+    player.drain_runtime_scripts();
+    player
+        .display_mutate(
+            &project,
+            DisplayMutation::Remove {
+                parent: root.clone(),
+                child: first.clone(),
+            },
+        )
+        .unwrap();
+    player.object_control(&project, &first, PlaybackCommand::Play);
+    player.tick(&project);
+    assert_eq!(player.object_frame(&first), Some(1));
+    assert!(
+        player
+            .runtime_snapshot(&project)
+            .draws
+            .iter()
+            .all(|draw| draw.owner_ref != recreated)
+    );
+    assert!(
+        player
+            .drain_runtime_scripts()
+            .iter()
+            .any(|item| item.target_ref == first && item.dispatch.script.source == "turn();")
+    );
+    add(&mut player, &project, &root, &first);
+    assert!(object(&player.runtime_snapshot(&project), &recreated).on_stage);
+    player.reset(&project);
+    assert!(!player.object_alive(&first));
+    assert!(!player.object_alive(&recreated));
 }

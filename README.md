@@ -13,8 +13,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 211 | 1,964 | 117 |
-| AS3 | 43,740 | 15 | 257 | 43,218 | 250 |
+| AS2 | 2,307 | 15 | 218 | 1,957 | 117 |
+| AS3 | 43,740 | 15 | 297 | 43,178 | 250 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -72,7 +72,7 @@ For object editing, **Selection (V)** moves objects; Shift-click toggles objects
 
 **Window** switches Light/Dark, hides or restores panels, and detaches Tools, Timeline or Actions into separate macOS windows. **Dock** returns a panel; **Restore Workspace** restores the default layout. Appearance and layout preferences do not change your project. See [workspace controls](docs/WORKSPACE.md).
 
-**Actions → Project files** stores reusable source code inside the project. Add or import source files, set the document class or a nested symbol's class, and use **Check project** for compiler feedback. Project programs support bounded public AS3 classes with typed fields and bound methods, and AS2 classes with erased annotations and shared prototypes. Both support exact imports and inheritance; unsupported constructs report diagnostics. Projects with source files use document version 2. Older projects remain readable, and linked-symbol clipboard transfers preserve source files.
+**Actions → Project files** stores reusable source code inside the project. Add or import source files, set the document class or a nested symbol's class, and use **Check project** for compiler feedback. Project programs support bounded public AS3 classes with typed fields, bound methods, getters/setters and project interfaces, and AS2 classes with erased annotations and shared prototypes. Both support exact imports and inheritance; unsupported constructs report diagnostics. Set an **Export identifier** on a MovieClip symbol to enable AS3 class construction from its library timeline or AS2 `attachMovie`. Projects with source files use document version 2. Older projects remain readable, and linked-symbol clipboard transfers preserve source files.
 
 Example frame script:
 
@@ -107,7 +107,11 @@ Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two indep
 
 [geometry-timer.nflash](examples/geometry-timer.nflash) combines Point/Rectangle/Matrix with Timer events: four ticks move an authored marker, query typed bounds and update text. The timer service owns its callbacks for the publication session and clears them on Restart. Geometry uses a finite 2D profile; browser timer throttling still applies.
 
-[dynamic-display.nflash](examples/dynamic-display.nflash) creates Sprite/Shape components from code, draws Graphics, moves a Card subclass between containers and detaches/reattaches it without losing fields or listeners. Click the card, then use Right / Space / Up; the purple triangle uses AS2 creation and drawing. These runtime changes do not alter the authored document. Linked dynamic timelines and editing authored display-list ownership remain separate work.
+[dynamic-display.nflash](examples/dynamic-display.nflash) creates Sprite/Shape components from code, draws Graphics, moves a Card subclass between containers and detaches/reattaches it without losing fields or listeners. Click the card, then use Right / Space / Up; the purple triangle uses AS2 creation and drawing. These runtime changes do not alter the authored document. Editing authored display-list ownership remains separate work.
+
+[linked-movieclips.nflash](examples/linked-movieclips.nflash) creates two AS3 instances from one exported library MovieClip and a third with AS2 `attachMovie`. Each keeps its own frame controls, nested animation, fields and script targets. Click the cards, use Right to step frames, Space to detach/reattach the middle instance and Up to use frame labels. Explicit export identifiers and required program/library snapshots survive cross-document clipboard transfer.
+
+[interfaces-accessors.nflash](examples/interfaces-accessors.nflash) uses project interfaces, inherited getter/setter properties and two independent typed models. Click the stage to increase the bounded model; Restart restores instance and static state.
 
 [binary-data.nflash](examples/binary-data.nflash) writes, reads and copies a typed binary/UTF packet with ByteArray/Endian and displays the decoded values. Buffers are bounded and session-owned; AMF, compression and other code pages remain unsupported.
 

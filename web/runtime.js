@@ -136,13 +136,7 @@
     const viewport = document.getElementById('viewport');
     const semanticLayer = new global.NeoFlashAccessibility.SemanticLayer(document.getElementById('semantic-layer'), node => {
       if (failed) return;
-      try {
-        if (player.activate_accessible(JSON.stringify(node.instance_path), node.lifetime_id)) {
-          const target=proxyFor(node.instance_path);
-          if(stageHost){stageHost.stage.focus=target;stageHost.handlePointer('click',{},target);}
-          dispatchScripts(target); render();
-        }
-      } catch (error) { fail(error); }
+      try {activateSemantic(node);} catch (error) {fail(error);}
     });
     const preview = new global.NeoFlashPreview.Preview(viewport, document.getElementById('stage-space'), document.getElementById('stage-surface'), canvas, project, () => render());
     const functions = new Map();
@@ -195,7 +189,7 @@
     }
     function initializeFamily() {
       if (!global.NeoFlashDisplay || typeof player.display_nodes_json !== 'function') return;
-      display=global.NeoFlashDisplay.create({player,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
+      display=global.NeoFlashDisplay.create({player,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
         measureText:(line,kind)=>{if(typeof context==='undefined')throw new Error('Text bounds require the Canvas font measurement service.');context.font=font(kind);return context.measureText(line).width;},
         pathBounds:(commands,matrix)=>global.NeoFlashAccessibility.pathBounds(commands,matrix)});
       if(global.NeoFlashEvents&&global.NeoFlashStage) {
@@ -250,14 +244,27 @@
       timerRenderGeneration++;timerHost?.dispose();binaryHost?.dispose();
       legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
-    function attachNewInstances() {
+    function prepareLinked(receiver,allocatedByProgram) {
+      if(!program?.attach&&display.descriptor(receiver).class_name)throw new Error('Linked symbol class construction requires an initialized project program; creation during static field initialization is not supported yet.');
+      if(allocatedByProgram){const ref=references.get(receiver);attachedClasses.set(ref.key,ref.lifetime);}
+      attachNewInstances(receiver);
+    }
+    function attachNewInstances(scope=null) {
       if(!display)return;
       display.prune();eventHub?.prune();
-      // Linked descendants are initialized before their container/document class,
-      // so the constructor can call an authored child's initialized methods.
-      const nodes=display.nodes();
-      for(const node of nodes.sort((a,b)=>(b.authored_path||b.path).length-(a.authored_path||a.path).length)) {
-        if(graphMode&&node.authored_path===null)continue; // dynamic constructors attach at allocation
+      const nodes=display.nodes(),byRef=new Map(nodes.map(node=>[JSON.stringify(node.object_ref),node]));
+      const depth=node=>{let result=0;while(node?.parent_ref){node=byRef.get(JSON.stringify(node.parent_ref));result++;}return result;};
+      const withinScope=node=>{
+        if(!scope)return true;
+        const key=references.get(scope).key;
+        for(let current=node;current;current=byRef.get(JSON.stringify(current.parent_ref)))if(JSON.stringify(current.object_ref)===key)return true;
+        return false;
+      };
+      // Initialize authored descendants in each namespace before their linked
+      // container constructor. Native allocation reserves its own root first.
+      for(const node of nodes.sort((a,b)=>graphMode?depth(b)-depth(a):b.path.length-a.path.length)) {
+        if(graphMode&&!withinScope(node))continue;
+        if(graphMode&&node.authored_path===null&&!node.class_name)continue;
         const key=graphMode?JSON.stringify(node.object_ref):JSON.stringify(node.path),previous=attachedClasses.get(key);
         const lifetime=graphMode?node.object_ref.generation:node.lifetime_id;
         if(graphMode?!player.object_alive(key):player.lifetime_id(key)!==lifetime)continue;
@@ -270,6 +277,7 @@
           if(program.dialect?.(node.class_name)==='as2')display.refreshLegacyCallbacks(receiver);
         }
       }
+      if(scope)return;
       for(const key of attachedClasses.keys())if(graphMode?!player.object_alive(key):!player.lifetime_id(key))attachedClasses.delete(key);
       drainDisplayEvents();
       // Canonical refs are never reused; retire cache entries without retaining every
@@ -291,6 +299,18 @@
     }
     function drainDisplayEvents() {
       if(graphMode&&typeof player.display_events_json==='function')deliverDisplayEvents(JSON.parse(player.display_events_json()).events);
+    }
+    function activateSemantic(node) {
+      const accepted=node.owner_ref&&typeof player.object_activate_accessible==='function'
+        ?player.object_activate_accessible(JSON.stringify(node.owner_ref))
+        :player.activate_accessible(JSON.stringify(node.instance_path),node.lifetime_id);
+      if(!accepted)return false;
+      const target=node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path);
+      // Native semantic buttons have one click activation and no Canvas pointerdown.
+      // Deliver the legacy press action once, alongside the AS3 click route.
+      display?.press(target);
+      if(stageHost&&display.alive(target)){stageHost.stage.focus=target;stageHost.handlePointer('click',{},target);}
+      dispatchScripts(target);if(typeof context!=='undefined')render();return true;
     }
     function interactiveTarget(hit) {
       let target=graphMode?proxyForRef(hit):proxyFor(hit);
@@ -448,7 +468,7 @@
           if (!item.script.source.trim() || !player.is_dispatch_current(JSON.stringify(item))) continue;
           const compiled = functions.get(sourceKey(item.script));
           if (!compiled) throw new Error('A script is missing from the compiled export. Re-export the project.');
-          const scope = proxyFor(item.target_path);
+          const scope = item.target_ref?proxyForRef(item.target_ref):proxyFor(item.target_path);
           const event = Object.freeze({
             type: typeof item.event === 'string' ? item.event : 'frame',
             target: item.event === 'click' && clickTargetScope ? clickTargetScope : scope,
@@ -513,7 +533,8 @@
         } else throw new Error(`Unsupported display primitive: ${kind.type}`);
         context.restore();
       }
-      const semanticScene=snapshot?scene.map(item=>{let node=snapshot.objects.find(node=>JSON.stringify(node.object_ref)===JSON.stringify(item.owner_ref));while(node&&node.authored_path===null)node=snapshot.objects.find(parent=>JSON.stringify(parent.object_ref)===JSON.stringify(node.parent_ref));return {...item,instance_path:node?.authored_path||[]};}):scene;
+      const objects=snapshot?new Map(snapshot.objects.map(node=>[JSON.stringify(node.object_ref),node])):null;
+      const semanticScene=snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,ancestry_refs};}):scene;
       const targetCount = semanticLayer.update(snapshot?snapshot.semantics:JSON.parse(player.accessibility_json()), semanticScene, project, preview.view.scale, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
       if (targetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
       status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${runtimeFrameRate} fps`;
@@ -543,10 +564,13 @@
         const hit=hitAt(event),target=hit?(graphMode?proxyForRef(hit):proxyFor(hit)):null;
         stageHost?.handlePointer('click',event);
         if(target&&display.alive(target)){
-          let owner=target,node=display.descriptor(owner);
-          while(graphMode&&node.authored_path===null){owner=display.parentSpace(owner);if(!owner||owner===stageHost?.stage)break;node=display.descriptor(owner);}
-          const path=graphMode?node.authored_path:node.path;
-          if(path)player.click(JSON.stringify(path));
+          if(graphMode&&typeof player.object_click==='function')player.object_click(references.get(target).key);
+          else {
+            let owner=target,node=display.descriptor(owner);
+            while(graphMode&&node.authored_path===null){owner=display.parentSpace(owner);if(!owner||owner===stageHost?.stage)break;node=display.descriptor(owner);}
+            const path=graphMode?node.authored_path:node.path;
+            if(path)player.click(JSON.stringify(path));
+          }
           dispatchScripts(target);
           render();
         }

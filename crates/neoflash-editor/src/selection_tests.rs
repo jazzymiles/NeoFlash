@@ -400,6 +400,7 @@ fn nested_hit_selects_the_outer_placement_and_skips_a_locked_foreground() {
     inside.locked = true;
     editor.project.symbols.push(Symbol {
         class_name: None,
+        linkage_id: None,
         id: "nested-symbol".into(),
         name: "Nested".into(),
         kind: SymbolKind::MovieClip,

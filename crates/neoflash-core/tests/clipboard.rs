@@ -56,6 +56,7 @@ fn key(frame: u32, elements: Vec<Element>, tween: Option<Easing>, label: &str) -
 fn symbol(id: &str, kind: SymbolKind, keys: Vec<Keyframe>) -> Symbol {
     Symbol {
         class_name: None,
+        linkage_id: None,
         id: id.into(),
         name: format!("Library {id}"),
         kind,
