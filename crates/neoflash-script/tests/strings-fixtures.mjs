@@ -15,7 +15,7 @@ export const stringsProfile = {
     'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/StringClass.cpp',
     'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/StringObject.cpp',
   ],
-  boundary: 'Primitive UTF-16 strings, at most 1000000 code units/results. AS2 follows the named AVM1 implementation for later-SWF defaults and integer positions, not an original-player oracle. AS3 constructor-based RegExp supports matching/search/replacement/split through a bounded JavaScript-engine facade; regex literals, AS2 native RegExp, PCRE-only syntax and custom pattern objects remain unsupported. No AS2 boxed String, native method extraction, prototype augmentation or locale String methods. Unicode casing, browser Date parsing/timezone and general object conversion retain the JavaScript-backed profile, not historical Flash tables/complete AVM coercion. AS2 extra arguments are evaluated then ignored; AS3 fixed-arity methods diagnose excess arguments because their arity behavior is not verified. This is not a claimed Flash ArgumentError. Constructor arguments after the first are ignored as in the pinned implementation.',
+  boundary: 'Primitive UTF-16 strings, at most 1000000 code units/results. AS2 follows the named AVM1 implementation for later-SWF defaults and integer positions, not an original-player oracle. AS3 RegExp construction and literals support matching/search/replacement/split through a bounded JavaScript-engine facade; AS2 native RegExp, PCRE-only syntax and custom pattern objects remain unsupported. No AS2 boxed String, native method extraction, prototype augmentation or locale String methods. Unicode casing, browser Date parsing/timezone and general object conversion retain the JavaScript-backed profile, not historical Flash tables/complete AVM coercion. AS2 extra arguments are evaluated then ignored; AS3 fixed-arity methods diagnose excess arguments because their arity behavior is not verified. This is not a claimed Flash ArgumentError. Constructor arguments after the first are ignored as in the pinned implementation.',
   distinctions: 'AS2 fromCharCode stops at zero; missing search/slice/substr/substring arguments return undefined. AS3 nullable typed search arguments do not match, explicit undefined numeric endpoints convert to zero, and string-pattern replace inserts replacement text literally after converting it before the pattern. AS3 split follows StringClass.cpp: undefined delimiter becomes the text undefined; an empty subject gives one empty result when limit is nonzero. These pinned VM details are more specific than the reference summaries. AS3 new String returns a primitive; constructor aliases under new are not supported.',
 };
 
@@ -98,6 +98,28 @@ var shadowJSON=localJSON({stringify:function(value:int):String{return "user:"+va
 trace("REPLACE", literalReplacement, callbackReplacement, untouched);`,
 };
 
+// Parsing literals reuses the same RegExp adapter and string operations.
+stringSources.as3 += String.raw`
+var literalPattern:RegExp=/([a-z]+):(\d+)/g;
+var literalMatches="level:3 score:12".match(literalPattern);
+var literalSlash=/[/]/.test("/");var literalEscape=/a\/b/.test("a/b");var literalBraces=/[{}]/.test("}");
+var literalEquals=/=/.test("=");var divisionAfterLiteral=24/3/2;
+var extendedLiteral=/ a + b /x.test("aaab");var dotallLiteral=/a.b/s.test("a\nb");
+function freshLiteral():RegExp {return /a/g;}
+var firstLiteral=freshLiteral(),secondLiteral=freshLiteral();firstLiteral.test("a");
+var freshLiteralIndex=secondLiteral.lastIndex;
+function shadowRegexLiteral(RegExp:Function):Boolean {return /z/.test("z");}
+var lexicalRegex=shadowRegexLiteral(function(){return null;});
+var uriSource="https://example.test/a b?q=α&x=1";
+var uriEncoded=encodeURI(uriSource);var uriDecoded=decodeURI(uriEncoded);
+var componentEncoded=encodeURIComponent("a/b α");var componentDecoded=decodeURIComponent(componentEncoded);
+var reservedDecoded=decodeURI("%2F%23");var uriDefaults=[encodeURI(),encodeURI(undefined),encodeURIComponent(null)];
+var uriAlias:Function=encodeURIComponent;var uriAliased=uriAlias("a b");
+function uriShadow(encodeURI:Function):String{return encodeURI("value");}
+var uriShadowed=uriShadow(function(value:String):String{return "local:"+value;});
+var uriError=false;try{decodeURIComponent("%E0%A4");}catch(e:URIError){uriError=true;}
+`;
+
 export const stringsFixtures = ['as2','as3'].map(language => ({
   language: language === 'as3' ? 'action_script3' : 'action_script2',
   source: stringSources[language], profile: stringsProfile, context: {},
@@ -124,6 +146,11 @@ export const stringsFixtures = ['as2','as3'].map(language => ({
       assert.equal(c.dateIs,true); assert.equal(c.regexIs,true); assert.equal(c.dateAs,c.moment); assert.equal(c.wrongAs,null); assert.equal(c.typeReads,2);
       assert.equal(c.dateRejected,true); assert.equal(c.regexRejected,true); assert.equal(c.jsonText,'{"value":8}'); assert.equal(c.jsonRoot,null);
       assert.equal(c.dateJSON,c.moment.toString()); assert.equal(c.shadowJSON,'user:5');
+      assert.deepEqual(c.literalMatches,['level:3','score:12']);assert.equal(c.literalSlash,true);assert.equal(c.literalEscape,true);assert.equal(c.literalBraces,true);assert.equal(c.literalEquals,true);assert.equal(c.divisionAfterLiteral,4);
+      assert.equal(c.extendedLiteral,true);assert.equal(c.dotallLiteral,true);assert.notEqual(c.firstLiteral,c.secondLiteral);assert.equal(c.freshLiteralIndex,0);assert.equal(c.lexicalRegex,true);
+      assert.equal(c.uriEncoded,'https://example.test/a%20b?q=%CE%B1&x=1');assert.equal(c.uriDecoded,c.uriSource);
+      assert.equal(c.componentEncoded,'a%2Fb%20%CE%B1');assert.equal(c.componentDecoded,'a/b α');assert.equal(c.reservedDecoded,'%2F%23');
+      assert.deepEqual(c.uriDefaults,['undefined','null','null']);assert.equal(c.uriAliased,'a%20b');assert.equal(c.uriShadowed,'local:value');assert.equal(c.uriError,true);
       assert.equal(c.untouched,'blue'); expected.push(['REPLACE','$& red','RED:0:7 red','blue']);
     } else {
       assert.equal(c.omitted,undefined); assert.equal(c.explicitEnd,'bcd'); assert.equal(c.nullSearch,0);

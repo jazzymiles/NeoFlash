@@ -461,6 +461,7 @@ impl<'a> Analysis<'a> {
             return Err(self.error(self.scopes[&scope].offset,format!("AS2 private member '{owner}.{name}' is unavailable from this lexical class. AS2 access checking is compile-time only; indexed/untyped runtime access retains the legacy profile.")));
         }
         match expr {
+            Expr::Name(name) if !direct_callee && self.script.language==ScriptLanguage::ActionScript2 && name=="random" && self.context.utility_function(name,false) && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"AS2 random is supported through direct random(maximum) calls; legacy opcode function values are outside this profile.")),
             Expr::Name(name) if !direct_callee && self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3) && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"Native int/uint values are currently supported through direct conversion calls; class values and constructor aliases are outside this profile.")),
             Expr::Delete(target,offset) if !matches!(target.as_ref(),Expr::Member(_,_)|Expr::Index(_,_)|Expr::XmlSelect{descendant:false,..}) => return Err(self.error(*offset,"delete requires a property or indexed element.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "Vector"|"Dictionary") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,format!("{name} is an AS3 native collection; AS2 user bindings/classes may use that name, but the native family is unavailable."))),
@@ -480,6 +481,8 @@ impl<'a> Analysis<'a> {
             Expr::Member(base,_) if self.script.language==ScriptLanguage::ActionScript2 && matches!(base.as_ref(),Expr::Name(n)if n=="super") && !direct_callee => return Err(self.error(self.scopes[&scope].offset,"AS2 super property values and method extraction are outside this profile; call super.method(...) directly.")),
             Expr::Name(name) if is_error_type(name) && self.resolve(scope, name).is_none() => return Err(self.error(self.scopes[&scope].offset, "Core Error class values and constructor aliases are not supported; use an explicit new Error-family constructor.")),
             Expr::NewError(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Error constructor cannot be resolved as a core type; arbitrary constructor calls are unsupported.")),
+            Expr::NewBuiltin(name, _, offset) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "Number" | "Boolean" | "int" | "uint") => return Err(self.error(*offset, "AS2 boxed Number/Boolean construction and AS3 int/uint constructors are outside this profile; use Number(value)/Boolean(value) or a literal for AS2 primitives.")),
+            Expr::NewBuiltin(name, args, offset) if matches!(name.as_str(), "Number" | "Boolean" | "int" | "uint") && args.len() > 1 => return Err(self.error(*offset, "Scalar construction currently accepts zero or one argument; excess-argument semantics are outside this profile.")),
             Expr::NewBuiltin(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed native constructor requires arbitrary user-constructor semantics not supported here. Ordinary calls to the local binding remain supported.")),
             Expr::NewBuiltin(name, _, offset) if name == "Video" => return Err(self.error(*offset,"AS2 Video must be an authored Video placement; new Video() is not available. Attach a NetStream to the placed target with attachVideo().")),
             Expr::NewBuiltin(name, args, offset) if name == "NetConnection" && !args.is_empty() => return Err(self.error(*offset,"AS2 NetConnection construction takes no arguments; call connect(null) for local file playback.")),
@@ -519,7 +522,7 @@ impl<'a> Analysis<'a> {
             Expr::Call(callee,args,offset) => {
                 let binding=if let Expr::Name(name)=callee.as_ref() {self.resolve(scope,name)}else{None};
                 if self.script.language==ScriptLanguage::ActionScript2 && binding.is_none()
-                    && matches!(callee.as_ref(),Expr::Name(name)if self.context.types.contains_key(name)&&!matches!(name.as_str(),"Array"|"String")&&!self.context.intrinsic_type(name,false)) {
+                    && matches!(callee.as_ref(),Expr::Name(name)if self.context.types.contains_key(name)&&!matches!(name.as_str(),"Array"|"String")&&!(name=="Object"&&self.context.core_type(name))&&!self.context.intrinsic_type(name,false)) {
                     return Err(self.error(*offset,"AS2 class casts and class-as-function calls are not implemented in this profile; construct with new or use the existing instance directly."));
                 }
                 if self.script.language==ScriptLanguage::ActionScript2 && binding.is_none() && matches!(callee.as_ref(),Expr::Name(name) if name=="Selection" && !self.context.types.contains_key(name)) {
@@ -548,7 +551,7 @@ impl<'a> Analysis<'a> {
                 };
                 let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"|"loadClip"|"unloadClip"|"getProgress"|"getLocal"|"getSize"|"flush"|"clear"|"setFocus"|"getFocus"|"getBeginIndex"|"getEndIndex"|"getCaretIndex"|"setSelection"|"connect"|"attachVideo"|"play"|"pause"|"seek"|"close"));
                 let legacy_get_url=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Name(name) if name=="getURL" && !self.context.types.contains_key(name));
-                let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_api||legacy_get_url||matches!(callee.as_ref(),Expr::Name(name)if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)));
+                let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_api||legacy_get_url||matches!(callee.as_ref(),Expr::Name(name)if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)||self.context.utility_function(name,self.script.language==ScriptLanguage::ActionScript3)));
                 // AS2 permits a later frame or a parent script to install a
                 // function on this timeline. The host checks the actual value
                 // when the call executes; arbitrary member APIs stay blocked.
@@ -561,7 +564,7 @@ impl<'a> Analysis<'a> {
             Expr::Assign(_,left,_) | Expr::Update(_,left,_) => {
                 if matches!(left.as_ref(),Expr::Name(name) if name=="arguments") {return Err(self.error(self.scopes[&scope].offset,"Replacing the implicit arguments binding is unsupported; its indexed elements remain mutable."));}
                 if let Expr::Name(name)=left.as_ref() && self.resolve(scope,name).is_some_and(|(_,b)|b.kind==BindingKind::SelfName) { return Err(self.error(self.scopes[&scope].offset,"A named function expression's self binding cannot be assigned.")); }
-                if let Expr::Name(name)=left.as_ref() && (is_global(name) || self.context.intrinsic_type(name,self.script.language == ScriptLanguage::ActionScript3) || self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)) && self.resolve(scope,name).is_none() {return Err(self.error(self.scopes[&scope].offset,"Cannot assign to an unshadowed built-in name in this ActionScript subset."));}
+                if let Expr::Name(name)=left.as_ref() && (is_global(name) || (name=="Object" && self.context.core_type(name)) || self.context.intrinsic_type(name,self.script.language == ScriptLanguage::ActionScript3) || self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3) || self.context.utility_function(name,self.script.language==ScriptLanguage::ActionScript3)) && self.resolve(scope,name).is_none() {return Err(self.error(self.scopes[&scope].offset,"Cannot assign to an unshadowed built-in name in this ActionScript subset."));}
             }
             _=>{}
         }
@@ -694,7 +697,8 @@ fn children(expr: &Expr) -> Vec<&Expr> {
             .chain(namespace.as_deref())
             .chain(std::iter::once(local.as_ref()))
             .collect(),
-        Expr::Array(v) | Expr::XmlLiteral(_, v) => v.iter().collect(),
+        Expr::Array(v) => v.iter().flatten().collect(),
+        Expr::XmlLiteral(_, v) => v.iter().collect(),
         Expr::Object(v) => v.iter().map(|(_, e)| e).collect(),
         Expr::Conditional(a, b, c) => vec![a, b, c],
         Expr::Call(c, a, _) => std::iter::once(c.as_ref()).chain(a.iter()).collect(),

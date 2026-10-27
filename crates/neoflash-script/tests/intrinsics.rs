@@ -83,3 +83,33 @@ fn excess_parse_int_arguments_are_a_named_boundary_not_a_flash_error_claim() {
         .is_ok()
     );
 }
+
+#[test]
+fn core_syntax_boundaries_keep_actionable_diagnostics() {
+    for source in [
+        "var expression=/unterminated;",
+        "var expression=/[a/;",
+        "var expression=/a/u;",
+        "var expression=/a\nb/;",
+        "function local(Number) { return 1 is Number; }",
+        "function local(Object) { return new Object(); }",
+        "var value=new Number(1,2);",
+        "var invalid=(1,2)=3;",
+        "for(var i=0,j=0 in {}) {}",
+    ] {
+        assert!(
+            compile(source, ScriptLanguage::ActionScript3).is_err(),
+            "{source}"
+        );
+    }
+    for source in [
+        "var expression=/a/;",
+        "var value=new Boolean(false);",
+        "var value=1 is Number;",
+    ] {
+        assert!(
+            compile(source, ScriptLanguage::ActionScript2).is_err(),
+            "{source}"
+        );
+    }
+}

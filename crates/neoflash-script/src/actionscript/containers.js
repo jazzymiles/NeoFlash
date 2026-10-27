@@ -50,6 +50,7 @@ function __nfContainerMethod(receiver,key,as3,caller){
     if(typeof receiver==='string')return __nfStringMethod(receiver,key,as3);
     if(__nfDateIs(receiver))return __nfDateMethod(receiver,key,as3);
     if(as3&&key==='toFixed')return __nfFixedMethod(receiver);
+    if(key==='toExponential'||key==='toPrecision')return __nfNumberFormatMethod(receiver,key,as3);
     const method=__nfContainerRef(receiver,key,as3,caller).get();
     if(key==='call'||key==='apply')return __nfFunctionMethod(receiver,key,as3,method);
     return (...args)=>__nfApply(method,receiver,args);

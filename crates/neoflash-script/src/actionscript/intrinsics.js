@@ -5,6 +5,8 @@
 // 858d034a3bd3a54d9b70909386435cf4aec81d21. See intrinsic-fixtures.mjs for provenance.
 const __nfNativeParseInt = parseInt;
 const __nfNativeFixed = Number.prototype.toFixed;
+const __nfNativeExponential = Number.prototype.toExponential;
+const __nfNativePrecision = Number.prototype.toPrecision;
 const __nfApply = Reflect.apply;
 function __nfMethodValue(value) {
     // A computed property name can select the native method without any
@@ -12,6 +14,10 @@ function __nfMethodValue(value) {
     // not the key/name: custom functions and fields remain ordinary values.
     if (value === __nfNativeFixed) {
         throw new __nfErrorTypes.Error('Unsupported AS3 Number.toFixed method value: method-closure semantics are not implemented; call value.toFixed(precision) directly.');
+    }
+    if (value === __nfNativeExponential || value === __nfNativePrecision) {
+        const name = value === __nfNativeExponential ? 'toExponential' : 'toPrecision';
+        throw new __nfErrorTypes.Error('Unsupported AS3 Number.' + name + ' method value: call the method directly on the number.');
     }
     return value;
 }
@@ -91,4 +97,83 @@ function __nfFixedMethod(receiver) {
         }
         return __nfApply(__nfNativeFixed, receiver, [digits]);
     };
+}
+
+// AS3 constructors return scalar values; JavaScript's `new Number/Boolean`
+// would instead produce wrapper objects with different truth/type behavior.
+function __nfScalarCreate(name, args) {
+    const value = args.length ? args[0] : 0;
+    switch (name) {
+        case 'Number': return __nfNumber(value);
+        case 'Boolean': return __nfBoolean(value);
+        case 'int': return __nfNumber(value) | 0;
+        case 'uint': return __nfNumber(value) >>> 0;
+    }
+    throw new __nfTypeError('Unsupported scalar constructor ' + name);
+}
+const __nfObjectClasses = new Map();
+function __nfObjectCreate(as3, args, isNew = false) {
+    const value = args[0];
+    // AVM2 Object construction/calls preserve non-null values, including
+    // primitives. AVM1 needs boxed primitive identity; diagnose that boundary.
+    if (value == null) return !as3 && !isNew ? Object.create(null) : {};
+    if (as3 || typeof value === 'object' || typeof value === 'function') return value;
+    throw new __nfTypeError('AS2 Object primitive boxing is not implemented; use an object literal or pass an existing object.');
+}
+function __nfObjectClass(as3) {
+    if (!__nfObjectClasses.has(as3)) {
+        const facade = function(...args) {
+            return __nfObjectCreate(as3, args, Boolean(new.target));
+        };
+        Object.defineProperty(facade, 'prototype', { value: Object.prototype, writable: false });
+        Object.defineProperty(facade, '__nfIs', { value: value => value != null });
+        __nfObjectClasses.set(as3, Object.freeze(facade));
+    }
+    return __nfObjectClasses.get(as3);
+}
+
+function __nfNumberFormatMethod(receiver, name, as3) {
+    const method = receiver[name];
+    if (typeof receiver !== 'number') return (...args) => __nfApply(method, receiver, args);
+    if (!as3) throw new __nfTypeError(name + ' belongs to the AS3 Number family; AS2 supports numeric toString/valueOf.');
+    return (...args) => {
+        if (args.length > 1) throw new __nfTypeError('Unsupported AS3 Number.' + name + ' call: pass at most one precision argument.');
+        // The pinned AVM2 Number.as defaults p to zero. Only an explicitly
+        // supplied null/undefined takes toPrecision's ordinary-string branch.
+        if (name === 'toPrecision' && args.length && args[0] == null) return __nfString(receiver);
+        const digits = __nfNumber(args.length ? args[0] : 0) | 0;
+        const minimum = name === 'toPrecision' ? 1 : 0;
+        const maximum = name === 'toPrecision' ? 21 : 20;
+        if (digits < minimum || digits > maximum) {
+            throw __nfMakeError('RangeError', true, ['Number.' + name + ' precision must be between ' + minimum + ' and ' + maximum + '.', 1002]);
+        }
+        return __nfApply(name === 'toPrecision' ? __nfNativePrecision : __nfNativeExponential, receiver, [digits]);
+    };
+}
+
+// The AVM2 globals take a nullable typed String, with a distinct omitted default.
+// The native JS UTF-8 URI codec supplies matching reserved-character behavior
+// and URIError failures; never expose it before the AS3 argument conversion.
+const __nfUriFunctions = Object.freeze(Object.fromEntries(
+    Object.entries({encodeURI, encodeURIComponent, decodeURI, decodeURIComponent}).map(([name, native]) => [name, function(value) {
+        if (arguments.length > 1) throw new __nfTypeError('Unsupported AS3 ' + name + ' call: pass at most one URI string.');
+        const text = arguments.length === 0 ? 'undefined' : value == null ? 'null' : __nfString(value);
+        return native(text);
+    }])
+));
+
+// AVM1 random's range saturates at signed-int max, unlike int's wrapping.
+// The distribution uses the host RNG, not a historical player seed sequence.
+const __nfRandomNative = Math.random;
+function __nfRandom2(value) {
+    if (arguments.length > 1) throw new __nfTypeError('Unsupported AS2 random call: pass one upper bound.');
+    const number = __nfNumber(value);
+    const maximum = Number.isNaN(number) ? 0 : Math.max(0, Math.min(2147483647, Math.trunc(number)));
+    return maximum > 0 ? Math.floor(__nfRandomNative() * maximum) : 0;
+}
+
+// AVM1 Boolean() differs from Boolean(undefined): only omission is undefined.
+function __nfBoolean2(value) {
+    if (new.target) throw new __nfTypeError('AS2 boxed Boolean construction is not implemented; use Boolean(value) for a primitive.');
+    return arguments.length ? __nfBoolean(value) : undefined;
 }

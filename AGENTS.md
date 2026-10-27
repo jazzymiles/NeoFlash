@@ -1,5 +1,7 @@
 # NeoFlash — working agreement
 
+- Project status: paused at the user's request. The bounded agent-1 language experiment is complete on `experiment/as-language-30m`; new implementation, agents and verification cycles require a new user instruction. The separate unfinished TextField checkpoint remains on `checkpoint/paused-text-viewport`. Existing monitor automations stay paused.
+
 - Product: open-source Rust authoring environment for macOS 15+, inspired by classic Flash before Animate. HTML5 is the primary publishing target.
 - User requirements include websites/apps, games and animation; AS2/AS3 plus JavaScript/TypeScript; nested timelines, instances, frame/object scripts; system fonts; eventual FLA/XFL/SWF import.
 - Do not reduce the product goal to a video animator or silently redefine partial scripting support as full AS2/AS3 compatibility.

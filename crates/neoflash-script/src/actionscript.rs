@@ -37,8 +37,25 @@ impl CompileContext {
             || (!as3 && name == "XMLNode"))
             && (!self.project || self.intrinsic_types.contains(name))
     }
+    fn core_type(&self, name: &str) -> bool {
+        (matches!(
+            name,
+            "Number" | "String" | "Boolean" | "int" | "uint" | "Function" | "Object" | "Array"
+        ) || is_error_type(name))
+            && self.types.get(name).is_none_or(|resolved| resolved == name)
+    }
+    fn utility_function(&self, name: &str, as3: bool) -> bool {
+        ((as3
+            && matches!(
+                name,
+                "encodeURI" | "encodeURIComponent" | "decodeURI" | "decodeURIComponent"
+            ))
+            || (!as3 && name == "random"))
+            && !self.types.contains_key(name)
+            && !self.functions.contains_key(name)
+    }
     fn numeric_conversion(&self, name: &str, as3: bool) -> bool {
-        as3 && matches!(name, "int" | "uint") && !self.types.contains_key(name)
+        (name == "int" || (as3 && name == "uint")) && !self.types.contains_key(name)
     }
     fn canonical_type(&self, name: &str) -> String {
         if let Some(element) = vector_element(name) {
@@ -298,7 +315,8 @@ enum Expr {
         descendant: bool,
     },
     XmlLiteral(String, Vec<Expr>),
-    Array(Vec<Expr>),
+    RegExpLiteral(String, String),
+    Array(Vec<Option<Expr>>),
     Object(Vec<(PropertyKey, Expr)>),
     Unary(String, Box<Expr>),
     Binary(String, Box<Expr>, Box<Expr>),
@@ -348,7 +366,9 @@ fn constant_default(expr: &Expr) -> bool {
             _ => false,
         }
     }
-    matches!(expr, Expr::Literal(_)) || numeric(expr)
+    matches!(expr, Expr::Literal(_))
+        || numeric(expr)
+        || matches!(expr, Expr::Unary(op, value) if op == "void" && constant_default(value))
 }
 
 #[derive(Clone, Debug)]
@@ -376,7 +396,11 @@ struct ControlTarget {
 impl Expr {
     fn depth(&self) -> usize {
         1 + match self {
-            Self::Literal(_) | Self::Name(_) | Self::Function(_) | Self::TypeValue(_, _) => 0,
+            Self::Literal(_)
+            | Self::Name(_)
+            | Self::Function(_)
+            | Self::TypeValue(_, _)
+            | Self::RegExpLiteral(_, _) => 0,
             Self::Member(v, _)
             | Self::Unary(_, v)
             | Self::Update(_, v, _)
@@ -394,7 +418,8 @@ impl Expr {
                 .depth()
                 .max(local.depth())
                 .max(namespace.as_deref().map_or(0, Self::depth)),
-            Self::Array(v) | Self::XmlLiteral(_, v) => v.iter().map(Self::depth).max().unwrap_or(0),
+            Self::Array(v) => v.iter().flatten().map(Self::depth).max().unwrap_or(0),
+            Self::XmlLiteral(_, v) => v.iter().map(Self::depth).max().unwrap_or(0),
             Self::Object(v) => v.iter().map(|(_, e)| e.depth()).max().unwrap_or(0),
             Self::Conditional(a, b, c) => a.depth().max(b.depth()).max(c.depth()),
             Self::Call(c, args, _) => c
@@ -580,7 +605,7 @@ impl<'a> Frontend<'a> {
             {
                 return Err(self.error("throw requires an expression on the same line."));
             }
-            let value = self.expression(0)?;
+            let value = self.sequence_expression()?;
             self.semicolon()?;
             return Ok(Stmt::Throw(value));
         }
@@ -653,7 +678,7 @@ impl<'a> Frontend<'a> {
         }
         if self.eat("switch") {
             self.expect("(")?;
-            let value = self.expression(0)?;
+            let value = self.sequence_expression()?;
             self.expect(")")?;
             self.expect("{")?;
             self.controls.push(ControlTarget {
@@ -665,7 +690,7 @@ impl<'a> Frontend<'a> {
             let mut default = false;
             while !self.eat("}") {
                 let test = if self.eat("case") {
-                    Some(self.expression(0)?)
+                    Some(self.sequence_expression()?)
                 } else if self.eat("default") {
                     if default {
                         return Err(self.error("A switch cannot have multiple default clauses."));
@@ -699,7 +724,7 @@ impl<'a> Frontend<'a> {
             self.controls.pop();
             self.expect("while")?;
             self.expect("(")?;
-            let test = self.expression(0)?;
+            let test = self.sequence_expression()?;
             self.expect(")")?;
             self.eat(";");
             return Ok(Stmt::DoWhile(Box::new(body), test));
@@ -721,7 +746,7 @@ impl<'a> Frontend<'a> {
             {
                 None
             } else {
-                Some(self.expression(0)?)
+                Some(self.sequence_expression()?)
             };
             self.semicolon()?;
             return Ok(Stmt::Return(value, offset));
@@ -739,7 +764,7 @@ impl<'a> Frontend<'a> {
         }
         if self.eat("if") {
             self.expect("(")?;
-            let condition = self.expression(0)?;
+            let condition = self.sequence_expression()?;
             self.expect(")")?;
             let yes = Box::new(self.statement()?);
             let no = if self.eat("else") {
@@ -751,7 +776,7 @@ impl<'a> Frontend<'a> {
         }
         if self.eat("while") {
             self.expect("(")?;
-            let condition = self.expression(0)?;
+            let condition = self.sequence_expression()?;
             self.expect(")")?;
             self.controls.push(ControlTarget {
                 label: None,
@@ -777,7 +802,7 @@ impl<'a> Frontend<'a> {
             } else if self.eat("var") {
                 self.variables()?
             } else {
-                Stmt::Expr(self.expression(0)?)
+                Stmt::Expr(self.sequence_expression()?)
             };
             self.no_in = previous_no_in;
             if self.eat("in") {
@@ -789,7 +814,7 @@ impl<'a> Frontend<'a> {
                 if !valid {
                     return Err(self.error("for..in requires one uninitialized variable or assignable property target."));
                 }
-                let collection = self.expression(0)?;
+                let collection = self.sequence_expression()?;
                 self.expect(")")?;
                 self.controls.push(ControlTarget {
                     label: None,
@@ -812,13 +837,13 @@ impl<'a> Frontend<'a> {
             let condition = if self.is(";") {
                 None
             } else {
-                Some(self.expression(0)?)
+                Some(self.sequence_expression()?)
             };
             self.expect(";")?;
             let update = if self.is(")") {
                 None
             } else {
-                Some(self.expression(0)?)
+                Some(self.sequence_expression()?)
             };
             self.expect(")")?;
             self.controls.push(ControlTarget {
@@ -865,12 +890,12 @@ impl<'a> Frontend<'a> {
         }
         if let Kind::Ident(word) = &self.token().kind
             && is_unsupported_keyword(word)
-            && !matches!(word.as_str(), "new" | "delete")
+            && !matches!(word.as_str(), "new" | "delete" | "void")
             && !(self.context.project && word == "super" && self.context.class_name.is_some())
         {
             return Err(self.error(format!("ActionScript '{word}' is not implemented yet. See docs/COMPATIBILITY.md; use a JavaScript/TypeScript handler for this feature.")));
         }
-        let expression = self.expression(0)?;
+        let expression = self.sequence_expression()?;
         self.semicolon()?;
         Ok(Stmt::Expr(expression))
     }
@@ -911,7 +936,12 @@ impl<'a> Frontend<'a> {
     }
     fn type_name(&mut self) -> Result<String, Diagnostic> {
         self.enter()?;
-        let mut name = if self.eat("*") {
+        let mut name = if self.is("*=") {
+            // In an annotation, `value:*=...` is wildcard plus initializer,
+            // not multiplication assignment. Leave '=' for its caller.
+            self.tokens.split(self.pos, Kind::Punct("="));
+            "*".into()
+        } else if self.eat("*") {
             "*".into()
         } else {
             self.ident()?
@@ -1184,6 +1214,76 @@ impl<'a> Frontend<'a> {
         self.pos = position + 1;
         Ok(Expr::XmlLiteral(encoded, holes))
     }
+    fn regexp_literal(&mut self) -> Result<Expr, Diagnostic> {
+        if self.script.language != ScriptLanguage::ActionScript3 {
+            return Err(self.error(
+                "Regular expression literals require AS3; AS2 has no native RegExp family.",
+            ));
+        }
+        let start = self.token().offset;
+        let source = &self.script.source;
+        let mut escaped = false;
+        let mut in_class = false;
+        let mut close = None;
+        for (offset, ch) in source[start + 1..].char_indices() {
+            if matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}') {
+                return Err(self.error(
+                    "Unterminated regular expression literal; escape line breaks in the pattern.",
+                ));
+            }
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => escaped = true,
+                '[' => in_class = true,
+                ']' => in_class = false,
+                '/' if !in_class => {
+                    close = Some(start + 1 + offset);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        let Some(close) = close else {
+            return Err(
+                self.error("Unterminated regular expression literal; expected a closing '/'.")
+            );
+        };
+        let mut end = close + 1;
+        while source[end..].starts_with(|ch: char| ch.is_alphanumeric() || ch == '_' || ch == '$') {
+            end += source[end..].chars().next().unwrap().len_utf8();
+        }
+        let flags = &source[close + 1..end];
+        if flags
+            .chars()
+            .any(|ch| !matches!(ch, 'g' | 'i' | 'm' | 's' | 'x'))
+        {
+            return Err(Diagnostic::at(
+                self.script,
+                close + 1,
+                "Unsupported RegExp literal flag; this profile supports g, i, m, s and x.",
+            ));
+        }
+        let pattern = serde_json::to_string(&source[start + 1..close]).unwrap();
+        let flags = serde_json::to_string(flags).unwrap();
+        self.tokens.literal(self.pos, start, end);
+        self.pos += 1;
+        Ok(Expr::RegExpLiteral(pattern, flags))
+    }
+    fn sequence_expression(&mut self) -> Result<Expr, Diagnostic> {
+        let mut value = self.expression(0)?;
+        while self.eat(",") {
+            if value.depth() >= 128 {
+                return Err(self.error(
+                    "Expression exceeds 128 nested operations; split it into smaller expressions.",
+                ));
+            }
+            value = Expr::Binary(",".into(), Box::new(value), Box::new(self.expression(0)?));
+        }
+        Ok(value)
+    }
     fn expression(&mut self, min_bp: u8) -> Result<Expr, Diagnostic> {
         self.enter()?;
         let result = self.expression_inner(min_bp)?;
@@ -1196,6 +1296,7 @@ impl<'a> Frontend<'a> {
             || self.is("-")
             || self.is("+")
             || self.is("typeof")
+            || self.is("void")
         {
             let operator = self.token_text();
             self.pos += 1;
@@ -1269,7 +1370,7 @@ impl<'a> Frontend<'a> {
                 continue;
             }
             if min_bp <= 30 && self.eat("[") {
-                let index = self.expression(0)?;
+                let index = self.sequence_expression()?;
                 self.expect("]")?;
                 lhs = Expr::Index(Box::new(lhs), Box::new(index));
                 continue;
@@ -1325,6 +1426,7 @@ impl<'a> Frontend<'a> {
                 if (matches!(name.as_str(), "JSON" | "Vector")
                     && self.context.intrinsic_type(&name, true))
                     || (!self.context.intrinsic_type(&name, true)
+                        && !self.context.core_type(&name)
                         && !self.context.types.contains_key(&name)
                         && vector_element(&name).is_none())
                 {
@@ -1368,6 +1470,9 @@ impl<'a> Frontend<'a> {
         }
     }
     fn primary(&mut self) -> Result<Expr, Diagnostic> {
+        if self.is("/") || self.is("/=") {
+            return self.regexp_literal();
+        }
         if self.is("<") {
             return self.xml_literal();
         }
@@ -1385,6 +1490,10 @@ impl<'a> Frontend<'a> {
             }
             let class = self.context.types.get(&name).cloned();
             let builtin = matches!(name.as_str(), "Array" | "String")
+                || (matches!(
+                    name.as_str(),
+                    "Object" | "Number" | "Boolean" | "int" | "uint"
+                ) && self.context.core_type(&name))
                 || self
                     .context
                     .intrinsic_type(&name, self.script.language == ScriptLanguage::ActionScript3)
@@ -1412,17 +1521,18 @@ impl<'a> Frontend<'a> {
             {
                 return Err(self.error("This constructor is not a supported native type in this language/profile; user classes require project type resolution."));
             }
-            self.expect("(")?;
             let mut args = Vec::new();
-            if !self.is(")") {
-                loop {
-                    args.push(self.expression(0)?);
-                    if !self.eat(",") {
-                        break;
+            if self.eat("(") {
+                if !self.is(")") {
+                    loop {
+                        args.push(self.expression(0)?);
+                        if !self.eat(",") {
+                            break;
+                        }
                     }
                 }
+                self.expect(")")?;
             }
-            self.expect(")")?;
             if vector_element(&name).is_some() {
                 return Ok(Expr::NewVector(name, args, offset));
             }
@@ -1459,10 +1569,14 @@ impl<'a> Frontend<'a> {
                     Ok(Expr::Literal(name))
                 } else { Ok(Expr::Name(name)) }
             }
-            Kind::Punct("(") => { self.pos += 1; let previous=self.no_in;self.no_in=false; let expr = self.expression(0)?;self.no_in=previous; self.expect(")")?; Ok(expr) }
+            Kind::Punct("(") => { self.pos += 1; let previous=self.no_in;self.no_in=false; let expr = self.sequence_expression()?;self.no_in=previous; self.expect(")")?; Ok(expr) }
             Kind::Punct("[") => {
                 self.pos += 1; let mut values = Vec::new();
-                if !self.is("]") { loop { values.push(self.expression(0)?); if !self.eat(",") || self.is("]") { break; } } }
+                while !self.is("]") {
+                    if self.eat(",") { values.push(None); continue; }
+                    values.push(Some(self.expression(0)?));
+                    if !self.eat(",") { break; }
+                }
                 self.expect("]")?; Ok(Expr::Array(values))
             }
             Kind::Punct("{") => {
@@ -1479,7 +1593,6 @@ impl<'a> Frontend<'a> {
                 self.expect("}")?; Ok(Expr::Object(values))
             }
             Kind::Punct("<" | "@" | "::" | "..") => Err(self.error("XML literals and E4X namespace/attribute operators are unsupported; use XML(string) and explicit traversal methods.")),
-            Kind::Punct("/") => Err(self.error("Regular expression literals are not implemented in ActionScript yet; use a JavaScript handler.")),
             _ => Err(self.error("Expected an expression.")),
         }
     }
@@ -1506,6 +1619,7 @@ impl<'a> Frontend<'a> {
                 matches!(
                     name.as_str(),
                     "trace"
+                        | "Object"
                         | "Number"
                         | "String"
                         | "Array"
@@ -1624,6 +1738,8 @@ fn is_family_method(name: &str) -> bool {
             | "valueOf"
             | "fromCharCode"
             | "toFixed"
+            | "toExponential"
+            | "toPrecision"
             | "match"
             | "search"
             | "exec"
@@ -1976,6 +2092,28 @@ impl Emitter<'_> {
             && let Some(owner) = self.analysis.context.static_members.get(name)
         {
             return format!("__nfProgram.type({owner:?}).{name}");
+        }
+        if !self.as3
+            && name == "Boolean"
+            && self.analysis.resolve(self.scope, name).is_none()
+            && self.analysis.context.core_type(name)
+        {
+            return "__nfBoolean2".into();
+        }
+        if self.analysis.resolve(self.scope, name).is_none()
+            && self.analysis.context.utility_function(name, self.as3)
+        {
+            return if self.as3 {
+                format!("__nfUriFunctions.{name}")
+            } else {
+                "__nfRandom2".into()
+            };
+        }
+        if name == "Object"
+            && self.analysis.resolve(self.scope, name).is_none()
+            && self.analysis.context.core_type(name)
+        {
+            return format!("__nfObjectClass({})", self.as3);
         }
         if self.analysis.resolve(self.scope, name).is_none() && matches!(name, "Array" | "String") {
             return format!("__nf{name}Class({})", self.as3);
@@ -2340,6 +2478,9 @@ impl Emitter<'_> {
                     )
                 },
             ),
+            Expr::RegExpLiteral(pattern, flags) => {
+                format!("__nfRegExpCreate(true, [{pattern}, {flags}])")
+            }
             Expr::Function(f) => format!("({})", self.function(f)),
             Expr::NewError(name, args, _) => format!(
                 "__nfMakeError({name:?}, {}, [{}])",
@@ -2390,6 +2531,24 @@ impl Emitter<'_> {
                         .join(", ")
                 )
             }
+            Expr::NewBuiltin(name, args, _)
+                if matches!(name.as_str(), "Number" | "Boolean" | "int" | "uint") =>
+            {
+                let values = args
+                    .iter()
+                    .map(|a| self.expression(a))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("__nfScalarCreate({name:?}, [{values}])")
+            }
+            Expr::NewBuiltin(name, args, _) if name == "Object" => format!(
+                "__nfObjectCreate({}, [{}], true)",
+                self.as3,
+                args.iter()
+                    .map(|a| self.expression(a))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Expr::NewBuiltin(name, args, _) => format!(
                 "__nf{name}Create({}, [{}]{})",
                 self.as3,
@@ -2416,12 +2575,17 @@ impl Emitter<'_> {
                 )
             }
             Expr::Array(values) => format!(
-                "[{}]",
+                "[{}{}]",
                 values
                     .iter()
-                    .map(|v| self.expression(v))
+                    .map(|v| v.as_ref().map_or_else(String::new, |v| self.expression(v)))
                     .collect::<Vec<_>>()
-                    .join(", ")
+                    .join(", "),
+                if values.last().is_some_and(Option::is_none) {
+                    ","
+                } else {
+                    ""
+                }
             ),
             Expr::Object(values) => format!(
                 "({{{}}})",
@@ -2442,7 +2606,13 @@ impl Emitter<'_> {
                 self.binary(op, self.expression(left), self.expression(right))
             }
             Expr::TypeTest(op, value, ty, _) => {
-                let predicate = if vector_element(ty).is_some() {
+                let predicate = if self.analysis.context.core_type(ty) {
+                    if ty == "Array" {
+                        "__nfArrayIsArray(__nfValue)".into()
+                    } else {
+                        format!("__nfCatchType(__nfValue, {ty:?})")
+                    }
+                } else if vector_element(ty).is_some() {
                     format!("{}.__nfIs(__nfValue)", self.vector_type(ty))
                 } else if matches!(ty.as_str(), "XML" | "XMLList" | "Namespace" | "QName")
                     && self.analysis.context.intrinsic_type(ty, true)
@@ -2661,6 +2831,26 @@ impl Emitter<'_> {
                 if let Expr::Name(name) = callee.as_ref()
                     && self.analysis.resolve(self.scope, name).is_none()
                 {
+                    if self.analysis.context.utility_function(name, self.as3) {
+                        return format!(
+                            "{}({})",
+                            self.name(name),
+                            args.iter()
+                                .map(|a| self.expression(a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
+                    if name == "Object" && self.analysis.context.core_type(name) {
+                        return format!(
+                            "__nfObjectCreate({}, [{}], false)",
+                            self.as3,
+                            args.iter()
+                                .map(|a| self.expression(a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
                     if self.analysis.context.numeric_conversion(name, self.as3) {
                         let value = args
                             .first()
@@ -3276,7 +3466,7 @@ mod tests {
     fn missing_compatibility_features_fail_explicitly() {
         for source in [
             "var x:XML = <a/>; x.(@id==1);",
-            "x = y is String;",
+            "x = y is MissingType;",
             "on(release) { play(); }",
             "getURL('https://example.com');",
             "import flash.display.Sprite;",

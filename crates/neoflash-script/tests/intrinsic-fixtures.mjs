@@ -28,9 +28,26 @@ const fixture = (dialect, source, verify, context = {}) => ({
   language: dialect === 'as2' ? 'action_script2' : 'action_script3',
   profile: intrinsicProfiles[dialect], source, context, verify,
 });
+// Additional core values and type operators use Adobe's documented contracts;
+// numeric is/as membership is by value/range, with no coercion of the operand.
+const coreValueSource = `
+constructed=[new Number,new Number("12.5"),new Number(undefined),new Boolean,new Boolean(""),new Boolean("false"),new int(4294967295),new uint(-1)];
+var typeChecks=[0 is int,0 is uint,-1 is uint,4294967295 is uint,4294967295 is int,3.5 is int,NaN is Number,Infinity is Number,"3" is Number,"3" is String,false is Boolean,null is Object,undefined is Object,0 is Object,[] is Array,{} is Array,localCast is Function];
+var typeReads:int=0;
+function choosePrimitive():* {typeReads++;return 7;}
+function optionalVoid(value:*=void 0):* {return value;}var defaultVoid=optionalVoid();
+var retainedPrimitive=choosePrimitive() as int; var failedPrimitive=choosePrimitive() as String;
+var errorTypeChecks=[new TypeError("typed") is Error,new Error("base") is TypeError];
+var objectScalars=[Object(7),new Object(false),Object(null),new Object(undefined)];
+var precise=[(123.45).toExponential(),(123.45).toExponential(2),(123.45).toPrecision(4),(123.45).toPrecision(undefined),(123.45).toPrecision(null),(12).toExponential(4294967297)];
+var precisionErrors=0;try{(2).toPrecision();}catch(e:RangeError){precisionErrors++;}try{NaN.toExponential(21);}catch(e:RangeError){precisionErrors++;}try{(2).toPrecision(22);}catch(e:RangeError){precisionErrors++;}
+var formattingTool={toPrecision:function(value){return "custom:"+value;}};var customPrecision=formattingTool.toPrecision(22);
+var precisionAliasRejected=false;try{var formatAlias:Function=(2).toPrecision;}catch(e:Error){precisionAliasRejected=true;}
+`;
 export const intrinsicFixtures = [
-  fixture('as2', 'values=[parseInt("0777"),parseInt("08"),parseInt("0777tail"),parseInt(" 0777"),parseInt("-0777"),parseInt("0x10"),parseInt("0x10",10),parseInt("-0x10"),parseInt("0x  -10"),parseInt(),parseInt("10",0),parseInt("10",undefined),parseInt("10",null),parseInt("0777",8),parseInt("11",2.9),parseInt("10",1),parseInt("10",37),parseInt("-0")];', c => {
+  fixture('as2', 'values=[parseInt("0777"),parseInt("08"),parseInt("0777tail"),parseInt(" 0777"),parseInt("-0777"),parseInt("0x10"),parseInt("0x10",10),parseInt("-0x10"),parseInt("0x  -10"),parseInt(),parseInt("10",0),parseInt("10",undefined),parseInt("10",null),parseInt("0777",8),parseInt("11",2.9),parseInt("10",1),parseInt("10",37),parseInt("-0")]; legacyInts=[int(3.9),int(-3.9),int(4294967295),int(NaN),int(Infinity)]; var booleanAlias:Function=Boolean;legacyBooleans=[Boolean(),Boolean(undefined),Boolean(null),Boolean("false"),booleanAlias()]; legacyRandom=[random(0),random(-2),random(NaN),random(1)]; var roll=random(7.9); var randomInRange=roll>=0&&roll<7&&int(roll)==roll;function localLegacy(int:Function,random:Function):Number{return int(2)+random(3);}legacyShadow=localLegacy(function(n){return n+10;},function(n){return n+20;});', c => {
     assert.deepEqual(c.values, [511,8,777,777,-511,16,10,NaN,-16,undefined,NaN,NaN,NaN,511,3,NaN,NaN,-0]);
+    assert.deepEqual(c.legacyInts,[3,-3,-1,0,0]);assert.deepEqual(c.legacyBooleans,[undefined,false,false,true,undefined]);assert.deepEqual(c.legacyRandom,[0,0,0,0]);assert.equal(c.randomInRange,true);assert.equal(c.legacyShadow,35);
   }),
   fixture('as3', 'values=[parseInt("0777"),parseInt("08"),parseInt("0777tail"),parseInt("0777",8),parseInt("10",0),parseInt("10",undefined),parseInt("-0x10"),parseInt("0x10",10),parseInt(),parseInt("-0"),parseInt(undefined,36),parseInt(null,36),parseInt("11",4294967298),parseInt("10",Infinity)];', c => {
     assert.deepEqual(c.values, [777,8,777,511,10,10,-16,0,NaN,-0,1112745,1112745,3,10]);
@@ -45,9 +62,15 @@ export const intrinsicFixtures = [
     assert.equal(c.before, dialect === 'as2' ? 'RS' : 'SR');
     assert.equal(c.after, dialect === 'as2' ? 'R' : 'SR');
   })),
-  fixture('as3', 'var n:Number=7.31343; var integer:int=4; var unsigned:uint=4294967295; values=[n.toFixed(3),integer.toFixed(2),unsigned.toFixed(0),n.toFixed(),n.toFixed(undefined),n.toFixed(2.9),n.toFixed(NaN),n.toFixed(Infinity),n.toFixed(4294967296),(-0).toFixed(2),NaN.toFixed(2),Infinity.toFixed(2),(-Infinity).toFixed(2),(1.25).toFixed(1),(1e21).toFixed(2)]; casts=[int(),uint(),int("4.9"),uint(-1),int(NaN),uint(Infinity),int(-3.9),uint(4294967297)];var castReads:int=0;var castValue={valueOf:function():Number{castReads++;return 4294967295;}};castOnce=int(castValue);function capturedInt(Number:Object):int{return int("12.8");}capturedCast=capturedInt({});function localCast(int:Function,uint:Function):String{return int("x")+uint("y");}shadowCast=localCast(function(value:String):String{return "i"+value;},function(value:String):String{return "u"+value;});', c => {
+  fixture('as3', 'var n:Number=7.31343; var integer:int=4; var unsigned:uint=4294967295; values=[n.toFixed(3),integer.toFixed(2),unsigned.toFixed(0),n.toFixed(),n.toFixed(undefined),n.toFixed(2.9),n.toFixed(NaN),n.toFixed(Infinity),n.toFixed(4294967296),(-0).toFixed(2),NaN.toFixed(2),Infinity.toFixed(2),(-Infinity).toFixed(2),(1.25).toFixed(1),(1e21).toFixed(2)]; casts=[int(),uint(),int("4.9"),uint(-1),int(NaN),uint(Infinity),int(-3.9),uint(4294967297)];var castReads:int=0;var castValue={valueOf:function():Number{castReads++;return 4294967295;}};castOnce=int(castValue);function capturedInt(Number:Object):int{return int("12.8");}capturedCast=capturedInt({});function localCast(int:Function,uint:Function):String{return int("x")+uint("y");}shadowCast=localCast(function(value:String):String{return "i"+value;},function(value:String):String{return "u"+value;});' + coreValueSource, c => {
     assert.deepEqual(c.values, ['7.313','4.00','4294967295','7','7','7.31','7','7','7','0.00','NaN','Infinity','-Infinity','1.3','1000000000000000000000.00']);
     assert.deepEqual(c.casts,[0,0,4,4294967295,0,0,-3,1]);assert.equal(c.castReads,1);assert.equal(c.castOnce,-1);assert.equal(c.capturedCast,12);assert.equal(c.shadowCast,'ixuy');
+    assert.deepEqual(c.constructed,[0,12.5,NaN,false,false,true,-1,4294967295]);
+    assert.deepEqual(c.typeChecks,[true,true,false,true,false,false,true,true,false,true,true,false,false,true,true,false,true]);
+    assert.equal(c.defaultVoid,undefined);assert.equal(c.retainedPrimitive,7);assert.equal(c.failedPrimitive,null);assert.equal(c.typeReads,2);
+    assert.deepEqual(c.errorTypeChecks,[true,false]);assert.equal(c.objectScalars[0],7);assert.equal(c.objectScalars[1],false);assert.deepEqual(c.objectScalars.slice(2),[{},{}]);
+    assert.deepEqual(c.precise,['1e+2','1.23e+2','123.5','123.45','123.45','1.2e+1']);assert.equal(c.precisionErrors,3);
+    assert.equal(c.customPrecision,'custom:22');assert.equal(c.precisionAliasRejected,true);
   }),
   fixture('as3', 'var values=[]; var numbers=[1,NaN,Infinity,-Infinity]; var digits=[-1,21,4294967295]; for(var i:int=0;i<4;i++){for(var j:int=0;j<3;j++){try{numbers[i].toFixed(digits[j]);values.push("bad");}catch(e:RangeError){values.push(e.errorID);}}} boundary=(1).toFixed(20);', c => {
     assert.deepEqual(c.values, Array(12).fill(1002)); assert.equal(c.boundary, '1.00000000000000000000');

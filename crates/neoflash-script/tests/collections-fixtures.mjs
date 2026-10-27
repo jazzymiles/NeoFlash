@@ -97,9 +97,43 @@ result = labels.join("|");
 trace("AS3", result, "total", total, "checks", all && any, "find", first, last);`,
 };
 
+// Shared source grammar and Object construction exercise the same collection
+// pipelines in both dialects, including missing slots versus stored undefined.
+const coreContainerSource = `
+var sparse:Array = [,2,,undefined,]; var sparseInitialLength=sparse.length;
+var sparsePresence=[0 in sparse,1 in sparse,2 in sparse,3 in sparse];
+sparse[0]=5; var sparseCopy=sparse.slice(); var sparseCount=0;
+for(var sparseKey:String in sparse) sparseCount++;
+var expressionLog="";
+function markCore(label:String,value:Number):Number {expressionLog+=label;return value;}
+var sequenceValue=(markCore("A",1),markCore("B",2)), declarationTail=3;
+var loopIndex=0, loopOther=2;
+for(loopIndex=0,loopOther=2;(expressionLog+="C",loopIndex<2);loopIndex++,loopOther--){void(expressionLog+="D");}
+var voidValue=void markCore("V",9);
+function returnSequence():Number {return markCore("R",4),markCore("S",5);}
+var returnedSequence=returnSequence();
+var indexedSequence=sparse[(markCore("K",9),1)];
+var objectRecord:Object=new Object; objectRecord.count=3;
+var objectIdentity=Object(objectRecord)===objectRecord;
+var objectAlias:Function=Object; var aliasIdentity=objectAlias(objectRecord)===objectRecord;
+function shadowObject(Object:Function):String {return Object("value");}
+var objectShadow=shadowObject(function(value:String):String{return "local:"+value;});
+`;
+collectionSources.as2 += coreContainerSource;
+collectionSources.as3 += coreContainerSource;
+function verifyCoreContainers(c) {
+  assert.equal(c.sparseInitialLength,4);assert.deepEqual(c.sparsePresence,[false,true,false,true]);
+  assert.equal(c.sparseCount,3);assert.equal(c.sparseCopy.length,4);assert.equal(2 in c.sparseCopy,false);assert.equal(3 in c.sparseCopy,true);
+  assert.equal(c.sequenceValue,2);assert.equal(c.declarationTail,3);assert.equal(c.loopOther,0);
+  assert.equal(c.voidValue,undefined);assert.equal(c.returnedSequence,5);assert.equal(c.indexedSequence,2);
+  assert.equal(c.expressionLog,'ABCDCDCVRSK');assert.equal(c.objectRecord.count,3);
+  assert.equal(c.objectIdentity,true);assert.equal(c.aliasIdentity,true);assert.equal(c.objectShadow,'local:value');
+}
+
 export const collectionsFixtures = [
   { language:'action_script2', profile:collectionsProfile, source:collectionSources.as2, context:{},
     verify(c, logs) {
+      verifyCoreContainers(c);
       assert.equal(c.result,'Zoe:45|Ada:30|Bob:20'); assert.equal(c.sorted,c.original);
       assert.equal(c.removed[0].name,'zoe'); assert.equal(c.first.name,'Ann'); assert.equal(c.last.name,'Cy');
       assert.equal(c.preview[0].name,'Ada'); assert.equal(c.unchanged,'Ada'); assert.deepEqual(c.order,[1,0,2]);
@@ -110,6 +144,7 @@ export const collectionsFixtures = [
     } },
   { language:'action_script3', profile:collectionsProfile, source:collectionSources.as3, context:{},
     verify(c, logs) {
+      verifyCoreContainers(c);
       assert.equal(c.xmlShadow,'newlist');assert.equal(c.result,'Zoe:45|Ada:30|Bob:20'); assert.equal(c.records.length,4); assert.equal(c.selected.length,3);
       assert.equal(c.unchanged,'Ada'); assert.deepEqual(c.order,[1,0,2]); assert.equal(c.total,95);
       assert.equal(c.eachResult,undefined); assert.equal(c.all,true); assert.equal(c.any,true);
