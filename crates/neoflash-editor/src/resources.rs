@@ -2,7 +2,8 @@
 use crate::app::Editor;
 use eframe::egui;
 use neoflash_core::{
-    MAX_RESOURCE_BYTES, MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES, ResourceUnit, new_id,
+    ElementKind, MAX_RESOURCE_BYTES, MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES, ResourceUnit,
+    Transform, new_id,
 };
 use std::{io::Read, path::Path};
 
@@ -56,7 +57,7 @@ impl Editor {
         ui.add_space(18.);
         ui.strong("Resource files");
         ui.separator();
-        ui.small("Stored in the project. Load from scripts by path.");
+        ui.small("Stored in the project. Load by path or place PNG/JPEG images.");
         if ui.button("Import files…").clicked()
             && let Some(paths) = rfd::FileDialog::new().pick_files()
         {
@@ -104,6 +105,36 @@ impl Editor {
             self.resource_panel.baseline = Some(metadata);
         }
         ui.small(format!("{} bytes", unit.byte_len()));
+        if matches!(unit.media_type.as_str(), "image/png" | "image/jpeg")
+            && ui.button("Place image").clicked()
+        {
+            match unit.decode_image() {
+                Ok(image) => {
+                    let width = image.width;
+                    let height = image.height;
+                    let kind = ElementKind::Bitmap {
+                        resource_id: unit.id.clone(),
+                        width,
+                        height,
+                        smoothing: false,
+                    };
+                    let scale = (self.project.width as f64 * 0.8 / width as f64)
+                        .min(self.project.height as f64 * 0.8 / height as f64)
+                        .min(1.);
+                    self.add_element_transformed(
+                        kind,
+                        Transform {
+                            x: (self.project.width as f64 - width as f64 * scale) / 2.,
+                            y: (self.project.height as f64 - height as f64 * scale) / 2.,
+                            scale_x: scale,
+                            scale_y: scale,
+                            ..Default::default()
+                        },
+                    );
+                }
+                Err(error) => self.message(format!("Cannot place image: {error}")),
+            }
+        }
         ui.label("Project path");
         ui.add(
             egui::TextEdit::singleline(&mut self.resource_panel.path).desired_width(f32::INFINITY),
@@ -133,11 +164,17 @@ impl Editor {
                 }
             }
             if ui.button("Remove file").clicked() {
-                self.transact(|editor| {
-                    editor.project.resources.remove(index);
-                });
-                self.resource_panel = ResourcePanel::default();
-                self.message("Resource removed. Undo restores the file.");
+                self.finish_edits();
+                let mut candidate = self.project.clone();
+                candidate.resources.remove(index);
+                match candidate.validate() {
+                    Ok(()) => {
+                        self.transact(|editor| editor.project = candidate);
+                        self.resource_panel = ResourcePanel::default();
+                        self.message("Resource removed. Undo restores the file.");
+                    }
+                    Err(error) => self.message(format!("Resource is still used: {error}")),
+                }
             }
         });
     }

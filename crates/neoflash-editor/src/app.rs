@@ -71,6 +71,7 @@ pub struct Editor {
     pub timeline_key_drag: Option<(String, String, u32)>,
     pub library_selected: Option<String>,
     pub resource_panel: crate::resources::ResourcePanel,
+    pub bitmap_textures: crate::bitmaps::BitmapTextures,
     pub vector: crate::vector::VectorState,
     pub clipboard: crate::clipboard::ClipboardState,
     pub workspace: WorkspacePrefs,
@@ -116,6 +117,7 @@ impl Editor {
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
             timeline_cell: 13., timeline_key_drag: None, library_selected: None,
             resource_panel: crate::resources::ResourcePanel::default(),
+            bitmap_textures: crate::bitmaps::BitmapTextures::default(),
             vector: crate::vector::VectorState::default(),
             clipboard: crate::clipboard::ClipboardState::default(),
             workspace: WorkspacePrefs::default(),
@@ -252,6 +254,16 @@ impl Editor {
         self.ensure_key_for(&id, blank);
     }
     pub fn add_element(&mut self, kind: ElementKind, x: f64, y: f64) {
+        self.add_element_transformed(
+            kind,
+            Transform {
+                x,
+                y,
+                ..Default::default()
+            },
+        );
+    }
+    pub(crate) fn add_element_transformed(&mut self, kind: ElementKind, transform: Transform) {
         if !self.layer_editable() {
             self.message("Select an unlocked, visible layer first.");
             return;
@@ -276,17 +288,14 @@ impl Editor {
                 ElementKind::Text { .. } => "text",
                 ElementKind::Instance { .. } => "clip",
                 ElementKind::Path { .. } => "path",
+                ElementKind::Bitmap { .. } => "bitmap",
             };
             let name = format!("{name}_{}", id.rsplit('-').next().unwrap_or("1"));
             let element = Element {
                 accessibility: None,
                 id: id.clone(),
                 name,
-                transform: Transform {
-                    x,
-                    y,
-                    ..Default::default()
-                },
+                transform,
                 kind,
                 scripts: vec![],
             };
@@ -403,6 +412,7 @@ impl Editor {
                 };
                 self.clipboard = Default::default();
                 self.resource_panel = Default::default();
+                self.bitmap_textures = Default::default();
                 self.editing = vec![self.project.root.clone()];
                 self.frame = 0;
                 self.layer = 0;
@@ -445,6 +455,7 @@ impl Editor {
                 self.project = project;
                 self.clipboard = Default::default();
                 self.resource_panel = Default::default();
+                self.bitmap_textures = Default::default();
                 self.editing = vec![self.project.root.clone()];
                 self.frame = 0;
                 self.layer = 0;
@@ -478,6 +489,7 @@ impl Editor {
                             self.project = project;
                             self.clipboard = Default::default();
                             self.resource_panel = Default::default();
+                            self.bitmap_textures = Default::default();
                             self.editing = vec![self.project.root.clone()];
                             self.frame = 0;
                             self.layer = 0;

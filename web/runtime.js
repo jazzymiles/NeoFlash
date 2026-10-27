@@ -8,7 +8,7 @@
     if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-12) return null;
     return [(d * (x - tx) - c * (y - ty)) / determinant, (-b * (x - tx) + a * (y - ty)) / determinant];
   }
-  function hitShape(kind, x, y, measureText, testPath) {
+  function hitShape(kind, x, y, measureText, testPath, testBitmap) {
     if (kind.type === 'rectangle') return x >= 0 && y >= 0 && x <= kind.width && y <= kind.height;
     if (kind.type === 'ellipse') {
       if (kind.width <= 0 || kind.height <= 0) return false;
@@ -20,6 +20,7 @@
         x <= Math.max(0, ...lines.map(line => measureText(line, kind)));
     }
     if (kind.type === 'path') return testPath(kind, x, y);
+    if (kind.type === 'bitmap_pixels') return testBitmap?testBitmap(kind,x,y):false;
     return false;
   }
   function oneBasedFrame(value, total, resolveLabel) {
@@ -163,7 +164,7 @@
     const graphMode=typeof player.runtime_snapshot_json==='function';
     const references = new WeakMap();
     const attachedClasses = new Map();
-    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, program = null;
+    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, program = null;
     let timerRenderGeneration=0;
     let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
@@ -193,7 +194,8 @@
     }
     function initializeFamily() {
       if (!global.NeoFlashDisplay || typeof player.display_nodes_json !== 'function') return;
-      display=global.NeoFlashDisplay.create({player,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
+      if(global.NeoFlashBitmap)bitmapHost=global.NeoFlashBitmap.create({player,geometry:global.NeoFlashGeom});
+      display=global.NeoFlashDisplay.create({player,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
         measureText:(line,kind)=>{if(typeof context==='undefined')throw new Error('Text bounds require the Canvas font measurement service.');context.font=font(kind);return context.measureText(line).width;},
         pathBounds:(commands,matrix)=>global.NeoFlashAccessibility.pathBounds(commands,matrix)});
       if(global.NeoFlashEvents&&global.NeoFlashStage) {
@@ -235,6 +237,7 @@
       if(global.NeoFlashEvents)for(const name of ['Event','MouseEvent','KeyboardEvent','EventDispatcher','EventPhase'])builtins['flash.events.'+name]=global.NeoFlashEvents[name];
       if(global.NeoFlashStage)builtins['flash.display.Stage']=global.NeoFlashStage.Stage;
       if(timerHost){builtins['flash.utils.Timer']=timerHost.Timer;builtins['flash.events.TimerEvent']=timerHost.TimerEvent;builtins['flash.utils.getTimer']=timerHost.getTimer;}
+      if(bitmapHost){builtins['flash.display.BitmapData']=bitmapHost.BitmapData;builtins['flash.display.PixelSnapping']=bitmapHost.PixelSnapping;}
       if(binaryHost){builtins['flash.utils.ByteArray']=binaryHost.ByteArray;builtins['flash.utils.Endian']=binaryHost.Endian;}
       if(netHost){
         for(const name of ['URLRequest','URLRequestHeader','URLRequestMethod','URLVariables','URLLoader','URLLoaderDataFormat'])builtins['flash.net.'+name]=netHost[name];
@@ -246,14 +249,14 @@
       };
     }
     function resetProject() {
-      netHost?.reset();stopTimers();binaryHost?.reset();
+      netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();
       proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();lastTrace = '';
       player.reset();
       initializeProgram();
       dispatchScripts();
     }
     function disposeFamily() {
-      netHost?.dispose();timerRenderGeneration++;timerHost?.dispose();binaryHost?.dispose();
+      netHost?.dispose();timerRenderGeneration++;timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();
       legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
     function prepareLinked(receiver,allocatedByProgram) {
@@ -326,7 +329,7 @@
     }
     function interactiveTarget(hit) {
       let target=graphMode?proxyForRef(hit):proxyFor(hit);
-      while(target&&target!==stageHost?.stage){const node=display.descriptor(target);if(node.owner!=='shape'&&node.owner!=='graphic')return target;target=display.parentSpace(target);}
+      while(target&&target!==stageHost?.stage){const node=display.descriptor(target);if(node.owner!=='shape'&&node.owner!=='graphic'&&node.owner!=='bitmap')return target;target=display.parentSpace(target);}
       return target;
     }
 
@@ -501,6 +504,12 @@
     }
     function resize() { preview.resize(); }
     function font(kind) { return `${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`; }
+    function bitmapMatrix(item){
+      if(item.kind.type!=='bitmap_pixels')return item.transform;
+      const sx=canvas.width/project.width,sy=canvas.height/project.height,[a,b,c,d,e,f]=item.transform;
+      const m=bitmapHost.cache.transform([a*sx,b*sy,c*sx,d*sy,e*sx,f*sy],item.kind.pixel_snapping);
+      return [m[0]/sx,m[1]/sy,m[2]/sx,m[3]/sy,m[4]/sx,m[5]/sy];
+    }
     function render() {
       const snapshot=graphMode?JSON.parse(player.runtime_snapshot_json()):null;
       scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
@@ -508,10 +517,11 @@
       context.clearRect(0, 0, project.width, project.height);
       context.fillStyle = color(project.background);
       context.fillRect(0, 0, project.width, project.height);
+      bitmapHost?.cache.beginFrame();
       for (const item of scene) {
         const kind = item.kind;
         context.save();
-        context.transform(...item.transform);
+        context.transform(...bitmapMatrix(item));
         context.globalAlpha = Math.max(0, Math.min(1, item.alpha));
         if (kind.type === 'rectangle' || kind.type === 'ellipse') {
           context.beginPath();
@@ -537,6 +547,9 @@
             context.lineJoin = 'round';
             context.stroke(path);
           }
+        } else if (kind.type === 'bitmap_pixels') {
+          if(!bitmapHost)throw new Error('Bitmap runtime is missing. Re-export this project.');
+          bitmapHost.cache.draw(context,kind);
         } else if (kind.type === 'text') {
           context.font = font(kind);
           context.textBaseline = 'top';
@@ -546,8 +559,9 @@
         context.restore();
       }
       const objects=snapshot?new Map(snapshot.objects.map(node=>[JSON.stringify(node.object_ref),node])):null;
-      const semanticScene=snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,ancestry_refs};}):scene;
+      const semanticScene=snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind};}):scene;
       const targetCount = semanticLayer.update(snapshot?snapshot.semantics:JSON.parse(player.accessibility_json()), semanticScene, project, preview.view.scale, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
+      bitmapHost?.cache.endFrame();
       if (targetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
       status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${runtimeFrameRate} fps`;
       if (traceElement.textContent !== lastTrace) traceElement.textContent = lastTrace;
@@ -561,12 +575,12 @@
       for (let index = scene.length - 1; index >= 0; index--) {
         const item = scene[index];
         if (item.alpha <= 0) continue;
-        const local = localPoint(item.transform, x, y);
+        const local = localPoint(bitmapMatrix(item), x, y);
         if (!local) continue;
         if (hitShape(item.kind, ...local, (line, kind) => {
           context.font = font(kind);
           return context.measureText(line).width;
-        }, (kind, x, y) => global.NeoFlashPaths.contains(context, kind, x, y, paths.get(kind.commands)))) return graphMode?item.owner_ref:item.instance_path;
+        }, (kind, x, y) => global.NeoFlashPaths.contains(context, kind, x, y, paths.get(kind.commands)), (kind,x,y)=>bitmapHost?.cache.hit(kind,x,y)||false)) return graphMode?item.owner_ref:item.instance_path;
       }
       return null;
     }

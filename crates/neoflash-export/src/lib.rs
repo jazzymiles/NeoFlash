@@ -21,6 +21,7 @@ const GEOMETRY: &str = include_str!("../../../web/geom.js");
 const TIMERS: &str = include_str!("../../../web/timers.js");
 const BYTE_ARRAY: &str = include_str!("../../../web/byte-array.js");
 const NET: &str = include_str!("../../../web/net.js");
+const BITMAP: &str = include_str!("../../../web/bitmap.js");
 const DISPLAY: &str = include_str!("../../../web/display.js");
 const MARKER: &str = "neoflash-export.json";
 
@@ -83,7 +84,7 @@ pub fn export_warnings(project: &Project) -> Vec<String> {
         "Font '{font}' is referenced by name, not embedded. Visitors need this font installed; otherwise the browser uses a fallback."
     )).collect();
     if !project.resources.is_empty() {
-        warnings.push(format!("{} project data resource(s) are embedded and available by their relative paths. Resource bytes are not automatically installed as fonts or display assets.", project.resources.len()));
+        warnings.push(format!("{} project resource(s) are embedded and available by their relative paths. Embedding bytes alone does not create display placements or install fonts.", project.resources.len()));
     }
     warnings
 }
@@ -247,6 +248,7 @@ pub fn export_project(
         ("timers.js", TIMERS),
         ("byte-array.js", BYTE_ARRAY),
         ("net.js", NET),
+        ("bitmap.js", BITMAP),
         ("display.js", DISPLAY),
         ("bundle.js", bundle_js.as_str()),
         ("README.txt", readme.as_str()),
@@ -323,6 +325,7 @@ fn html_document(title: &str) -> String {
   <script defer src="timers.js"></script>
   <script defer src="byte-array.js"></script>
   <script defer src="net.js"></script>
+  <script defer src="bitmap.js"></script>
   <script defer src="display.js"></script>
   <script defer src="runtime.js"></script>
 </head>
@@ -385,6 +388,7 @@ mod tests {
         assert!(!html.contains("https://"));
         assert!(html.find("src=\"path.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         assert!(html.find("src=\"net.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
+        assert!(html.find("src=\"bitmap.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         let bundle = fs::read_to_string(output.join("bundle.js")).unwrap();
         assert!(bundle.contains("PC9zY3JpcHQ+cG9ydGFibGUgZGF0YQ=="));
         assert!(

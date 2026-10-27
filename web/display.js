@@ -26,7 +26,7 @@
   const unsupportedText=new Set(['htmlText','defaultTextFormat','styleSheet','type','selectable','multiline','wordWrap','autoSize','embedFonts','displayAsPassword','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','background','backgroundColor','border','borderColor','antiAliasType','gridFitType','sharpness','thickness','condenseWhite','getTextFormat','setTextFormat','getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineIndexOfChar','getLineMetrics','getLineOffset','getParagraphLength','getFirstCharInParagraph','setSelection','replaceSelectedText']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{}}) {
+  function create({player,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null}) {
     const legacy = new Map();
     const graph=typeof player.runtime_snapshot_json==='function';
     const refKey=ref=>JSON.stringify(ref);
@@ -66,10 +66,12 @@
       const include=(x,y)=>{ if (!Number.isFinite(x)||!Number.isFinite(y)) throw new RangeError('Display bounds exceed the finite coordinate range.'); box=box ? {left:Math.min(box.left,x),top:Math.min(box.top,y),right:Math.max(box.right,x),bottom:Math.max(box.bottom,y)} : {left:x,top:y,right:x,bottom:y}; };
       for(const leaf of list) {
         if(!descendant(leaf,source,list))continue;
-        for(const kind of [...(leaf.kind?[leaf.kind]:[]),...(leaf.graphics||[])]) {
+        const shapes=leaf.owner==='bitmap'?(leaf.bitmap&&!leaf.bitmap.disposed?[{type:'bitmap_pixels',width:leaf.bitmap.width,height:leaf.bitmap.height}]:[]):leaf.kind?[leaf.kind]:[];
+        for(const kind of [...shapes,...(leaf.graphics||[])]) {
         const m=relative(leaf,destination,list),stroke=strokes?(kind.stroke_width||0)/2:0;
         const corners=(x,y,w,h)=>{for(const [px,py] of [[x,y],[x+w,y],[x+w,y+h],[x,y+h]]){const p=point(m,px,py);include(p.x,p.y);}};
-        if(kind.type==='rectangle')corners(-stroke,-stroke,kind.width+2*stroke,kind.height+2*stroke);
+        if(kind.type==='bitmap_pixels')corners(0,0,kind.width,kind.height);
+        else if(kind.type==='rectangle')corners(-stroke,-stroke,kind.width+2*stroke,kind.height+2*stroke);
         else if(kind.type==='ellipse') {
           const center=point(m,kind.width/2,kind.height/2);
           const rx=Math.hypot(m[0]*kind.width/2,m[2]*kind.height/2)+stroke*Math.hypot(m[0],m[2]);
@@ -168,6 +170,10 @@
         endFill:drawing.endFill,lineStyle:(width,color=0,alpha=100,...options)=>drawing.lineStyle(width,color,alpha/100,...options),
         moveTo:drawing.moveTo,lineTo:drawing.lineTo,curveTo:drawing.curveTo,clear:drawing.clear,
         getNextHighestDepth:()=>children(target).length,
+        attachBitmap:(data,depth,pixelSnapping='auto',smoothing=false)=>{
+          if(depth!==children(target).length)throw new RangeError('attachBitmap currently supports append-only depth: pass getNextHighestDepth().');
+          const image=new builtins['flash.display.Bitmap'](data,pixelSnapping,smoothing);containerMethods(target).addChild(image);
+        },
         createEmptyMovieClip:(name,depth)=>{
           if(typeof name!=='string'||new TextEncoder().encode(name).length>4096)throw new TypeError('createEmptyMovieClip requires a name of at most 4096 UTF-8 bytes.');
           if(depth!==children(target).length)throw new RangeError('createEmptyMovieClip currently supports append-only depth: pass getNextHighestDepth(). Flash depth replacement is pending.');
@@ -225,6 +231,11 @@
       return result;
     }
     function get(target,name) {
+      if(['bitmapData','smoothing','pixelSnapping'].includes(name)&&descriptor(target).owner==='bitmap'){
+        const key=referenceOf(target).key;
+        if(name==='bitmapData'){const ref=JSON.parse(player.object_bitmap(key));return ref?getBitmap().fromRef(ref):null;}
+        return name==='smoothing'?player.object_smoothing(key):player.object_pixel_snapping(key);
+      }
       if(textProperties.has(name)||unsupportedText.has(name)) {
         const node=descriptor(target);
         if(node.owner==='text') {
@@ -249,6 +260,13 @@
       return UNHANDLED;
     }
     function set(target,name,value) {
+      if(['bitmapData','smoothing','pixelSnapping'].includes(name)&&descriptor(target).owner==='bitmap'){
+        const key=referenceOf(target).key;let accepted;
+        if(name==='bitmapData')accepted=player.object_set_bitmap(key,JSON.stringify(value===null?null:getBitmap().refOf(value)));
+        else if(name==='smoothing'){if(typeof value!=='boolean')throw new TypeError('Bitmap.smoothing requires a Boolean.');accepted=player.object_set_smoothing(key,value);}
+        else {pixelSnapping(value);accepted=player.object_set_pixel_snapping(key,value);}
+        if(!accepted)throw new Error(`Cannot set Bitmap.${name} on this display object.`);return true;
+      }
       if(textProperties.has(name)||unsupportedText.has(name)) {
         const node=descriptor(target);
         if(node.owner==='text') {
@@ -304,11 +322,18 @@
     function prune(){for(const[id,record]of legacy)if(!alive(record.target))legacy.delete(id);}
     function enterFrame(){prune();for(const record of [...legacy.values()]){if(!alive(record.target))continue;const handler=callback(record,'onEnterFrame');if(handler)Reflect.apply(handler,record.target,[]);}}
     function press(target){prune();while(target&&referenceOf(target)){const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime),handler=callback(record,'onPress');if(handler){Reflect.apply(handler,target,[]);return;}target=parentSpace(target);if(target===getStage())target=null;}}
+    function pixelSnapping(value){if(!['auto','always','never'].includes(value))throw new TypeError('Bitmap.pixelSnapping requires auto, always or never.');return value;}
+    function bitmapArguments(args){
+      if(args.length>3)throw new TypeError('Bitmap expects optional bitmapData, pixelSnapping and smoothing.');
+      const [data=null,snap='auto',smooth=false]=args;pixelSnapping(snap);if(typeof smooth!=='boolean')throw new TypeError('Bitmap.smoothing requires a Boolean.');
+      if(data!==null)getBitmap().refOf(data);return [data,snap,smooth];
+    }
+    function initializeBitmap(receiver,args){const [data,snap,smooth]=bitmapArguments(args);set(receiver,'bitmapData',data);set(receiver,'pixelSnapping',snap);set(receiver,'smoothing',smooth);}
     const builtins={'flash.display.Graphics':Graphics,'flash.geom.Point':Point,'flash.geom.Rectangle':Rectangle,'flash.geom.Matrix':Matrix};
-    for(const[name,owners]of Object.entries({DisplayObject:null,DisplayObjectContainer:['movie_clip','sprite','graphic','button'],MovieClip:['movie_clip'],Sprite:['movie_clip','sprite','graphic','button'],Shape:['shape'],TextField:['text']})) {
-      const allocation={Sprite:'sprite',Shape:'shape',MovieClip:'movie_clip'}[name];
+    for(const[name,owners]of Object.entries({DisplayObject:null,DisplayObjectContainer:['movie_clip','sprite','graphic','button'],MovieClip:['movie_clip'],Sprite:['movie_clip','sprite','graphic','button'],Shape:['shape'],Bitmap:['bitmap'],TextField:['text']})) {
+      const allocation={Sprite:'sprite',Shape:'shape',MovieClip:'movie_clip',Bitmap:'bitmap'}[name];
       function allocate(){if(!graph||!allocation)throw new TypeError(`Dynamic new ${name}() is not supported. Use an authored instance for this owner.`);return proxyForRef(JSON.parse(player.create_display(allocation)));}
-      function NativeDisplay(...args){if(args.length)throw new TypeError(`${name} construction requires no arguments.`);return allocate();}
+      function NativeDisplay(...args){if(name==='Bitmap'){bitmapArguments(args);const receiver=allocate();initializeBitmap(receiver,args);return receiver;}if(args.length)throw new TypeError(`${name} construction requires no arguments.`);return allocate();}
       if(allocation&&graph)NativeDisplay.__nfAllocate=({className}={})=>{
         const symbol=project?.symbols.find(symbol=>symbol.linkage_id&&symbol.class_name===className);
         if(!symbol)return allocate();
@@ -316,7 +341,7 @@
         prepareLinked(receiver,true);return receiver;
       };
       NativeDisplay.__nfIs=value=>{if(value&&value===getStage())return name==='DisplayObject'||name==='DisplayObjectContainer';try{const node=descriptor(value);return owners===null||owners.includes(node.owner);}catch(_){return false;}};
-      NativeDisplay.__nfInitialize=(receiver,args)=>{if(args.length||!NativeDisplay.__nfIs(receiver))throw new TypeError(`${name} base initialization requires an existing compatible display instance and no arguments.`);if(name==='MovieClip')refreshLegacyCallbacks(receiver);};
+      NativeDisplay.__nfInitialize=(receiver,args)=>{if(name==='Bitmap'){if(!NativeDisplay.__nfIs(receiver))throw new TypeError('Bitmap base initialization requires a Bitmap display object.');initializeBitmap(receiver,args);return;}if(args.length||!NativeDisplay.__nfIs(receiver))throw new TypeError(`${name} base initialization requires an existing compatible display instance and no arguments.`);if(name==='MovieClip')refreshLegacyCallbacks(receiver);};
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});
       builtins[(name==='TextField'?'flash.text.':'flash.display.')+name]=NativeDisplay;
     }

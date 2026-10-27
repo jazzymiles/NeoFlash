@@ -396,6 +396,7 @@ impl<'a> Analysis<'a> {
             Expr::NewBuiltin(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Array/String/LoadVars constructor requires arbitrary user-constructor semantics not supported here. Ordinary calls to the local binding remain supported.")),
             Expr::NewBuiltin(name, args, offset) if name == "LoadVars" && !args.is_empty() => return Err(self.error(*offset,"AS2 LoadVars construction takes no arguments in this profile.")),
             Expr::NewClass(name, _, offset) if name == "flash.events.EventPhase" => return Err(self.error(*offset,"EventPhase contains constants and is not constructible.")),
+            Expr::NewClass(name, _, offset) if name == "flash.display.PixelSnapping" => return Err(self.error(*offset,"PixelSnapping contains constants and is not constructible.")),
             Expr::NewClass(name, _, offset) if matches!(name.as_str(),"flash.net.URLRequestMethod"|"flash.net.URLLoaderDataFormat") => return Err(self.error(*offset,"Network method/data-format facades provide constants and cannot be constructed.")),
             Expr::NewClass(name, _, offset) if self.context.interfaces.contains(name) => return Err(self.error(*offset,"An interface is a nominal contract and cannot be constructed. Instantiate an implementing project class.")),
             Expr::NewClass(name, _, offset) if name == "flash.utils.Endian" => return Err(self.error(*offset,"Endian contains byte-order constants and is not constructible.")),

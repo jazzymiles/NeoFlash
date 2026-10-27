@@ -53,6 +53,9 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { public interface A { var value:int; } }",
         "package { public class A { public function A(value:int=0){} } }",
         "package { public class A implements Missing {} }",
+        "package { import flash.display.Bitmap; public class A extends Bitmap {} }",
+        "package { import flash.display.BitmapData; public class A extends BitmapData {} }",
+        "package { import flash.display.PixelSnapping; public class A { public function A(){new PixelSnapping();} } }",
         "package { import flash.net.URLLoader; public class A extends URLLoader {} }",
         "package { import flash.net.URLVariables; public class A extends URLVariables {} }",
         "package { import flash.events.ProgressEvent; public class A extends ProgressEvent {} }",
@@ -103,6 +106,17 @@ fn class_syntax_outside_profile_is_never_erased() {
     assert!(
         neoflash_script::compile_project(&legacy).is_err(),
         "AS2 uses LoadVars, not the AS3 URLLoader import"
+    );
+    legacy.sources[0].source = "import flash.display.Bitmap; class A {}".into();
+    assert!(
+        neoflash_script::compile_project(&legacy).is_err(),
+        "AS2 uses MovieClip.attachBitmap, not the AS3 Bitmap constructor"
+    );
+    legacy.sources[0].source =
+        "import flash.display.BitmapData; class A extends BitmapData {}".into();
+    assert!(
+        neoflash_script::compile_project(&legacy).is_err(),
+        "BitmapData native inheritance is not implemented in either dialect"
     );
     let mut mixed = project(&[
         ("A.as", "class A extends B {}"),

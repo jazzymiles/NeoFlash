@@ -383,8 +383,8 @@
       "id": "as3-display",
       "title": "Display properties",
       "status": "partial",
-      "scope": "Position, alpha, scale, bounded finite rotation readback, visibility, names, root/parent/stage, child traversal, transformed bounds and coordinates, and supported nonrotated width/height writes. Native Sprite/Shape/MovieClip and project subclasses allocate stable runtime objects; containers add/remove/reparent/reorder dynamic children in an ordered suffix after authored children. Explicitly exported MovieClip symbols provide independent scoped authored timelines, nested clocks/scripts and linked class state; new on the linked MovieClip class allocates its authored library timeline.",
-      "limitations": "General authored/dynamic display mixing, masks/filters, full text layout and all owner-specific native APIs remain incomplete. Rotated dimension setters and singular coordinate conversions diagnose. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent ed3c39b evidence covers only the specified typed geometry/Timer workflow; other members and full timing/coercion remain unverified. Authored children cannot be moved/removed; detached runtime objects remain allocated until Restart, with a 4,096-object bound. General Flash depth replacement and full linked construction order remain unsupported. The combined dynamic-display browser workflow and Restart passed. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. The linked-movieclips ordinary-export/real-WASM host scenario passes; representative interactions and Restart also passed in the shared in-app-browser batch; VERIFICATION.md distinguishes visible evidence from host-only checks. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile.",
+      "scope": "Position, alpha, scale, bounded finite rotation readback, visibility, names, root/parent/stage, child traversal, transformed bounds and coordinates, and supported nonrotated width/height writes. Native Sprite/Shape/MovieClip and project subclasses allocate stable runtime objects; containers add/remove/reparent/reorder dynamic children in an ordered suffix after authored children. Explicitly exported MovieClip symbols provide independent scoped authored timelines, nested clocks/scripts and linked class state; new on the linked MovieClip class allocates its authored library timeline. Bitmap is a noncontainer display view over shared BitmapData with smoothing and pixel-snapping controls.",
+      "limitations": "General authored/dynamic display mixing, masks/filters, full text layout and all owner-specific native APIs remain incomplete. Rotated dimension setters and singular coordinate conversions diagnose. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent ed3c39b evidence covers only the specified typed geometry/Timer workflow; other members and full timing/coercion remain unverified. Authored children cannot be moved/removed; detached runtime objects remain allocated until Restart, with a 4,096-object bound. General Flash depth replacement and full linked construction order remain unsupported. The combined dynamic-display browser workflow and Restart passed. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. The linked-movieclips ordinary-export/real-WASM host scenario passes; representative interactions and Restart also passed in the shared in-app-browser batch; VERIFICATION.md distinguishes visible evidence from host-only checks. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. The bitmap-pixels family passes separate ordinary-export/real-WASM and in-app-browser checks for visible shared edits, source/clone independence, AS2 attachment and Restart. Native image-panel acceptance remains pending; full rasterization and coercion parity are not established.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -405,7 +405,11 @@
         "examples/dynamic-display.nflash",
         "crates/neoflash-core/src/runtime_graph/linked.rs",
         "crates/neoflash-core/tests/dynamic_display.rs",
-        "examples/linked-movieclips.nflash"
+        "examples/linked-movieclips.nflash",
+        "web/bitmap.js",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/tests/bitmap-pixels.mjs",
+        "examples/bitmap-pixels.nflash"
       ]
     },
     {
@@ -456,7 +460,7 @@
       "title": "TextField and text APIs",
       "status": "partial",
       "scope": "Existing authored Text elements now have live text/textColor, UTF-16 length, append/replace, line queries and partial Canvas text metrics through the shared runtime. Overrides leave authored content unchanged and clear with placement removal/replacement or Restart.",
-      "limitations": "Plain string values and RGB integers only; 1 MiB UTF-8 text and bounded UTF-16 replacement ranges preserving complete characters. No rich formatting/HTML, wrapping, input/selection, embedded fonts or dynamic TextField creation. Canvas width and 1.2\u00d7font-size line height are not full Flash layout. Shared helpers do not establish every historical AS2 method. The combined collection/text browser scenario passed; this does not establish every method.",
+      "limitations": "Plain string values and RGB integers only; 1 MiB UTF-8 text and bounded UTF-16 replacement ranges preserving complete characters. No rich formatting/HTML, wrapping, input/selection, embedded fonts or dynamic TextField creation. Canvas width and 1.2×font-size line height are not full Flash layout. Shared helpers do not establish every historical AS2 method. The combined collection/text browser scenario passed; this does not establish every method.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",
@@ -475,12 +479,21 @@
     {
       "id": "as3-media-api",
       "title": "Audio, video and resource loading",
-      "status": "planned",
-      "scope": "Flash media APIs, loading of images, audio and video, playback control and synchronization.",
-      "limitations": "The authoring/runtime model does not yet provide the corresponding ActionScript APIs.",
+      "status": "partial",
+      "scope": "Authored embedded PNG/JPEG image placements use shared Rust decoding. BitmapData supports construction, pixel reads/writes, fillRect/copyPixels, clone/scroll and disposal over the shared pixel arena. AS3 Bitmap views share/replace bitmapData and expose smoothing plus PixelSnapping auto/always/never constants.",
+      "limitations": "Audio/video, general Loader/image networking, BitmapData.loadBitmap linkage, draw/filter/shader/encode, bitmap fills, alpha masks, lock/unlock and native Bitmap/BitmapData subclasses remain unsupported. Pixel adapters require integer coordinates/uint colors; historical error/coercion/rasterization fidelity is not claimed. The combined bitmap-pixels ordinary-export/real-WASM scenario passes original PNG decoding, shared/independent buffers, both dialects, actual RGBA uploads, smoothing/snapping, disposal and Restart. The in-app-browser workflow visibly passed shared edits, source/clone independence, AS2 attachment and Restart; native image-panel interaction remains pending. Dimensions are bounded to 4096 per side, 256 buffer records per publication and 128 MiB live pixels; disposal releases bytes but keeps its record until Restart. Native PNG/JPEG placement is implemented with UI acceptance pending; other resource formats remain storage only.",
       "evidence": [
         "docs/COMPATIBILITY.md",
-        "docs/ROADMAP.md"
+        "docs/ROADMAP.md",
+        "web/bitmap.js",
+        "web/display.js",
+        "web/runtime.js",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/tests/bitmap-pixels.mjs",
+        "examples/bitmap-pixels.nflash",
+        "crates/neoflash-core/src/pixels.rs",
+        "crates/neoflash-core/src/resource_image.rs",
+        "crates/neoflash-core/src/runtime_graph/bitmap.rs"
       ]
     },
     {
@@ -488,7 +501,7 @@
       "title": "Networking, storage and external communication",
       "status": "partial",
       "scope": "Exact AS3 URLRequest/Header/Method, URLVariables, URLLoader/DataFormat and Progress/IOError/HTTPStatus event imports. GET/POST text/form/binary requests, asynchronous text/variables/ByteArray results, byte counters and current-operation events. Embedded version-3 project resources resolve offline; external HTTP(S) uses browser fetch/CORS. Cancellation and publication reset suppress obsolete work.",
-      "limitations": "Bounded UTF-8/form profile and browser transport semantics, not complete Flash networking/security/error conformance. Native subclasses, filesystem loading, multipart/file uploads, sockets, URLStream, AMF/SharedObject, automatic retry/timeout policy and browser-navigation LoadVars.send remain unsupported. Limits: 16 MiB body/response, 64 MiB active response bytes, 32 concurrent operations, 1024 form pairs and 64 request headers. One combined ordinary-export/real-WASM resource-loading scenario passed embedded data, emitted AS3/AS2 HTTP POST through actual local fetch, cancellation and Restart. The embedded pipeline, same-origin HTTP GET and Restart passed in the in-app browser. Native resource-panel and direct-file browser opening remain pending; cross-origin browser CORS was not separately exercised.",
+      "limitations": "Bounded UTF-8/form profile and browser transport semantics, not complete Flash networking/security/error conformance. Native subclasses, filesystem loading, multipart/file uploads, sockets, URLStream, AMF/SharedObject, automatic retry/timeout policy and browser-navigation LoadVars.send remain unsupported. Limits: 16 MiB body/response, 64 MiB active response bytes, 32 concurrent operations, 1024 form pairs and 64 request headers. One combined ordinary-export/real-WASM resource-loading scenario passed embedded data, emitted AS3/AS2 HTTP POST through actual local fetch, cancellation and Restart. The embedded pipeline, same-origin HTTP GET and Restart passed in the in-app browser. Native resource-panel and direct-file browser opening remain pending; cross-origin browser CORS was not separately exercised. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",
@@ -502,7 +515,8 @@
         "crates/neoflash-script/tests/resource-loading.mjs",
         "crates/neoflash-export/src/lib.rs",
         "examples/resource-loading.nflash",
-        "docs/VERIFICATION.md"
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {

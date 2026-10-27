@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 pub(crate) const MAX_DEPTH: usize = 64;
 pub(crate) const MAX_NODES: usize = 100_000;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DrawItem {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DrawItem<K = ElementKind> {
     pub element_id: Id,
     pub name: String,
     /// Root is []; this path includes the leaf itself.
@@ -14,7 +14,35 @@ pub struct DrawItem {
     /// Canvas-compatible affine matrix [a,b,c,d,tx,ty].
     pub transform: [f64; 6],
     pub alpha: f64,
-    pub kind: ElementKind,
+    pub kind: K,
+}
+
+impl<A, B> PartialEq<DrawItem<B>> for DrawItem<A>
+where
+    A: PartialEq<B>,
+{
+    fn eq(&self, other: &DrawItem<B>) -> bool {
+        self.element_id == other.element_id
+            && self.name == other.name
+            && self.instance_path == other.instance_path
+            && self.layer_id == other.layer_id
+            && self.transform == other.transform
+            && self.alpha == other.alpha
+            && self.kind == other.kind
+    }
+}
+impl<K> DrawItem<K> {
+    pub fn map_kind<T>(self, map: impl FnOnce(K) -> T) -> DrawItem<T> {
+        DrawItem {
+            element_id: self.element_id,
+            name: self.name,
+            instance_path: self.instance_path,
+            layer_id: self.layer_id,
+            transform: self.transform,
+            alpha: self.alpha,
+            kind: map(self.kind),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

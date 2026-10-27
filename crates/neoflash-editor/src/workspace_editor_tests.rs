@@ -77,6 +77,57 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
     editor.redo();
     assert_eq!(editor.project.resources.len(), 2);
     assert!(editor.dirty());
+
+    // Reuse the resource workflow for native bitmap paint/cache and undo ownership.
+    let image_project =
+        Project::from_json(include_str!("../../../examples/bitmap-pixels.nflash")).unwrap();
+    let mut image_editor = Editor::from_project(&ctx, image_project);
+    let first = crate::tests::stage_input_frame(&mut image_editor, &ctx, 0., vec![]);
+    let uploaded: Vec<_> = first
+        .textures_delta
+        .set
+        .iter()
+        .filter(|(_, delta)| delta.image.size() == [16, 16])
+        .map(|(id, _)| *id)
+        .collect();
+    assert_eq!(uploaded.len(), 1, "the authored PNG uploads once");
+    let second = crate::tests::stage_input_frame(&mut image_editor, &ctx, 0.1, vec![]);
+    assert!(
+        !second
+            .textures_delta
+            .set
+            .iter()
+            .any(|(id, _)| uploaded.contains(id)),
+        "unchanged images reuse their texture"
+    );
+    let before = image_editor.project.clone();
+    image_editor.add_element(
+        neoflash_core::ElementKind::Bitmap {
+            resource_id: before.resources[0].id.clone(),
+            width: 16,
+            height: 16,
+            smoothing: true,
+        },
+        80.,
+        80.,
+    );
+    image_editor.project.validate().unwrap();
+    let third = crate::tests::stage_input_frame(&mut image_editor, &ctx, 0.2, vec![]);
+    assert_eq!(
+        third
+            .textures_delta
+            .set
+            .iter()
+            .filter(|(_, delta)| delta.image.size() == [16, 16])
+            .count(),
+        1,
+        "nearest and smoothed instances have independent sampler textures"
+    );
+    image_editor.undo();
+    assert_eq!(
+        image_editor.project, before,
+        "Undo removes only the new placement"
+    );
 }
 
 #[test]

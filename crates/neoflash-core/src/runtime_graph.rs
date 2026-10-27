@@ -4,6 +4,7 @@ use crate::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
+mod bitmap;
 mod linked;
 
 pub const MAX_DYNAMIC_OBJECTS: usize = 4096;
@@ -23,6 +24,7 @@ pub enum DynamicKind {
     Sprite,
     Shape,
     MovieClip,
+    Bitmap,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -74,11 +76,35 @@ pub struct RuntimeObject {
     pub source_path: Option<Vec<Id>>,
     /// Own Graphics paints; these are not display children.
     pub graphics: Vec<ElementKind>,
+    pub bitmap: Option<PixelDescriptor>,
+    pub smoothing: bool,
+    pub pixel_snapping: PixelSnapping,
+}
+
+/// Runtime pixels have their own identity; authoring resource IDs remain immutable.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RuntimeDrawKind {
+    BitmapPixels {
+        pixel_ref: PixelRef,
+        width: u32,
+        height: u32,
+        revision: String,
+        smoothing: bool,
+        pixel_snapping: PixelSnapping,
+    },
+    #[serde(untagged)]
+    Element(ElementKind),
+}
+impl PartialEq<ElementKind> for RuntimeDrawKind {
+    fn eq(&self, other: &ElementKind) -> bool {
+        matches!(self, Self::Element(kind) if kind == other)
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeDrawItem {
     #[serde(flatten)]
-    pub item: DrawItem,
+    pub item: DrawItem<RuntimeDrawKind>,
     pub owner_ref: ObjectRef,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -139,6 +165,10 @@ struct LinkedNamespace {
 pub(crate) struct RuntimeGraph {
     generation: u64,
     next_id: u64,
+    pixels: crate::pixels::PixelArena,
+    resource_pixels: HashMap<Id, PixelRef>,
+    bitmap_states: HashMap<ObjectRef, bitmap::BitmapState>,
+    bitmap_error: Option<BitmapError>,
     authored: BTreeMap<Vec<Id>, Authored>,
     paths: HashMap<ObjectRef, Vec<Id>>,
     prefix: HashMap<ObjectRef, Vec<ObjectRef>>,
@@ -160,6 +190,10 @@ impl RuntimeGraph {
                 value.checked_add(1)
             })
             .expect("runtime generation exhausted");
+        self.pixels.reset();
+        self.resource_pixels.clear();
+        self.bitmap_states.clear();
+        self.bitmap_error = None;
         self.authored.clear();
         self.paths.clear();
         self.prefix.clear();
@@ -227,6 +261,8 @@ impl RuntimeGraph {
         self.authored
             .retain(|path, node| active.get(path.as_slice()) == Some(&node.lifetime));
         self.paths
+            .retain(|reference, _| !retired.contains(reference));
+        self.bitmap_states
             .retain(|reference, _| !retired.contains(reference));
         for (path, lifetime) in placements {
             if !self.authored.contains_key(path) {
@@ -451,6 +487,7 @@ impl Player {
                         DynamicKind::Sprite => "sprite",
                         DynamicKind::Shape => "shape",
                         DynamicKind::MovieClip => "movie_clip",
+                        DynamicKind::Bitmap => "bitmap",
                     };
                     let linked = linked_roots.get(&reference);
                     let movie = node.kind == DynamicKind::MovieClip;
@@ -479,6 +516,11 @@ impl Player {
                 } else {
                     continue;
                 };
+            let bitmap_state = self.graph.bitmap_state(&reference, display.kind.as_ref());
+            let bitmap = bitmap_state
+                .pixel_ref
+                .as_ref()
+                .and_then(|id| self.graph.pixels.info(id).ok());
             display.world = affine_multiply(parent_world, transform_matrix(display.transform));
             display.effective_visible = parent_visible && display.visible;
             let alpha = parent_alpha * display.transform.alpha;
@@ -514,12 +556,42 @@ impl Player {
             let children = self.graph.children(&reference);
             if on_stage && display.effective_visible {
                 if let Some(source) = items.get(&reference) {
-                    let mut item = source.clone();
+                    let mut item = source.clone().map_kind(RuntimeDrawKind::Element);
                     item.transform = display.world;
                     item.alpha = alpha;
+                    if !matches!(source.kind, ElementKind::Bitmap { .. }) {
+                        result.draws.push(RuntimeDrawItem {
+                            item,
+                            owner_ref: reference.clone(),
+                        });
+                    }
+                }
+                if let Some(pixel) = &bitmap
+                    && !pixel.disposed
+                {
                     result.draws.push(RuntimeDrawItem {
-                        item,
                         owner_ref: reference.clone(),
+                        item: DrawItem {
+                            element_id: items.get(&reference).map_or_else(
+                                || format!("runtime-{}-bitmap", reference.id),
+                                |item| item.element_id.clone(),
+                            ),
+                            name: display.name.clone(),
+                            instance_path: source_path.clone().unwrap_or_default(),
+                            layer_id: items
+                                .get(&reference)
+                                .map_or_else(String::new, |item| item.layer_id.clone()),
+                            transform: display.world,
+                            alpha,
+                            kind: RuntimeDrawKind::BitmapPixels {
+                                pixel_ref: pixel.pixel_ref.clone(),
+                                width: pixel.width,
+                                height: pixel.height,
+                                revision: pixel.revision.clone(),
+                                smoothing: bitmap_state.smoothing,
+                                pixel_snapping: bitmap_state.pixel_snapping,
+                            },
+                        },
                     });
                 }
                 for (index, kind) in graphics.iter().enumerate() {
@@ -532,7 +604,7 @@ impl Player {
                             layer_id: String::new(),
                             transform: display.world,
                             alpha,
-                            kind: kind.clone(),
+                            kind: RuntimeDrawKind::Element(kind.clone()),
                         },
                     });
                 }
@@ -558,6 +630,9 @@ impl Player {
                 namespace_ref,
                 source_path,
                 graphics,
+                bitmap,
+                smoothing: bitmap_state.smoothing,
+                pixel_snapping: bitmap_state.pixel_snapping,
             });
         }
         result
@@ -790,6 +865,9 @@ impl Player {
         let object = self.graph.dynamic.get(reference).ok_or_else(|| {
             error("Graphics currently requires a live runtime-created Sprite, Shape or MovieClip")
         })?;
+        if object.kind == DynamicKind::Bitmap {
+            return Err(error("Bitmap does not own Graphics"));
+        }
         if operations.len() > MAX_GRAPHICS_OPS {
             return Err(error("Graphics batch exceeds 4096 operations"));
         }

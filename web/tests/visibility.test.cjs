@@ -151,12 +151,14 @@ test('published AS2/AS3 fixture filters drawing, click targets and semantics whi
     const runtime = fs.readFileSync(resolve(root, 'web/runtime.js'), 'utf8');
     const start = runtime.indexOf('    function hitAt(event) {');
     const end = runtime.indexOf("    canvas.addEventListener('click'", start);
-    assert.ok(start >= 0 && end > start);
+    const matrixStart = runtime.indexOf('    function bitmapMatrix(item){');
+    const matrixEnd = runtime.indexOf('    function render() {', matrixStart);
+    assert.ok(start >= 0 && end > start && matrixStart >= 0 && matrixEnd > matrixStart);
     const { localPoint, hitShape } = require('../runtime.js');
-    const hitAt = new Function('player', 'canvas', 'project', 'localPoint', 'hitShape', 'context', 'global', 'paths',
-      'let scene; const graphMode = true;\n' + runtime.slice(start, end) + '\nreturn event => { const ref = hitAt(event); if (!ref) return null; return JSON.parse(player.runtime_snapshot_json()).objects.find(node => node.object_ref.id === ref.id && node.object_ref.generation === ref.generation).authored_path; };')(
-      player, { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 480 }) }, bundle.project,
-      localPoint, hitShape, { measureText: () => ({ width: 0 }) }, {}, {});
+    const hitAt = new Function('player', 'canvas', 'project', 'localPoint', 'hitShape', 'context', 'global', 'paths', 'bitmapHost',
+      'let scene; const graphMode = true;\n' + runtime.slice(matrixStart, matrixEnd) + runtime.slice(start, end) + '\nreturn event => { const ref = hitAt(event); if (!ref) return null; return JSON.parse(player.runtime_snapshot_json()).objects.find(node => node.object_ref.id === ref.id && node.object_ref.generation === ref.generation).authored_path; };')(
+      player, { width:800, height:480, getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 480 }) }, bundle.project,
+      localPoint, hitShape, { measureText: () => ({ width: 0 }) }, {}, {}, host.bitmap());
     modern.x = legacy.x;
     assert.deepEqual(hitAt({ clientX: 100, clientY: 145 }), ['modern', 'face']);
     activate('hide-as3');

@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "bitmap-pixels",
+      "path": "examples/bitmap-pixels.nflash",
+      "title": "Authored PNG, BitmapData and shared bitmap views",
+      "checks": [
+        "The original PNG, two shared views, independent scroll/copy clone and AS2 attachBitmap image render with their labels.",
+        "Activate Paint shared pixels: both shared views change together, while the PNG source and independent clone stay unchanged.",
+        "Restart restores the initial pixels, fresh buffers and one paint callback."
+      ]
+    },
+    {
       "id": "resource-loading",
       "path": "examples/resource-loading.nflash",
       "title": "Portable resources, URLLoader and AS2 LoadVars",

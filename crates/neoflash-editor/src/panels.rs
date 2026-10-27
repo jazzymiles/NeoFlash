@@ -1265,6 +1265,24 @@ impl Editor {
                             ui.colored_label(UiPalette::current(ctx).error_text, e);
                         }
                     }
+                    ElementKind::Bitmap {
+                        resource_id,
+                        width,
+                        height,
+                        smoothing,
+                    } => {
+                        ui.horizontal_wrapped(|ui| {
+                            let path = self
+                                .project
+                                .resources
+                                .iter()
+                                .find(|resource| resource.id == *resource_id)
+                                .map(|resource| resource.path.as_str())
+                                .unwrap_or("Missing image");
+                            ui.label(format!("{path} · {width} × {height} px"));
+                            ui.checkbox(smoothing, "Smoothing");
+                        });
+                    }
                     ElementKind::Path {
                         commands,
                         fill_rule,

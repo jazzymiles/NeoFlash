@@ -52,6 +52,9 @@ pub(crate) fn local_bounds(item: &DrawItem, p: &egui::Painter) -> Rect {
         | ElementKind::Ellipse { width, height, .. } => {
             Rect::from_min_size(Pos2::ZERO, Vec2::new(*width as f32, *height as f32))
         }
+        ElementKind::Bitmap { width, height, .. } => {
+            Rect::from_min_size(Pos2::ZERO, Vec2::new(*width as f32, *height as f32))
+        }
         ElementKind::Text {
             text,
             font_family,
@@ -132,15 +135,23 @@ pub(crate) fn hit_item(item: &DrawItem, painter: &egui::Painter, point: Pos2, zo
         _ => true,
     }
 }
-fn draw_item(
-    p: &egui::Painter,
-    item: &DrawItem,
+struct DrawStyle {
     origin: Pos2,
     zoom: f32,
     opacity: f64,
     tint: Option<Color32>,
     outlines: bool,
-) {
+    bitmap_texture: Option<egui::TextureId>,
+}
+fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle) {
+    let DrawStyle {
+        origin,
+        zoom,
+        opacity,
+        tint,
+        outlines,
+        bitmap_texture,
+    } = style;
     let screen = |pt: Pos2| origin + affine(item.transform, pt).to_vec2() * zoom;
     let alpha = item.alpha * opacity;
     match &item.kind {
@@ -199,6 +210,61 @@ fn draw_item(
                 }
             }
         }
+        ElementKind::Bitmap { width, height, .. } => {
+            let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(*width as f32, *height as f32));
+            let mut points = [
+                rect.left_top(),
+                rect.right_top(),
+                rect.right_bottom(),
+                rect.left_bottom(),
+            ]
+            .map(screen);
+            // AUTO snapping only applies to a unit mapping into physical preview pixels.
+            let ppp = p.ctx().pixels_per_point();
+            let matrix = item.transform;
+            let scale = zoom as f64 * ppp as f64;
+            if (matrix[0] * scale - 1.).abs() <= 0.001
+                && (matrix[3] * scale - 1.).abs() <= 0.001
+                && (matrix[1] * scale).abs() <= 0.001
+                && (matrix[2] * scale).abs() <= 0.001
+            {
+                let top_left = (points[0].to_vec2() * ppp).round() / ppp;
+                points = [
+                    top_left.to_pos2(),
+                    (top_left + Vec2::new(*width as f32 / ppp, 0.)).to_pos2(),
+                    (top_left + Vec2::new(*width as f32 / ppp, *height as f32 / ppp)).to_pos2(),
+                    (top_left + Vec2::new(0., *height as f32 / ppp)).to_pos2(),
+                ];
+            }
+            if outlines {
+                p.add(Shape::closed_line(
+                    points.to_vec(),
+                    Stroke::new(1.0_f32, color([90, 110, 130, 255], alpha, tint)),
+                ));
+            } else if let Some(texture) = bitmap_texture {
+                let mut mesh = egui::Mesh::with_texture(texture);
+                let uvs = [
+                    Pos2::new(0., 0.),
+                    Pos2::new(1., 0.),
+                    Pos2::new(1., 1.),
+                    Pos2::new(0., 1.),
+                ];
+                let c = color([255, 255, 255, 255], alpha, tint);
+                for (pos, uv) in points.into_iter().zip(uvs) {
+                    mesh.vertices
+                        .push(egui::epaint::Vertex { pos, uv, color: c });
+                }
+                mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+                p.add(Shape::mesh(mesh));
+            } else {
+                p.add(Shape::closed_line(
+                    points.to_vec(),
+                    Stroke::new(1.0_f32, Color32::RED),
+                ));
+                p.line_segment([points[0], points[2]], Stroke::new(1.0_f32, Color32::RED));
+                p.line_segment([points[1], points[3]], Stroke::new(1.0_f32, Color32::RED));
+            }
+        }
         ElementKind::Instance { .. } => {}
         ElementKind::Path {
             commands,
@@ -241,6 +307,7 @@ fn draw_item(
 impl Editor {
     pub fn stage(&mut self, ctx: &egui::Context) {
         let palette = UiPalette::current(ctx);
+        self.bitmap_textures.begin_frame(&self.project);
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(palette.pasteboard))
             .show(ctx, |ui| {
@@ -354,21 +421,45 @@ impl Editor {
                             palette.onion_after
                         };
                         for item in evaluate(&self.project, &id, frame) {
+                            let bitmap_texture = if self.onion_outlines {
+                                None
+                            } else {
+                                self.bitmap_textures.texture(ctx, &self.project, &item.kind)
+                            };
                             draw_item(
                                 &content,
                                 &item,
-                                origin,
-                                self.zoom,
-                                opacity,
-                                Some(tint),
-                                self.onion_outlines,
+                                DrawStyle {
+                                    origin,
+                                    zoom: self.zoom,
+                                    opacity,
+                                    tint: Some(tint),
+                                    outlines: self.onion_outlines,
+                                    bitmap_texture,
+                                },
                             );
                         }
                     }
                 }
                 let scene = evaluate(&self.project, &id, self.frame);
                 for item in &scene {
-                    draw_item(&content, item, origin, self.zoom, 1., None, false);
+                    let bitmap_texture =
+                        self.bitmap_textures.texture(ctx, &self.project, &item.kind);
+                    draw_item(
+                        &content,
+                        item,
+                        DrawStyle {
+                            origin,
+                            zoom: self.zoom,
+                            opacity: 1.,
+                            tint: None,
+                            outlines: false,
+                            bitmap_texture,
+                        },
+                    );
+                }
+                if let Some(warning) = self.bitmap_textures.take_warning() {
+                    self.message(warning);
                 }
                 p.rect_stroke(
                     page,

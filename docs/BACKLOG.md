@@ -1,5 +1,7 @@
 # Backlog
 
+Independent c39a29e acceptance (`RESOURCES-HTML5-20261027T0323Z`) confirms preserved embedded resources, visible AS2/AS3 data loading, same-origin GET/POST and suppression of two held responses after close/Restart. Exact members remain partial. Cross-origin CORS, direct-file opening and native resource import/Undo are not inferred. See [the independent record](VERIFICATION.md#independent-resource-and-loading-verification-of-c39a29e). Current Bitmap work needs its own evidence.
+
 Independent 798e28b acceptance (`LINKED-INTERFACES-HTML5-20261027T0243Z`) confirms bounded linked MovieClip/valid AS2 attachMovie and AS3 interface/accessor workflows, real input and Restart. The deliberate missing-link AS2 probe reproduces the documented host-error catch boundary and stops its frame; this remains a partial-contract follow-up. Only 25 exact declarations receive this evidence. See [the independent record](VERIFICATION.md#independent-linked-movieclip-and-interface-verification-of-798e28b). Current resource/loader work inherits no pass.
 
 Independent 2b5deff verification accepts the bounded dynamic display/Graphics and ByteArray workflows, adjacent diagnostics and Restart. Exact members retain partial scope; linked timelines and external binary interoperability remain follow-up work. See [the separate record](VERIFICATION.md#independent-dynamic-display-and-binary-verification-of-2b5deff).
@@ -27,7 +29,7 @@ Array/String constructors, mutation, searches, Flash sorting and data-processing
 
 ## Portable resources delivered; next text and visual families
 
-Portable project resources, AS3 URLRequest/URLLoader/URLVariables and AS2 LoadVars now share one binary-to-text workflow, including actual HTTP POST, cancellation, errors and Restart. Resource storage, export packaging and clipboard preservation are implemented; browser/native observations are separately recorded. Bitmap/BitmapData will build on this storage and the shared scene graph. Dynamic TextField/TextFormat with explicit layout boxes is a separate subsequent family; rich HTML/input/IME and font embedding remain explicit follow-ups.
+Portable project resources, AS3 URLRequest/URLLoader/URLVariables and AS2 LoadVars now share one binary-to-text workflow, including actual HTTP POST, cancellation, errors and Restart. Resource storage, export packaging and clipboard preservation are implemented; browser/native observations are separately recorded. The integrated bitmap family builds on this storage and the shared scene graph: PNG/JPEG placement, shared BitmapData pixel edits, independent clones/copies/scrolling and AS2 attachBitmap. Its own evidence is recorded separately; general Loader, bitmap fills, filters, draw/encode and additional image formats remain follow-ups. Dynamic TextField/TextFormat with explicit layout boxes is a separate subsequent family; rich HTML/input/IME and font embedding remain explicit follow-ups.
 
 ## P0 — HTML5 correctness
 

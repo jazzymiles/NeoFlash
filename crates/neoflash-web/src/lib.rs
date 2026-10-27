@@ -1,7 +1,7 @@
 //! Thin JavaScript bindings around the same Rust timeline runtime used by the editor.
 use neoflash_core::{
-    DisplayMutation, DynamicKind, GraphicsOp, ObjectRef, PlaybackCommand, Player, Project,
-    RuntimeScriptDispatch, ScriptDispatch,
+    DisplayMutation, DynamicKind, GraphicsOp, ObjectRef, PixelRef, PixelSnapping, PlaybackCommand,
+    Player, Project, RuntimeScriptDispatch, ScriptDispatch,
 };
 use wasm_bindgen::prelude::*;
 
@@ -25,6 +25,12 @@ fn object_ref(value: &str) -> Result<ObjectRef, JsValue> {
     serde_json::from_str(value)
         .map_err(|error| JsValue::from_str(&format!("Invalid display reference: {error}")))
 }
+fn pixel_ref(value: &str) -> Result<PixelRef, JsValue> {
+    if value.len() > 256 {
+        return Err(JsValue::from_str("Pixel reference exceeds its input limit"));
+    }
+    serde_json::from_str(value).map_err(display_error)
+}
 fn display_error(error: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
 }
@@ -45,6 +51,9 @@ impl WebPlayer {
         let project =
             Project::from_json(json).map_err(|error| JsValue::from_str(&error.to_string()))?;
         let player = Player::new(&project);
+        if let Some(error) = player.bitmap_error() {
+            return Err(display_error(error));
+        }
         Ok(Self { project, player })
     }
 
@@ -114,8 +123,12 @@ impl WebPlayer {
     pub fn tick(&mut self) {
         self.player.tick(&self.project);
     }
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self) -> Result<(), JsValue> {
         self.player.reset(&self.project);
+        if let Some(error) = self.player.bitmap_error() {
+            return Err(display_error(error));
+        }
+        Ok(())
     }
     pub fn current_frame(&self) -> u32 {
         self.player.frame()
@@ -231,10 +244,183 @@ impl WebPlayer {
             .player
             .object_activate_accessible(&self.project, &object_ref(target)?))
     }
+
+    pub fn bitmap_create(
+        &mut self,
+        width: u32,
+        height: u32,
+        transparent: bool,
+        fill_argb: u32,
+    ) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .bitmap_create(width, height, transparent, fill_argb)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn bitmap_info(&self, target: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .bitmap_info(&pixel_ref(target)?)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn bitmap_pixels(&self, target: &str) -> Result<Vec<u8>, JsValue> {
+        self.player
+            .bitmap_pixels(&pixel_ref(target)?)
+            .map_err(display_error)
+    }
+    pub fn bitmap_get_pixel(
+        &self,
+        target: &str,
+        x: i32,
+        y: i32,
+        with_alpha: bool,
+    ) -> Result<u32, JsValue> {
+        self.player
+            .bitmap_get_pixel(&pixel_ref(target)?, x, y, with_alpha)
+            .map_err(display_error)
+    }
+    pub fn bitmap_set_pixel(
+        &mut self,
+        target: &str,
+        x: i32,
+        y: i32,
+        color: u32,
+        with_alpha: bool,
+    ) -> Result<(), JsValue> {
+        self.player
+            .bitmap_set_pixel(&pixel_ref(target)?, x, y, color, with_alpha)
+            .map_err(display_error)
+    }
+    pub fn bitmap_fill_rect(
+        &mut self,
+        target: &str,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        color: u32,
+    ) -> Result<(), JsValue> {
+        self.player
+            .bitmap_fill_rect(&pixel_ref(target)?, x, y, width, height, color)
+            .map_err(display_error)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn bitmap_copy_pixels(
+        &mut self,
+        dst: &str,
+        src: &str,
+        sx: i32,
+        sy: i32,
+        width: i32,
+        height: i32,
+        dx: i32,
+        dy: i32,
+        merge_alpha: bool,
+    ) -> Result<(), JsValue> {
+        self.player
+            .bitmap_copy_pixels(
+                &pixel_ref(dst)?,
+                &pixel_ref(src)?,
+                sx,
+                sy,
+                width,
+                height,
+                dx,
+                dy,
+                merge_alpha,
+            )
+            .map_err(display_error)
+    }
+    pub fn bitmap_clone(&mut self, target: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .bitmap_clone(&pixel_ref(target)?)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn bitmap_scroll(&mut self, target: &str, dx: i32, dy: i32) -> Result<(), JsValue> {
+        self.player
+            .bitmap_scroll(&pixel_ref(target)?, dx, dy)
+            .map_err(display_error)
+    }
+    pub fn bitmap_dispose(&mut self, target: &str) -> Result<(), JsValue> {
+        self.player
+            .bitmap_dispose(&pixel_ref(target)?)
+            .map_err(display_error)
+    }
+    pub fn object_bitmap(&self, target: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .object_bitmap(&self.project, &object_ref(target)?)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn object_set_bitmap(&mut self, target: &str, value: &str) -> Result<bool, JsValue> {
+        let value = if value == "null" {
+            None
+        } else {
+            Some(pixel_ref(value)?)
+        };
+        self.player
+            .object_set_bitmap(&self.project, &object_ref(target)?, value)
+            .map_err(display_error)
+    }
+    pub fn object_smoothing(&self, target: &str) -> Result<bool, JsValue> {
+        self.player
+            .object_smoothing(&self.project, &object_ref(target)?)
+            .map_err(display_error)
+    }
+    pub fn object_set_smoothing(&mut self, target: &str, value: bool) -> Result<bool, JsValue> {
+        self.player
+            .object_set_smoothing(&self.project, &object_ref(target)?, value)
+            .map_err(display_error)
+    }
+    pub fn object_pixel_snapping(&self, target: &str) -> Result<String, JsValue> {
+        Ok(match self
+            .player
+            .object_pixel_snapping(&self.project, &object_ref(target)?)
+            .map_err(display_error)?
+        {
+            PixelSnapping::Auto => "auto",
+            PixelSnapping::Always => "always",
+            PixelSnapping::Never => "never",
+        }
+        .into())
+    }
+    pub fn object_set_pixel_snapping(
+        &mut self,
+        target: &str,
+        value: &str,
+    ) -> Result<bool, JsValue> {
+        let mode = match value {
+            "auto" => PixelSnapping::Auto,
+            "always" => PixelSnapping::Always,
+            "never" => PixelSnapping::Never,
+            _ => {
+                return Err(JsValue::from_str(
+                    "PixelSnapping must be auto, always or never",
+                ));
+            }
+        };
+        self.player
+            .object_set_pixel_snapping(&self.project, &object_ref(target)?, mode)
+            .map_err(display_error)
+    }
     pub fn create_display(&mut self, kind: &str) -> Result<String, JsValue> {
         let kind = match kind {
             "sprite" => DynamicKind::Sprite,
             "shape" => DynamicKind::Shape,
+            "bitmap" => DynamicKind::Bitmap,
             "movie_clip" => DynamicKind::MovieClip,
             _ => {
                 return Err(JsValue::from_str(

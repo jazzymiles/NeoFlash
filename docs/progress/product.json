@@ -118,7 +118,7 @@
       "title": "Object clipboard",
       "status": "partial",
       "scope": "Copy/Cut/Paste and Paste in Place transfer objects, dependent symbols, timelines and scripts; linked symbols include their project-source snapshot and reject conflicting sources before mutation. Text editors retain ordinary text paste. Complete resource snapshots transfer with remapped identities, exact content reuse and atomic path-conflict rejection.",
-      "limitations": "Native acceptance of the new linked-source/resource transfer remains pending. The 8 MiB clipboard cap rejects oversized snapshots explicitly. Frame clipboard and native image clipboard are separate work.",
+      "limitations": "Native acceptance of the new linked-source/resource transfer remains pending. The 8 MiB clipboard cap rejects oversized snapshots explicitly. Frame clipboard and native image clipboard are separate work. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified.",
       "evidence": [
         "crates/neoflash-core/src/clipboard.rs",
         "crates/neoflash-editor/src/clipboard_tests.rs",
@@ -128,7 +128,8 @@
         "crates/neoflash-core/src/resources.rs",
         "crates/neoflash-editor/src/resources.rs",
         "docs/decisions/0013-portable-resources-and-loading.md",
-        "docs/VERIFICATION.md"
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -262,7 +263,7 @@
       "category": "animation",
       "title": "Easing and custom curves",
       "status": "partial",
-      "scope": "The model includes Linear, EaseIn/Out/InOut and cubic B\u00e9zier evaluation.",
+      "scope": "The model includes Linear, EaseIn/Out/InOut and cubic Bézier evaluation.",
       "limitations": "A complete visual curve editor, overshoot and individual property curves are still needed.",
       "evidence": [
         "crates/neoflash-core/src/evaluate.rs",
@@ -474,7 +475,7 @@
       "title": "Project sources, modules and debugging",
       "status": "partial",
       "scope": "Embedded AS2/AS3 source units use distinct bounded class profiles with exact imports, shared publication programs, authored symbol linkage and source-path diagnostics. AS2 root document linkage is a NeoFlash extension. Sources can be edited in Actions. AS3 projects can import bounded ByteArray/Endian buffers; unsupported native inheritance and constructor forms produce source diagnostics. Explicit exported MovieClip classes instantiate shared library timelines through AS3 construction or AS2 attachMovie, with independent namespace refs, nested clocks and script targets. Public AS3 get/set accessors and project interface contracts share the existing source compiler. Portable project resources feed the AS3 URLRequest/URLLoader/URLVariables and AS2 LoadVars families; requests share publication lifecycle and binary/event services.",
-      "limitations": "JS/TS modules, SWC dependencies, complete type checking, completion, debugger/source maps and full class semantics remain pending. Representative linked-class behavior and Restart passed in the shared in-app-browser batch; native Sources acceptance remains pending. The AS2 combined export/WASM/input scenario passes; representative coordinate clicks, keyboard and Restart also passed in the in-app browser. Bounded binary-buffer workflow has independent browser evidence on 2b5deff; binary memory support does not imply loaders, external IO or resource-document support. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Linked MovieClip and accessor/interface workflows passed the shared in-app-browser batch; native Export identifier editing remains pending. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile.",
+      "limitations": "JS/TS modules, SWC dependencies, complete type checking, completion, debugger/source maps and full class semantics remain pending. Representative linked-class behavior and Restart passed in the shared in-app-browser batch; native Sources acceptance remains pending. The AS2 combined export/WASM/input scenario passes; representative coordinate clicks, keyboard and Restart also passed in the in-app browser. Bounded binary-buffer workflow has independent browser evidence on 2b5deff; binary memory support does not imply loaders, external IO or resource-document support. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Linked MovieClip and accessor/interface workflows passed the shared in-app-browser batch; native Export identifier editing remains pending. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified.",
       "evidence": [
         "docs/BACKLOG.md",
         "docs/COMPATIBILITY.md",
@@ -523,8 +524,8 @@
       "category": "web",
       "title": "Image, audio and video assets",
       "status": "partial",
-      "scope": "Library imports and stores portable resource files, including image/audio/video bytes, with metadata editing, Undo and self-contained HTML5 packaging. The shared data service loads embedded text, bytes and form variables and supports bounded HTTP(S) requests.",
-      "limitations": "Stage bitmap/SVG placement, BitmapData, audio/video decoding/playback/synchronization and font embedding remain planned. Resource storage does not imply those consumers. Native resource-panel acceptance and direct-file browser opening remain pending. The embedded pipeline, same-origin HTTP GET and Restart passed in the in-app browser; POST/race evidence is from the shared exported/WASM loopback scenario.",
+      "scope": "Library imports and stores portable resource files, including image/audio/video bytes, with metadata editing, Undo and self-contained HTML5 packaging. The shared data service loads embedded text, bytes and form variables and supports bounded HTTP(S) requests. PNG/JPEG resources can be placed on Stage with transforms and smoothing. Shared Rust BitmapData buffers support bounded pixel edits, fill/copy/clone/scroll and disposal; AS3 Bitmap and AS2 attachBitmap use the same display graph and publication lifetime.",
+      "limitations": "General Loader/image formats, bitmap fills, filters/draw/encoding, audio/video playback/synchronization and font embedding remain planned. Native resource/image panel acceptance and direct-file browser opening remain pending. The bitmap workflow passed combined export/WASM and in-app-browser observation of shared edits, independent source/clone, AS2 attachment and Restart. Full bitmap conformance is not established; exact evidence is in VERIFICATION.md. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified.",
       "evidence": [
         "docs/ROADMAP.md",
         "docs/BACKLOG.md",
@@ -533,7 +534,15 @@
         "crates/neoflash-core/tests/program.rs",
         "crates/neoflash-editor/src/resources.rs",
         "docs/decisions/0013-portable-resources-and-loading.md",
-        "docs/VERIFICATION.md"
+        "docs/VERIFICATION.md",
+        "crates/neoflash-core/src/resource_image.rs",
+        "crates/neoflash-core/src/runtime_graph/bitmap.rs",
+        "crates/neoflash-editor/src/bitmaps.rs",
+        "web/bitmap.js",
+        "examples/bitmap-pixels.nflash",
+        "crates/neoflash-script/tests/bitmap-pixels.mjs",
+        "docs/decisions/0014-bitmap-pixels.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -690,8 +699,8 @@
       "category": "platform",
       "title": "Independent project format",
       "status": "implemented",
-      "scope": "Versioned JSON stores stable symbols/placements/frames/scripts; version 2 adds logical project source units and document/symbol linkage with path, size and reference validation. Existing version-1 projects remain supported. Version 3 adds portable resource bytes, normalized logical paths/types, strict base64/size validation and shared immutable storage across native snapshots; versions 1 and 2 remain readable.",
-      "limitations": "The resource model stores portable bytes; bitmap/media rendering, embedded font layout and broader asset dependency authoring remain separate work.",
+      "scope": "Versioned JSON stores stable symbols/placements/frames/scripts; version 2 adds logical project source units and document/symbol linkage with path, size and reference validation. Existing version-1 projects remain supported. Version 3 adds portable resource bytes, normalized logical paths/types, strict base64/size validation and shared immutable storage across native snapshots; versions 1 and 2 remain readable. Authored Bitmap elements reference portable PNG/JPEG resource IDs with validated intrinsic dimensions; mutable runtime pixels stay outside the document.",
+      "limitations": "Additional media consumers, embedded font layout and broader asset dependency authoring remain separate work. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified.",
       "evidence": [
         "crates/neoflash-core/src/model.rs",
         "crates/neoflash-core/src/validation.rs",
@@ -700,7 +709,10 @@
         "crates/neoflash-core/src/resources.rs",
         "crates/neoflash-editor/src/resources.rs",
         "docs/decisions/0013-portable-resources-and-loading.md",
-        "docs/VERIFICATION.md"
+        "docs/VERIFICATION.md",
+        "crates/neoflash-core/src/resource_image.rs",
+        "docs/decisions/0014-bitmap-pixels.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {

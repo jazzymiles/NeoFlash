@@ -16,6 +16,10 @@ test('semantic targets omit offstage, transparent, empty and singular artwork',(
  const hidden=rectangle();hidden.alpha=0;assert.equal(itemBounds(hidden,measure),null);
  assert.equal(itemBounds(rectangle(['x'],[0,0,0,1,0,0]),measure),null);
  assert.equal(targetBounds([],['x'],200,100,measure),null);
+ const bitmap={...rectangle(['clip','pixels'],[0,2,-3,0,100,10]),kind:{type:'bitmap_pixels',width:16,height:16,alpha_bounds:{left:4,top:1,right:12,bottom:11}}};
+ assert.deepEqual(itemBounds(bitmap,measure),{left:67,top:18,right:97,bottom:34},'pixel alpha bounds follow the full leaf transform');
+ bitmap.kind.alpha_bounds=null;
+ assert.equal(targetBounds([bitmap],['clip'],200,100,measure),null,'an entirely transparent bitmap creates no semantic target');
 });
 test('curved bounds use actual extrema plus affine stroke radius',()=>{
  const item={instance_path:['x'],transform:[2,0,0,3,10,20],alpha:1,kind:{type:'path',commands:[{op:'move_to',x:0,y:0},{op:'quadratic_to',cx:50,cy:100,x:100,y:0}],fill_rule:'nonzero',fill:[0,0,0,0],stroke:[255,255,255,255],stroke_width:4}};

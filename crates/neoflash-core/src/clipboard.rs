@@ -178,14 +178,18 @@ impl ClipboardPayload {
                     .iter()
                     .find(|s| s.linkage_id.as_ref() == Some(linkage))
             {
-                let Some(source_closure) = canonical_symbol_closure(id, &self.symbols) else {
+                let Some(source_closure) =
+                    canonical_symbol_closure(id, &self.symbols, &self.resources)
+                else {
                     return invalid(
                         "captured exported symbol closure exceeds its dependency budget",
                     );
                 };
-                let Some(destination_closure) =
-                    canonical_symbol_closure(&existing.id, &destination.symbols)
-                else {
+                let Some(destination_closure) = canonical_symbol_closure(
+                    &existing.id,
+                    &destination.symbols,
+                    &destination.resources,
+                ) else {
                     return invalid(
                         "destination exported symbol closure exceeds its dependency budget",
                     );
@@ -267,9 +271,11 @@ impl ClipboardPayload {
                         "a resource path conflicts with different destination spelling, media type or bytes; resolve the resource conflict before pasting",
                     );
                 }
+                identities.insert(resource.id.clone(), existing.id.clone());
             } else {
                 let mut imported = resource.clone();
                 imported.id = fresh_id("resource", &mut occupied, &forbidden);
+                identities.insert(resource.id.clone(), imported.id.clone());
                 candidate.resources.push(imported);
             }
         }
@@ -490,7 +496,11 @@ struct CanonicalClosure {
     symbols: Vec<Symbol>,
     ids: Vec<Id>,
 }
-fn canonical_symbol_closure(root: &str, symbols: &[Symbol]) -> Option<CanonicalClosure> {
+fn canonical_symbol_closure(
+    root: &str,
+    symbols: &[Symbol],
+    resources: &[ResourceUnit],
+) -> Option<CanonicalClosure> {
     let by_id: HashMap<_, _> = symbols.iter().map(|s| (s.id.as_str(), s)).collect();
     let mut pending = vec![root];
     let mut seen = HashSet::new();
@@ -517,6 +527,9 @@ fn canonical_symbol_closure(root: &str, symbols: &[Symbol]) -> Option<CanonicalC
                 .entry(id.clone())
                 .or_insert_with(|| format!("entity-{next}"));
         }
+    }
+    for resource in resources {
+        identities.insert(resource.id.clone(), format!("resource:{}", resource.path));
     }
     let ids = ordered.iter().map(|symbol| symbol.id.clone()).collect();
     Some(CanonicalClosure {
@@ -676,9 +689,12 @@ fn allocate_identity(
     map.insert(id.to_owned(), allocated);
 }
 fn remap_reference(element: &mut Element, map: &HashMap<Id, Id>) {
-    if let ElementKind::Instance { symbol_id, .. } = &mut element.kind {
-        *symbol_id = map[symbol_id].clone();
-    }
+    let id = match &mut element.kind {
+        ElementKind::Instance { symbol_id, .. } => symbol_id,
+        ElementKind::Bitmap { resource_id, .. } => resource_id,
+        _ => return,
+    };
+    *id = map[id].clone();
 }
 
 fn reject_unknown_fields(

@@ -13,6 +13,9 @@ const BUILTINS: &[&str] = &[
     "flash.display.Sprite",
     "flash.display.Shape",
     "flash.display.Graphics",
+    "flash.display.Bitmap",
+    "flash.display.BitmapData",
+    "flash.display.PixelSnapping",
     "flash.display.Stage",
     "flash.text.TextField",
     "flash.geom.Point",
@@ -63,6 +66,7 @@ fn is_display_method(name: &str) -> bool {
             | "createEmptyMovieClip"
             | "removeMovieClip"
             | "getNextHighestDepth"
+            | "attachBitmap"
             | "beginFill"
             | "endFill"
             | "lineStyle"
@@ -116,6 +120,14 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "load"
                 | "close"
                 | "decode"
+                | "getPixel"
+                | "getPixel32"
+                | "setPixel"
+                | "setPixel32"
+                | "fillRect"
+                | "copyPixels"
+                | "scroll"
+                | "dispose"
         )
 }
 
@@ -183,6 +195,7 @@ fn visible_names(
                     language == ScriptLanguage::ActionScript3
                         || matches!(name.as_str(), "Object" | "Array")
                         || name.starts_with("flash.geom.")
+                        || *name == "flash.display.BitmapData"
                 },
                 |owner| *owner == language,
             )
@@ -481,6 +494,16 @@ fn parse_class(
             &header.script,
             0,
             "ByteArray indexed storage cannot initialize an existing native subclass receiver; Endian supplies constants and Graphics comes from its display owner. Inheritance from these built-ins is unsupported.",
+        ));
+    }
+    if matches!(
+        base.as_deref(),
+        Some("flash.display.Bitmap" | "flash.display.BitmapData" | "flash.display.PixelSnapping")
+    ) {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "Bitmap and BitmapData native subclass initialization is outside this profile; construct the native facade and use composition. PixelSnapping provides constants and cannot be a base class.",
         ));
     }
     if base.as_ref().is_some_and(|base| {

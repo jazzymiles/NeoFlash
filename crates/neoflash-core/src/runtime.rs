@@ -113,6 +113,9 @@ impl Player {
 
     pub fn reset(&mut self, project: &Project) {
         self.graph.reset();
+        if self.source_root.is_none() {
+            self.graph.prepare_bitmaps(project);
+        }
         self.clocks.clear();
         self.overrides.clear();
         self.previous.clear();
@@ -209,7 +212,7 @@ impl Player {
         self.snapshot(project)
     }
 
-    pub fn evaluate(&self, project: &Project) -> Vec<DrawItem> {
+    pub fn evaluate(&self, project: &Project) -> Vec<DrawItem<RuntimeDrawKind>> {
         self.runtime_snapshot(project)
             .draws
             .into_iter()
@@ -229,6 +232,7 @@ impl Player {
                     Some(SymbolKind::Graphic) => "graphic",
                     Some(SymbolKind::Button) => "button",
                     None if matches!(node.kind, Some(ElementKind::Text { .. })) => "text",
+                    None if matches!(node.kind, Some(ElementKind::Bitmap { .. })) => "bitmap",
                     None => "shape",
                 };
                 let class_name = if node.path.is_empty() && self.source_root.is_none() {

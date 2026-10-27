@@ -1,0 +1,713 @@
+{
+  "format_version": 3,
+  "name": "Bitmap pixels and shared views",
+  "width": 960,
+  "height": 620,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    34,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Bitmap pixels and shared views",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 36,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / BITMAP + BITMAPDATA + PNG",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 76,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Pixels are data. Views can share them.",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        238,
+                        247,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 126,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Paint the two shared views. The PNG source and independent clone stay unchanged.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "source-background",
+                    "name": "source-background",
+                    "transform": {
+                      "x": 56,
+                      "y": 184,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 144,
+                      "height": 144,
+                      "fill": [
+                        23,
+                        35,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "source-label",
+                    "name": "source-label",
+                    "transform": {
+                      "x": 64,
+                      "y": 158,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "PNG source",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "shared-a-background",
+                    "name": "shared-a-background",
+                    "transform": {
+                      "x": 272,
+                      "y": 184,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 144,
+                      "height": 144,
+                      "fill": [
+                        23,
+                        35,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "shared-a-label",
+                    "name": "shared-a-label",
+                    "transform": {
+                      "x": 280,
+                      "y": 158,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Shared A",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "shared-b-background",
+                    "name": "shared-b-background",
+                    "transform": {
+                      "x": 488,
+                      "y": 184,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 144,
+                      "height": 144,
+                      "fill": [
+                        23,
+                        35,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "shared-b-label",
+                    "name": "shared-b-label",
+                    "transform": {
+                      "x": 496,
+                      "y": 158,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Shared B",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "clone-background",
+                    "name": "clone-background",
+                    "transform": {
+                      "x": 704,
+                      "y": 184,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 144,
+                      "height": 144,
+                      "fill": [
+                        23,
+                        35,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "clone-label",
+                    "name": "clone-label",
+                    "transform": {
+                      "x": 712,
+                      "y": 158,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Independent clone",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "source-image",
+                    "name": "sourceImage",
+                    "transform": {
+                      "x": 64,
+                      "y": 192,
+                      "scale_x": 8,
+                      "scale_y": 8,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "bitmap",
+                      "resource_id": "original-pixel-creature",
+                      "width": 16,
+                      "height": 16,
+                      "smoothing": false
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "Original pixel creature",
+                      "description": "An original 16 by 16 PNG stored inside this project.",
+                      "role": "image",
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "source-note",
+                    "name": "source-note",
+                    "transform": {
+                      "x": 64,
+                      "y": 342,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Original embedded PNG",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "shared-note",
+                    "name": "shared-note",
+                    "transform": {
+                      "x": 280,
+                      "y": 342,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Two views, one pixel buffer",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "clone-note",
+                    "name": "clone-note",
+                    "transform": {
+                      "x": 712,
+                      "y": 342,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Clone + scroll + copyPixels",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-background",
+                    "name": "legacy-background",
+                    "transform": {
+                      "x": 56,
+                      "y": 376,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 112,
+                      "height": 112,
+                      "fill": [
+                        23,
+                        35,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-title",
+                    "name": "legacy-title",
+                    "transform": {
+                      "x": 192,
+                      "y": 384,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 BitmapData + attachBitmap",
+                      "font_family": "Arial",
+                      "font_size": 20,
+                      "color": [
+                        238,
+                        247,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyStatus",
+                    "name": "legacyStatus",
+                    "transform": {
+                      "x": 192,
+                      "y": 426,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Preparing legacy pixels…",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 48,
+                      "y": 500,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Preparing shared bitmap buffers…",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 586,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Original editable PNG resource • shared Rust pixels • Restart rebuilds the bitmap session",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "paint-button",
+                    "name": "paintButton",
+                    "transform": {
+                      "x": 48,
+                      "y": 532,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "paint-control-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.paintShared();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Paint shared pixels",
+                      "description": "Change both shared bitmaps; keep the original and independent clone intact.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import flash.display.BitmapData;\nimport flash.geom.Rectangle;\nvar legacyPixels:BitmapData = new BitmapData(16,16,true,0xff2ad4a5);\nlegacyPixels.fillRect(new Rectangle(4,4,8,8),0xffff965c);\nlegacyPixels.setPixel32(0,0,0xff122233);\nvar legacyClip:MovieClip = createEmptyMovieClip(\"legacyBitmap\",getNextHighestDepth());\nlegacyClip._x = 64; legacyClip._y = 384;\nlegacyClip._xscale = 600; legacyClip._yscale = 600;\nlegacyClip.attachBitmap(legacyPixels,legacyClip.getNextHighestDepth(),\"auto\",false);\nlegacyStatus.text = \"16 × 16 pixels | rectangle: \" + legacyPixels.rectangle.width + \" | depth: append-only\";\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "paint-control-symbol",
+      "name": "Paint shared pixels button",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "paint-control-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "paint-control-background",
+                    "name": "paint-control-background",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 202,
+                      "height": 38,
+                      "fill": [
+                        37,
+                        109,
+                        139,
+                        255
+                      ],
+                      "stroke": [
+                        175,
+                        218,
+                        239,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "paint-control-label",
+                    "name": "paint-control-label",
+                    "transform": {
+                      "x": 20,
+                      "y": 11,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Paint shared pixels",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        255,
+                        255,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n  import flash.display.MovieClip;\n  import flash.display.Bitmap;\n  import flash.display.BitmapData;\n  import flash.display.PixelSnapping;\n  import flash.geom.Point;\n  import flash.geom.Rectangle;\n  public class Main extends MovieClip {\n    public var original:BitmapData;\n    public var shared:BitmapData;\n    public var independent:BitmapData;\n    public var leftView:Bitmap;\n    public var rightView:Bitmap;\n    public var cloneView:Bitmap;\n    public var phase:int = 0;\n    public function Main() {\n      super(); stop();\n      original = sourceImage.bitmapData;\n      shared = original.clone();\n      shared.fillRect(new Rectangle(0,0,4,4),0xffffc857);\n      shared.setPixel32(15,15,0xfff08080);\n      independent = shared.clone();\n      independent.scroll(2,0);\n      independent.copyPixels(original,new Rectangle(4,3,8,8),new Point(0,8));\n      leftView = new Bitmap(shared,PixelSnapping.AUTO,false);\n      leftView.name = \"sharedLeft\";\n      leftView.x = 280; leftView.y = 192;\n      leftView.scaleX = 8; leftView.scaleY = 8;\n      addChild(leftView);\n      rightView = new Bitmap(shared);\n      rightView.name = \"sharedRight\";\n      rightView.x = 496; rightView.y = 192;\n      rightView.scaleX = 8; rightView.scaleY = 8;\n      addChild(rightView);\n      cloneView = new Bitmap(independent);\n      cloneView.name = \"independentClone\";\n      cloneView.x = 712; cloneView.y = 192;\n      cloneView.scaleX = 8; cloneView.scaleY = 8;\n      addChild(cloneView);\n      status.text = \"Ready: \" + shared.width + \" × \" + shared.height + \" pixels | two shared views + one independent clone\";\n      trace(\"bitmaps ready\",shared.width,shared.height,phase);\n    }\n    public function paintShared():void {\n      phase++;\n      var color:uint = phase % 2 == 1 ? 0xffff965c : 0xff8b9dff;\n      shared.fillRect(new Rectangle(4,4,8,6),color);\n      shared.setPixel(0,0,0x1f3045);\n      status.text = \"Paint \" + phase + \": both shared views changed | PNG source and clone unchanged\";\n      trace(\"bitmaps paint\",phase,shared.getPixel32(4,4));\n    }\n  }\n}\n"
+    }
+  ],
+  "resources": [
+    {
+      "id": "original-pixel-creature",
+      "path": "images/pixel-creature.png",
+      "media_type": "image/png",
+      "data_base64": "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAU0lEQVR42mNgoAXQurL0Pwjj4hPU/H9nDIYB6GJ4bSaE8Wr+8O0/GKNrQhfHaYCQkjEYoxuALk6ys3F6B1eIE/I/9Qwg1ytEJSCS5AmaTqSakQgAFg4YHqymbxwAAAAASUVORK5CYII="
+    }
+  ]
+}

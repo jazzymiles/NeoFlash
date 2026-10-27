@@ -5,6 +5,8 @@ mod evaluate;
 mod geometry;
 mod history;
 pub mod model;
+mod pixels;
+mod resource_image;
 mod resources;
 mod runtime;
 mod runtime_graph;
@@ -21,6 +23,10 @@ pub use geometry::{
 };
 pub use history::History;
 pub use model::*;
+pub use pixels::{
+    BitmapError, MAX_BITMAP_BYTES, MAX_BITMAP_DIMENSION, PixelDescriptor, PixelRef, PixelSnapping,
+};
+pub use resource_image::DecodedImage;
 pub use resources::{
     MAX_PROJECT_JSON_BYTES, MAX_RESOURCE_BYTES, MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES,
     ResourceError, ResourceUnit,
@@ -30,8 +36,8 @@ pub use runtime::{
 };
 pub use runtime_graph::{
     DisplayError, DisplayEvent, DisplayMutation, DynamicKind, MAX_DYNAMIC_OBJECTS, MutationResult,
-    ObjectRef, RuntimeAccessibleNode, RuntimeDrawItem, RuntimeObject, RuntimeScriptDispatch,
-    RuntimeSnapshot,
+    ObjectRef, RuntimeAccessibleNode, RuntimeDrawItem, RuntimeDrawKind, RuntimeObject,
+    RuntimeScriptDispatch, RuntimeSnapshot,
 };
 pub use runtime_graphics::{GraphicsOp, MAX_GRAPHICS_COMMANDS, MAX_GRAPHICS_OPS};
 pub use validation::{ProjectError, ValidationIssue, validate};

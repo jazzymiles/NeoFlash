@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Independently accepted bounded resource loading on c39a29e (RESOURCES-HTML5-20261027T0323Z): exact embedded bytes, real same-origin AS2/AS3 POST/GET and held-response suppression after close/Restart. Native and cross-origin observations remain separate.
+
+- Added authored PNG/JPEG image placements and shared Rust BitmapData storage, with AS3 Bitmap views, pixel reads/writes, fill/copy/clone/scroll/disposal, smoothing/snapping and bounded AS2 attachBitmap. Browser rendering uses revision-stamped copies of Rust pixels. The original bitmap-pixels project passes one ordinary-export/real-WASM scenario with an embedded pixel-art PNG, shared and independent views, both dialects, Canvas uploads, disposal and Restart. The same workflow passed in-app-browser observation; native image-panel acceptance remains pending. General Loader, filters, draw, bitmap fills and complete Flash rasterization/coercion remain outside this profile.
+
 - Independently verified linked MovieClip/valid AS2 attachMovie and AS3 interface/accessor workflows on 798e28b (LINKED-INTERFACES-HTML5-20261027T0243Z): separate state/timelines, detach/reattach, real input, clamp-to-nine and Restart. The documented AS2 host-error recovery boundary remains partial; 25 exact catalogue declarations retain bounded evidence.
 
 - Added version-3 portable data resources with canonical paths/base64, bounded embedded bytes, history sharing and resource-aware clipboard preservation. Resource-bearing documents require the new version to prevent older readers silently discarding their bytes. Bitmap/font/media decoding remains separate work.

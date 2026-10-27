@@ -1,5 +1,34 @@
 # Verification record
 
+## Bitmap resources and shared pixel buffers
+
+All required delivery checks completed: formatting and workspace Clippy, 311 workspace Rust tests, four adapter checks, public FLA corpus, WASM, 66 Node tests, 90 compiler behavior fixtures, combined project-family scenarios, five browser-batch preparation checks and demo export. The core adds one family scenario (56→57); editor/Node/compiler fixture counts stay unchanged. Native resource/workspace coverage now checks PNG texture reuse, separate smoothing samplers and placement Undo.
+
+The single integrated pass exposed an old visibility-test extraction missing the new bitmapMatrix dependency; the harness was corrected and that file passed 6/6. A browser-preparation test also gave a cold Python process only 150 ms; its test-only timeout is now one second, below the deliberately slow fake export's two seconds. That case passed on its focused rerun. The remaining checks ran once after the initial stop; the full suite was not repeated. These were harness repairs, with no runtime changes after the source freeze.
+
+The ordinary exported/WASM bitmap scenario uses an original 16×16 PNG and actual Rust pixel buffers. It combines shared views, independent clone/copy/scroll, AS2 attachBitmap, pixel reads/writes, revision-based upload reuse/refresh, disposal and Restart. Canvas-helper observations do not establish browser rasterization parity or historical Flash rounding/coercion semantics.
+
+Browser batch `20261027T033855Z-28a261af` exported all 17 projects and observed 17 DOM-ready publications, zero runtime overlays and zero dashboard observation errors in the Codex in-app browser; engine/version was not separately identified. The bitmap project visibly showed the original PNG, two shared views, the copied/scrolled clone and AS2 attachment. A real coordinate click on the Paint button's label changed both shared images while leaving the original and clone unchanged. Restart restored the pixels and the next real click reported Paint 1 exactly once. The other 16 projects received startup observation only in this run.
+
+Standalone bitmap logs contained no errors, only expected font/resource notices. The aggregate still contains the known unlocated MutationObserver exception (FAMILY-HARNESS-001); this is recorded separately from project errors. Native image-panel interaction, Sources/D-008, other browser engines and direct-file opening remain pending. The user's unsaved native session was preserved.
+
+The optimized `dist/NeoFlash.app` built and passed strict code-sign verification. Executable SHA-256: `bf53bfedf2fcc13cbf0733d246cc2f875a39dbfc56794c0bc88ccba546856057`; WASM: `c2fdfeb371b5cb7a7a53bde7845456cb96fcb6e2e3c5ef9a9bd3a1dbc01bee36`. All 279 recorded source hashes matched after checks and packaging, including the explicit harness corrections. Local evidence is under `target/verification/bitmap-build-evidence.json`, `bitmap-integrated-check.log`, the focused/remainder logs, `bitmap-package.log` and `bitmap-browser/`.
+
+## Independent resource and loading verification of c39a29e
+
+`RESOURCES-HTML5-20261027T0323Z` accepts the bounded resource/data-loading family on `c39a29ed590c6faa8cfa7fd53c4de86364de7cc2`. All 160 frozen source hashes match the commit. Exporter `27c0f4ce…`, bindings `e9055f00…` and WASM `3ace4b26…` are pinned independently of later Bitmap work. One measured four-project ordinary export batch reached four DOM-ready publications with zero runtime overlays or observation errors.
+
+- The published version-3 document preserves all three resource records exactly: 31-byte text, 52-byte form and 50-byte binary packet. The local server records no HTTP requests for those embedded paths. Actual pixels show Unicode, repeated form tags, decoded binary text and AS2 onLoad output. Startup logs show pre-load 0/false (not a post-load timing assertion), progress31/31, binary counters50/50/0, AS2 loaded true/true with52/52 bytes, and ready3/1/0.
+- A real rectangle click performs same-origin GET, displaying HTTP200 and873 README characters. A single authored P-key control invokes real AS3 POST and AS2 sendAndLoad against a loopback echo. Captured request bodies preserve names and repeated tags; both custom headers arrive and both responses update visible fields exactly once. A missing relative URL falls through to HTTP404 and supplies an actionable IOErrorEvent text beside positive loads.
+- Two actual pending POSTs are received before close and Restart respectively. The server sends each held response12seconds later. No obsolete completion callback or old data appears; the fresh publication repeats its own initialization and ready3/1/0 once. Immediate embedded cancellation also leaves zero callbacks. This is a bounded race observation, not proof of every reentrant transport lifecycle.
+- Shared regression retains linked-card count1/frame12 through detach/reattach, independent interface model3 versus sibling7, and both AS2/AS3 leaderboard values/colors. Positive standalone logs have no console errors. The aggregate retains the separately known unlocated MutationObserver exception.
+
+The resource fixture has a local hit-region limitation: clicks on its separate overlaid text did not issue GET, while the uncovered rectangle did (RESOURCE-FIXTURE-INPUT-001, P2). No shared pointer regression is inferred. One initial verification-fixture preparation rejected an undeclared cross-dialect helper call; the measured fixture uses an authored AS2 key listener. The failed preparation is retained separately, not reported as a runtime failure of the accepted batch.
+
+Only Codex in-app browser was exercised; request headers report Chromium/Chrome156, but the engine binary/version was not independently inspected. Original Flash was not run (`documented_only`). Direct file opening remains pending after the known browser protocol rejection; cross-origin CORS, redirects, exact Flash event/error contracts and native Library/Undo/clipboard are not accepted. The unsaved native document was preserved. Main shared-suite results supplement this independent browser run and were not rerun here.
+
+37 exact declarations retain partial scope, including 37 missing→partial changes. The complete catalogue now has 30 implemented_subset / 557 partial / 45093 missing / 367 needs_review across46,047 declarations; this is not a Flash compatibility percentage. Eleven independent records preserve earlier runs separately. Local source fixtures, hashes, HTTP bodies/timing and screenshots/logs are under `target/html5-resources-independent-20261027T0323Z/`; see its acceptance.json and the per-entry normalized audit.
+
 
 ## Portable resources and data-loading batch
 

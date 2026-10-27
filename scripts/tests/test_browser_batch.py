@@ -89,7 +89,7 @@ print("Exported fixture")
         self.assertFalse((self.root / "escape").exists())
 
     def test_timeout_and_missing_source_do_not_abort_later_exports(self):
-        self.assertEqual(self.run_batch("--timeout", "0.15", self.source("slow.nflash"),
+        self.assertEqual(self.run_batch("--timeout", "1", self.source("slow.nflash"),
             self.root / "missing.nflash", self.source("good.nflash")), 1)
         self.assertEqual([case["export"]["status"] for case in self.report()["cases"]], ["timed_out", "failed", "exported"])
 

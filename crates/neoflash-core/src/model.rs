@@ -230,6 +230,13 @@ impl Default for Transform {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ElementKind {
+    Bitmap {
+        resource_id: Id,
+        width: u32,
+        height: u32,
+        #[serde(default)]
+        smoothing: bool,
+    },
     Rectangle {
         width: f64,
         height: f64,

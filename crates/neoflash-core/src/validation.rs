@@ -141,6 +141,9 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
             "decoded resources exceed the 64 MiB total budget".into(),
         );
     }
+    let mut image_dimensions: HashMap<&str, Result<(u32, u32), String>> = HashMap::new();
+    let mut image_bytes = 0usize;
+    let mut image_count = 0usize;
     let mut source_paths = HashSet::new();
     let mut source_bytes = 0usize;
     if project.sources.len() > 4096 {
@@ -368,6 +371,33 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                         );
                     }
                     match &element.kind {
+                        ElementKind::Bitmap {
+                            resource_id,
+                            width,
+                            height,
+                            ..
+                        } => {
+                            let dimensions = image_dimensions.entry(resource_id.as_str()).or_insert_with(|| {
+                                image_count += 1;
+                                if image_count > 256 {return Err("authored bitmaps exceed the 256 buffer record budget".into())}
+                                let resource=project.resources.iter().take(MAX_RESOURCES).find(|r|r.id==*resource_id).ok_or_else(||"missing bitmap resource".to_owned())?;
+                                let (w,h)=resource.image_dimensions().map_err(|e|e.to_string())?;
+                                let bytes=w as usize*h as usize*4;
+                                if image_bytes+bytes>MAX_BITMAP_BYTES {return Err("authored image buffers exceed the 128 MiB runtime pixel budget".into())}
+                                image_bytes+=bytes;
+                                resource.decode_image().map_err(|e|e.to_string())?;
+                                Ok((w,h))
+                            });
+                            match dimensions {
+                                Ok((w, h)) if *width == *w && *height == *h => {}
+                                Ok(_) => add(
+                                    format!("{ep}.kind"),
+                                    "bitmap dimensions must exactly match the decoded resource"
+                                        .into(),
+                                ),
+                                Err(error) => add(format!("{ep}.kind.resource_id"), error.clone()),
+                            }
+                        }
                         ElementKind::Path {
                             commands,
                             stroke_width,
@@ -441,6 +471,12 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                 }
             }
         }
+    }
+    if image_dimensions.len() > 256 {
+        add(
+            "resources".into(),
+            "authored bitmaps exceed the 256 buffer record budget".into(),
+        );
     }
     if elements_count > 100000 {
         add(

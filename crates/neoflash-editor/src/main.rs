@@ -1,5 +1,6 @@
 mod accessibility;
 mod app;
+mod bitmaps;
 mod clipboard;
 mod detached;
 mod fonts;
