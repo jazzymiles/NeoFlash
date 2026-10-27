@@ -1,6 +1,8 @@
 # Backlog
 
-Independent 6f4f66a acceptance (`IMAGE-PIPELINE-HTML5-20261027T0943Z`) confirms the initial full source/tint oracle, captured/roundtrip/loaded PNG equality, bulk cursor/word checks and partial setPixels EOF behavior. Later UI phases and Restart are retained as screenshot/AX evidence; missing later logs do not establish repeated full-pixel or whole-run zero-error results. See [the independent record](VERIFICATION.md#independent-image-pipeline-verification-of-6f4f66a). The current class/package family has separate delivery evidence and inherits no image-pipeline pass.
+Independent 6687ced acceptance (`CLASSES-HTML5-20261027T1007Z`) confirms separate private owner state, protected/package collaboration, bounded dynamic metadata/JSON and sealed refusals, positive imports/final declarations, distinct AS2 inherited-private behavior and Restart. Final rejection, wildcard ambiguity and full reflection/initialization are not inferred. See [the independent record](VERIFICATION.md#independent-classpackage-verification-of-6687ced). The subsequent Video/NetStream/local NetConnection family has its own [bounded file-playback verification](VERIFICATION.md#file-video-and-local-stream-workflow); it inherits no class/package pass.
+
+Independent 6f4f66a acceptance (`IMAGE-PIPELINE-HTML5-20261027T0943Z`) confirms the initial full source/tint oracle, captured/roundtrip/loaded PNG equality, bulk cursor/word checks and partial setPixels EOF behavior. Later UI phases and Restart are retained as screenshot/AX evidence; missing later logs do not establish repeated full-pixel or whole-run zero-error results. See [the independent record](VERIFICATION.md#independent-image-pipeline-verification-of-6f4f66a). The later 6687ced class/package family has its own bounded independent record.
 
 Independent 11a59df acceptance (`FUNCTIONS-HTML5-20261027T0914Z`) confirms the corrected command workflow: optional/rest/supplied arguments, tested bound and ordinary receivers, arity refusals and Restart. An initial added arguments.length trace changed the probe's allow-extra contract; that altered result is preserved, with only the family re-exported after removing the trace. See [the independent record](VERIFICATION.md#independent-function-verification-of-11a59df). The later 6f4f66a image pipeline has its own bounded record; it does not inherit the function pass.
 
@@ -196,3 +198,7 @@ Bulk pixels, color transforms, shared filter kernels, current subtree capture an
 ## Source class and package follow-ups
 
 The coordinated source package adds lexical AS3 access, final/dynamic classes, package collaboration and wildcard imports, with separate AS2 private rules. Native overrides, user namespaces, generalized compile-time typing, VM reflection/prototype parity and full initialization-order conformance remain open. Keep acceptance grouped around the component workflow and its public serialization; do not multiply per-modifier browser cycles.
+
+## Video playback follow-ups
+
+The file-video family adds local connections/streams, AS3-created and AS2-authored views, embedded/native HTTP media transport, playback controls and shared display ownership. Native placeholder insertion is compile/model checked; live native UI, timeline synchronization, codec/seek/error fidelity, RTMP/camera/publishing and richer media authoring remain open. Group further acceptance by complete media workflows.

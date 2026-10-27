@@ -13,6 +13,8 @@ mod linked;
 mod loader;
 pub use loader::LoaderMutation;
 mod text;
+mod video;
+pub use video::VideoState;
 mod transform;
 pub use transform::ColorTransform;
 
@@ -35,6 +37,7 @@ pub enum DynamicKind {
     MovieClip,
     Bitmap,
     TextField,
+    Video,
     Loader,
 }
 
@@ -88,6 +91,7 @@ pub struct RuntimeObject {
     /// Own Graphics paints; these are not display children.
     pub graphics: Vec<RuntimeDrawKind>,
     pub text: Option<TextFieldState>,
+    pub video: Option<VideoState>,
     pub bitmap: Option<PixelDescriptor>,
     pub smoothing: bool,
     pub pixel_snapping: PixelSnapping,
@@ -106,6 +110,12 @@ pub struct RuntimeObject {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RuntimeDrawKind {
+    VideoFrame {
+        width: f64,
+        height: f64,
+        smoothing: bool,
+        color_transform: ColorTransform,
+    },
     GradientPath {
         commands: Vec<PathCommand>,
         fill_rule: FillRule,
@@ -214,6 +224,7 @@ pub(crate) struct RuntimeGraph {
     bitmap_states: HashMap<ObjectRef, bitmap::BitmapState>,
     bitmap_error: Option<BitmapError>,
     text_states: HashMap<ObjectRef, TextFieldState>,
+    video_states: HashMap<ObjectRef, VideoState>,
     text_bytes: usize,
     affines: HashMap<ObjectRef, transform::AffineState>,
     color_transforms: HashMap<ObjectRef, ColorTransform>,
@@ -247,6 +258,7 @@ impl RuntimeGraph {
         self.bitmap_states.clear();
         self.bitmap_error = None;
         self.text_states.clear();
+        self.video_states.clear();
         self.text_bytes = 0;
         self.affines.clear();
         self.color_transforms.clear();
@@ -326,6 +338,7 @@ impl RuntimeGraph {
         self.bitmap_states
             .retain(|reference, _| !retired.contains(reference));
         self.retire_text(&retired);
+        self.retire_video(&retired);
         self.retire_filters(&retired);
         self.retire_clipping(&retired);
         self.affines
@@ -450,6 +463,11 @@ impl Player {
                 graphics: GraphicsState::default(),
             },
         );
+        if kind == DynamicKind::Video {
+            self.graph
+                .video_states
+                .insert(reference.clone(), VideoState::default());
+        }
         if kind == DynamicKind::TextField {
             self.graph
                 .text_states
@@ -630,6 +648,7 @@ impl Player {
                         DynamicKind::MovieClip => "movie_clip",
                         DynamicKind::Bitmap => "bitmap",
                         DynamicKind::TextField => "text",
+                        DynamicKind::Video => "video",
                         DynamicKind::Loader => "loader",
                     };
                     let linked = linked_roots.get(&reference);
@@ -665,6 +684,7 @@ impl Player {
                 display.kind = None;
             }
             let text = self.graph.text_state(&reference, display.kind.as_ref());
+            let video = self.graph.video_state(&reference, display.kind.as_ref());
             let bitmap_state = self.graph.bitmap_state(&reference, display.kind.as_ref());
             let bitmap = bitmap_state
                 .pixel_ref
@@ -739,6 +759,7 @@ impl Player {
                     if !matches!(
                         source.kind,
                         ElementKind::Bitmap { .. }
+                            | ElementKind::Video { .. }
                             | ElementKind::Text { .. }
                             | ElementKind::TextBox { .. }
                     ) {
@@ -749,6 +770,29 @@ impl Player {
                             filter_id: None,
                         });
                     }
+                }
+                if let Some(video) = video {
+                    result.draws.push(RuntimeDrawItem {
+                        owner_ref: reference.clone(),
+                        clip_ids: vec![],
+                        filter_id: None,
+                        item: DrawItem {
+                            element_id: format!("runtime-{}-video", reference.id),
+                            name: display.name.clone(),
+                            instance_path: source_path.clone().unwrap_or_default(),
+                            layer_id: items
+                                .get(&reference)
+                                .map_or_else(String::new, |item| item.layer_id.clone()),
+                            transform: display.world,
+                            alpha: 1.,
+                            kind: RuntimeDrawKind::VideoFrame {
+                                width: video.width,
+                                height: video.height,
+                                smoothing: video.smoothing,
+                                color_transform: concatenated_color_transform,
+                            },
+                        },
+                    });
                 }
                 if let Some(field) = &text {
                     result.draws.push(RuntimeDrawItem {
@@ -856,6 +900,7 @@ impl Player {
                 source_path,
                 graphics,
                 text,
+                video,
                 bitmap,
                 smoothing: bitmap_state.smoothing,
                 pixel_snapping: bitmap_state.pixel_snapping,
@@ -926,6 +971,9 @@ impl Player {
                 // The browser's revision cache supplies actual pixel alpha
                 // bounds. Core avoids rescanning bitmap buffers each snapshot.
                 RuntimeDrawKind::BitmapPixels {
+                    color_transform, ..
+                }
+                | RuntimeDrawKind::VideoFrame {
                     color_transform, ..
                 } => color_transform.can_be_visible(),
                 _ => false,
@@ -1183,9 +1231,11 @@ impl Player {
         })?;
         if matches!(
             object.kind,
-            DynamicKind::Bitmap | DynamicKind::TextField | DynamicKind::Loader
+            DynamicKind::Bitmap | DynamicKind::TextField | DynamicKind::Video | DynamicKind::Loader
         ) {
-            return Err(error("Bitmap and TextField do not own Graphics"));
+            return Err(error(
+                "Bitmap, Video, TextField and Loader do not own Graphics",
+            ));
         }
         if operations.len() > MAX_GRAPHICS_OPS {
             return Err(error("Graphics batch exceeds 4096 operations"));
@@ -1238,7 +1288,10 @@ impl Player {
         let valid = |node: &DynamicObject| {
             !matches!(
                 node.kind,
-                DynamicKind::Bitmap | DynamicKind::TextField | DynamicKind::Loader
+                DynamicKind::Bitmap
+                    | DynamicKind::TextField
+                    | DynamicKind::Video
+                    | DynamicKind::Loader
             )
         };
         let destination = self

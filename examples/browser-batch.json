@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "video-playback",
+      "path": "examples/video-playback.nflash",
+      "title": "Video, local streams and publication lifecycle",
+      "checks": [
+        "Play both embedded views, confirm metadata and changing frames; Pause retains the visible frame and Seek moves to the requested position.",
+        "Resume reaches natural completion; Close resets stream time while retaining the image. Optional AS2 HTTP source expects /video-fixture.mp4 on the host.",
+        "Restart clears old callbacks/streams and returns to ready without autoplay; a fresh Play starts each dialect once."
+      ]
+    },
+    {
       "id": "class-packages",
       "path": "examples/class-packages.nflash",
       "title": "Class access, package collaboration and dynamic component state",

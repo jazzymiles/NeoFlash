@@ -184,6 +184,20 @@ fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
     };
     match (&a.kind, &b.kind, &mut e.kind) {
         (
+            ElementKind::Video {
+                width: aw,
+                height: ah,
+            },
+            ElementKind::Video {
+                width: bw,
+                height: bh,
+            },
+            ElementKind::Video { width, height },
+        ) => {
+            *width = lerp(*aw, *bw, t);
+            *height = lerp(*ah, *bh, t);
+        }
+        (
             ElementKind::Rectangle {
                 width: aw,
                 height: ah,

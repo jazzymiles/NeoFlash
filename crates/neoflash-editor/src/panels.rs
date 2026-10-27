@@ -140,6 +140,25 @@ impl Editor {
                         }
                     });
                     ui.menu_button("Insert", |ui| {
+                        if ui
+                            .add_enabled(
+                                self.layer_editable(),
+                                egui::Button::new("Video placeholder"),
+                            )
+                            .clicked()
+                        {
+                            self.finish_edits();
+                            self.add_element(
+                                ElementKind::Video {
+                                    width: 320.,
+                                    height: 240.,
+                                },
+                                80.,
+                                80.,
+                            );
+                            ui.close();
+                        }
+                        ui.separator();
                         if ui.button("Frame                  F5").clicked() {
                             self.finish_edits();
                             self.insert_frame();
@@ -1270,6 +1289,16 @@ impl Editor {
                         }
                     }
                     kind @ ElementKind::TextBox { .. } => self.text_box_properties(ui, ctx, kind),
+                    ElementKind::Video { width, height } => {
+                        ui.label("Video viewport · playback is available in the HTML5 preview.");
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label("Width");
+                            ui.add(egui::DragValue::new(width).range(0. ..=8192.));
+                            ui.label("Height");
+                            ui.add(egui::DragValue::new(height).range(0. ..=8192.));
+                        });
+                        ui.small("Attach a NetStream from ActionScript. The editor displays a placeholder.");
+                    }
                     ElementKind::Bitmap {
                         resource_id,
                         width,

@@ -50,7 +50,8 @@ pub(crate) fn local_bounds(item: &DrawItem, p: &egui::Painter) -> Rect {
     match &item.kind {
         ElementKind::Rectangle { width, height, .. }
         | ElementKind::Ellipse { width, height, .. }
-        | ElementKind::TextBox { width, height, .. } => {
+        | ElementKind::TextBox { width, height, .. }
+        | ElementKind::Video { width, height } => {
             Rect::from_min_size(Pos2::ZERO, Vec2::new(*width as f32, *height as f32))
         }
         ElementKind::Bitmap { width, height, .. } => {
@@ -249,6 +250,71 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle) {
                     FontId::proportional(12.),
                     Color32::RED,
                 );
+            }
+        }
+        ElementKind::Video { width, height } => {
+            if *width <= 0. || *height <= 0. {
+                return;
+            }
+            let palette = UiPalette::current(p.ctx());
+            let foreground = color(palette.muted_text.to_array(), alpha, tint);
+            let background = color(palette.window_fill.to_array(), alpha, tint);
+            let w = *width as f32;
+            let h = *height as f32;
+            let points = [
+                Pos2::ZERO,
+                Pos2::new(w, 0.),
+                Pos2::new(w, h),
+                Pos2::new(0., h),
+            ]
+            .map(screen);
+            if outlines {
+                p.add(Shape::closed_line(
+                    points.to_vec(),
+                    Stroke::new(1.0_f32, foreground),
+                ));
+            } else {
+                p.add(Shape::convex_polygon(
+                    points.to_vec(),
+                    background,
+                    Stroke::new(1.0_f32, foreground),
+                ));
+                let r = w.min(h) * 0.12;
+                let center = Pos2::new(w * 0.5, h * 0.4);
+                p.add(Shape::convex_polygon(
+                    [
+                        Pos2::new(center.x - r * 0.6, center.y - r),
+                        Pos2::new(center.x + r, center.y),
+                        Pos2::new(center.x - r * 0.6, center.y + r),
+                    ]
+                    .map(screen)
+                    .to_vec(),
+                    foreground,
+                    Stroke::NONE,
+                ));
+                let galley = p.layout_no_wrap(
+                    "VIDEO · browser playback".into(),
+                    FontId::proportional((w / 18.).min(h / 9.).clamp(1., 16.)),
+                    foreground,
+                );
+                let position = Pos2::new((w - galley.size().x) * 0.5, h * 0.7);
+                let primitives = p.ctx().tessellate(
+                    vec![egui::epaint::ClippedShape {
+                        clip_rect: Rect::EVERYTHING,
+                        shape: Shape::Text(egui::epaint::TextShape::new(
+                            position, galley, foreground,
+                        )),
+                    }],
+                    p.ctx().pixels_per_point(),
+                );
+                for primitive in primitives {
+                    if let egui::epaint::Primitive::Mesh(mut mesh) = primitive.primitive {
+                        for vertex in &mut mesh.vertices {
+                            vertex.pos = screen(vertex.pos);
+                        }
+                        p.add(Shape::mesh(mesh));
+                    }
+                }
             }
         }
         ElementKind::Bitmap { width, height, .. } => {

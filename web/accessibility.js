@@ -95,7 +95,7 @@
         const dx=stroke*Math.hypot(m[0],m[2]),dy=stroke*Math.hypot(m[1],m[3]);
         bounds={left:bounds.left-dx,top:bounds.top-dy,right:bounds.right+dx,bottom:bounds.bottom+dy};
       }
-    } else if(kind.type==='bitmap_pixels'||kind.type==='bitmap'){
+    } else if(kind.type==='bitmap_pixels'||kind.type==='bitmap'||kind.type==='video_frame'){
       if(kind.width<=0||kind.height<=0||kind.alpha_bounds===null)return null;
       const box=kind.alpha_bounds||{left:0,top:0,right:kind.width,bottom:kind.height};
       bounds=fromPoints([[box.left,box.top],[box.right,box.top],[box.right,box.bottom],[box.left,box.bottom]].map(p=>point(m,...p)));

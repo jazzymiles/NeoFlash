@@ -721,6 +721,25 @@ impl WebPlayer {
             .bitmap_dispose(&pixel_ref(target)?)
             .map_err(display_error)
     }
+    pub fn object_video_info(&self, target: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .object_video_info(&self.project, &object_ref(target)?)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn object_video_update(&mut self, target: &str, state: &str) -> Result<(), JsValue> {
+        if state.len() > 4096 {
+            return Err(JsValue::from_str("Video state exceeds 4096 bytes"));
+        }
+        let state: neoflash_core::VideoState =
+            serde_json::from_str(state).map_err(display_error)?;
+        self.player
+            .object_video_update(&self.project, &object_ref(target)?, state)
+            .map_err(display_error)
+    }
     pub fn object_bitmap(&self, target: &str) -> Result<String, JsValue> {
         serde_json::to_string(
             &self
@@ -787,6 +806,7 @@ impl WebPlayer {
             "shape" => DynamicKind::Shape,
             "bitmap" => DynamicKind::Bitmap,
             "text_field" => DynamicKind::TextField,
+            "video" => DynamicKind::Video,
             "movie_clip" => DynamicKind::MovieClip,
             "loader" => DynamicKind::Loader,
             _ => {

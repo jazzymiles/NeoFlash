@@ -381,7 +381,159 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
     affine_color_views_follow_the_display_lifecycle(project.clone());
     clipping_tracks_geometry_coordinates_and_lifetimes(project.clone());
     image_loading_owns_content_and_replaces_timelines(project.clone());
+    video_viewports_share_display_state_and_lifetimes();
     linked_timelines_are_independent_namespaces(project);
+}
+
+fn video_viewports_share_display_state_and_lifetimes() {
+    let mut project = Project::blank();
+    let root_id = project.root.clone();
+    let timeline = &mut project.symbol_mut(&root_id).unwrap().timeline;
+    timeline.frame_count = 2;
+    timeline.layers[0].keyframes[0].elements.push(Element {
+        id: "authored-video".into(),
+        name: "screen".into(),
+        transform: Transform::default(),
+        scripts: vec![],
+        accessibility: None,
+        kind: ElementKind::Video {
+            width: 160.,
+            height: 90.,
+        },
+    });
+    timeline.layers[0].keyframes.push(Keyframe {
+        frame: 1,
+        elements: vec![],
+        tween: None,
+        label: String::new(),
+    });
+    assert!(validate(&project).is_empty());
+    let original = project.to_json().unwrap();
+    assert_eq!(Project::from_json(&original).unwrap(), project);
+    assert!(matches!(
+        evaluate(&project, &root_id, 0)[0].kind,
+        ElementKind::Video {
+            width: 160.,
+            height: 90.
+        }
+    ));
+    let mut player = Player::new(&project);
+    let root = player.object_ref(&[]).unwrap();
+    let authored = player.object_ref(&["authored-video".into()]).unwrap();
+    assert_eq!(
+        player.object_video_info(&project, &authored).unwrap().width,
+        160.
+    );
+    let holder = player.create_display(DynamicKind::Sprite).unwrap();
+    let video = player.create_display(DynamicKind::Video).unwrap();
+    assert_eq!(
+        player.object_video_info(&project, &video).unwrap(),
+        VideoState::default()
+    );
+    let state = VideoState {
+        width: 80.,
+        height: 45.,
+        smoothing: true,
+    };
+    player.object_video_update(&project, &video, state).unwrap();
+    assert!(
+        player
+            .object_video_update(
+                &project,
+                &video,
+                VideoState {
+                    width: f64::NAN,
+                    ..state
+                }
+            )
+            .is_err()
+    );
+    assert_eq!(player.object_video_info(&project, &video).unwrap(), state);
+    assert!(
+        player
+            .object_video_update(&project, &holder, state)
+            .is_err()
+    );
+    assert!(player.graphics_apply(&video, &[GraphicsOp::Clear]).is_err());
+    assert!(
+        player
+            .display_mutate(
+                &project,
+                DisplayMutation::Add {
+                    parent: video.clone(),
+                    child: holder.clone(),
+                    index: None
+                }
+            )
+            .is_err()
+    );
+    assert!(
+        player
+            .object_set_mask(&project, &holder, Some(video.clone()))
+            .is_err()
+    );
+    player.object_set_property(&holder, "x", 40.);
+    player.object_set_property(&video, "x", 3.);
+    player.object_set_property(&holder, "alpha", 0.5);
+    player
+        .object_set_scroll_rect(
+            &project,
+            &holder,
+            Some(ScrollRect {
+                x: 4.,
+                y: 0.,
+                width: 100.,
+                height: 60.,
+            }),
+        )
+        .unwrap();
+    add(&mut player, &project, &root, &holder);
+    add(&mut player, &project, &holder, &video);
+    let scene = player.runtime_snapshot(&project);
+    assert_eq!(object(&scene, &video).display.owner, "video");
+    assert_eq!(object(&scene, &video).video, Some(state));
+    let draws: Vec<_> = scene
+        .draws
+        .iter()
+        .filter(|draw| draw.owner_ref == video)
+        .collect();
+    assert_eq!(draws.len(), 1);
+    assert_eq!(draws[0].item.transform[4], 39.);
+    assert!(!draws[0].clip_ids.is_empty());
+    let RuntimeDrawKind::VideoFrame {
+        width,
+        height,
+        smoothing,
+        color_transform,
+    } = draws[0].item.kind
+    else {
+        panic!("Video frame descriptor")
+    };
+    assert_eq!((width, height, smoothing), (80., 45., true));
+    assert_eq!(color_transform.multipliers[3], 0.5);
+    player
+        .display_mutate(
+            &project,
+            DisplayMutation::Remove {
+                parent: holder.clone(),
+                child: video.clone(),
+            },
+        )
+        .unwrap();
+    assert_eq!(player.object_video_info(&project, &video).unwrap(), state);
+    assert!(
+        !player
+            .runtime_snapshot(&project)
+            .draws
+            .iter()
+            .any(|draw| draw.owner_ref == video)
+    );
+    add(&mut player, &project, &holder, &video);
+    player.control(&project, &[], PlaybackCommand::GotoAndStop(1));
+    assert!(player.object_video_info(&project, &authored).is_err());
+    player.reset(&project);
+    assert!(player.object_video_info(&project, &video).is_err());
+    assert_eq!(project.to_json().unwrap(), original);
 }
 
 fn clipping_tracks_geometry_coordinates_and_lifetimes(mut project: Project) {

@@ -979,7 +979,14 @@ impl<'a> Frontend<'a> {
             || (!as3
                 && matches!(
                     name,
-                    "LoadVars" | "TextFormat" | "Sound" | "MovieClipLoader" | "SharedObject"
+                    "LoadVars"
+                        | "TextFormat"
+                        | "Sound"
+                        | "MovieClipLoader"
+                        | "SharedObject"
+                        | "NetConnection"
+                        | "NetStream"
+                        | "Video"
                 ))
             || (self.context.project && self.context.types.contains_key(name))
             || (is_error_type(name) && (as3 || name == "Error"))
@@ -1390,7 +1397,12 @@ impl<'a> Frontend<'a> {
                     && class.is_none()
                     && matches!(
                         name.as_str(),
-                        "MovieClipLoader" | "SharedObject" | "Selection"
+                        "MovieClipLoader"
+                            | "SharedObject"
+                            | "Selection"
+                            | "NetConnection"
+                            | "NetStream"
+                            | "Video"
                     ));
             if !builtin
                 && vector_element(&name).is_none()
@@ -1935,8 +1947,10 @@ impl Emitter<'_> {
             && (matches!(
                 name,
                 "Key" | "Mouse" | "Stage" | "LoadVars" | "TextFormat" | "Sound"
-            ) || (matches!(name, "MovieClipLoader" | "SharedObject" | "Selection")
-                && !self.analysis.context.types.contains_key(name)))
+            ) || (matches!(
+                name,
+                "MovieClipLoader" | "SharedObject" | "Selection" | "NetConnection" | "NetStream"
+            ) && !self.analysis.context.types.contains_key(name)))
         {
             return format!("__nfLegacy.{name}");
         }
@@ -2339,7 +2353,12 @@ impl Emitter<'_> {
             Expr::NewBuiltin(name, args, _)
                 if matches!(
                     name.as_str(),
-                    "LoadVars" | "TextFormat" | "Sound" | "MovieClipLoader"
+                    "LoadVars"
+                        | "TextFormat"
+                        | "Sound"
+                        | "MovieClipLoader"
+                        | "NetConnection"
+                        | "NetStream"
                 ) =>
             {
                 format!(

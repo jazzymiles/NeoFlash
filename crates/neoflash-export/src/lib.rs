@@ -27,6 +27,7 @@ const TEXT_INPUT: &str = include_str!("../../../web/text-input.js");
 const FILTERS: &str = include_str!("../../../web/filters.js");
 const AUDIO_FORMATS: &str = include_str!("../../../web/audio-formats.js");
 const AUDIO: &str = include_str!("../../../web/audio.js");
+const VIDEO: &str = include_str!("../../../web/video.js");
 const XML: &str = include_str!("../../../web/xml.js");
 const LOADER: &str = include_str!("../../../web/loader.js");
 const AMF: &str = include_str!("../../../web/amf.js");
@@ -269,6 +270,7 @@ pub fn export_project(
         ("filters.js", FILTERS),
         ("audio-formats.js", AUDIO_FORMATS),
         ("audio.js", AUDIO),
+        ("video.js", VIDEO),
         ("xml.js", XML),
         ("loader.js", LOADER),
         ("amf.js", AMF),
@@ -356,6 +358,7 @@ fn html_document(title: &str) -> String {
   <script defer src="filters.js"></script>
   <script defer src="audio-formats.js"></script>
   <script defer src="audio.js"></script>
+  <script defer src="video.js"></script>
   <script defer src="xml.js"></script>
   <script defer src="loader.js"></script>
   <script defer src="amf.js"></script>
@@ -433,7 +436,8 @@ mod tests {
         assert!(
             html.find("src=\"audio-formats.js\"").unwrap() < html.find("src=\"audio.js\"").unwrap()
         );
-        assert!(html.find("src=\"audio.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
+        assert!(html.find("src=\"audio.js\"").unwrap() < html.find("src=\"video.js\"").unwrap());
+        assert!(html.find("src=\"video.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         assert!(html.find("src=\"xml.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         assert!(html.find("src=\"loader.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         assert!(html.find("src=\"amf.js\"").unwrap() < html.find("src=\"storage.js\"").unwrap());

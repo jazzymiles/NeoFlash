@@ -371,6 +371,13 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                         );
                     }
                     match &element.kind {
+                        ElementKind::Video { .. } => {
+                            if let Some(state) = VideoState::from_kind(&element.kind)
+                                && let Err(error) = state.validate()
+                            {
+                                add(format!("{ep}.kind"), error.to_string());
+                            }
+                        }
                         ElementKind::Bitmap {
                             resource_id,
                             width,

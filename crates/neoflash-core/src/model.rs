@@ -230,6 +230,9 @@ impl Default for Transform {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ElementKind {
+    /// Authored video viewport. Decoder/NetStream state belongs to the browser
+    /// backend and is never embedded in the authoring document.
+    Video { width: f64, height: f64 },
     Bitmap {
         resource_id: Id,
         width: u32,

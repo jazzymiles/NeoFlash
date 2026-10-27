@@ -289,6 +289,7 @@ impl Editor {
                 ElementKind::Instance { .. } => "clip",
                 ElementKind::Path { .. } => "path",
                 ElementKind::Bitmap { .. } => "bitmap",
+                ElementKind::Video { .. } => "video",
             };
             let name = format!("{name}_{}", id.rsplit('-').next().unwrap_or("1"));
             let element = Element {

@@ -1,0 +1,1072 @@
+{
+  "format_version": 3,
+  "name": "Video playback \u2014 local streams",
+  "width": 1000,
+  "height": 660,
+  "fps": 24,
+  "background": [
+    13,
+    24,
+    37,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Video playback",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 40,
+                      "y": 28,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / LOCAL NETCONNECTION + VIDEO / AS2 + AS3",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        161,
+                        184,
+                        205,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 40,
+                      "y": 64,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "One movie. Two scripting generations.",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        237,
+                        245,
+                        251,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 40,
+                      "y": 111,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Play the silent original clip, pause, seek to 2s, resume or close. Restart creates fresh streams.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        161,
+                        184,
+                        205,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3Panel",
+                    "name": "as3Panel",
+                    "transform": {
+                      "x": 40,
+                      "y": 154,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 400,
+                      "height": 365,
+                      "fill": [
+                        23,
+                        38,
+                        56,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2Panel",
+                    "name": "as2Panel",
+                    "transform": {
+                      "x": 520,
+                      "y": 154,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 400,
+                      "height": 365,
+                      "fill": [
+                        23,
+                        38,
+                        56,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3Heading",
+                    "name": "as3Heading",
+                    "transform": {
+                      "x": 60,
+                      "y": 173,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 / new Video + client metadata",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        101,
+                        228,
+                        189,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2Heading",
+                    "name": "as2Heading",
+                    "transform": {
+                      "x": 540,
+                      "y": 173,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 / authored Video + callbacks",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        117,
+                        179,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-video",
+                    "name": "legacyVideo",
+                    "transform": {
+                      "x": 552,
+                      "y": 202,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "video",
+                      "width": 320,
+                      "height": 180
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3Status",
+                    "name": "as3Status",
+                    "transform": {
+                      "x": 60,
+                      "y": 402,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Connecting...",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        161,
+                        184,
+                        205,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyStatus",
+                    "name": "legacyStatus",
+                    "transform": {
+                      "x": 540,
+                      "y": 402,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Connecting...",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        161,
+                        184,
+                        205,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "note",
+                    "name": "note",
+                    "transform": {
+                      "x": 40,
+                      "y": 613,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Both panels default to embedded media. HTTP source expects /video-fixture.mp4 on the serving origin.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        161,
+                        184,
+                        205,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "play-button",
+                    "name": "playButton",
+                    "transform": {
+                      "x": 40,
+                      "y": 550,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "play-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.startVideo();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.legacyPlay();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Play",
+                      "description": "Play for the video playback example.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "pause-button",
+                    "name": "pauseButton",
+                    "transform": {
+                      "x": 192,
+                      "y": 550,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "pause-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.pauseVideo();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.legacyPause();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Pause",
+                      "description": "Pause for the video playback example.",
+                      "role": "button",
+                      "tab_order": 1,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "seek-button",
+                    "name": "seekButton",
+                    "transform": {
+                      "x": 344,
+                      "y": 550,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "seek-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.seekVideo();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.legacySeek();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Seek 2s",
+                      "description": "Seek 2s for the video playback example.",
+                      "role": "button",
+                      "tab_order": 2,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "resume-button",
+                    "name": "resumeButton",
+                    "transform": {
+                      "x": 496,
+                      "y": 550,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "resume-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.resumeVideo();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.legacyResume();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Resume",
+                      "description": "Resume for the video playback example.",
+                      "role": "button",
+                      "tab_order": 3,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "close-button",
+                    "name": "closeButton",
+                    "transform": {
+                      "x": 648,
+                      "y": 550,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "close-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.closeVideo();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.legacyClose();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Close",
+                      "description": "Close for the video playback example.",
+                      "role": "button",
+                      "tab_order": 4,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "http-button",
+                    "name": "httpButton",
+                    "transform": {
+                      "x": 800,
+                      "y": 550,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "http-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.legacyHTTP();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "HTTP source",
+                      "description": "HTTP source for the video playback example.",
+                      "role": "button",
+                      "tab_order": 5,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "var legacyConnection:NetConnection=new NetConnection();\nvar legacyStream:NetStream;\nvar legacyReady:Boolean=false;\nvar legacyPlays:Number=0;\nvar legacyCompleted:Number=0;\nvar legacyMetadata:Number=0;\nvar legacyDuration:Number=0;\nvar legacySource:String=\"media/motion.mp4\";\nvar legacyCode:String=\"Not connected\";\nvar legacyCommand:String=\"Ready for Play\";\nfunction legacyRefresh():Void {legacyStatus.text=legacyCommand+\"\\n\"+legacyCode+\"\\nMetadata \"+legacyMetadata+\" | duration \"+legacyDuration+\"s | ended \"+legacyCompleted;}\nfunction legacyPlay():Void {if(!legacyReady)return;legacyPlays++;legacySource=\"media/motion.mp4\";legacyCommand=\"Playing embedded MP4\";legacyStream.play(legacySource);legacyRefresh();}\nfunction legacyPause():Void {if(!legacyReady||legacyPlays==0)return;legacyStream.pause(true);legacyCommand=\"Paused\";legacyRefresh();}\nfunction legacySeek():Void {if(!legacyReady||legacyDuration==0)return;legacyStream.seek(2);legacyCommand=\"Seek to 2 seconds\";legacyRefresh();}\nfunction legacyResume():Void {if(!legacyReady||legacyPlays==0)return;legacyStream.pause(false);legacyCommand=\"Resumed\";legacyRefresh();}\nfunction legacyClose():Void {if(!legacyReady)return;legacyStream.close();legacyCommand=\"Closed / last frame retained\";legacyRefresh();}\nfunction legacyHTTP():Void {if(!legacyReady)return;legacyPlays++;legacySource=\"/video-fixture.mp4\";legacyCommand=\"HTTP source / local server required\";legacyStream.play(legacySource);legacyRefresh();}\nlegacyConnection.onStatus=function(info:Object):Void {\n if(info.code==\"NetConnection.Connect.Success\") {\n  legacyStream=new NetStream(legacyConnection);\n  legacyStream.onMetaData=function(info:Object):Void {legacyMetadata++;legacyDuration=info.duration;legacyRefresh();};\n  legacyStream.onStatus=function(info:Object):Void {legacyCode=info.code;if(info.code==\"NetStream.Play.Stop\")legacyCompleted++;if(info.level==\"error\")legacyCommand=\"HTTP unavailable? Use Play for embedded MP4.\";legacyRefresh();};\n  legacyVideo.attachVideo(legacyStream);legacyReady=true;legacyRefresh();\n }\n};\nlegacyConnection.connect(null);\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "play-control",
+      "name": "Play",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "play-control-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "play-face",
+                    "name": "play-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140,
+                      "height": 44,
+                      "fill": [
+                        101,
+                        228,
+                        189,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "play-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 13,
+                      "y": 12,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Play",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        13,
+                        29,
+                        41,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "pause-control",
+      "name": "Pause",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "pause-control-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "pause-face",
+                    "name": "pause-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140,
+                      "height": 44,
+                      "fill": [
+                        52,
+                        74,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pause-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 13,
+                      "y": 12,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Pause",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        237,
+                        245,
+                        251,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "seek-control",
+      "name": "Seek 2s",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "seek-control-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "seek-face",
+                    "name": "seek-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140,
+                      "height": 44,
+                      "fill": [
+                        52,
+                        74,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "seek-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 13,
+                      "y": 12,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Seek 2s",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        237,
+                        245,
+                        251,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "resume-control",
+      "name": "Resume",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "resume-control-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "resume-face",
+                    "name": "resume-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140,
+                      "height": 44,
+                      "fill": [
+                        52,
+                        74,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "resume-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 13,
+                      "y": 12,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Resume",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        237,
+                        245,
+                        251,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "close-control",
+      "name": "Close",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "close-control-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "close-face",
+                    "name": "close-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140,
+                      "height": 44,
+                      "fill": [
+                        52,
+                        74,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "close-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 13,
+                      "y": 12,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Close",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        237,
+                        245,
+                        251,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "http-control",
+      "name": "HTTP source",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "http-control-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "http-face",
+                    "name": "http-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140,
+                      "height": 44,
+                      "fill": [
+                        52,
+                        74,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "http-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 13,
+                      "y": 12,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "HTTP source",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        237,
+                        245,
+                        251,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;\n import flash.media.Video;\n import flash.media.SoundTransform;\n import flash.net.NetConnection;\n import flash.net.NetStream;\n import flash.events.NetStatusEvent;\n public dynamic class Main extends MovieClip {\n  public var connection:NetConnection;\n  public var stream:NetStream;\n  public var video:Video;\n  public var ready:Boolean=false;\n  public var plays:int=0;\n  public var completed:int=0;\n  public var metadataCount:int=0;\n  public var duration:Number=0;\n  public var lastCode:String=\"Not connected\";\n  public var command:String=\"Ready for Play\";\n  public function Main() {\n   stop();\n   this.eyebrow.selectable=false;this.title.selectable=false;this.instructions.selectable=false;\n   this.as3Heading.selectable=false;this.as2Heading.selectable=false;\n   this.as3Status.selectable=false;this.legacyStatus.selectable=false;this.note.selectable=false;\n   this.playButton.caption.selectable=false;this.pauseButton.caption.selectable=false;this.seekButton.caption.selectable=false;\n   this.resumeButton.caption.selectable=false;this.closeButton.caption.selectable=false;this.httpButton.caption.selectable=false;\n   video=new Video(320,180);video.name=\"createdVideo\";video.x=72;video.y=202;video.smoothing=true;addChild(video);\n   connection=new NetConnection();connection.addEventListener(NetStatusEvent.NET_STATUS,onConnection);connection.connect(null);\n  }\n  public function onConnection(event:NetStatusEvent):void {\n   if(event.info.code==\"NetConnection.Connect.Success\") {\n    stream=new NetStream(connection);stream.client=this;stream.soundTransform=new SoundTransform(0);\n    stream.addEventListener(NetStatusEvent.NET_STATUS,onStatus);video.attachNetStream(stream);ready=true;refresh();\n   }\n  }\n  public function onMetaData(info:Object):void {metadataCount++;duration=info.duration;refresh();}\n  public function onStatus(event:NetStatusEvent):void {\n   lastCode=event.info.code;if(lastCode==\"NetStream.Play.Stop\")completed++;refresh();\n  }\n  public function startVideo():void {if(!ready)return;plays++;command=\"Playing embedded MP4\";stream.play(\"media/motion.mp4\");refresh();}\n  public function pauseVideo():void {if(!ready||plays==0)return;stream.pause();command=\"Paused\";refresh();}\n  public function seekVideo():void {if(!ready||duration==0)return;stream.seek(2);command=\"Seek to 2 seconds\";refresh();}\n  public function resumeVideo():void {if(!ready||plays==0)return;stream.resume();command=\"Resumed\";refresh();}\n  public function closeVideo():void {if(!ready)return;stream.close();command=\"Closed / last frame retained\";refresh();}\n  public function refresh():void {\n   this.as3Status.text=command+\"\\n\"+lastCode+\"\\nMetadata \"+metadataCount+\" | duration \"+duration+\"s | ended \"+completed;\n  }\n }\n}"
+    }
+  ],
+  "resources": [
+    {
+      "id": "original-motion",
+      "path": "media/motion.mp4",
+      "media_type": "video/mp4",
+      "data_base64": "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"
+    }
+  ]
+}

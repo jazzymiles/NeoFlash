@@ -272,6 +272,7 @@ impl Player {
                         "text"
                     }
                     None if matches!(node.kind, Some(ElementKind::Bitmap { .. })) => "bitmap",
+                    None if matches!(node.kind, Some(ElementKind::Video { .. })) => "video",
                     None => "shape",
                 };
                 let class_name = if node.path.is_empty() && self.source_root.is_none() {

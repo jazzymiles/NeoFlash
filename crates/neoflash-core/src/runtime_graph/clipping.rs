@@ -189,10 +189,10 @@ impl RuntimeGraph {
                 return Err(error("scrollRect inside a mask source is not supported"));
             }
             if node.display.total_frames > 1
-                || matches!(node.display.owner.as_str(), "text" | "bitmap")
+                || matches!(node.display.owner.as_str(), "text" | "bitmap" | "video")
             {
                 return Err(error(
-                    "Mask sources currently support vector fills and one-frame vector containers; text, bitmap and animated authored timelines are pending",
+                    "Mask sources currently support vector fills and one-frame vector containers; text, bitmap, video and animated authored timelines are pending",
                 ));
             }
             if let Some(kind) = &node.display.kind {
@@ -388,7 +388,7 @@ fn vector_cost(kind: &ElementKind) -> Result<usize, DisplayError> {
         ElementKind::Path { commands, .. } => Ok(commands.len()),
         ElementKind::Instance { .. } => Ok(0),
         _ => Err(error(
-            "Text/bitmap mask sources require an unsupported raster/alpha-mask profile",
+            "Text/bitmap/video mask sources require an unsupported raster/alpha-mask profile",
         )),
     }
 }

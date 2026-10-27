@@ -43,6 +43,13 @@ fn module_resolution_fails_with_original_source_path() {
 fn class_syntax_outside_profile_is_never_erased() {
     for source in [
         "package { public class A {public private var secret:int;} }",
+        "package {import flash.media.Video;public class A extends Video {}}",
+        "package {import flash.net.NetConnection;public class A extends NetConnection {}}",
+        "package {import flash.net.NetStream;public class A extends NetStream {}}",
+        "package {import flash.events.NetStatusEvent;public class A extends NetStatusEvent {}}",
+        "package {import flash.net.NetStream;public class A {public function A(){new NetStream();}}}",
+        "package {import flash.net.NetConnection;public class A {public function A(){new NetConnection(1);}}}",
+        "package {import flash.media.Video;public class A {public function A(){new Video(1,2,3);}}}",
         "package { public class A extends Date {} }",
         "package { public class A extends XML {} }",
         "package { public class A extends XMLList {} }",
@@ -155,6 +162,10 @@ fn class_syntax_outside_profile_is_never_erased() {
         "class A {public function A(value:Number=0){}}",
         "class A {public function run(...values):Void{}}",
         "interface A {function value():Number;}",
+        "class A {public function A(){new Video();}}",
+        "class A {public function A(){new NetConnection(1);}}",
+        "class A {public function A(){new NetStream();}}",
+        "import flash.net.NetStream;class A {}",
         "class A extends Date {}",
         "import flash.geom.Transform; class A extends Transform {}",
         "import flash.geom.ColorTransform; class A extends ColorTransform {}",
@@ -516,6 +527,41 @@ fn class_syntax_outside_profile_is_never_erased() {
     assert!(
         neoflash_script::compile_with_program(&outside, &legacy_program).is_ok(),
         "AS2 indexed access remains a runtime public escape"
+    );
+    let video_project = project(&[(
+        "Player.as",
+        r#"package {
+        import flash.media.Video;import flash.media.SoundTransform;import flash.net.NetConnection;import flash.net.NetStream;import flash.events.NetStatusEvent;
+        public class Player {
+            public var stream:NetStream;public var video:Video;
+            public function Player(){var connection:NetConnection=new NetConnection();connection.connect(null);stream=new NetStream(connection);stream.soundTransform=new SoundTransform(0);stream.client=this;stream.addEventListener(NetStatusEvent.NET_STATUS,onStatus);video=new Video(320,180);video.attachNetStream(stream);}
+            public function onStatus(event:NetStatusEvent):void{var code:String=event.info.code;}
+            public function onMetaData(info:Object):void{}
+            public function run():Boolean{stream.play("media/motion.mp4");stream.pause();stream.seek(2);stream.resume();stream.togglePause();stream.close();video.clear();video.attachNetStream(null);return (stream is NetStream)&&((video as Video)!=null);}
+        }}"#,
+    )]);
+    let video_program = neoflash_script::compile_project(&video_project);
+    assert!(video_program.is_ok(), "{:?}", video_program.err());
+    let legacy_video=neoflash_core::Script{language:ScriptLanguage::ActionScript2,source:"var connection:NetConnection=new NetConnection();connection.connect(null);var stream:NetStream=new NetStream(connection);placedVideo.attachVideo(stream);stream.onStatus=function(info:Object):Void{result=info.code;};stream.play(\"media/motion.mp4\");stream.pause(true);stream.seek(2);stream.pause(false);stream.close();placedVideo.clear();".into()};
+    assert!(neoflash_script::compile(&legacy_video).is_ok());
+    let mut shadow_video = project(&[
+        (
+            "NetConnection.as",
+            "class NetConnection {public function NetConnection(value:Number){} public function connect(value:Object):Void{}}",
+        ),
+        (
+            "Use.as",
+            "class Use {public function Use(){var connection:NetConnection=new NetConnection(7);connection.connect(null);}}",
+        ),
+    ]);
+    for source in &mut shadow_video.sources {
+        source.language = ScriptLanguage::ActionScript2;
+    }
+    let shadow_video_result = neoflash_script::compile_project(&shadow_video);
+    assert!(
+        shadow_video_result.is_ok(),
+        "{:?}",
+        shadow_video_result.err()
     );
     let optional_contracts = project(&[
         (

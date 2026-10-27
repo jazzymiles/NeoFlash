@@ -29,6 +29,10 @@ const BUILTINS: &[&str] = &[
     "flash.text.TextFormat",
     "flash.text.TextFormatAlign",
     "flash.text.TextFieldType",
+    "flash.media.Video",
+    "flash.net.NetConnection",
+    "flash.net.NetStream",
+    "flash.events.NetStatusEvent",
     "flash.media.Sound",
     "flash.media.SoundChannel",
     "flash.media.SoundTransform",
@@ -169,6 +173,13 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "updateAfterEvent"
                 | "load"
                 | "loadBytes"
+                | "connect"
+                | "attachNetStream"
+                | "attachVideo"
+                | "pause"
+                | "resume"
+                | "togglePause"
+                | "seek"
                 | "unload"
                 | "getLocal"
                 | "flush"
@@ -811,7 +822,7 @@ fn parse_class(
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "Sound, SoundChannel and SoundTransform native subclass initialization is outside this profile; use a Sound instance, its playback channel and a SoundTransform value.",
+            "Video and Sound-family native subclass initialization is outside this profile; construct native objects and use composition.",
         ));
     }
     if base.as_ref().is_some_and(|base| {
@@ -821,6 +832,7 @@ fn parse_class(
                 "flash.events.ProgressEvent"
                     | "flash.events.IOErrorEvent"
                     | "flash.events.HTTPStatusEvent"
+                    | "flash.events.NetStatusEvent"
             )
     }) {
         return Err(Diagnostic::at(

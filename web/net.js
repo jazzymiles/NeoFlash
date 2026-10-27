@@ -165,6 +165,17 @@
       const raw=global.atob(resource.data_base64);if(raw.length!==resource.byteLength)throw new TypeError('Portable resource base64 is malformed.');
       const bytes=Uint8Array.from(raw,char=>char.charCodeAt(0));resourceCache.set(resource.path,bytes);return bytes;
     }
+    function mediaSource(value){
+      open();const source=text(value,'Media URL');if(!source||source.length>8192)throw new RangeError('Media URL must contain 1 through 8192 characters.');
+      const resource=resourceFor(source);
+      if(resource)return {kind:'resource',bytes:decodeResource(resource).slice(),mediaType:resource.media_type,length:resource.byteLength};
+      let url;try{url=new URL(source,baseURL||undefined);}catch(_){throw new TypeError('Media is not bundled and no HTTP(S) base URL is available.');}
+      if(!['http:','https:'].includes(url.protocol))throw new TypeError('Media loading supports bundled resources and browser HTTP(S), not filesystem/RTMP URLs.');
+      if(url.username||url.password)throw new TypeError('Credentials embedded in media URLs are unsupported.');
+      // The native media element owns progressive HTTP buffering/range requests.
+      // Its bytes are not fetched or falsely charged as a complete URLLoader file.
+      return {kind:'http',url:url.href};
+    }
     async function read(operation,request){
       const resource=resourceFor(request.url),record=operation.record;
       if(resource){
@@ -281,7 +292,7 @@
     noBase(LoadVars,'LoadVars',value=>legacy.has(value));
     function reset(){open();for(const operation of [...active])cancel(operation.record);generation++;hub.clear();resourceCache.clear();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({URLRequest,URLRequestHeader,URLRequestMethod,URLVariables,URLLoader,URLLoaderDataFormat,ProgressEvent,IOErrorEvent,HTTPStatusEvent,LoadVars,loadBytes,reset,dispose});
+    return Object.freeze({URLRequest,URLRequestHeader,URLRequestMethod,URLVariables,URLLoader,URLLoaderDataFormat,ProgressEvent,IOErrorEvent,HTTPStatusEvent,LoadVars,loadBytes,mediaSource,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashNet=api;
 })(globalThis);

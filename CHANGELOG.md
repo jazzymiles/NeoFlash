@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added file-video playback through AS3 Video/NetStream/local NetConnection and the AS2 authored-Video adapter. Shared Rust display ownership now includes Video placements, with explicit native insertion/Properties placeholders; browser decoding, transport, audio gating and publication lifetime have their own HTML5 profile.
+
+- Independently checked frozen 6687ced class/packages (`CLASSES-HTML5-20261027T1007Z`): isolated base/derived private state, protected/package updates, dynamic-only enumeration/public JSON, bounded sealed/private-route refusals, AS2 inherited-private updates and Restart. Positive final/import use does not imply every rejection, reflection or initialization rule.
+
 - Independently checked frozen 6f4f66a image processing (`IMAGE-PIPELINE-HTML5-20261027T0943Z`): full initial source/tint and PNG round-trip pixel evidence, bulk transfer/cursors and the documented partial-write EOF path. Subsequent palette/Restart phases retain screenshots/AX only where logs were unavailable; no repeated full-byte or complete-run zero-error claim is made.
 
 - Added a coordinated source-class/package family: AS3 lexical access, separate private slots, protected dispatch, package-internal collaboration, final/dynamic declarations and wildcard imports. AS2 retains its distinct private/inheritance behavior. One component workflow connects these rules to public serialization, dynamic metadata and Restart.
