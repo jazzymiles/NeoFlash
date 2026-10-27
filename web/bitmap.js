@@ -26,10 +26,12 @@
     if(mode==='auto'&&b===0&&c===0&&Math.abs(a-1)<=0.001&&Math.abs(d-1)<=0.001)return [1,0,0,1,Math.round(e),Math.round(f)];
     return [...matrix];
   }
-  function create({player,geometry,createCanvas}={}){
+  function create({player,geometry,createCanvas,maxCacheBytes=128*1024*1024,maxCacheEntries=256}={}){
     if(!player||!geometry?.Rectangle)throw new TypeError('BitmapData requires the shared Rust Player and Rectangle type.');
+    if(!Number.isSafeInteger(maxCacheBytes)||maxCacheBytes<0||!Number.isSafeInteger(maxCacheEntries)||maxCacheEntries<0)throw new RangeError('Bitmap cache budgets must be nonnegative safe integers.');
     const references=new WeakMap(),facades=new Map(),uploads=new Map();
-    let generation=1,disposed=false,used=new Set();
+    let generation=1,disposed=false,used=new Set(),cacheBytes=0;
+    const identityColor={multipliers:[1,1,1,1],offsets:[0,0,0,0]};
     function active(){if(disposed)throw new Error('This bitmap service has been disposed.');}
     function reference(value){active();const record=references.get(value);if(!record)throw new TypeError('Expected BitmapData from this publication.');if(record.generation!==generation)throw new Error('This BitmapData belongs to a previous publication session.');return record.ref;}
     function descriptor(value){const result=JSON.parse(player.bitmap_info(key(reference(value))));if(result.disposed)throw new Error('This BitmapData has been disposed.');return result;}
@@ -61,22 +63,36 @@
       }
       clone(){return fromRef(JSON.parse(player.bitmap_clone(key(refOf(this)))));}
       scroll(x,y){player.bitmap_scroll(key(refOf(this)),integer(x,'Scroll x'),integer(y,'Scroll y'));}
-      dispose(){const ref=reference(this);player.bitmap_dispose(key(ref));drop(key(ref));}
+      dispose(){const ref=reference(this),id=key(ref);player.bitmap_dispose(id);for(const [entry,record]of uploads)if(record.pixelKey===id)drop(entry);}
     }
     Object.defineProperties(BitmapData,{__nfIs:{value:value=>references.has(value)},__nfInitialize:{value:()=>unsupported('native subclassing')},loadBitmap:{value:()=>unsupported('loadBitmap library linkage')}});
     Object.defineProperty(BitmapData,Symbol.hasInstance,{value:BitmapData.__nfIs});
     for(const name of ['draw','drawWithQuality','applyFilter','generateFilterRect','colorTransform','compare','copyChannel','copyPixelsToByteArray','encode','floodFill','getColorBoundsRect','getPixels','getVector','hitTest','histogram','lock','unlock','merge','noise','paletteMap','perlinNoise','pixelDissolve','setPixels','setVector','threshold'])Object.defineProperty(BitmapData.prototype,name,{value(){unsupported(name);}});
-    function drop(id){const record=uploads.get(id);if(!record)return;record.canvas.width=0;record.canvas.height=0;uploads.delete(id);}
+    function release(record){record.canvas.width=0;record.canvas.height=0;}
+    function drop(id){const record=uploads.get(id);if(!record)return;release(record);cacheBytes-=record.cost;uploads.delete(id);}
     function canvas(width,height){
       const result=createCanvas?createCanvas(width,height):typeof global.OffscreenCanvas==='function'?new global.OffscreenCanvas(width,height):global.document?.createElement('canvas');
       if(!result)throw new Error('Bitmap rendering requires a Canvas 2D surface.');result.width=width;result.height=height;return result;
     }
     function upload(kind){
-      active();const id=key(kind.pixel_ref);used.add(id);
-      const old=uploads.get(id);if(old&&old.revision===kind.revision&&old.width===kind.width&&old.height===kind.height)return old;
-      const bytes=player.bitmap_pixels(id);
+      active();const pixelKey=key(kind.pixel_ref),colorTransform=kind.color_transform||identityColor;
+      const colorKey=JSON.stringify({multipliers:colorTransform.multipliers,offsets:colorTransform.offsets});
+      const id=JSON.stringify([pixelKey,kind.revision,kind.width,kind.height,colorKey]);used.add(id);
+      const old=uploads.get(id);if(old){uploads.delete(id);uploads.set(id,old);return old;}
+      // Each derived image retains RGBA bytes for alpha tests plus a Canvas
+      // surface (estimated at four bytes/pixel). Browser/GPU bookkeeping is not
+      // exactly measurable here. Oversized entries are transient, never cached.
+      const cost=kind.width*kind.height*8;
+      if(!Number.isSafeInteger(cost)||cost<0)throw new RangeError('Invalid bitmap cache dimensions.');
+      let reusable=null;
+      for(const [entry,record]of uploads)if(record.pixelKey===pixelKey&&record.revision!==kind.revision){
+        if(!reusable&&record.colorKey===colorKey){reusable=record.canvas;cacheBytes-=record.cost;uploads.delete(entry);}
+        else drop(entry);
+      }
+      if(cost<=maxCacheBytes&&maxCacheEntries>0)while(uploads.size&&(cacheBytes+cost>maxCacheBytes||uploads.size>=maxCacheEntries))drop(uploads.keys().next().value);
+      const bytes=kind.color_transform?player.bitmap_pixels_transformed(pixelKey,colorKey):player.bitmap_pixels(pixelKey);
       if(bytes.length!==kind.width*kind.height*4)throw new Error('Rust bitmap dimensions do not match its RGBA buffer.');
-      const surface=old?.canvas||canvas(kind.width,kind.height),context=surface.getContext('2d');
+      const surface=reusable||canvas(kind.width,kind.height),context=surface.getContext('2d');
       if(!context)throw new Error('Bitmap rendering requires Canvas 2D.');
       if(surface.width!==kind.width)surface.width=kind.width;if(surface.height!==kind.height)surface.height=kind.height;
       const data=context.createImageData(kind.width,kind.height);data.data.set(bytes);context.putImageData(data,0,0);
@@ -85,18 +101,22 @@
         if(!alphaBounds)alphaBounds={left:x,top:y,right:x+1,bottom:y+1};
         else {alphaBounds.left=Math.min(alphaBounds.left,x);alphaBounds.top=Math.min(alphaBounds.top,y);alphaBounds.right=Math.max(alphaBounds.right,x+1);alphaBounds.bottom=Math.max(alphaBounds.bottom,y+1);}
       }
-      const record={canvas:surface,bytes,width:kind.width,height:kind.height,revision:kind.revision,alphaBounds};uploads.set(id,record);return record;
+      const record={canvas:surface,bytes,width:kind.width,height:kind.height,revision:kind.revision,alphaBounds,pixelKey,colorKey,cost,retained:cost<=maxCacheBytes&&maxCacheEntries>0};
+      if(record.retained){uploads.set(id,record);cacheBytes+=cost;}return record;
     }
+    function consume(kind,operation){const record=upload(kind);try{return operation(record);}finally{if(!record.retained)release(record);}}
     const cache=Object.freeze({
       transform:snapped,
       beginFrame(){active();used=new Set();},
       draw(context,kind){
-        const record=upload(kind);context.save();
-        try {context.imageSmoothingEnabled=Boolean(kind.smoothing);const m=context.getTransform();context.setTransform(...snapped([m.a,m.b,m.c,m.d,m.e,m.f],kind.pixel_snapping));context.drawImage(record.canvas,0,0,kind.width,kind.height);}
-        finally {context.restore();}
+        consume(kind,record=>{context.save();
+          try {context.imageSmoothingEnabled=Boolean(kind.smoothing);const m=context.getTransform();context.setTransform(...snapped([m.a,m.b,m.c,m.d,m.e,m.f],kind.pixel_snapping));context.drawImage(record.canvas,0,0,kind.width,kind.height);}
+          finally {context.restore();}
+        });
       },
-      hit(kind,x,y){if(x<0||y<0||x>=kind.width||y>=kind.height)return false;const record=upload(kind);return record.bytes[(Math.floor(y)*kind.width+Math.floor(x))*4+3]>0;},
-      bounds(kind){return upload(kind).alphaBounds;},
+      hit(kind,x,y){if(x<0||y<0||x>=kind.width||y>=kind.height)return false;return consume(kind,record=>record.bytes[(Math.floor(y)*kind.width+Math.floor(x))*4+3]>0);},
+      bounds(kind){return consume(kind,record=>record.alphaBounds);},
+      stats(){return {entries:uploads.size,bytes:cacheBytes,maxBytes:maxCacheBytes,maxEntries:maxCacheEntries};},
       endFrame(){for(const id of uploads.keys())if(!used.has(id))drop(id);},
       clear(){for(const id of [...uploads.keys()])drop(id);used.clear();},
     });

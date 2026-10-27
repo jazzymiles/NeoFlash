@@ -7,6 +7,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 mod bitmap;
 mod linked;
 mod text;
+mod transform;
+pub use transform::ColorTransform;
 
 pub const MAX_DYNAMIC_OBJECTS: usize = 4096;
 const MAX_GRAPH_DEPTH: usize = 64;
@@ -82,6 +84,9 @@ pub struct RuntimeObject {
     pub bitmap: Option<PixelDescriptor>,
     pub smoothing: bool,
     pub pixel_snapping: PixelSnapping,
+    pub local_matrix: [f64; 6],
+    pub color_transform: ColorTransform,
+    pub concatenated_color_transform: ColorTransform,
 }
 
 /// Runtime pixels have their own identity; authoring resource IDs remain immutable.
@@ -98,6 +103,7 @@ pub enum RuntimeDrawKind {
         revision: String,
         smoothing: bool,
         pixel_snapping: PixelSnapping,
+        color_transform: ColorTransform,
     },
     #[serde(untagged)]
     Element(ElementKind),
@@ -181,6 +187,8 @@ pub(crate) struct RuntimeGraph {
     bitmap_error: Option<BitmapError>,
     text_states: HashMap<ObjectRef, TextFieldState>,
     text_bytes: usize,
+    affines: HashMap<ObjectRef, transform::AffineState>,
+    color_transforms: HashMap<ObjectRef, ColorTransform>,
     authored: BTreeMap<Vec<Id>, Authored>,
     paths: HashMap<ObjectRef, Vec<Id>>,
     prefix: HashMap<ObjectRef, Vec<ObjectRef>>,
@@ -208,6 +216,8 @@ impl RuntimeGraph {
         self.bitmap_error = None;
         self.text_states.clear();
         self.text_bytes = 0;
+        self.affines.clear();
+        self.color_transforms.clear();
         self.authored.clear();
         self.paths.clear();
         self.prefix.clear();
@@ -279,6 +289,10 @@ impl RuntimeGraph {
         self.bitmap_states
             .retain(|reference, _| !retired.contains(reference));
         self.retire_text(&retired);
+        self.affines
+            .retain(|reference, _| !retired.contains(reference));
+        self.color_transforms
+            .retain(|reference, _| !retired.contains(reference));
         for (path, lifetime) in placements {
             if !self.authored.contains_key(path) {
                 let reference = self.allocate();
@@ -472,12 +486,22 @@ impl Player {
         let mut pending: Vec<_> = roots
             .into_iter()
             .rev()
-            .map(|id| (id, [1., 0., 0., 1., 0., 0.], 1., true, false, false, false))
+            .map(|id| {
+                (
+                    id,
+                    [1., 0., 0., 1., 0., 0.],
+                    ColorTransform::default(),
+                    true,
+                    false,
+                    false,
+                    false,
+                )
+            })
             .collect();
         while let Some((
             reference,
             parent_world,
-            parent_alpha,
+            parent_color,
             parent_visible,
             parent_attached,
             parent_disabled,
@@ -543,20 +567,31 @@ impl Player {
                 .pixel_ref
                 .as_ref()
                 .and_then(|id| self.graph.pixels.info(id).ok());
-            display.world = affine_multiply(parent_world, transform_matrix(display.transform));
+            let local_matrix = if let Some(affine) = self.graph.affines.get(&reference) {
+                affine.update_display(&mut display);
+                affine.matrix
+            } else {
+                transform_matrix(display.transform)
+            };
+            let color_transform = self
+                .graph
+                .color_transforms
+                .get(&reference)
+                .copied()
+                .unwrap_or_else(|| ColorTransform::from_alpha(display.transform.alpha));
+            display.transform.alpha = color_transform.multipliers[3];
+            let concatenated_color_transform = color_transform.then(parent_color);
+            display.world = affine_multiply(parent_world, local_matrix);
             display.effective_visible = parent_visible && display.visible;
-            let alpha = parent_alpha * display.transform.alpha;
             let on_stage = parent_attached || root.as_ref() == Some(&reference);
             let singular = parent_singular
-                || display.transform.scale_x == 0.
-                || display.transform.scale_y == 0.;
+                || local_matrix[0] * local_matrix[3] - local_matrix[1] * local_matrix[2] == 0.;
             let own_accessibility = metadata.get(&reference);
             let disabled = parent_disabled
                 || own_accessibility
                     .is_some_and(|a| a.role == AccessibleRole::Button && a.disabled);
             if on_stage
                 && display.effective_visible
-                && alpha > 0.
                 && !singular
                 && (display.world[0] * display.world[3] - display.world[1] * display.world[2]).abs()
                     >= 1e-12
@@ -580,7 +615,10 @@ impl Player {
                 if let Some(source) = items.get(&reference) {
                     let mut item = source.clone().map_kind(RuntimeDrawKind::Element);
                     item.transform = display.world;
-                    item.alpha = alpha;
+                    item.alpha = 1.;
+                    if let RuntimeDrawKind::Element(kind) = &mut item.kind {
+                        concatenated_color_transform.transform_kind(kind);
+                    }
                     if !matches!(
                         source.kind,
                         ElementKind::Bitmap { .. }
@@ -607,9 +645,9 @@ impl Player {
                                 .get(&reference)
                                 .map_or_else(String::new, |item| item.layer_id.clone()),
                             transform: display.world,
-                            alpha,
+                            alpha: 1.,
                             kind: RuntimeDrawKind::TextField {
-                                field: field.clone(),
+                                field: concatenated_color_transform.transform_text(field),
                             },
                         },
                     });
@@ -630,7 +668,7 @@ impl Player {
                                 .get(&reference)
                                 .map_or_else(String::new, |item| item.layer_id.clone()),
                             transform: display.world,
-                            alpha,
+                            alpha: 1.,
                             kind: RuntimeDrawKind::BitmapPixels {
                                 pixel_ref: pixel.pixel_ref.clone(),
                                 width: pixel.width,
@@ -638,11 +676,21 @@ impl Player {
                                 revision: pixel.revision.clone(),
                                 smoothing: bitmap_state.smoothing,
                                 pixel_snapping: bitmap_state.pixel_snapping,
+                                color_transform: concatenated_color_transform,
                             },
                         },
                     });
                 }
-                for (index, kind) in graphics.iter().enumerate() {
+                let colored_graphics = self
+                    .graph
+                    .dynamic
+                    .get(&reference)
+                    .map(|node| {
+                        node.graphics
+                            .paints_with_color(concatenated_color_transform)
+                    })
+                    .unwrap_or_default();
+                for (index, kind) in colored_graphics.into_iter().enumerate() {
                     result.draws.push(RuntimeDrawItem {
                         owner_ref: reference.clone(),
                         item: DrawItem {
@@ -651,8 +699,8 @@ impl Player {
                             instance_path: vec![],
                             layer_id: String::new(),
                             transform: display.world,
-                            alpha,
-                            kind: RuntimeDrawKind::Element(kind.clone()),
+                            alpha: 1.,
+                            kind: RuntimeDrawKind::Element(kind),
                         },
                     });
                 }
@@ -661,7 +709,7 @@ impl Player {
                 pending.push((
                     child.clone(),
                     display.world,
-                    alpha,
+                    concatenated_color_transform,
                     display.effective_visible,
                     on_stage,
                     disabled,
@@ -682,8 +730,59 @@ impl Player {
                 bitmap,
                 smoothing: bitmap_state.smoothing,
                 pixel_snapping: bitmap_state.pixel_snapping,
+                local_matrix,
+                color_transform,
+                concatenated_color_transform,
             });
         }
+        // Eligibility follows final descendant paint alpha. A signed parent
+        // transform may hide 0..255 itself while a child's unclamped transform
+        // produces a visible concatenation, so never prune whole subtrees early.
+        // Each ancestor is visited once; no per-semantic-node scene scan.
+        let mut painted = BTreeSet::new();
+        for draw in &result.draws {
+            let visible = match &draw.item.kind {
+                RuntimeDrawKind::Element(
+                    ElementKind::Rectangle {
+                        fill,
+                        stroke,
+                        stroke_width,
+                        ..
+                    }
+                    | ElementKind::Ellipse {
+                        fill,
+                        stroke,
+                        stroke_width,
+                        ..
+                    }
+                    | ElementKind::Path {
+                        fill,
+                        stroke,
+                        stroke_width,
+                        ..
+                    },
+                ) => fill[3] > 0 || (*stroke_width > 0. && stroke[3] > 0),
+                RuntimeDrawKind::TextField { field } => field.alpha > 0 && !field.text.is_empty(),
+                // The browser's revision cache supplies actual pixel alpha
+                // bounds. Core avoids rescanning bitmap buffers each snapshot.
+                RuntimeDrawKind::BitmapPixels {
+                    color_transform, ..
+                } => color_transform.can_be_visible(),
+                _ => false,
+            };
+            if visible {
+                let mut current = Some(draw.owner_ref.clone());
+                while let Some(reference) = current {
+                    if !painted.insert(reference.clone()) {
+                        break;
+                    }
+                    current = self.graph.parent(&reference);
+                }
+            }
+        }
+        result
+            .semantics
+            .retain(|node| painted.contains(&node.owner_ref));
         result
             .semantics
             .sort_by_key(|node| node.node.accessibility.tab_order);
@@ -959,6 +1058,9 @@ impl Player {
         if !valid {
             return false;
         }
+        if let Some(result) = self.set_transform_property_override(reference, name, value) {
+            return result;
+        }
         if let Some(address) = self.graph.linked_paths.get(reference).cloned() {
             return self
                 .graph
@@ -994,6 +1096,9 @@ impl Player {
         reference: &ObjectRef,
         name: &str,
     ) -> Option<f64> {
+        if let Some(value) = self.transform_property_override(reference, name) {
+            return Some(value);
+        }
         if let Some(address) = self.graph.linked_paths.get(reference) {
             return self
                 .graph

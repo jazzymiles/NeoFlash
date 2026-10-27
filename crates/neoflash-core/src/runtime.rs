@@ -651,6 +651,11 @@ impl Player {
         ) {
             return false;
         }
+        if let Some(reference) = self.object_ref(path)
+            && let Some(result) = self.set_transform_property_override(&reference, property, value)
+        {
+            return result;
+        }
         let patch = self.overrides.entry(path.to_vec()).or_default();
         match property {
             "x" => patch.x = Some(value),
@@ -736,6 +741,11 @@ impl Player {
     }
 
     pub fn property(&self, project: &Project, path: &[Id], property: &str) -> Option<f64> {
+        if let Some(reference) = self.object_ref(path)
+            && let Some(value) = self.transform_property_override(&reference, property)
+        {
+            return Some(value);
+        }
         let scene = self.snapshot(project);
         let t = scene.nodes.iter().find(|n| n.path == path)?.transform;
         match property {

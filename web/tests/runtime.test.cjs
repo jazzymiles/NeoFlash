@@ -12,6 +12,10 @@ test('ellipse picking excludes bounding box corners', () => {
   assert.equal(hitShape(ellipse,0,0),false);
   assert.equal(hitShape(ellipse,50,25),true);
   assert.equal(hitShape(ellipse,100,25),true);
+  const transparent={...ellipse,fill:[50,100,150,0],stroke:[0,0,0,0],stroke_width:4};
+  assert.equal(hitShape(transparent,50,25),false,'transformed alpha controls hit testing even when draw.alpha is one');
+  assert.equal(hitShape({...transparent,fill:[50,100,150,128]},50,25),true,'alpha offsets can restore visible paint');
+  assert.equal(hitShape({type:'rectangle',width:100,height:50,fill:[0,0,0,0],stroke:[0,0,0,0],stroke_width:0},50,25),false);
 });
 test('frame controls are one-based, labels take precedence, invalid targets fail', () => {
   assert.equal(oneBasedFrame(1,24,()=>-1),0);

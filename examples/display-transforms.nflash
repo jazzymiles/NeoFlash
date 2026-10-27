@@ -1,0 +1,688 @@
+{
+  "format_version": 2,
+  "name": "Display transforms and independent color",
+  "width": 960,
+  "height": 710,
+  "fps": 24,
+  "background": [
+    12,
+    22,
+    35,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Display transforms",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 30,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / TRANSFORM + COLORTRANSFORM",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 66,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Shape, position and color — independently.",
+                      "font_family": "Arial",
+                      "font_size": 30,
+                      "color": [
+                        238,
+                        247,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 112,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Cycle the composition: transform, detach, restore. Restart rebuilds a fresh scene.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rig-panel",
+                    "name": "rig-panel",
+                    "transform": {
+                      "x": 48,
+                      "y": 178,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 412,
+                      "height": 230,
+                      "fill": [
+                        23,
+                        35,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "bitmap-panel",
+                    "name": "bitmap-panel",
+                    "transform": {
+                      "x": 500,
+                      "y": 178,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 412,
+                      "height": 230,
+                      "fill": [
+                        23,
+                        35,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rig-label",
+                    "name": "rig-label",
+                    "transform": {
+                      "x": 68,
+                      "y": 152,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NESTED LINKED CARD / VECTOR + TEXT",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pixels-label",
+                    "name": "pixels-label",
+                    "transform": {
+                      "x": 520,
+                      "y": 152,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ONE PIXEL BUFFER / TWO COLOR TRANSFORMS",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "cool-label",
+                    "name": "cool-label",
+                    "transform": {
+                      "x": 540,
+                      "y": 204,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Cool + alpha offset",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "warm-label",
+                    "name": "warm-label",
+                    "transform": {
+                      "x": 740,
+                      "y": 204,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Warm / unchanged",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "buffer-note",
+                    "name": "buffer-note",
+                    "transform": {
+                      "x": 520,
+                      "y": 370,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Colors belong to each view. The pixels are shared.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-panel",
+                    "name": "legacy-panel",
+                    "transform": {
+                      "x": 48,
+                      "y": 454,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 864,
+                      "height": 114,
+                      "fill": [
+                        23,
+                        35,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-label",
+                    "name": "legacy-label",
+                    "transform": {
+                      "x": 68,
+                      "y": 426,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 / SAME 2D GEOMETRY FAMILY",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-readout",
+                    "name": "legacyReadout",
+                    "transform": {
+                      "x": 338,
+                      "y": 500,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 transform initializing…",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 48,
+                      "y": 604,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Preparing transforms…",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "cycle-button",
+                    "name": "cycleButton",
+                    "transform": {
+                      "x": 48,
+                      "y": 642,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "cycle-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.cycle();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Cycle composition",
+                      "description": "Rotate and scale the skewed card, detach it, then restore it; bitmap views keep independent colors.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import flash.geom.Matrix;\nimport flash.geom.ColorTransform;\nimport flash.geom.Transform;\nvar legacyClip:MovieClip=createEmptyMovieClip(\"legacyShape\",getNextHighestDepth());\nlegacyClip.beginFill(0xffffff,100); legacyClip.moveTo(0,0); legacyClip.lineTo(224,0); legacyClip.lineTo(224,48); legacyClip.lineTo(0,48); legacyClip.lineTo(0,0); legacyClip.endFill();\nvar legacyTransform:Transform=new Transform(legacyClip);\nlegacyTransform.matrix=new Matrix(1,0.06,0.2,1,68,488);\nvar legacyTint:ColorTransform=new ColorTransform(); legacyTint.color=0x23c7b0;\nlegacyTransform.colorTransform=legacyTint;\nlegacyReadout.text=\"AS2: Matrix + ColorTransform + bound Transform | rotation \"+legacyClip._rotation;\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "cycle-control",
+      "name": "Cycle composition",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "cycle-control-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "cycle-background",
+                    "name": "cycle-background",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 202,
+                      "height": 38,
+                      "fill": [
+                        37,
+                        109,
+                        139,
+                        255
+                      ],
+                      "stroke": [
+                        175,
+                        218,
+                        239,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "cycle-caption",
+                    "name": "cycle-caption",
+                    "transform": {
+                      "x": 20,
+                      "y": 11,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Cycle composition",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        255,
+                        255,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "transform-card",
+      "name": "Linked transform card",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "transform-card-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "card-face",
+                    "name": "card-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 104,
+                      "fill": [
+                        47,
+                        141,
+                        175,
+                        255
+                      ],
+                      "stroke": [
+                        175,
+                        218,
+                        239,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 12,
+                      "y": 18,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Linked card / skew retained",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        239,
+                        248,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card-detail",
+                    "name": "card-detail",
+                    "transform": {
+                      "x": 12,
+                      "y": 58,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Vector + text inherit parent color",
+                      "font_family": "Arial",
+                      "font_size": 12,
+                      "color": [
+                        221,
+                        242,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card-stripe",
+                    "name": "card-stripe",
+                    "transform": {
+                      "x": 12,
+                      "y": 80,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 130,
+                      "height": 8,
+                      "fill": [
+                        255,
+                        196,
+                        90,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        196,
+                        90,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      },
+      "linkage_id": "transform-card",
+      "class_name": "app.TransformCard"
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;\n import flash.display.Sprite;\n import flash.display.Bitmap;\n import flash.display.BitmapData;\n import flash.geom.Matrix;\n import flash.geom.Rectangle;\n import flash.geom.Transform;\n import flash.geom.ColorTransform;\n public class Main extends MovieClip {\n  public var rig:Sprite;\n  public var card:TransformCard;\n  public var shared:BitmapData;\n  public var leftView:Bitmap;\n  public var rightView:Bitmap;\n  public var phase:int=0;\n  public function Main() {\n   super(); stop();\n   rig=new Sprite(); rig.name=\"skewRig\"; addChild(rig);\n   card=new TransformCard(); rig.addChild(card);\n   shared=new BitmapData(16,16,true,0xffeaf3ff);\n   shared.fillRect(new Rectangle(0,0,16,4),0x00ffffff);\n   shared.fillRect(new Rectangle(2,5,5,9),0xff5fa6d1);\n   shared.fillRect(new Rectangle(9,5,5,9),0xffe1a35c);\n   leftView=new Bitmap(shared); leftView.name=\"coolView\";\n   leftView.x=552; leftView.y=244; leftView.scaleX=6; leftView.scaleY=6; addChild(leftView);\n   rightView=new Bitmap(shared); rightView.name=\"warmView\";\n   rightView.x=752; rightView.y=244; rightView.scaleX=6; rightView.scaleY=6; addChild(rightView);\n   restore();\n   trace(\"transforms ready\",phase,TransformCard.created,shared.getPixel32(2,5));\n  }\n  public function restore():void {\n   if(card.parent!=rig) {removeChild(card);rig.addChild(card);}\n   rig.transform.matrix=new Matrix(1,0.08,0.28,1,96,234);\n   card.transform.matrix=new Matrix(1,0,0,1,14,6);\n   rig.transform.colorTransform=new ColorTransform();\n   leftView.transform.colorTransform=new ColorTransform(0.45,0.9,1,1,0,12,0,0);\n   rightView.transform.colorTransform=new ColorTransform(1,0.6,0.35,1,12,0,0,0);\n   card.caption.text=\"Linked card / skew retained\";\n   status.text=\"Ready: skewed nested card, two tinted views, one unchanged pixel buffer.\";\n  }\n  public function cycle():void {\n   phase=(phase+1)%3;\n   if(phase==1) {\n    rig.rotation=rig.rotation+12; rig.scaleX=rig.scaleX*1.1; rig.scaleY=rig.scaleY*0.85;\n    rig.transform.colorTransform=new ColorTransform(0.65,0.9,1,0.7,18,4,0,30);\n    var tint:ColorTransform=new ColorTransform(0.45,0.9,1,0.6,0,12,0,70);\n    leftView.transform.colorTransform=tint;\n    card.caption.text=\"Rotated + scaled + tinted\";\n    status.text=\"1 / Scalar rotate + scale keep the skew. Alpha offset reveals the cool bitmap top row.\";\n   } else if(phase==2) {\n    var world:Matrix=card.transform.concatenatedMatrix;\n    rig.removeChild(card); addChild(card); card.transform.matrix=world;\n    card.caption.text=\"Detached / same linked card\";\n    status.text=\"2 / Detached into the scene at the same world position. Its linked constructor did not run again.\";\n   } else {\n    restore();\n    status.text=\"0 / Reattached to the rig and restored. Shared pixel data remained unchanged.\";\n   }\n   legacyClip._rotation=phase*4;\n   legacyReadout.text=\"AS2: Matrix + ColorTransform + bound Transform | rotation \"+legacyClip._rotation;\n   var bound:Transform=Transform(rig.transform);\n   var combined:ColorTransform=card.transform.concatenatedColorTransform;\n   trace(\"transforms phase\",phase,TransformCard.created,bound is Transform,combined is ColorTransform,shared.getPixel32(2,5));\n  }\n }\n}"
+    },
+    {
+      "id": "card-source",
+      "path": "app/TransformCard.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;\n public class TransformCard extends MovieClip {\n  public static var created:int=0;\n  public function TransformCard() {super();stop();created++;}\n }\n}"
+    }
+  ]
+}

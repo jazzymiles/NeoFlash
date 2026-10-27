@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Independently verified the 7ed1605 data-processing delivery: real JSON/RegExp/String reporting, public getter serialization and safe diagnostics, UTC leap/month/year boundaries checked against Python timestamps, AS2 Date and Restart. One five-project browser batch preserves Sound, text, linked-timeline and collection behavior. Exact declarations remain partial; locale/DST/parser, full PCRE and general JSON class semantics are not inferred.
+
+- Added runtime 2D Transform and ColorTransform: exact skew-preserving matrices, scalar edits, nested RGBA transforms, independent colorized views of shared BitmapData, AS2/AS3 constructors and linked-object lifecycle. Stage-coordinate bounds and finite numeric limits are explicit; native authoring skew, window-coordinate mapping and 3D remain unfinished.
+
 - Independently verified the d8f580a Sound delivery: preserved MP3 bytes, embedded AS3 and HTTP AS2 loading, real silent channel completion with bounded repeats, transform-copy/refusal behavior, Stop and active-playback Restart. One five-project browser batch preserves text, bitmap, linked-timeline and collection behavior. Audible quality, WAV native decode and full mixer/timeline audio remain outside this evidence.
 
 - Added one data-processing family: AS2/AS3 Date, AS3 constructor-based RegExp with String matching/replacement/splitting, bounded JSON callbacks and public class getter serialization, and typed Date/RegExp plus resolved AS3 is/as operations. A combined embedded-data project renders UTC planning dates and a serialized report. Modern browser date/regex behavior is explicitly partial; regex literals, historical locale/PCRE parity and unsupported native JSON encodings remain follow-ups.

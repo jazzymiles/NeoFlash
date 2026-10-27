@@ -36,9 +36,9 @@ pub use runtime::{
     AccessibleNode, DisplayNode, PlaybackCommand, Player, ScriptDispatch, ScriptEvent,
 };
 pub use runtime_graph::{
-    DisplayError, DisplayEvent, DisplayMutation, DynamicKind, MAX_DYNAMIC_OBJECTS, MutationResult,
-    ObjectRef, RuntimeAccessibleNode, RuntimeDrawItem, RuntimeDrawKind, RuntimeObject,
-    RuntimeScriptDispatch, RuntimeSnapshot,
+    ColorTransform, DisplayError, DisplayEvent, DisplayMutation, DynamicKind, MAX_DYNAMIC_OBJECTS,
+    MutationResult, ObjectRef, RuntimeAccessibleNode, RuntimeDrawItem, RuntimeDrawKind,
+    RuntimeObject, RuntimeScriptDispatch, RuntimeSnapshot,
 };
 pub use runtime_graphics::{GraphicsOp, MAX_GRAPHICS_COMMANDS, MAX_GRAPHICS_OPS};
 pub use text::{

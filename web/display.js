@@ -3,7 +3,7 @@
   'use strict';
   const geometry=typeof module!=='undefined'&&module.exports?require('./geom.js'):global.NeoFlashGeom;
   if(!geometry)throw new Error('The geometry runtime is missing. Re-export this project.');
-  const {Point,Rectangle,Matrix}=geometry;
+  const {Point,Rectangle,Matrix,ColorTransform}=geometry;
   const UNHANDLED = Symbol('unhandled display member');
   const graphicsInstances=new WeakSet();
   class Graphics {constructor(){throw new TypeError('Graphics is created by Sprite, Shape or MovieClip; use the object.graphics property.');}}
@@ -22,6 +22,7 @@
     return [m[3]/d,-m[1]/d,-m[2]/d,m[0]/d,(m[2]*m[5]-m[3]*m[4])/d,(m[1]*m[4]-m[0]*m[5])/d];
   }
   function normalizedRotation(value) { const r=value%360;return r>180?r-360:r< -180?r+360:r; }
+  function nonAxisAligned(node){const m=node.local_matrix||matrix(node.transform);return Math.abs(m[1])>1e-10||Math.abs(m[2])>1e-10;}
   const textProperties=new Set(['text','textColor','length','numLines','textWidth','textHeight']);
   const unsupportedText=new Set(['htmlText','styleSheet','type','selectable','autoSize','embedFonts','displayAsPassword','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','background','backgroundColor','border','borderColor','antiAliasType','gridFitType','sharpness','thickness','condenseWhite','getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineMetrics','getParagraphLength','getFirstCharInParagraph','setSelection','replaceSelectedText']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
@@ -54,7 +55,7 @@
       if (descendant(node,target,list)) {
         const chain=[];
         for(let current=node;nodeKey(current)!==nodeKey(target);current=parentNode(current,list))chain.push(current);
-        let result=identity;for(const child of chain.reverse())result=multiply(result,matrix(child.transform));
+        let result=identity;for(const child of chain.reverse())result=multiply(result,child.local_matrix||matrix(child.transform));
         return result;
       }
       return multiply(inverse(target.world),node.world);
@@ -88,6 +89,45 @@
       }
       return box ? new Rectangle(box.left,box.top,box.right-box.left,box.bottom-box.top) : new Rectangle();
     }
+    // Transform is bound to a Rust object identity. Returned value objects are
+    // copies; concatenated/pixel coordinates use the logical stage, excluding
+    // the editor/export preview's CSS zoom and browser-window mapping.
+    const transformTargets=new WeakMap(),transformCache=new WeakMap();
+    const colorNames=['redMultiplier','greenMultiplier','blueMultiplier','alphaMultiplier','redOffset','greenOffset','blueOffset','alphaOffset'];
+    const identityColor={multipliers:[1,1,1,1],offsets:[0,0,0,0]};
+    const colorCopy=value=>new ColorTransform(...value.multipliers,...value.offsets);
+    function transformTarget(value){const target=transformTargets.get(value);if(!target)throw new TypeError('Expected a bound Transform.');descriptor(target);return target;}
+    function finiteComponents(value,names){
+      if(value===null||typeof value!=='object')throw new TypeError('Transform requires a geometry value object.');
+      const result=names.map(name=>value[name]);
+      if(!result.every(value=>typeof value==='number'&&Number.isFinite(value)))throw new RangeError('Transform components must be finite numbers.');
+      return result;
+    }
+    class Transform {
+      constructor(target){descriptor(target);transformTargets.set(this,target);Object.seal(this);}
+      get matrix(){const node=descriptor(transformTarget(this));return new Matrix(...(node.local_matrix||matrix(node.transform)));}
+      set matrix(value){
+        const target=transformTarget(this),components=finiteComponents(value,['a','b','c','d','tx','ty']);
+        if(!player.object_set_matrix(referenceOf(target).key,JSON.stringify(components)))throw new RangeError('Runtime rejected the matrix on this display object.');
+      }
+      get colorTransform(){return colorCopy(descriptor(transformTarget(this)).color_transform||identityColor);}
+      set colorTransform(value){
+        const target=transformTarget(this),components=finiteComponents(value,colorNames);
+        if(!player.object_set_color_transform(referenceOf(target).key,JSON.stringify({multipliers:components.slice(0,4),offsets:components.slice(4)})))throw new RangeError('Runtime rejected the color transform on this display object.');
+      }
+      get concatenatedMatrix(){return new Matrix(...descriptor(transformTarget(this)).world);}
+      get concatenatedColorTransform(){return colorCopy(descriptor(transformTarget(this)).concatenated_color_transform||identityColor);}
+      get pixelBounds(){
+        const box=bounds(transformTarget(this),null,true);
+        if(box.width<=0||box.height<=0)return new Rectangle();
+        const x=Math.floor(box.x),y=Math.floor(box.y);return new Rectangle(x,y,Math.ceil(box.right)-x,Math.ceil(box.bottom)-y);
+      }
+      getRelativeMatrix(relativeTo){const list=nodes(),node=descriptor(transformTarget(this),list),target=relativeTo===getStage()?null:descriptor(relativeTo,list);return new Matrix(...relative(node,target,list));}
+    }
+    Object.defineProperties(Transform,{__nfIs:{value:value=>transformTargets.has(value)},__nfInitialize:{value:()=>{throw new TypeError('Native Transform subclassing is not supported.');}}});
+    for(const name of ['matrix3D','perspectiveProjection'])Object.defineProperty(Transform.prototype,name,{get(){throw new TypeError(`Transform.${name} requires the unimplemented 3D family.`);},set(){throw new TypeError(`Transform.${name} requires the unimplemented 3D family.`);}});
+    for(const name of ['getRelativeMatrix3D'])Object.defineProperty(Transform.prototype,name,{value(){throw new TypeError(`Transform.${name} requires the unimplemented 3D family.`);}});
+    function transform(target){descriptor(target);if(!transformCache.has(target))transformCache.set(target,new Transform(target));return transformCache.get(target);}
     function parentSpace(target) {const list=nodes(),node=descriptor(target,list),parent=parentNode(node,list);return parent?nodeProxy(parent):node.on_stage===false?null:getStage();}
     function children(target) {const list=nodes(),parent=descriptor(target,list);return graph?parent.children.map(ref=>list.find(node=>nodeKey(node)===refKey(ref))).filter(Boolean):list.filter(node=>node.path.length===parent.path.length+1&&within(node.path,parent.path));}
     function requireContainer(target) {const node=descriptor(target);if(!['movie_clip','sprite','graphic','button'].includes(node.owner))throw new TypeError('Child traversal requires a display container.');return node;}
@@ -240,6 +280,7 @@
       return result;
     }
     function get(target,name) {
+      if(name==='transform')return transform(target);
       if(getText()&&descriptor(target).owner==='text'){
         const text=getText(),value=text.get(referenceOf(target).key,name);if(value!==text.UNHANDLED)return value;
       }
@@ -272,8 +313,9 @@
       return UNHANDLED;
     }
     function set(target,name,value) {
+      if(name==='transform')throw new TypeError('Replacing DisplayObject.transform is not supported; set transform.matrix or transform.colorTransform.');
       if(getText()&&descriptor(target).owner==='text'){
-        if(['width','height','_width','_height'].includes(name)&&Math.abs(normalizedRotation(descriptor(target).transform.rotation)%180)>1e-10)throw new RangeError('Setting dimensions of a rotated TextField is not supported yet. Set its logical box before rotation.');
+        if(['width','height','_width','_height'].includes(name)&&nonAxisAligned(descriptor(target)))throw new RangeError('Setting dimensions of a rotated TextField or skewed TextField is not supported yet. Set its logical box before applying the matrix.');
         if(getText().set(referenceOf(target).key,name,value))return true;
       }
       if(['bitmapData','smoothing','pixelSnapping'].includes(name)&&descriptor(target).owner==='bitmap'){
@@ -302,7 +344,7 @@
       if(name==='width'||name==='height'||name==='_width'||name==='_height') {
         const node=descriptor(target);if(name[0]==='_')value=Number(value);
         if(!Number.isFinite(value)||value<0)throw new RangeError('Display dimensions must be finite nonnegative numbers.');
-        if(Math.abs(normalizedRotation(node.transform.rotation)%180)>1e-10)throw new RangeError('Setting dimensions of a rotated object is not supported yet. Set scaleX/scaleY explicitly; transformed bounds remain available.');
+        if(nonAxisAligned(node))throw new RangeError('Setting dimensions of a rotated object or skewed object is not supported yet. Set scaleX/scaleY explicitly; transformed bounds remain available.');
         const axis=name.includes('width')?'width':'height',local=bounds(target,target,true)[axis];
         if(local===0){if(value===0)return true;throw new RangeError('Cannot resize empty geometry to a nonzero dimension.');}
         if(!invoke(target,'set_property',axis==='width'?'scale_x':'scale_y',value/local))throw new RangeError('Runtime rejected the requested display dimension.');return true;
@@ -345,7 +387,7 @@
       if(data!==null)getBitmap().refOf(data);return [data,snap,smooth];
     }
     function initializeBitmap(receiver,args){const [data,snap,smooth]=bitmapArguments(args);set(receiver,'bitmapData',data);set(receiver,'pixelSnapping',snap);set(receiver,'smoothing',smooth);}
-    const builtins={'flash.display.Graphics':Graphics,'flash.geom.Point':Point,'flash.geom.Rectangle':Rectangle,'flash.geom.Matrix':Matrix};
+    const builtins={'flash.display.Graphics':Graphics,'flash.geom.Point':Point,'flash.geom.Rectangle':Rectangle,'flash.geom.Matrix':Matrix,'flash.geom.ColorTransform':ColorTransform,'flash.geom.Transform':Transform};
     for(const[name,owners]of Object.entries({DisplayObject:null,DisplayObjectContainer:['movie_clip','sprite','graphic','button'],MovieClip:['movie_clip'],Sprite:['movie_clip','sprite','graphic','button'],Shape:['shape'],Bitmap:['bitmap'],TextField:['text']})) {
       const allocation={Sprite:'sprite',Shape:'shape',MovieClip:'movie_clip',Bitmap:'bitmap',TextField:'text_field'}[name];
       function allocate(){if(!graph||!allocation)throw new TypeError(`Dynamic new ${name}() is not supported. Use an authored instance for this owner.`);return proxyForRef(JSON.parse(player.create_display(allocation)));}
@@ -363,6 +405,6 @@
     }
     return {methods,get,set,builtins,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,prune,clear:()=>legacy.clear(),UNHANDLED};
   }
-  const api={create,Point,Rectangle,Matrix,normalizedRotation,UNHANDLED};
+  const api={create,Point,Rectangle,Matrix,ColorTransform,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;
 })(globalThis);

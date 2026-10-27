@@ -1,5 +1,7 @@
 # Roadmap
 
+Independent 7ed1605 acceptance (`DATA-HTML5-20261027T0452Z`) confirms a resource-driven AS3 JSON/RegExp/String report, public getter serialization, adjacent safe diagnostics, AS2/AS3 numeric UTC dates across selected boundaries and Restart. Nine AS3 timestamps match a Python UTC oracle. Exact declarations remain partial; locale/DST/parsing, full PCRE and general JSON class/coercion semantics are not inferred. See [the independent record](VERIFICATION.md#independent-data-processing-verification-of-7ed1605). Transform/ColorTransform now has a separate [main-delivery record](VERIFICATION.md#runtime-transform-and-colortransform-batch); independent declaration acceptance remains separate.
+
 Independent d8f580a acceptance (`AUDIO-HTML5-20261027T0429Z`) confirms embedded AS3 and HTTP AS2 MP3 loading, native silent channel completion with different repeat counts, transform-copy/refusal behavior, Stop and active-playback Restart. Exact declarations remain partial; audible quality, WAV native decode, full mixer/timeline audio and pending-decode races are not inferred. See [the independent record](VERIFICATION.md#independent-audio-verification-of-d8f580a). Date/JSON/RegExp/String now has a separate [main-delivery record](VERIFICATION.md#date-regexp-and-json-data-processing-batch); independent declaration acceptance remains separate.
 
 Independent fba17ae acceptance (`TEXT-LAYOUT-HTML5-20261027T0409Z`) confirms dynamic AS2/AS3 fields, actual width-driven wrapping/alignment, independent current/default uniform formats, content-preserving mixed/range refusal and Restart. Exact members remain partial; rich text/input/IME/font embedding are unsupported and native editing remains unverified. See [the independent record](VERIFICATION.md#independent-text-layout-verification-of-fba17ae). The later d8f580a Sound family has a separate independent record.
@@ -46,3 +48,5 @@ The audio family adds complete-file scripted Sound playback through the existing
 
 
 Date, JSON and regular expressions connect resource loading to real scripted web interfaces. The delivered partial profile combines AS2/AS3 UTC calendar calculations, AS3 JSON callbacks/class getter serialization and constructor-based RegExp/String operations, with one shared regression and combined browser workflow. Historical locale/regex conformance and slash literals remain separate follow-ups; this does not shrink the goal to display animation alone.
+
+The delivered runtime family connects Transform/ColorTransform to exact affine matrices, shared-pixel display views and consistent color/alpha behavior through nested instances. The pure authoring evaluator stays separate from script execution; native script preview, 3D and authoring skew controls still need their own work.

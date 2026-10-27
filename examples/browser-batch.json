@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "display-transforms",
+      "path": "examples/display-transforms.nflash",
+      "title": "2D Transform, color and shared bitmap views",
+      "checks": [
+        "Initial nested card visibly retains skew; two differently tinted views share one unchanged BitmapData. The AS2 strip uses Matrix, ColorTransform and a bound Transform.",
+        "Cycle first rotates/scales the rig without removing skew, tints its vector/text and reveals the cool bitmap transparent top row through alphaOffset.",
+        "Cycle again reparents the same linked card at its world matrix without repeating its constructor; third Cycle restores the rig. Restart restores the full original scene and the next Cycle runs phase one once."
+      ]
+    },
+    {
       "id": "data-processing",
       "path": "examples/data-processing.nflash",
       "title": "JSON, RegExp and AS2/AS3 Date data processing",

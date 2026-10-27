@@ -1,5 +1,7 @@
 # Backlog
 
+Independent 7ed1605 acceptance (`DATA-HTML5-20261027T0452Z`) confirms a resource-driven AS3 JSON/RegExp/String report, public getter serialization, adjacent safe diagnostics, AS2/AS3 numeric UTC dates across selected boundaries and Restart. Nine AS3 timestamps match a Python UTC oracle. Exact declarations remain partial; locale/DST/parsing, full PCRE and general JSON class/coercion semantics are not inferred. See [the independent record](VERIFICATION.md#independent-data-processing-verification-of-7ed1605). Transform/ColorTransform now has a separate [main-delivery record](VERIFICATION.md#runtime-transform-and-colortransform-batch); independent declaration acceptance remains separate.
+
 Independent d8f580a acceptance (`AUDIO-HTML5-20261027T0429Z`) confirms embedded AS3 and HTTP AS2 MP3 loading, native silent channel completion with different repeat counts, transform-copy/refusal behavior, Stop and active-playback Restart. Exact declarations remain partial; audible quality, WAV native decode, full mixer/timeline audio and pending-decode races are not inferred. See [the independent record](VERIFICATION.md#independent-audio-verification-of-d8f580a). Date/JSON/RegExp/String now has a separate [main-delivery record](VERIFICATION.md#date-regexp-and-json-data-processing-batch); independent declaration acceptance remains separate.
 
 Independent fba17ae acceptance (`TEXT-LAYOUT-HTML5-20261027T0409Z`) confirms dynamic AS2/AS3 fields, actual width-driven wrapping/alignment, independent current/default uniform formats, content-preserving mixed/range refusal and Restart. Exact members remain partial; rich text/input/IME/font embedding are unsupported and native editing remains unverified. See [the independent record](VERIFICATION.md#independent-text-layout-verification-of-fba17ae). The later d8f580a Sound family has a separate independent record.
@@ -44,6 +46,10 @@ Complete-file AS3 Sound/SoundChannel/SoundTransform and AS2 Sound now share reso
 ## Data-processing family
 
 Date in both dialects and AS3 JSON/RegExp with String matching now support the integrated resource-to-report workflow, cross-handler value identity, readable class getter serialization and Restart. Shared regression and one combined browser workflow passed. Regex literals, broader PCRE parity, historical Date parsing/DST/locale behavior and remaining native JSON encodings stay explicit follow-ups. Keep validation in existing family/compiler scenarios.
+
+## Runtime display transforms delivered
+
+The delivered partial family adds exact 2D matrix and RGBA color transforms to stable runtime objects, including linked instances and separately tinted views of shared BitmapData. Coordinate conversion, paint alpha, hit regions and accessibility share the runtime graph; one combined export/WASM/browser Cycle/Restart workflow passed. Native script execution, authoring skew controls and 3D remain separate work. Keep one combined skew/color/lifecycle workflow and extend existing cases rather than creating per-method suites; see [the decision](decisions/0018-runtime-display-transforms.md).
 
 ## P0 — HTML5 correctness
 

@@ -1,7 +1,7 @@
 //! Thin JavaScript bindings around the same Rust timeline runtime used by the editor.
 use neoflash_core::{
-    DisplayMutation, DynamicKind, GraphicsOp, ObjectRef, PixelRef, PixelSnapping, PlaybackCommand,
-    Player, Project, RuntimeScriptDispatch, ScriptDispatch,
+    ColorTransform, DisplayMutation, DynamicKind, GraphicsOp, ObjectRef, PixelRef, PixelSnapping,
+    PlaybackCommand, Player, Project, RuntimeScriptDispatch, ScriptDispatch,
 };
 use neoflash_core::{TextError, TextFieldState, TextPatch, layout_text};
 use wasm_bindgen::prelude::*;
@@ -34,6 +34,12 @@ fn pixel_ref(value: &str) -> Result<PixelRef, JsValue> {
 }
 fn display_error(error: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
+}
+fn color_transform(value: &str) -> Result<ColorTransform, JsValue> {
+    if value.len() > 4096 {
+        return Err(JsValue::from_str("ColorTransform input exceeds 4096 bytes"));
+    }
+    serde_json::from_str(value).map_err(display_error)
 }
 fn command(name: &str, frame: u32) -> Result<PlaybackCommand, JsValue> {
     match name {
@@ -334,6 +340,11 @@ impl WebPlayer {
             .bitmap_pixels(&pixel_ref(target)?)
             .map_err(display_error)
     }
+    pub fn bitmap_pixels_transformed(&self, target: &str, color: &str) -> Result<Vec<u8>, JsValue> {
+        self.player
+            .bitmap_pixels_transformed(&pixel_ref(target)?, color_transform(color)?)
+            .map_err(display_error)
+    }
     pub fn bitmap_get_pixel(
         &self,
         target: &str,
@@ -529,6 +540,42 @@ impl WebPlayer {
         Ok(self
             .player
             .object_set_property(&object_ref(target)?, name, value))
+    }
+    pub fn object_matrix(&self, target: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .object_matrix(&self.project, &object_ref(target)?)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn object_set_matrix(&mut self, target: &str, matrix: &str) -> Result<bool, JsValue> {
+        if matrix.len() > 4096 {
+            return Err(JsValue::from_str("Matrix input exceeds 4096 bytes"));
+        }
+        let matrix: [f64; 6] = serde_json::from_str(matrix).map_err(display_error)?;
+        self.player
+            .object_set_matrix(&object_ref(target)?, matrix)
+            .map_err(display_error)
+    }
+    pub fn object_color_transform(&self, target: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .object_color_transform(&self.project, &object_ref(target)?)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn object_set_color_transform(
+        &mut self,
+        target: &str,
+        color: &str,
+    ) -> Result<bool, JsValue> {
+        self.player
+            .object_set_color_transform(&object_ref(target)?, color_transform(color)?)
+            .map_err(display_error)
     }
     pub fn object_property(&self, target: &str, name: &str) -> Result<f64, JsValue> {
         Ok(self

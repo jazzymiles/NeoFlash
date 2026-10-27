@@ -9,12 +9,17 @@
     return [(d * (x - tx) - c * (y - ty)) / determinant, (-b * (x - tx) + a * (y - ty)) / determinant];
   }
   function hitShape(kind, x, y, measureText, testPath, testBitmap, testText) {
+    // Runtime colors already include the complete ColorTransform. A leaf can
+    // have draw.alpha=1 while every actual painted channel is transparent.
+    if ((kind.type==='rectangle'||kind.type==='ellipse'||kind.type==='path')&&
+        (kind.fill?.[3]??255)<=0&&(!(kind.stroke?.[3]>0)||!(kind.stroke_width>0))) return false;
     if (kind.type === 'rectangle') return x >= 0 && y >= 0 && x <= kind.width && y <= kind.height;
     if (kind.type === 'ellipse') {
       if (kind.width <= 0 || kind.height <= 0) return false;
       return Math.pow((x - kind.width / 2) / (kind.width / 2), 2) + Math.pow((y - kind.height / 2) / (kind.height / 2), 2) <= 1;
     }
     if (kind.type === 'text') {
+      if ((kind.color?.[3]??255)<=0) return false;
       const lines = kind.text.split('\n');
       return x >= 0 && y >= 0 && y <= lines.length * kind.font_size * 1.2 &&
         x <= Math.max(0, ...lines.map(line => measureText(line, kind)));

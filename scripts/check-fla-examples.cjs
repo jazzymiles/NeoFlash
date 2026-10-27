@@ -31,8 +31,10 @@ function pose(player, instance, position, fill, alpha = 1) {
   assert.equal(items.length, 1);
   assert.equal(items[0].kind.type, 'ellipse');
   assert.deepEqual(items[0].transform.slice(4), position);
-  assert.deepEqual(items[0].kind.fill, [...fill, 255]);
-  assert.equal(items[0].alpha, alpha);
+  assert.deepEqual(items[0].kind.fill.slice(0, 3), fill);
+  // ColorTransform can bake display alpha into the paint. Assert the visible
+  // opacity, independent of where it is stored, with one RGBA8 rounding step.
+  assert.ok(Math.abs(items[0].kind.fill[3] / 255 * items[0].alpha - alpha) <= 0.5 / 255);
 }
 
 test('imported primitives hold, disappear and return with labels and fill alpha intact', () =>

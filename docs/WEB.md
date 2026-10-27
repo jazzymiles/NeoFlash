@@ -65,3 +65,7 @@ Compressed input keeps the resource service's 16 MiB limit. Frame/chunk inspecti
 The data-processing example loads an embedded JSON planning file through URLLoader, uses AS3 JSON/RegExp/Date to build the interface, and serializes an ordinary project class including a public getter. Its independent AS2 Date card advances in UTC with the same control. Restart returns to the original records and dates. Native JSON and RegExp are AS3 APIs; Date is available in both dialects.
 
 These families use captured browser-backed adapters. Regex patterns currently use new RegExp(pattern, flags); slash literals remain unsupported. Date timezone/formatting follows the modern backend profile. JSON includes parse/stringify callbacks and bounded class serialization; it does not automatically serialize every host object. See COMPATIBILITY.md for precise supported forms and limits.
+
+### Runtime display transforms
+
+`examples/display-transforms.nflash` combines a nested linked card, a skewed matrix, scalar rotation/scale updates, vector/text color and two independent colorized views of shared BitmapData. Its Cycle control reparents the same card and returns it to the rig; Restart restores original objects and transforms. An AS2 strip uses the same geometry family. The runtime profile and remaining window-coordinate/native-authoring boundaries are documented in [the decision](decisions/0018-runtime-display-transforms.md).

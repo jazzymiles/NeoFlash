@@ -401,6 +401,7 @@ impl<'a> Analysis<'a> {
             Expr::NewBuiltin(name, args, offset) if name == "LoadVars" && !args.is_empty() => return Err(self.error(*offset,"AS2 LoadVars construction takes no arguments in this profile.")),
             Expr::NewBuiltin(name, args, offset) if name == "Sound" && !args.is_empty() => return Err(self.error(*offset,"AS2 Sound construction takes no target argument in this profile; create Sound() and load a non-streaming resource.")),
             Expr::NewClass(name, _, offset) if name == "flash.media.SoundChannel" => return Err(self.error(*offset,"SoundChannel is returned by Sound.play and cannot be directly constructed in this profile.")),
+            Expr::NewClass(name, args, offset) if name == "flash.geom.Transform" && args.len() != 1 => return Err(self.error(*offset,"Transform construction requires one existing display object. Use object.transform or new Transform(object).")),
             Expr::NewClass(name, _, offset) if name == "flash.events.EventPhase" => return Err(self.error(*offset,"EventPhase contains constants and is not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.display.PixelSnapping" => return Err(self.error(*offset,"PixelSnapping contains constants and is not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.text.TextFormatAlign" => return Err(self.error(*offset,"TextFormatAlign contains alignment constants and is not constructible.")),

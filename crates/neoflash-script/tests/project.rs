@@ -44,6 +44,10 @@ fn class_syntax_outside_profile_is_never_erased() {
     for source in [
         "package { public class A {private var secret:int;} }",
         "package { public class A extends Date {} }",
+        "package { import flash.geom.Transform; public class A extends Transform {} }",
+        "package { import flash.geom.ColorTransform; public class A extends ColorTransform {} }",
+        "package { import flash.geom.Transform; public class A {public function A(){new Transform();}} }",
+        "package { import flash.display.MovieClip; public class A extends MovieClip {public var transform:Object;} }",
         "package { public class A extends RegExp {} }",
         "package { public class A extends JSON {} }",
         "package { public class A {public function A(){new JSON();}} }",
@@ -106,6 +110,8 @@ fn class_syntax_outside_profile_is_never_erased() {
     for source in [
         "interface A {function value():Number;}",
         "class A extends Date {}",
+        "import flash.geom.Transform; class A extends Transform {}",
+        "import flash.geom.ColorTransform; class A extends ColorTransform {}",
         "class A {public function A(){new RegExp(\"x\");}}",
         "class A {public function A(){JSON.parse(\"{}\");}}",
         "class A {public function get value():Number{return 1;}}",

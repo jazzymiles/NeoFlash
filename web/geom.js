@@ -3,6 +3,7 @@
  * https://airsdk.dev/reference/actionscript/3.0/flash/geom/Point.html
  * https://airsdk.dev/reference/actionscript/3.0/flash/geom/Rectangle.html
  * https://airsdk.dev/reference/actionscript/3.0/flash/geom/Matrix.html
+ * https://airsdk.dev/reference/actionscript/3.0/flash/geom/ColorTransform.html
  * Order/empty-area details were cross-checked against the corresponding .as
  * files under core/src/avm2/globals/flash/geom at Ruffle revision
  * fe6cfc545405b888ebb478ce1c211d63147ca49b. No upstream code is incorporated.
@@ -10,12 +11,13 @@
  * Nonfinite values, overflow and singular inversion diagnose, rather than
  * reproducing historical NaN/coercion rules. Angles are radians. Mutators return
  * undefined and validate a complete result before writing it. This does not
- * implement Transform/display mutation, Vector3D, Matrix3D, native class-slot
+ * implement Vector3D, Matrix3D, native class-slot
  * conformance or later output-parameter API extensions. No prototypes are patched.
  */
 (function (global) {
   'use strict';
   const pointKeys=['x','y'], rectKeys=['x','y','width','height'], matrixKeys=['a','b','c','d','tx','ty'];
+  const colorKeys=['redMultiplier','greenMultiplier','blueMultiplier','alphaMultiplier','redOffset','greenOffset','blueOffset','alphaOffset'];
   function finite(value) {
     if(typeof value!=='number'||!Number.isFinite(value))throw new RangeError('Geometry currently requires finite numeric values; numeric coercion and nonfinite results are not supported.');
     return value;
@@ -150,9 +152,27 @@
     }
     toString(){return `(${matrixKeys.map(key=>`${key}=${this[key]}`).join(', ')})`;}
   }
-  for(const Type of [Point,Rectangle,Matrix])Object.defineProperty(Type,'__nfIs',{value:value=>value instanceof Type});
+  class ColorTransform {
+    constructor(redMultiplier=1,greenMultiplier=1,blueMultiplier=1,alphaMultiplier=1,redOffset=0,greenOffset=0,blueOffset=0,alphaOffset=0){
+      slots(this,colorKeys,[redMultiplier,greenMultiplier,blueMultiplier,alphaMultiplier,redOffset,greenOffset,blueOffset,alphaOffset]);
+    }
+    get color(){return ((this.redOffset<<16)|(this.greenOffset<<8)|this.blueOffset)>>>0;}
+    set color(value){
+      if(!Number.isInteger(value)||value<0||value>0xffffffff)throw new RangeError('ColorTransform.color requires an unsigned RGB integer.');
+      write(this,colorKeys,[0,0,0,this.alphaMultiplier,(value>>>16)&255,(value>>>8)&255,value&255,this.alphaOffset]);
+    }
+    concat(second){
+      const before=read(this,colorKeys),after=read(second,colorKeys);
+      // Apply this transform first, then second (same order as Matrix.concat).
+      write(this,colorKeys,[...before.slice(0,4).map((value,index)=>value*after[index]),
+        ...before.slice(4).map((value,index)=>value*after[index]+after[index+4])]);
+    }
+    toString(){return `(${colorKeys.map(key=>`${key}=${this[key]}`).join(', ')})`;}
+  }
+  for(const Type of [Point,Rectangle,Matrix,ColorTransform])Object.defineProperty(Type,'__nfIs',{value:value=>value instanceof Type});
+  ColorTransform.__nfInitialize=()=>{throw new TypeError('Native ColorTransform subclassing is not supported.');};
   for(const name of ['copyColumnFrom','copyColumnTo','copyRowFrom','copyRowTo'])Object.defineProperty(Matrix.prototype,name,{value(){throw new TypeError(`Matrix.${name} requires the unimplemented Vector3D family.`);}});
-  const api=Object.freeze({Point,Rectangle,Matrix,profile:'finite-2d-documented-only'});
+  const api=Object.freeze({Point,Rectangle,Matrix,ColorTransform,profile:'finite-2d-documented-only'});
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   else global.NeoFlashGeom=api;
 })(globalThis);

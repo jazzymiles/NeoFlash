@@ -26,6 +26,8 @@ const BUILTINS: &[&str] = &[
     "flash.geom.Point",
     "flash.geom.Rectangle",
     "flash.geom.Matrix",
+    "flash.geom.Transform",
+    "flash.geom.ColorTransform",
     "flash.utils.Timer",
     "flash.utils.ByteArray",
     "flash.utils.Endian",
@@ -120,6 +122,7 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "translate"
                 | "createBox"
                 | "createGradientBox"
+                | "getRelativeMatrix"
                 | "start"
                 | "reset"
                 | "updateAfterEvent"
@@ -527,6 +530,16 @@ fn parse_class(
             ));
         }
         interfaces.push(resolved.clone());
+    }
+    if matches!(
+        base.as_deref(),
+        Some("flash.geom.Transform" | "flash.geom.ColorTransform")
+    ) {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "Transform and ColorTransform native subclass initialization is outside this profile; bind a Transform to a display object or use a ColorTransform value through composition.",
+        ));
     }
     if matches!(
         base.as_deref(),
@@ -953,6 +966,7 @@ fn native_member(base: &str, name: &str) -> bool {
                     | "height"
                     | "numChildren"
                     | "graphics"
+                    | "transform"
                     | "stage"
                     | "root"
                     | "parent"

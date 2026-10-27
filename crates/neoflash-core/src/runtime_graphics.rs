@@ -322,6 +322,9 @@ impl GraphicsState {
         }
     }
     pub(crate) fn paints(&self) -> Vec<ElementKind> {
+        self.paints_with_color(crate::ColorTransform::default())
+    }
+    pub(crate) fn paints_with_color(&self, color: crate::ColorTransform) -> Vec<ElementKind> {
         let mut paints = vec![];
         for group in &self.groups {
             if let Some(fill) = group.fill
@@ -330,7 +333,7 @@ impl GraphicsState {
                 paints.push(ElementKind::Path {
                     commands: group.commands.clone(),
                     fill_rule: FillRule::EvenOdd,
-                    fill,
+                    fill: color.apply(fill),
                     stroke: [0; 4],
                     stroke_width: 0.,
                 });
@@ -341,7 +344,7 @@ impl GraphicsState {
                         commands: run.commands.clone(),
                         fill_rule: FillRule::EvenOdd,
                         fill: [0; 4],
-                        stroke: run.style.color,
+                        stroke: color.apply(run.style.color),
                         stroke_width: run.style.width,
                     });
                 }

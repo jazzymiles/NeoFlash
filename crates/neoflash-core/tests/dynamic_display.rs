@@ -375,7 +375,264 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
         player.create_display(DynamicKind::Shape).unwrap();
     }
     assert!(player.create_display(DynamicKind::Sprite).is_err());
+    affine_color_views_follow_the_display_lifecycle(project.clone());
     linked_timelines_are_independent_namespaces(project);
+}
+
+fn affine_color_views_follow_the_display_lifecycle(mut project: Project) {
+    let marker = Element {
+        id: "transform-marker".into(),
+        name: "marker".into(),
+        transform: Transform::default(),
+        scripts: vec![],
+        accessibility: Some(Accessibility {
+            role: AccessibleRole::Button,
+            name: "Marker".into(),
+            description: String::new(),
+            tab_order: 0,
+            disabled: false,
+        }),
+        kind: ElementKind::Rectangle {
+            width: 20.,
+            height: 20.,
+            fill: [32, 64, 96, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+    };
+    project.symbol_mut("component").unwrap().timeline.layers[0].keyframes[0]
+        .elements
+        .push(marker);
+    let untouched = project.to_json().unwrap();
+    let mut player = Player::new(&project);
+    let root = player.object_ref(&[]).unwrap();
+    let holder = player.object_ref(&["authored-container".into()]).unwrap();
+    let marker = player
+        .object_ref(&["authored-container".into(), "transform-marker".into()])
+        .unwrap();
+    let shape = player.create_display(DynamicKind::Shape).unwrap();
+    add(&mut player, &project, &holder, &shape);
+    player
+        .graphics_apply(
+            &shape,
+            &[
+                GraphicsOp::BeginFill {
+                    color: 0x204060,
+                    alpha: 0.,
+                },
+                GraphicsOp::LineStyle {
+                    width: Some(2.),
+                    color: 0xffffff,
+                    alpha: 1.,
+                },
+                GraphicsOp::DrawRect {
+                    x: 0.,
+                    y: 0.,
+                    width: 30.,
+                    height: 20.,
+                },
+                GraphicsOp::EndFill,
+            ],
+        )
+        .unwrap();
+    player
+        .object_set_matrix(&holder, [1., 0., 0.5, 1., 20., 30.])
+        .unwrap();
+    assert!(player.set_property(&["authored-container".into()], "x", 25.));
+    assert!(player.object_set_property(&holder, "rotation", 90.));
+    assert!(player.object_set_property(&holder, "scale_x", 0.));
+    assert!(player.object_set_property(&holder, "scale_x", -2.));
+    let expected = [0., -2., -1., 0.5, 25., 30.];
+    let matrix = player.object_matrix(&project, &holder).unwrap();
+    for (actual, expected) in matrix.into_iter().zip(expected) {
+        assert!((actual - expected).abs() < 1e-12);
+    }
+    assert_eq!(
+        player.property(&project, &["authored-container".into()], "scale_x"),
+        Some(-2.)
+    );
+    let color = ColorTransform {
+        multipliers: [1., 1., 1., 0.],
+        offsets: [10., 20., 30., 96.],
+    };
+    player.object_set_color_transform(&holder, color).unwrap();
+    player
+        .object_set_color_transform(
+            &shape,
+            ColorTransform {
+                multipliers: [0.5, 1., 2., 1.],
+                offsets: [0.; 4],
+            },
+        )
+        .unwrap();
+    assert_eq!(player.object_property(&project, &holder, "alpha"), Some(0.));
+    let scene = player.runtime_snapshot(&project);
+    assert!(scene.semantics.iter().any(|node| node.owner_ref == marker));
+    assert_eq!(object(&scene, &holder).local_matrix, matrix);
+    let drawings: Vec<_> = scene
+        .draws
+        .iter()
+        .filter(|draw| draw.owner_ref == shape)
+        .collect();
+    assert_eq!(drawings.len(), 2);
+    assert_eq!(drawings[0].item.alpha, 1.);
+    let RuntimeDrawKind::Element(ElementKind::Path { fill, .. }) = &drawings[0].item.kind else {
+        panic!("fill");
+    };
+    assert_eq!(*fill, [26, 84, 222, 96]); // Intentionally transparent fill becomes visible.
+    let RuntimeDrawKind::Element(ElementKind::Path { fill, stroke, .. }) = &drawings[1].item.kind
+    else {
+        panic!("stroke");
+    };
+    assert_eq!(*fill, [0; 4]); // A stroke run must not invent an interior fill.
+    assert_eq!(stroke[3], 96);
+
+    let text = player.create_display(DynamicKind::TextField).unwrap();
+    add(&mut player, &project, &holder, &text);
+    assert!(player.object_set_text(&project, &text, "Tinted text"));
+    let pixels = player.bitmap_create(2, 1, true, 0xff204060).unwrap();
+    let bitmap = player.create_display(DynamicKind::Bitmap).unwrap();
+    let sibling = player.create_display(DynamicKind::Bitmap).unwrap();
+    for node in [&bitmap, &sibling] {
+        player
+            .object_set_bitmap(&project, node, Some(pixels.clone()))
+            .unwrap();
+    }
+    add(&mut player, &project, &holder, &bitmap);
+    add(&mut player, &project, &root, &sibling);
+    let scene = player.runtime_snapshot(&project);
+    let text_draw = scene
+        .draws
+        .iter()
+        .find(|draw| draw.owner_ref == text)
+        .unwrap();
+    let RuntimeDrawKind::TextField { field } = &text_draw.item.kind else {
+        panic!("text");
+    };
+    assert_eq!((field.format.color, field.alpha), (0x0a141e, 96));
+    assert_eq!(object(&scene, &text).text.as_ref().unwrap().format.color, 0);
+    let bitmap_draw = scene
+        .draws
+        .iter()
+        .find(|draw| draw.owner_ref == bitmap)
+        .unwrap();
+    let RuntimeDrawKind::BitmapPixels {
+        color_transform, ..
+    } = bitmap_draw.item.kind
+    else {
+        panic!("bitmap");
+    };
+    let original_pixels = player.bitmap_pixels(&pixels).unwrap();
+    let original_revision = player.bitmap_info(&pixels).unwrap().revision;
+    assert_eq!(
+        player
+            .bitmap_pixels_transformed(&pixels, color_transform)
+            .unwrap(),
+        [42, 84, 126, 96, 42, 84, 126, 96]
+    );
+    assert_eq!(
+        player
+            .bitmap_pixels_transformed(&pixels, ColorTransform::default())
+            .unwrap(),
+        original_pixels
+    );
+    assert_eq!(player.bitmap_pixels(&pixels).unwrap(), original_pixels);
+    assert_eq!(
+        player.bitmap_info(&pixels).unwrap().revision,
+        original_revision
+    );
+    assert_eq!(
+        object(&scene, &sibling).concatenated_color_transform,
+        ColorTransform::default()
+    );
+
+    assert!(player.object_set_matrix(&holder, [f64::NAN; 6]).is_err());
+    assert!(
+        player
+            .object_set_color_transform(
+                &holder,
+                ColorTransform {
+                    offsets: [256.; 4],
+                    ..color
+                }
+            )
+            .is_err()
+    );
+    assert_eq!(player.object_matrix(&project, &holder).unwrap(), matrix);
+    assert_eq!(
+        player.object_color_transform(&project, &holder).unwrap(),
+        color
+    );
+    player
+        .object_set_color_transform(
+            &holder,
+            ColorTransform {
+                offsets: [0.; 4],
+                ..color
+            },
+        )
+        .unwrap();
+    assert!(
+        !player
+            .runtime_snapshot(&project)
+            .semantics
+            .iter()
+            .any(|node| node.owner_ref == marker)
+    );
+    assert!(player.set_property(&["authored-container".into()], "alpha", 0.5));
+    assert_eq!(
+        player
+            .object_color_transform(&project, &holder)
+            .unwrap()
+            .multipliers[3],
+        0.5
+    );
+    player.object_set_color_transform(&holder, color).unwrap();
+    player
+        .object_set_matrix(&shape, [1., 0.25, 0., 1., 5., 6.])
+        .unwrap();
+    player.control(&project, &[], PlaybackCommand::GotoAndStop(1));
+    let detached = player.runtime_snapshot(&project);
+    assert!(!player.object_alive(&holder));
+    assert!(player.object_matrix(&project, &holder).is_err());
+    assert!(!object(&detached, &shape).on_stage);
+    assert_eq!(
+        object(&detached, &shape).local_matrix,
+        [1., 0.25, 0., 1., 5., 6.]
+    );
+    assert_eq!(
+        object(&detached, &shape)
+            .concatenated_color_transform
+            .multipliers,
+        [0.5, 1., 2., 1.]
+    );
+    player.control(&project, &[], PlaybackCommand::GotoAndStop(2));
+    let replacement = player.object_ref(&["authored-container".into()]).unwrap();
+    assert_ne!(holder, replacement);
+    assert_eq!(
+        player
+            .object_color_transform(&project, &replacement)
+            .unwrap(),
+        ColorTransform::default()
+    );
+    assert_eq!(
+        player.object_matrix(&project, &replacement).unwrap(),
+        [1., 0., 0., 1., 100., 0.]
+    );
+    add(&mut player, &project, &replacement, &shape);
+    assert_eq!(
+        object(&player.runtime_snapshot(&project), &shape)
+            .display
+            .world[4],
+        105.
+    );
+    player.reset(&project);
+    assert!(
+        player
+            .object_set_matrix(&shape, [1., 0., 0., 1., 0., 0.])
+            .is_err()
+    );
+    assert_eq!(project.to_json().unwrap(), untouched);
 }
 
 fn linked_timelines_are_independent_namespaces(mut project: Project) {
