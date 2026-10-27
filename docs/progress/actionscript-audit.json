@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "463298442a3dd82f0534fa88edbf86cd1e1a40b6fd1c7e5249bcd68ae3be9362",
+  "catalogSha256": "b611b3387811f91d7b181ceb65e8243c113e00a576654d96f29ba6a1701a46b9",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -83,8 +83,8 @@
       }
     ],
     "inputHashes": {
-      "implementation-audit.json": "9fcfcafb0bbaac8297499377a373b6a8885b7e67e5f789d542c6fb0619c15f75",
-      "implementation-evidence.json": "0ce90721f78ef2d375774fbfba30a6e5361f45e8b84d9095805412b5c1484d14",
+      "implementation-audit.json": "d028337b24d7dc81a778a7d5d47383ece5fb9abeb3b7343261305f5fa796ed67",
+      "implementation-evidence.json": "91e24cfaf40bc2f28150be5acb621821d12a47203322a0a4e6c550d7d980a6e3",
       "as2.json": "160442a3ef962733440d4b187096b816398d5c4bc7fed87209e20bc157bf3791",
       "as2-components.json": "891666b00f6caf7c4bfc250187ab33cc19880715cb69468d8e0370a43a9aac82",
       "as2-components-supplement.json": "f7677e2c3a3e0f8baf899bdb4511de7bb14965bac4956b9de78a22be64eaa802",
@@ -293,15 +293,27 @@
         "originalFlashComparison": "documented_only",
         "decision": "accepted_bounded_as2_class_input_family_pointer_P0_closed_in_observed_route",
         "currentSourceVerified": false
+      },
+      {
+        "id": "GEOMETRY-TIMER-HTML5-20261027T0152Z",
+        "recordedHead": "ed3c39b221c8fa55e51465f48733333d7e96ab3e",
+        "sourceCapturedAt": "2026-10-27T01:53:33.336207+00:00",
+        "verifiedAt": "2026-10-27T02:00:11.451565+00:00",
+        "sourceManifestSha256": "f0bd74604a245cdf28456e8ca9615da295fab53d116c2f5cb36241dab70b221c",
+        "browser": "Codex in-app browser",
+        "engine": "Not separately identified; no additional browser engines claimed",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_bounded_geometry_timer_workflow_with_documented_limits",
+        "currentSourceVerified": false
       }
     ]
   },
   "summary": {
     "total": {
       "implemented_subset": 30,
-      "partial": 452,
-      "missing": 45199,
-      "needs_review": 366,
+      "partial": 468,
+      "missing": 45182,
+      "needs_review": 367,
       "total": 46047
     },
     "byLanguage": {
@@ -314,9 +326,9 @@
       },
       "AS3": {
         "implemented_subset": 15,
-        "partial": 241,
-        "missing": 43235,
-        "needs_review": 249,
+        "partial": 257,
+        "missing": 43218,
+        "needs_review": 250,
         "total": 43740
       }
     },
@@ -358,9 +370,9 @@
       },
       "runtime": {
         "implemented_subset": 2,
-        "partial": 109,
-        "missing": 6045,
-        "needs_review": 2,
+        "partial": 125,
+        "missing": 6028,
+        "needs_review": 3,
         "total": 6158
       }
     },
@@ -447,9 +459,9 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 56,
-          "missing": 5193,
-          "needs_review": 0,
+          "partial": 72,
+          "missing": 5176,
+          "needs_review": 1,
           "total": 5250
         }
       }
@@ -2875,6 +2887,492 @@
           "status": "partial",
           "evidenceKind": "source_review_with_reported_project_runtime_test",
           "scopeNote": "Source review and the main thread reported project-execute scenario cover project inheritance/override, initialized const fields and construction of ordinary project objects. No independent browser assertion for these specific branches. Native display-list construction remains rejected."
+        }
+      ]
+    },
+    {
+      "id": "GEOMETRY-TIMER-HTML5-20261027T0152Z",
+      "title": "Independent HTML5 acceptance: GEOMETRY-TIMER-HTML5-20261027T0152Z",
+      "reason": "accepted bounded geometry timer workflow with documented limits",
+      "limitations": "Only the exact nineteen partial declarations and one needs_review entry receive this evidence; whole geometry/Timer classes and AS2 counterparts are not promoted. Matrix transformPoint uses input y0 and one finite mapping; inverse positive path, arbitrary coefficients, mutation, aliases and other geometry operations remain unverified in-browser. Publication Restart is not public Timer.reset or stop. Delay/repeatCount getters, infinite timers, listener mutation, TimerEvent clone/updateAfterEvent, extreme timing/overflow and background throttling were not tested. Only Codex in-app browser was checked; engine/version not separately identified. Original Flash not run: documented_only. Native Sources/undo/save-reopen/D-008 remain pending; no unsaved native document was touched. Later ByteArray and dynamic display/Graphics work inherits no pass. Aggregate observer exception remains unlocated and separately recorded.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/Cargo.toml",
+          "sha256": "92cc029943b58f815950532bc446c724c8c87f947936708ea477990c4a6554f4"
+        },
+        {
+          "path": "crates/neoflash-core/src/clipboard.rs",
+          "sha256": "effbff989939c25986691531aee1d3e9254191c76a3b13deeed1d006200de8f5"
+        },
+        {
+          "path": "crates/neoflash-core/src/demo.rs",
+          "sha256": "9481dc1466aafc1c5deadd40cbb62f3e49b4240da33fc9e249ab29fffbc56e0d"
+        },
+        {
+          "path": "crates/neoflash-core/src/evaluate.rs",
+          "sha256": "e9d57510c0c65e8e04866d76f767c3d1c66db6e90ebb0646b77cf0f6be6a388a"
+        },
+        {
+          "path": "crates/neoflash-core/src/geometry.rs",
+          "sha256": "94b9531d20975840a8a9c998832f090fee17cfa66c5dbe78c12a30b0a527b2f8"
+        },
+        {
+          "path": "crates/neoflash-core/src/history.rs",
+          "sha256": "662c5cd0855fa1cccccac432fb374a7f86db680ed476559c92fbe324fff88441"
+        },
+        {
+          "path": "crates/neoflash-core/src/lib.rs",
+          "sha256": "ae7e1feaf727fa2c75e995aaa9bb7e2e06d0b5369dab3b544aba062ddcae3d99"
+        },
+        {
+          "path": "crates/neoflash-core/src/model.rs",
+          "sha256": "0d70db94a5b4139d209de77fa0742961fb0f6db358506e70ffd348b9e882e51f"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime.rs",
+          "sha256": "0eaf5224b620a49366201f2d65ab4143e399c4988221b2fad1a7ecf38b3de052"
+        },
+        {
+          "path": "crates/neoflash-core/src/validation.rs",
+          "sha256": "cb9d507401852eadc7340820a2b4b82447a7af7d97863bb9d07b7f063fe94527"
+        },
+        {
+          "path": "crates/neoflash-editor/Cargo.toml",
+          "sha256": "8549dc2d0d3b59abd1336bb322e2ca39e4198372b5f5cdf3ace861521e8741d9"
+        },
+        {
+          "path": "crates/neoflash-editor/src/accessibility.rs",
+          "sha256": "7b02f21d880283cdf480a6c0579f732abf19fbe317917e4e18faf9b11d069369"
+        },
+        {
+          "path": "crates/neoflash-editor/src/app.rs",
+          "sha256": "a4ba48de3189000f0f11432e68b681d61e5cd283ac6a5361b21490775b64573c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard.rs",
+          "sha256": "e3ffc6db4a9567d2de9194bfbc8a4715e3ddb0b206dc593002cce2ec9eb169fe"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard_tests.rs",
+          "sha256": "2141e3ec04072a80a8dc58f3bfd27e9477c602c65ae804e1bbfa2e11b18418e5"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached.rs",
+          "sha256": "4857ae64827f7818f7f159fff43b3e14a6ff784bcd0148d161a25e7765e59b3d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached_tests.rs",
+          "sha256": "e66b38262cd5cf6d0a1f64887b19ba86950233cc6fd77c16a977bcba16f14ceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/fonts.rs",
+          "sha256": "b3b012e4712f82048b3aa174465c2a9070a4ab402d64c5522548f9c44ff96791"
+        },
+        {
+          "path": "crates/neoflash-editor/src/main.rs",
+          "sha256": "76fbfc0fefa7e191c5edf4b574fd07782081a79ebc1c6780baaffe4629579aec"
+        },
+        {
+          "path": "crates/neoflash-editor/src/native_screens.rs",
+          "sha256": "b3eb6e6612dfd09c9ddfb206b82c3039343730bcf616c380cbee383b92664440"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panel_tests.rs",
+          "sha256": "1f30578675e958423af68ba50fc07ca5cc466f91f5f0a7fee9a56f65ee98dd11"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panels.rs",
+          "sha256": "dd9f1b01b7f280f33b34d341f3251a4aae8199d1251a3c80dd4fd52c03db398b"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection.rs",
+          "sha256": "0c1ea7f8306eb81328d80672436993f0c4d270891d6c50ee81d6ef0243626859"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection_tests.rs",
+          "sha256": "7f00cde935e571026375a4ce1ee1edb3937add0aa377882d1b8ab084318e3ab2"
+        },
+        {
+          "path": "crates/neoflash-editor/src/sources.rs",
+          "sha256": "2cd368126055a9cae40f9af25aabfb8ef8646e4ccc9651176be62dce1c0978e3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage.rs",
+          "sha256": "53212c5224158f9edf528c2dd01eb283bc3931bcc0f33f0d8d4f8c780b4b67be"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_primitives.rs",
+          "sha256": "fe940d6123cb492a4c6a6a9e135b51da023fe4c47193a6c3cdc185bd679cfceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_selection.rs",
+          "sha256": "e7ca9975a795b79e376ad096bc440bc469b17247f66b166c801756e8bcaeed13"
+        },
+        {
+          "path": "crates/neoflash-editor/src/tests.rs",
+          "sha256": "a4b96abeb579c8d59014b974e97d883d8ff9802dfb5baca770340c60405c73d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/theme.rs",
+          "sha256": "98c946389cff79af8d415b3bd8a282633d097989e60d8643f2f8125f7f8c4936"
+        },
+        {
+          "path": "crates/neoflash-editor/src/timeline_paint.rs",
+          "sha256": "87a87535956dcfaa686e6222bb56f1953328b00be858a0b522094097759848d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_geometry.rs",
+          "sha256": "584f5b1d3d7cc50906d5fe647812678d97333fd8df4a7d31264e0b9f245c971f"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_gesture_tests.rs",
+          "sha256": "f8ae23fabe656e336cbac2d3937097149cd7798990b95e64b07ebb052fba3adb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/ui_icons.rs",
+          "sha256": "532a69689f893cb6ad5bf82f4106b6472315fa1cea8af335b2d459ac0eaed74e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector.rs",
+          "sha256": "0d3ae90b25ab48e3228149b0b96920b8f1367e86a609f8d2c10176653ae35f1c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector_gesture_tests.rs",
+          "sha256": "6f54dd33ea9edf03f1c08383e932cffcc47a26cb2a54e2dfe0d8fed07e84d77e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace.rs",
+          "sha256": "e5adb69dad73eba07bc70ebed9d7907d837290df1bb80cae44f4fcd64d9f3b45"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace_editor_tests.rs",
+          "sha256": "b41e9d80e196a5e58766db1ebd1a2c9e8be74b277006eb366c37af69eb8dc74a"
+        },
+        {
+          "path": "crates/neoflash-export/Cargo.toml",
+          "sha256": "577ab7bd07bb5614f4a0ef2e408b553befaad996024c65916121a52266cd0954"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "12ac7b9b92e6b21c0ddd071d3e2eaa8ba4822e916eecd18ab226176398a06567"
+        },
+        {
+          "path": "crates/neoflash-export/src/main.rs",
+          "sha256": "a174e11c87e970fc4ff37cb5966c525dd5435c744715b6ce93b0052c56bf89d8"
+        },
+        {
+          "path": "crates/neoflash-import/Cargo.toml",
+          "sha256": "ae07834a20cc84f4472c253088f5ce17127b137952daad3f066f34eca6ea96cc"
+        },
+        {
+          "path": "crates/neoflash-import/examples/contour_fixture.rs",
+          "sha256": "037f00320374630c556f0e45087b279071260e8de090fac6c81d059c362f3a59"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_binary_corpus.rs",
+          "sha256": "3ea8b650bcd5ced084b3c266f4f5865e2af96b43b3d3075588c6ae1414dea4d1"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_contour_candidates.rs",
+          "sha256": "9e6912139440480d7dee72ac4c6643c3690408f0ea19618df8f4d1276b20fe5e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy.rs",
+          "sha256": "9dfdb5573c5e1f63121cc4e7bc623bf151e55124ba47da8e688de153f65ccafa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents.rs",
+          "sha256": "adde25d4fa8736d8d47acbf215e78b054b9d31345fb80caef65009f2677cbffa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents/payload.rs",
+          "sha256": "b0c146ec3f5c56525f7e7c4e7b6a4bb28590e4711445b811766801caf685fedd"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours.rs",
+          "sha256": "f434f77c72359b53b18b42b137763d4d607b38b1f010a407b92f2575e7f7799e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours/certificate.rs",
+          "sha256": "fb4abe54a5984e47a05b1848e92f15adf61c4a35825edf7872e9103f8950caae"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/geometry.rs",
+          "sha256": "15797f76b2ed8a9b165b9f184ab8cf2d9439eefe702dcdc68e019c7ad9a191bf"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/mfc.rs",
+          "sha256": "2b79189ee7105947f7a18732860630e3f677ef82e55b2e91fcbde17959812021"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/timeline.rs",
+          "sha256": "7d5f4e1c0b44f6cc4e39628ed8f3724a99b81957394a0d8d07923ffd89f41f3a"
+        },
+        {
+          "path": "crates/neoflash-import/src/lib.rs",
+          "sha256": "3c54d4afecd01fde3e8f5db2bd9b42b0b0c5371be70d90ccc525027e2de53b8b"
+        },
+        {
+          "path": "crates/neoflash-import/src/main.rs",
+          "sha256": "2710f27ef30f4e62afb44537e56da44844aed04d4e8a864ccbda6edd75d4c2cc"
+        },
+        {
+          "path": "crates/neoflash-import/src/source.rs",
+          "sha256": "25662f5fd70d4e2cdafaf59518301dc8875fcf2f2e0636fd05e440823be5e9de"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl.rs",
+          "sha256": "7849526b7cdb15e131ee07e1a3387a3038b30b1512488e2c94fff00225cb698a"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/publish.rs",
+          "sha256": "0a631fa1a3c6b9c186eb76aef5115775b72b86e0d88462f3ea5028ee28b14c89"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/shape.rs",
+          "sha256": "2303fb011b22b32d56fccfe0505653af76057983da39540098b84be37abce1a5"
+        },
+        {
+          "path": "crates/neoflash-script/Cargo.toml",
+          "sha256": "2923af027d33f803b1fb9e876f0793be299b666fd437b22c81b70d7e15122b57"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_batch.rs",
+          "sha256": "c428fa1a84b3649229d9b8a6b33b3fa08ac274dd07679ca61de666b9bc069436"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_project.rs",
+          "sha256": "e7d780759bb4e62704d56c55e0d8e76c2ed9f5ae4a35f82e286aaea98a7c0ac6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "8d6d0712f5e708381e566a43de164e9eec76c4d00777c2f2d7278ef9c5125610"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/collections.js",
+          "sha256": "63d55193c51b297e35970684a20cf31d8608956aa1f87210af778f67c0ab8cd0"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/completion.rs",
+          "sha256": "94cea0172dc24782f16973e4dc0181db5e4ecc411f5bcf288c1eafb6c5d73346"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/control_tests.rs",
+          "sha256": "17588080043035299d94d9cd437e217ca2262b60c7f26be1d95e6fd2db92729a"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/exceptions.js",
+          "sha256": "534534a37d9d0c48b1898847615e0581b20661341d24ded64ed355785e8e366e"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/intrinsics.js",
+          "sha256": "65528ea334627dc829097e59627647382ffe716b39acb77e15c8bcbef68ebdb4"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "58670b49f8f87b38e18ec629e319a99f2bfa3074392398de03c6e3e60d9087e4"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "77a5b11cde92684c9035a888681e89cb8d936781996d3c3af24727cf76f779bf"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "ef125ef6566e059dc8fa8e0416b283e2499b69e275e890097dfae632b9443db9"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/strings.js",
+          "sha256": "c307b5ae03320e2d3b8a2fd4370050b768cfee7e01fac27b0b3bed7df00f875c"
+        },
+        {
+          "path": "crates/neoflash-script/src/lib.rs",
+          "sha256": "3b7e634f008786775f3e8dd40dca84868b92e8af3e96f633ef28de5aa4464ec3"
+        },
+        {
+          "path": "crates/neoflash-web/Cargo.toml",
+          "sha256": "e4a23adb132e7030d23f844f33861b0f929c49b9ece3396cec154ebff42bf9b5"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "871bc5aa4d2a669086b91b4b3c1b11aaf314adbfc65e9e587d430fa94ae7f4e6"
+        },
+        {
+          "path": "web/accessibility.js",
+          "sha256": "19d4bbba7af344a9d30fdb0d695dace234f6cfad5d0d5d9838c656c6a9bfedb9"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "3ef18a1d4b4915bd532228707a063fd75fc7044e3bed21472d4fee3c7d6a709a"
+        },
+        {
+          "path": "web/events.js",
+          "sha256": "4f12e12e0e5edd0289036ce780cfcc2a80ab35cd4aea2416f1b50560323e1106"
+        },
+        {
+          "path": "web/geom.js",
+          "sha256": "ce20faf6ab6a69c1df8bc4855eceedbdf86fe70faf24944f777facce423d7aa7"
+        },
+        {
+          "path": "web/legacy-input.js",
+          "sha256": "14ac0086abbbb5b1de591ea5ae35fafdce9f65f101b6e942871c62dc9c7b4c35"
+        },
+        {
+          "path": "web/path.js",
+          "sha256": "9286174f715ef1d1d37303aa010148a9fc593abfc2ee304599f6a2cd56f69da9"
+        },
+        {
+          "path": "web/preview.js",
+          "sha256": "1278996d0f1c0a7efe974919a8c496bbefebd5a0b5707926de03a708f4ca51fa"
+        },
+        {
+          "path": "web/progress/app.js",
+          "sha256": "b5f78ad52e27e498e0020ae33f59e4e545ed2d83c4f4abe8f9c3bd8fbc098780"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "79b0674211fb576bbde437b158f4a9bb0621bd196feabdef7d8516dd6cc82a5f"
+        },
+        {
+          "path": "web/stage.js",
+          "sha256": "22a028eb5580e04276a6fb63e042f8094fa5d77ba00d91b6629017d52f981dd4"
+        },
+        {
+          "path": "web/timers.js",
+          "sha256": "d42569c79bcda28ffd1b3712facb73e45e78e3b7dc22a1f194527781c9cdb9b1"
+        }
+      ],
+      "verification": {
+        "id": "GEOMETRY-TIMER-HTML5-20261027T0152Z",
+        "recordedHead": "ed3c39b221c8fa55e51465f48733333d7e96ab3e",
+        "sourceCapturedAt": "2026-10-27T01:53:33.336207+00:00",
+        "verifiedAt": "2026-10-27T02:00:11.451565+00:00",
+        "sourceManifestSha256": "f0bd74604a245cdf28456e8ca9615da295fab53d116c2f5cb36241dab70b221c",
+        "browser": "Codex in-app browser",
+        "engine": "Not separately identified; no additional browser engines claimed",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_bounded_geometry_timer_workflow_with_documented_limits",
+        "currentSourceVerified": false
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:constructor:flash/geom/Matrix.html#Matrix()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Six finite coefficients (140,36,0,1,180,220) construct the mapping used for four observed output positions. Default/invalid arguments and direct slot access are not exercised."
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#transformPoint()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Transforming Point(tick,0), ticks 1..4, produces (320,256),(460,292),(600,328),(740,364). The zero input y means c/d contributions are not discriminated; arbitrary affine transforms are not established."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/geom/Point.html#Point()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Explicit finite points (tick,0) and (0,0) are passed into matrix/display conversion. Defaults, nonfinite/coercion cases and constructor aliases are not exercised."
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Point.html#x",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Read x of typed Matrix/display conversion results and use it to move/render the marker. Direct point x writes and coercions are not exercised."
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Point.html#y",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Read y of typed Matrix/display conversion results and use it to move/render the marker. Direct point y writes and coercions are not exercised."
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Rectangle.html#width",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Typed display getBounds returns width 32 for the stroked marker at all four positions. Rectangle width writes or direct construction are not exercised."
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Rectangle.html#height",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Typed display getBounds returns height 32 for the stroked marker at all four positions. Rectangle height writes or direct construction are not exercised."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/utils/Timer.html#Timer()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Timer(400,4) drives four typed tick callbacks and completion; Timer(-1,1) raises the caught actionable RangeError before the valid workflow still runs. Other invalid delays/repeat values, default infinite repetition and Flash error-code fidelity were not exercised."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/Timer.html#start()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Starting a new finite Timer produces ticks 1..4 and one completion; a fresh publication Restart repeats the workflow. Return contract, repeated start and resume-after-stop were not exercised."
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/Timer.html#currentCount",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Counter reads progress from 0 to 1,2,3,4; completion reads 4. Each publication Restart initializes a fresh count 0. Read-only enforcement and overflow were not exercised."
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/Timer.html#running",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The finite timer completion callback reads running=false. No direct running=true getter observation or invalid write was made."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TimerEvent.html#TIMER",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The TIMER constant registers the typed tick callback used for four coordinate updates. No other TimerEvent constant or member is inferred."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TimerEvent.html#TIMER_COMPLETE",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The TIMER_COMPLETE constant registers one completion callback after the fourth tick. No other TimerEvent member is inferred."
+        },
+        {
+          "catalogId": "AS3:event:flash/utils/Timer.html#event:timer",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Four typed tick callbacks occur in order before completion and update rendered marker/text. Listener mutation, event-target fields and timing edge cases are not exercised."
+        },
+        {
+          "catalogId": "AS3:event:flash/utils/Timer.html#event:timerComplete",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "One typed completion callback follows tick 4 and observes count 4/running=false in each completed run. Alternative repeat counts and listener mutation were not exercised."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getTimer()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Imported getTimer produces visible elapsed 1617 ms at first completion and 1612 ms after publication Restart, despite the intervening wall time. This supports elapsed-session reporting/rebasing; exact tick timing, overflow and original Flash scheduling are not asserted."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#getBounds()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Result assigns to typed Rectangle and reports 32x32, preserving the shared geometry constructor identity in this workflow."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#localToGlobal()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Result assigns to typed Point and agrees with marker translation in the untransformed root; nested rotation/scale are not covered."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#addEventListener()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Timer listeners register typed methods and receive the expected four tick/one completion sequence; broader dispatcher methods are not inferred."
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#invert()",
+          "status": "needs_review",
+          "evidenceKind": "code_review_with_negative_browser_probe",
+          "scopeNote": "The pinned geom.js contains a finite Matrix inverse implementation, and the browser confirms an actionable RangeError for a singular zero matrix without preventing subsequent valid transform/timer work. Successful non-singular inversion was not independently exercised; this is needs_review, not accepted implementation support."
         }
       ]
     },

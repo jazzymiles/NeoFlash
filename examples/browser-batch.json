@@ -1,6 +1,25 @@
 {
   "cases": [
     {
+      "id": "dynamic-display",
+      "path": "examples/dynamic-display.nflash",
+      "title": "Dynamic display, Graphics and shared identity",
+      "checks": [
+        "AS3 creates both panels, a Card subclass and its Shape badge; AS2 creates the purple triangle.",
+        "Click the card, use Right to reparent, Space to detach/reattach and Up for the identity/order cycle; click again to confirm the same listener and count.",
+        "Click the purple AS2 triangle; Restart restores fresh card counts, graphics and four timer ticks."
+      ]
+    },
+    {
+      "id": "binary-data",
+      "path": "examples/binary-data.nflash",
+      "title": "ByteArray binary packet and text output",
+      "checks": [
+        "The ordinary project writes, reads and copies its binary/UTF packet and displays the expected decoded values.",
+        "Restart repeats the result using fresh session buffers."
+      ]
+    },
+    {
       "id": "geometry-timer",
       "path": "examples/geometry-timer.nflash",
       "title": "Geometry, Timer and live display updates",

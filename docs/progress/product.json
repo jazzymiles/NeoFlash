@@ -343,12 +343,18 @@
       "category": "web",
       "title": "Shared Rust/WASM core",
       "status": "implemented",
-      "scope": "The browser uses the same timeline runtime; tests call the actual compiled WASM.",
-      "limitations": "A shared implementation does not prove compatibility with Flash behavior.",
+      "scope": "The browser uses the same timeline runtime; tests call the actual compiled WASM. Runtime-created object identity, hierarchy, solid drawing, transformed bounds/hits and captured lifecycle routes use the shared Rust/WASM scene while authored documents remain immutable.",
+      "limitations": "A shared implementation does not prove compatibility with Flash behavior. The combined dynamic-display browser workflow and Restart passed; authored/dynamic reordering and full Flash construction order remain bounded.",
       "evidence": [
         "crates/neoflash-web/src/lib.rs",
         "web/tests/wasm.test.cjs",
-        "scripts/check.sh"
+        "scripts/check.sh",
+        "crates/neoflash-core/src/runtime_graph.rs",
+        "crates/neoflash-core/src/runtime_graphics.rs",
+        "web/display.js",
+        "web/events.js",
+        "web/tests/display-family.test.cjs",
+        "examples/dynamic-display.nflash"
       ]
     },
     {
@@ -452,8 +458,8 @@
       "category": "web",
       "title": "Project sources, modules and debugging",
       "status": "partial",
-      "scope": "Embedded AS2/AS3 source units use distinct bounded class profiles with exact imports, shared publication programs, authored symbol linkage and source-path diagnostics. AS2 root document linkage is a NeoFlash extension. Sources can be edited in Actions.",
-      "limitations": "JS/TS modules, SWC dependencies, complete type checking, completion, debugger/source maps and full class semantics remain pending. Representative linked-class behavior and Restart passed in the shared in-app-browser batch; native Sources acceptance remains pending. The AS2 combined export/WASM/input scenario passes; representative coordinate clicks, keyboard and Restart also passed in the in-app browser.",
+      "scope": "Embedded AS2/AS3 source units use distinct bounded class profiles with exact imports, shared publication programs, authored symbol linkage and source-path diagnostics. AS2 root document linkage is a NeoFlash extension. Sources can be edited in Actions. AS3 projects can import bounded ByteArray/Endian buffers; unsupported native inheritance and constructor forms produce source diagnostics.",
+      "limitations": "JS/TS modules, SWC dependencies, complete type checking, completion, debugger/source maps and full class semantics remain pending. Representative linked-class behavior and Restart passed in the shared in-app-browser batch; native Sources acceptance remains pending. The AS2 combined export/WASM/input scenario passes; representative coordinate clicks, keyboard and Restart also passed in the in-app browser. Binary-buffer workflow browser acceptance remains pending; binary memory support does not imply loaders, external IO or resource-document support.",
       "evidence": [
         "docs/BACKLOG.md",
         "docs/COMPATIBILITY.md",
@@ -469,7 +475,10 @@
         "examples/as2-project-input.nflash",
         "web/legacy-input.js",
         "web/runtime.js",
-        "web/display.js"
+        "web/display.js",
+        "web/byte-array.js",
+        "crates/neoflash-script/tests/binary-data.mjs",
+        "examples/binary-data.nflash"
       ]
     },
     {

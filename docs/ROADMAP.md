@@ -24,3 +24,5 @@ Background language work proceeds in coherent families. The a05a08d collection/s
 Progress is tracked in the [reviewed capability ledger](progress/README.md), with a [compact public coverage page](https://jazzymiles.github.io/NeoFlash/progress.html) and [daily history](https://jazzymiles.github.io/NeoFlash/history.html). AS2/AS3 use the [complete declaration catalogue and audit](progress/ACTIONSCRIPT.md), including separate component/framework scopes and review gaps. Other product areas retain bounded capability percentages. Neither metric measures overall Flash parity or milestones completed.
 
 Independent a3fedc3 acceptance verifies the bounded AS2 class/input family and closes the observed shared mouse-click loss. The preceding a05a08d data-to-text acceptance remains separately recorded. New geometry/timer work inherits neither result; see VERIFICATION.md for the exact snapshots.
+
+Independent ed3c39b acceptance now confirms the bounded geometry/timer workflow, adjacent diagnostics and pending-session cleanup on Restart. Dynamic display/Graphics and ByteArray remain the next unverified families.

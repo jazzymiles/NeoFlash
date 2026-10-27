@@ -47,6 +47,14 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { public class A { public function A(value:int=0){} } }",
         "package { public class A implements Missing {} }",
         "package { import flash.display.MovieClip; public class A extends MovieClip {public var x:Number;} }",
+        "package { import flash.display.Shape; public class A extends Shape {public var graphics:Object;} }",
+        "package { import flash.display.Sprite; public class A extends Sprite {public function addChild(value:Object):void {}} }",
+        "package { import flash.utils.ByteArray; public class A extends ByteArray {} }",
+        "package { import flash.utils.Endian; public class A extends Endian {} }",
+        "package { import flash.display.Graphics; public class A extends Graphics {} }",
+        "package { import flash.display.Graphics; public class A {public function A(){new Graphics();}} }",
+        "package { import flash.utils.Endian; public class A {public function A(){new Endian();}} }",
+        "package { import flash.utils.ByteArray; public class A {public function A(){new ByteArray(8);}} }",
     ] {
         assert!(
             neoflash_script::compile_project(&project(&[("A.as", source)])).is_err(),
@@ -63,6 +71,11 @@ fn class_syntax_outside_profile_is_never_erased() {
     assert!(
         neoflash_script::compile_project(&legacy).is_err(),
         "AS3 package syntax must not be accepted as AS2"
+    );
+    legacy.sources[0].source = "import flash.utils.ByteArray; class A {}".into();
+    assert!(
+        neoflash_script::compile_project(&legacy).is_err(),
+        "ByteArray is an AS3 family, not an AS2 import"
     );
     let mut mixed = project(&[
         ("A.as", "class A extends B {}"),

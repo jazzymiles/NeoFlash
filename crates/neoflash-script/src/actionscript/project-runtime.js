@@ -140,8 +140,17 @@ const __nfProgram = (() => {
             return Reflect.construct(ctor, args);
         }
         const parents = chain(name), nativeBase = parents[0].base;
-        const prototype = nativeBase ? type(nativeBase).prototype : Object.prototype;
-        return attach(name, Object.create(prototype || Object.prototype), args);
+        const nativeType = nativeBase ? type(nativeBase) : null;
+        // Display subclasses need their authoritative runtime identity before
+        // fields, listeners or constructor code can observe the receiver.
+        // Value classes keep their ordinary prototype/initialization path.
+        const receiver = typeof nativeType?.__nfAllocate === 'function'
+            ? nativeType.__nfAllocate({ className: name, args })
+            : Object.create(nativeType?.prototype || Object.prototype);
+        if (receiver === null || (typeof receiver !== 'object' && typeof receiver !== 'function')) {
+            throw new TypeError(`Native allocation for ${name} did not return an object.`);
+        }
+        return attach(name, receiver, args);
     }
     function define(name, base, fields, methods, ctor, dialect = 'as3') {
         const facade = function(...args) {

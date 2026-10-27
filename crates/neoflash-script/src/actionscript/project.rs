@@ -11,12 +11,16 @@ const BUILTINS: &[&str] = &[
     "flash.display.DisplayObjectContainer",
     "flash.display.MovieClip",
     "flash.display.Sprite",
+    "flash.display.Shape",
+    "flash.display.Graphics",
     "flash.display.Stage",
     "flash.text.TextField",
     "flash.geom.Point",
     "flash.geom.Rectangle",
     "flash.geom.Matrix",
     "flash.utils.Timer",
+    "flash.utils.ByteArray",
+    "flash.utils.Endian",
     "flash.events.TimerEvent",
     "flash.events.EventDispatcher",
     "flash.events.Event",
@@ -40,6 +44,23 @@ fn is_display_method(name: &str) -> bool {
             | "getChildAt"
             | "getChildByName"
             | "getChildIndex"
+            | "addChild"
+            | "addChildAt"
+            | "removeChild"
+            | "removeChildAt"
+            | "setChildIndex"
+            | "swapChildren"
+            | "swapChildrenAt"
+            | "createEmptyMovieClip"
+            | "removeMovieClip"
+            | "getNextHighestDepth"
+            | "beginFill"
+            | "endFill"
+            | "lineStyle"
+            | "moveTo"
+            | "lineTo"
+            | "curveTo"
+            | "clear"
             | "contains"
             | "stopPropagation"
             | "stopImmediatePropagation"
@@ -357,6 +378,16 @@ fn parse_class(header: Header, names: &BTreeSet<String>) -> Result<Class, Diagno
             })
         })
         .transpose()?;
+    if matches!(
+        base.as_deref(),
+        Some("flash.utils.ByteArray" | "flash.utils.Endian" | "flash.display.Graphics")
+    ) {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "ByteArray indexed storage cannot initialize an existing native subclass receiver; Endian supplies constants and Graphics comes from its display owner. Inheritance from these built-ins is unsupported.",
+        ));
+    }
     let as2 = header.script.language == ScriptLanguage::ActionScript2;
     let mut p = frontend(&header.script, header.tokens.clone(), c.clone());
     p.pos = header.body;
@@ -596,6 +627,7 @@ fn native_member(base: &str, name: &str) -> bool {
                     | "width"
                     | "height"
                     | "numChildren"
+                    | "graphics"
                     | "stage"
                     | "root"
                     | "parent"

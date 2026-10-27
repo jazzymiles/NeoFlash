@@ -101,15 +101,27 @@ test('removal/replacement invalidates old targets and listeners without leaking 
 });
 
 test('ancestor route is snapshotted, broadcasts snapshot active lifetimes, clear permits clean restart', () => {
-  const { hub, root, child, live } = tree(), seen = [];
+  const { hub, stage, root, child, live } = tree(), seen = [];
   root.addEventListener('signal', () => { child.parent = null; }, true);
   root.addEventListener('signal', () => seen.push('old-parent'));
   child.dispatchEvent(new Event('signal', true));
   assert.deepEqual(seen, ['old-parent']);
+  // Removal is queued after detachment: the host provides its captured old route.
+  const route = [child, root, stage];
+  child.addEventListener(Event.REMOVED, () => { route.length = 1; });
+  root.addEventListener(Event.REMOVED, () => seen.push('captured-old-parent'));
+  hub.dispatch(child, new Event(Event.REMOVED, true), route);
+  assert.deepEqual(seen, ['old-parent', 'captured-old-parent']);
+  assert.throws(() => hub.dispatch(child, new Event(Event.REMOVED, true), [child, root, child]), /duplicate/);
+  live.delete(root);
+  hub.dispatch(child, new Event(Event.REMOVED, true), [child, root, stage]);
+  assert.deepEqual(seen, ['old-parent', 'captured-old-parent'], 'captured ancestry cannot revive a retired listener');
+  live.add(root);
   root.addEventListener(Event.ENTER_FRAME, () => { seen.push('root'); live.delete(child); });
   child.addEventListener(Event.ENTER_FRAME, () => seen.push('child'));
   hub.broadcast(Event.ENTER_FRAME, [root, child, root]);
-  assert.deepEqual(seen, ['old-parent', 'root']);
+  assert.deepEqual(seen, ['old-parent', 'captured-old-parent', 'root']);
+  assert.throws(() => hub.dispatch(child, new Event(Event.REMOVED, true), [child, root, stage]), /removed or replaced/);
   hub.clear();
   assert.equal(root.hasEventListener(Event.ENTER_FRAME), false);
 });

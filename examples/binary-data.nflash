@@ -1,0 +1,251 @@
+{
+  "format_version": 2,
+  "name": "Binary data and UTF",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    34,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Binary data and UTF",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 42,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / BYTEARRAY + ENDIAN + UTF",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 86,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "A binary packet. Readable results.",
+                      "font_family": "Arial",
+                      "font_size": 34,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 132,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Typed bytes, little-endian values and UTF text travel through independent buffers.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 48,
+                      "y": 235,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Decoding the packet…",
+                      "font_family": "Arial",
+                      "font_size": 27,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "measurements",
+                    "name": "measurements",
+                    "transform": {
+                      "x": 48,
+                      "y": 292,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Binary values appear after decoding.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        153,
+                        204,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 500,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Restart creates fresh buffers. The project uses no network or filesystem APIs.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "packetInfo",
+                    "name": "packetInfo",
+                    "transform": {
+                      "x": 48,
+                      "y": 353,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Packet bytes and header",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "lifecycle",
+                    "name": "lifecycle",
+                    "transform": {
+                      "x": 48,
+                      "y": 399,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Buffer positions and copy state",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n  import flash.display.MovieClip;\n  import flash.utils.ByteArray;\n  import flash.utils.Endian;\n  public class Main extends MovieClip {\n    public var packet:ByteArray;\n    public var decoded:ByteArray;\n    public var result:String;\n    public var packetBytes:uint;\n    public function Main() {\n      super();\n      stop();\n      packet = new ByteArray();\n      packet.writeUnsignedInt(0x4e464231);\n      packet.endian = Endian.LITTLE_ENDIAN;\n      packet.writeBoolean(true);\n      packet.writeByte(-7);\n      packet.writeShort(-1024);\n      packet.writeInt(-1234567);\n      packet.writeUnsignedInt(0xfedcba98);\n      packet.writeFloat(1.25);\n      packet.writeDouble(3.141592653589793);\n      packet.writeUTF(\"NeoFlash π 🦀\");\n      packet.writeUTFBytes(\"done\");\n      packetBytes = packet.length;\n      var wire:ByteArray = new ByteArray();\n      wire.position = 3;\n      wire.writeBytes(packet);\n      wire.position = 3;\n      decoded = new ByteArray();\n      decoded.position = 7;\n      wire.readBytes(decoded, 0, packetBytes);\n      var copyPosition:uint = decoded.position;\n      decoded.position = 0;\n      var magic:uint = decoded.readUnsignedInt();\n      decoded.endian = Endian.LITTLE_ENDIAN;\n      var active:Boolean = decoded.readBoolean();\n      var small:int = decoded.readByte();\n      var shortValue:int = decoded.readShort();\n      var signedValue:int = decoded.readInt();\n      var unsignedValue:uint = decoded.readUnsignedInt();\n      var fraction:Number = decoded.readFloat();\n      var precise:Number = decoded.readDouble();\n      var label:String = decoded.readUTF();\n      var tail:String = decoded.readUTFBytes(4);\n      result = label + \" / \" + tail;\n      status.text = result;\n      measurements.text = \"Values: \" + active + \", \" + small + \", \" + shortValue + \", \" + signedValue + \", \" + unsignedValue + \", \" + fraction;\n      packetInfo.text = \"Packet: \" + packetBytes + \" bytes | header: \" + packet[0] + \", \" + packet[1] + \", \" + packet[2] + \", \" + packet[3];\n      lifecycle.text = \"Copy kept destination position \" + copyPosition + \" | remaining bytes \" + decoded.bytesAvailable;\n      wire.clear();\n      trace(\"binary values\", magic, active, small, shortValue, signedValue, unsignedValue, fraction, precise);\n      trace(\"binary ready\", packetBytes, result, decoded.bytesAvailable, wire.length);\n    }\n  }\n}\n"
+    }
+  ]
+}

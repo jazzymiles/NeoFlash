@@ -8,6 +8,7 @@ import vm from 'node:vm';
 import { createRuntimeHost } from './host-integration.mjs';
 import { verifyAs2ProjectInput } from './as2-project-input.mjs';
 import { verifyGeometryTimer } from './geometry-timer.mjs';
+import { verifyBinaryData } from './binary-data.mjs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
@@ -111,4 +112,5 @@ try {
 }
 await verifyAs2ProjectInput(root,cargo);
 await verifyGeometryTimer(root,cargo);
+await verifyBinaryData(root,cargo);
 console.log('Project program: imports, inheritance/super, typed fields, constructors, static/const, stable methods, independent instances and actual EventDispatcher passed.');

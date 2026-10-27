@@ -6,6 +6,8 @@ mod geometry;
 mod history;
 pub mod model;
 mod runtime;
+mod runtime_graph;
+mod runtime_graphics;
 mod validation;
 
 pub use clipboard::{
@@ -21,4 +23,9 @@ pub use model::*;
 pub use runtime::{
     AccessibleNode, DisplayNode, PlaybackCommand, Player, ScriptDispatch, ScriptEvent,
 };
+pub use runtime_graph::{
+    DisplayError, DisplayEvent, DisplayMutation, DynamicKind, MAX_DYNAMIC_OBJECTS, MutationResult,
+    ObjectRef, RuntimeAccessibleNode, RuntimeDrawItem, RuntimeObject, RuntimeSnapshot,
+};
+pub use runtime_graphics::{GraphicsOp, MAX_GRAPHICS_COMMANDS, MAX_GRAPHICS_OPS};
 pub use validation::{ProjectError, ValidationIssue, validate};

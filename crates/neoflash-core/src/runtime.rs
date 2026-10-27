@@ -69,6 +69,7 @@ struct Clock {
 /// scripts (root first), then object EnterFrame (preorder). Click bubbles from the
 /// leaf through its ancestors. These are NeoFlash's defined initial semantics.
 pub struct Player {
+    pub(crate) graph: crate::runtime_graph::RuntimeGraph,
     clocks: HashMap<Vec<Id>, Clock>,
     overrides: HashMap<Vec<Id>, DisplayPatch>,
     previous: HashMap<Vec<Id>, Node>,
@@ -83,6 +84,7 @@ pub struct Player {
 impl Player {
     pub fn new(project: &Project) -> Self {
         let mut player = Self {
+            graph: crate::runtime_graph::RuntimeGraph::default(),
             clocks: HashMap::new(),
             overrides: HashMap::new(),
             previous: HashMap::new(),
@@ -98,6 +100,7 @@ impl Player {
     }
 
     pub fn reset(&mut self, project: &Project) {
+        self.graph.reset();
         self.clocks.clear();
         self.overrides.clear();
         self.previous.clear();
@@ -151,6 +154,7 @@ impl Player {
 
     /// Explicit preview seek resets nested runtime state. Authoring scrub uses evaluate().
     pub fn seek(&mut self, project: &Project, frame: u32) {
+        self.graph.reset();
         self.clocks.clear();
         self.overrides.clear();
         self.previous.clear();
@@ -182,8 +186,16 @@ impl Player {
         )
     }
 
+    pub(crate) fn authored_snapshot(&self, project: &Project) -> Evaluation {
+        self.snapshot(project)
+    }
+
     pub fn evaluate(&self, project: &Project) -> Vec<DrawItem> {
-        self.snapshot(project).items
+        self.runtime_snapshot(project)
+            .draws
+            .into_iter()
+            .map(|draw| draw.item)
+            .collect()
     }
 
     pub fn display_nodes(&self, project: &Project) -> Vec<DisplayNode> {
@@ -428,6 +440,16 @@ impl Player {
                 }
             }
         }
+        let placements = scene
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                self.lifetimes
+                    .get(&node.path)
+                    .map(|lifetime| (node.path.clone(), *lifetime))
+            })
+            .collect::<Vec<_>>();
+        self.graph.reconcile(&placements);
         self.previous = scene
             .nodes
             .into_iter()

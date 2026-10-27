@@ -1,5 +1,8 @@
 //! Thin JavaScript bindings around the same Rust timeline runtime used by the editor.
-use neoflash_core::{PlaybackCommand, Player, Project, ScriptDispatch};
+use neoflash_core::{
+    DisplayMutation, DynamicKind, GraphicsOp, ObjectRef, PlaybackCommand, Player, Project,
+    ScriptDispatch,
+};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -13,6 +16,28 @@ fn path(value: &str) -> Result<Vec<String>, JsValue> {
         .map_err(|error| JsValue::from_str(&format!("Invalid display path: {error}")))
 }
 
+fn object_ref(value: &str) -> Result<ObjectRef, JsValue> {
+    if value.len() > 256 {
+        return Err(JsValue::from_str(
+            "Display reference exceeds its input limit",
+        ));
+    }
+    serde_json::from_str(value)
+        .map_err(|error| JsValue::from_str(&format!("Invalid display reference: {error}")))
+}
+fn display_error(error: impl std::fmt::Display) -> JsValue {
+    JsValue::from_str(&error.to_string())
+}
+fn command(name: &str, frame: u32) -> Result<PlaybackCommand, JsValue> {
+    match name {
+        "play" => Ok(PlaybackCommand::Play),
+        "stop" => Ok(PlaybackCommand::Stop),
+        "goto_and_play" => Ok(PlaybackCommand::GotoAndPlay(frame)),
+        "goto_and_stop" => Ok(PlaybackCommand::GotoAndStop(frame)),
+        _ => Err(JsValue::from_str("Unknown timeline control command")),
+    }
+}
+
 #[wasm_bindgen]
 impl WebPlayer {
     #[wasm_bindgen(constructor)]
@@ -24,7 +49,7 @@ impl WebPlayer {
     }
 
     pub fn scene_json(&self) -> Result<String, JsValue> {
-        serde_json::to_string(&self.player.evaluate(&self.project))
+        serde_json::to_string(&self.player.runtime_snapshot(&self.project).draws)
             .map_err(|error| JsValue::from_str(&error.to_string()))
     }
 
@@ -168,5 +193,123 @@ impl WebPlayer {
     pub fn child_path(&self, parent: &str, name: &str) -> Result<String, JsValue> {
         serde_json::to_string(&self.player.child_path(&self.project, &path(parent)?, name))
             .map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
+    pub fn runtime_snapshot_json(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&self.player.runtime_snapshot(&self.project)).map_err(display_error)
+    }
+    pub fn object_ref(&self, target: &str) -> Result<String, JsValue> {
+        serde_json::to_string(&self.player.object_ref(&path(target)?)).map_err(display_error)
+    }
+    pub fn object_alive(&self, target: &str) -> Result<bool, JsValue> {
+        Ok(self.player.object_alive(&object_ref(target)?))
+    }
+    pub fn create_display(&mut self, kind: &str) -> Result<String, JsValue> {
+        let kind = match kind {
+            "sprite" => DynamicKind::Sprite,
+            "shape" => DynamicKind::Shape,
+            "movie_clip" => DynamicKind::MovieClip,
+            _ => {
+                return Err(JsValue::from_str(
+                    "Only empty Sprite, Shape and MovieClip creation is supported; linked dynamic timelines are pending",
+                ));
+            }
+        };
+        serde_json::to_string(&self.player.create_display(kind).map_err(display_error)?)
+            .map_err(display_error)
+    }
+    pub fn display_mutate(&mut self, json: &str) -> Result<String, JsValue> {
+        if json.len() > 4096 {
+            return Err(JsValue::from_str(
+                "Display mutation input exceeds its limit",
+            ));
+        }
+        let mutation: DisplayMutation = serde_json::from_str(json).map_err(display_error)?;
+        serde_json::to_string(
+            &self
+                .player
+                .display_mutate(&self.project, mutation)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn display_events_json(&mut self) -> Result<String, JsValue> {
+        serde_json::to_string(&self.player.drain_display_events().map_err(display_error)?)
+            .map_err(display_error)
+    }
+    pub fn graphics_apply(&mut self, target: &str, json: &str) -> Result<(), JsValue> {
+        if json.len() > 1_048_576 {
+            return Err(JsValue::from_str("Graphics batch input exceeds 1 MiB"));
+        }
+        let operations: Vec<GraphicsOp> = serde_json::from_str(json).map_err(display_error)?;
+        self.player
+            .graphics_apply(&object_ref(target)?, &operations)
+            .map_err(display_error)
+    }
+    pub fn object_set_property(
+        &mut self,
+        target: &str,
+        name: &str,
+        value: f64,
+    ) -> Result<bool, JsValue> {
+        Ok(self
+            .player
+            .object_set_property(&object_ref(target)?, name, value))
+    }
+    pub fn object_property(&self, target: &str, name: &str) -> Result<f64, JsValue> {
+        Ok(self
+            .player
+            .object_property(&self.project, &object_ref(target)?, name)
+            .unwrap_or(f64::NAN))
+    }
+    pub fn object_set_visible(&mut self, target: &str, value: bool) -> Result<bool, JsValue> {
+        Ok(self.player.object_set_visible(&object_ref(target)?, value))
+    }
+    pub fn object_visible(&self, target: &str) -> Result<bool, JsValue> {
+        self.player
+            .object_visible(&self.project, &object_ref(target)?)
+            .ok_or_else(|| JsValue::from_str("Display object is no longer alive"))
+    }
+    pub fn object_set_name(&mut self, target: &str, name: &str) -> Result<bool, JsValue> {
+        Ok(self.player.object_set_name(&object_ref(target)?, name))
+    }
+    pub fn object_set_text(&mut self, target: &str, text: &str) -> Result<bool, JsValue> {
+        Ok(self.player.object_set_text(&object_ref(target)?, text))
+    }
+    pub fn object_set_text_color(&mut self, target: &str, color: u32) -> Result<bool, JsValue> {
+        Ok(self
+            .player
+            .object_set_text_color(&object_ref(target)?, color))
+    }
+    pub fn object_control(
+        &mut self,
+        target: &str,
+        name: &str,
+        frame: u32,
+    ) -> Result<bool, JsValue> {
+        Ok(self
+            .player
+            .object_control(&self.project, &object_ref(target)?, command(name, frame)?))
+    }
+    pub fn object_frame(&self, target: &str) -> Result<u32, JsValue> {
+        Ok(self.player.object_frame(&object_ref(target)?).unwrap_or(0))
+    }
+    pub fn object_frame_count(&self, target: &str) -> Result<u32, JsValue> {
+        Ok(self
+            .player
+            .object_frame_count(&self.project, &object_ref(target)?)
+            .unwrap_or(0))
+    }
+    pub fn object_resolve_frame(&self, target: &str, label: &str) -> Result<i32, JsValue> {
+        Ok(self
+            .player
+            .object_resolve_frame(&self.project, &object_ref(target)?, label, false)
+            .map_or(-1, |frame| frame as i32))
+    }
+    pub fn object_resolve_frame_as2(&self, target: &str, label: &str) -> Result<i32, JsValue> {
+        Ok(self
+            .player
+            .object_resolve_frame(&self.project, &object_ref(target)?, label, true)
+            .map_or(-1, |frame| frame as i32))
     }
 }

@@ -214,7 +214,7 @@
       "title": "Imports and project linking",
       "status": "partial",
       "scope": "Optional packages, exact imports, same-package/qualified resolution, embedded source units and document/symbol linkage share a publication program. Unresolved/duplicate/cyclic types produce source-path diagnostics.",
-      "limitations": "Wildcard imports, SWC/bytecode libraries, filesystem/network module discovery and a general dependency toolchain are absent. AS2 classes and JS/TS modules remain separate work.",
+      "limitations": "Wildcard imports, SWC/bytecode libraries, filesystem/network module discovery and a general dependency toolchain are absent. AS2 classes and JS/TS modules remain separate work. Independent ed3c39b evidence covers only the specified typed geometry/Timer workflow; other members and full timing/coercion remain unverified.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/src/actionscript/scope.rs",
@@ -224,7 +224,9 @@
         "crates/neoflash-script/src/actionscript/project-runtime.js",
         "crates/neoflash-script/tests/project.rs",
         "crates/neoflash-script/tests/project-execute.mjs",
-        "examples/project-program.nflash"
+        "examples/project-program.nflash",
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -360,8 +362,8 @@
       "id": "as3-display",
       "title": "Display properties",
       "status": "partial",
-      "scope": "Position, alpha, scale, bounded finite rotation readback, visibility, names, root/parent/stage, child traversal, transformed bounds and coordinates, and supported nonrotated width/height writes.",
-      "limitations": "Dynamic placement construction, masks/filters, full text layout and all owner-specific native APIs remain incomplete. Rotated dimension setters and singular coordinate conversions diagnose. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance.",
+      "scope": "Position, alpha, scale, bounded finite rotation readback, visibility, names, root/parent/stage, child traversal, transformed bounds and coordinates, and supported nonrotated width/height writes. Native Sprite/Shape/MovieClip and project subclasses allocate stable runtime objects; containers add/remove/reparent/reorder dynamic children in an ordered suffix after authored children.",
+      "limitations": "General authored/dynamic display mixing, masks/filters, full text layout and all owner-specific native APIs remain incomplete. Rotated dimension setters and singular coordinate conversions diagnose. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent ed3c39b evidence covers only the specified typed geometry/Timer workflow; other members and full timing/coercion remain unverified. Authored children cannot be moved/removed; detached runtime objects remain allocated until Restart, with a 4,096-object bound. attachMovie and linked dynamic timelines remain unsupported. The combined dynamic-display browser workflow and Restart passed.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -373,7 +375,13 @@
         "web/display.js",
         "crates/neoflash-core/tests/display_family.rs",
         "web/tests/display-family.test.cjs",
-        "examples/display-family.nflash"
+        "examples/display-family.nflash",
+        "docs/progress/actionscript-audit.json",
+        "crates/neoflash-core/src/runtime_graph.rs",
+        "crates/neoflash-core/src/runtime_graphics.rs",
+        "crates/neoflash-web/src/lib.rs",
+        "web/events.js",
+        "examples/dynamic-display.nflash"
       ]
     },
     {
@@ -381,7 +389,7 @@
       "title": "Events and handlers",
       "status": "partial",
       "scope": "Shared EventDispatcher add/remove/has/willTrigger/dispatch with capture/target/bubble, priorities, phase snapshots, cancellation and redispatch cloning. Event/MouseEvent/KeyboardEvent facades, Stage dimensions/frameRate/focus and bounded pointer/keyboard input share placement lifetimes. Imported Timer/TimerEvent add start/stop/reset, delay/repeatCount/currentCount/running, TIMER then TIMER_COMPLETE, listener dispatch and updateAfterEvent. Imported getTimer reads elapsed session milliseconds; Restart cancels old timers/listeners and rebases the clock.",
-      "limitations": "Aggregation targets, full lifecycle/broadcast ordering, AS3 GC equivalence, fullscreen/scale modes, IME/touch and complete focus/input behavior remain pending. Exposed constants do not imply automatic lifecycle events; current fitted export has fixed logical Stage dimensions. Representative Stage behavior passed in the shared in-app-browser batch; native Sources and broader input acceptance remain pending. Independent frozen-01f1381 browser verification found trusted mouse click events with isPrimary=false dropped by the shared Stage guard; semantic Enter and keyboard paths passed. The corrected input route passed coordinate clicks and Restart in the original class/Stage examples; an unlocated aggregate observer exception remains open. Timers accept finite bounded delays/repeat counts, schedule at least 1 ms and allow 1,024 concurrent runs by default. Browser throttling/catch-up, historical coercion/error IDs, public interval/timeout facades and full native inheritance remain outside this profile; the combined geometry/Timer browser workflow and Restart passed. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
+      "limitations": "Aggregation targets, full lifecycle/broadcast ordering, AS3 GC equivalence, fullscreen/scale modes, IME/touch and complete focus/input behavior remain pending. Exposed constants do not imply automatic lifecycle events; current fitted export has fixed logical Stage dimensions. Representative Stage behavior passed in the shared in-app-browser batch; native Sources and broader input acceptance remain pending. Independent frozen-01f1381 browser verification found trusted mouse click events with isPrimary=false dropped by the shared Stage guard; semantic Enter and keyboard paths passed. The corrected input route passed coordinate clicks and Restart in the original class/Stage examples; an unlocated aggregate observer exception remains open. Timers accept finite bounded delays/repeat counts, schedule at least 1 ms and allow 1,024 concurrent runs by default. Browser throttling/catch-up, historical coercion/error IDs, public interval/timeout facades and full native inheritance remain outside this profile; the combined geometry/Timer browser workflow and Restart passed. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified. Independent ed3c39b evidence covers only the specified typed geometry/Timer workflow; other members and full timing/coercion remain unverified.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -401,13 +409,20 @@
     {
       "id": "as3-graphics-api",
       "title": "Programmatic drawing",
-      "status": "planned",
-      "scope": "flash.display.Graphics, BitmapData and programmatic Flash graphics.",
-      "limitations": "Authored vector shapes and their Canvas rendering do not provide a Graphics API callable from ActionScript.",
+      "status": "partial",
+      "scope": "Runtime-created Sprite/Shape/MovieClip graphics provide solid fills, positive round strokes, lines/quadratic paths, rectangles, ellipses/circles and clear. Exact Graphics imports type the owner-supplied facade; direct construction/inheritance reject.",
+      "limitations": "Authored-owner drawing, hairlines, gradients, bitmap fills, non-round stroke modes, masks/filters and full legacy paint semantics remain unsupported. Graphics state is runtime-only and bounded to 100,000 commands/runs; the combined pointer/keyboard/dynamic-display workflow and Restart passed in the in-app browser.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",
-        "web/runtime.js"
+        "web/runtime.js",
+        "crates/neoflash-core/src/runtime_graph.rs",
+        "crates/neoflash-core/src/runtime_graphics.rs",
+        "crates/neoflash-web/src/lib.rs",
+        "web/display.js",
+        "web/events.js",
+        "web/tests/display-family.test.cjs",
+        "examples/dynamic-display.nflash"
       ]
     },
     {
@@ -512,12 +527,17 @@
     {
       "id": "as3-typed-collections",
       "title": "Vector, Dictionary and ByteArray",
-      "status": "planned",
-      "scope": "Typed collections, dictionaries, binary buffers and related AS3 APIs.",
-      "limitations": "Ordinary JavaScript arrays and objects do not replace these contracts.",
+      "status": "partial",
+      "scope": "AS3 exact ByteArray/Endian imports, indexed binary storage, primitive numeric IO, endian control, UTF, byte copying and clear. Publication-owned limits and reset/disposal isolate buffers; invalid size/overrun/UTF failures preserve state.",
+      "limitations": "Ordinary JavaScript arrays and objects do not replace these contracts. Vector and Dictionary remain unimplemented. ByteArray excludes AMF, compression, other code pages, indexed enumeration, native subclass initialization and full coercion/error-class fidelity. Defaults bound each buffer to 16 MiB, total backing capacity to 64 MiB and initialized arrays to 4,096; the ordinary binary-data browser workflow and Restart passed.",
       "evidence": [
         "docs/COMPATIBILITY.md",
-        "docs/ROADMAP.md"
+        "docs/ROADMAP.md",
+        "web/byte-array.js",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/tests/project.rs",
+        "crates/neoflash-script/tests/binary-data.mjs",
+        "examples/binary-data.nflash"
       ]
     }
   ]

@@ -5,6 +5,11 @@
   if(!geometry)throw new Error('The geometry runtime is missing. Re-export this project.');
   const {Point,Rectangle,Matrix}=geometry;
   const UNHANDLED = Symbol('unhandled display member');
+  const graphicsInstances=new WeakSet();
+  class Graphics {constructor(){throw new TypeError('Graphics is created by Sprite, Shape or MovieClip; use the object.graphics property.');}}
+  Graphics.__nfIs=value=>graphicsInstances.has(value);
+  Graphics.__nfInitialize=()=>{throw new TypeError('Graphics cannot be used as a native base class.');};
+  Object.defineProperty(Graphics,Symbol.hasInstance,{value:Graphics.__nfIs});
   const identity = [1, 0, 0, 1, 0, 0];
   const samePath = (a, b) => a.length === b.length && a.every((id, i) => id === b[i]);
   const within = (path, parent) => path.length >= parent.length && parent.every((id, i) => path[i] === id);
@@ -21,24 +26,35 @@
   const unsupportedText=new Set(['htmlText','defaultTextFormat','styleSheet','type','selectable','multiline','wordWrap','autoSize','embedFonts','displayAsPassword','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','background','backgroundColor','border','borderColor','antiAliasType','gridFitType','sharpness','thickness','condenseWhite','getTextFormat','setTextFormat','getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineIndexOfChar','getLineMetrics','getLineOffset','getParagraphLength','getFirstCharInParagraph','setSelection','replaceSelectedText']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,proxyFor,referenceOf,getStage=()=>null,measureText,pathBounds}) {
+  function create({player,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{}}) {
     const legacy = new Map();
-    function nodes() { return JSON.parse(player.display_nodes_json()); }
+    const graph=typeof player.runtime_snapshot_json==='function';
+    const refKey=ref=>JSON.stringify(ref);
+    const nodeKey=node=>graph?refKey(node.object_ref):JSON.stringify(node.path);
+    const nodeProxy=node=>graph?proxyForRef(node.object_ref):proxyFor(node.path);
+    const invoke=(target,name,...args)=>player[(graph?'object_':'')+name](referenceOf(target).key,...args);
+    function nodes() { return graph?JSON.parse(player.runtime_snapshot_json()).objects:JSON.parse(player.display_nodes_json()); }
     function descriptor(target, list=nodes()) {
       const ref=referenceOf(target);
-      if (!ref || player.lifetime_id(ref.key)!==ref.lifetime) throw new ReferenceError('Display object was removed, replaced, or belongs to another player.');
-      const result=list.find(node=>samePath(node.path,ref.path));
+      if (!ref || !alive(target)) throw new ReferenceError('Display object was removed, replaced, or belongs to another player.');
+      const result=list.find(node=>nodeKey(node)===ref.key);
       if (!result) throw new ReferenceError('Display object is no longer active.');
       return result;
     }
+    function parentNode(node,list) {
+      return graph?(node.parent_ref?list.find(n=>nodeKey(n)===refKey(node.parent_ref)):null):list.find(n=>samePath(n.path,node.path.slice(0,-1))&&node.path.length>0);
+    }
+    function descendant(node,parent,list) {
+      if(!graph)return within(node.path,parent.path);
+      for(let current=node;current;current=parentNode(current,list))if(nodeKey(current)===nodeKey(parent))return true;
+      return false;
+    }
     function relative(node, target, list) {
       if (!target) return node.world;
-      if (within(node.path,target.path)) {
-        let result=identity;
-        for(let depth=target.path.length+1;depth<=node.path.length;depth++) {
-          const ancestor=list.find(candidate=>samePath(candidate.path,node.path.slice(0,depth)));
-          result=multiply(result,matrix(ancestor.transform));
-        }
+      if (descendant(node,target,list)) {
+        const chain=[];
+        for(let current=node;nodeKey(current)!==nodeKey(target);current=parentNode(current,list))chain.push(current);
+        let result=identity;for(const child of chain.reverse())result=multiply(result,matrix(child.transform));
         return result;
       }
       return multiply(inverse(target.world),node.world);
@@ -49,8 +65,9 @@
       let box=null;
       const include=(x,y)=>{ if (!Number.isFinite(x)||!Number.isFinite(y)) throw new RangeError('Display bounds exceed the finite coordinate range.'); box=box ? {left:Math.min(box.left,x),top:Math.min(box.top,y),right:Math.max(box.right,x),bottom:Math.max(box.bottom,y)} : {left:x,top:y,right:x,bottom:y}; };
       for(const leaf of list) {
-        if(!leaf.kind || !within(leaf.path,source.path))continue;
-        const kind=leaf.kind,m=relative(leaf,destination,list),stroke=strokes?(kind.stroke_width||0)/2:0;
+        if(!descendant(leaf,source,list))continue;
+        for(const kind of [...(leaf.kind?[leaf.kind]:[]),...(leaf.graphics||[])]) {
+        const m=relative(leaf,destination,list),stroke=strokes?(kind.stroke_width||0)/2:0;
         const corners=(x,y,w,h)=>{for(const [px,py] of [[x,y],[x+w,y],[x+w,y+h],[x,y+h]]){const p=point(m,px,py);include(p.x,p.y);}};
         if(kind.type==='rectangle')corners(-stroke,-stroke,kind.width+2*stroke,kind.height+2*stroke);
         else if(kind.type==='ellipse') {
@@ -65,11 +82,12 @@
           kind.text.split('\n').forEach((line,i)=>corners(0,i*kind.font_size*1.2,measureText(line,kind),kind.font_size*1.2));
         }
       }
+      }
       return box ? new Rectangle(box.left,box.top,box.right-box.left,box.bottom-box.top) : new Rectangle();
     }
-    function parentSpace(target) {const node=descriptor(target);return node.path.length?proxyFor(node.path.slice(0,-1)):getStage();}
-    function children(target) {const list=nodes(),parent=descriptor(target,list);return list.filter(node=>node.path.length===parent.path.length+1&&within(node.path,parent.path));}
-    function requireContainer(target) {const node=descriptor(target);if(!['movie_clip','graphic','button'].includes(node.owner))throw new TypeError('Child traversal requires a display container.');return node;}
+    function parentSpace(target) {const list=nodes(),node=descriptor(target,list),parent=parentNode(node,list);return parent?nodeProxy(parent):node.on_stage===false?null:getStage();}
+    function children(target) {const list=nodes(),parent=descriptor(target,list);return graph?parent.children.map(ref=>list.find(node=>nodeKey(node)===refKey(ref))).filter(Boolean):list.filter(node=>node.path.length===parent.path.length+1&&within(node.path,parent.path));}
+    function requireContainer(target) {const node=descriptor(target);if(!['movie_clip','sprite','graphic','button'].includes(node.owner))throw new TypeError('Child traversal requires a display container.');return node;}
     function convert(target,value,toGlobal) {
       if(!value || !Number.isFinite(value.x)||!Number.isFinite(value.y))throw new TypeError('Coordinate conversion requires finite point.x and point.y.');
       const m=descriptor(target).world,p=point(toGlobal?m:inverse(m),value.x,value.y);return new Point(p.x,p.y);
@@ -90,12 +108,74 @@
         else if(unit>=0xdc00&&unit<=0xdfff)throw new RangeError('TextField edits must preserve complete Unicode characters; split-surrogate text is not supported.');
       }
       const normalized=value.replace(/\r\n?|\n/g,'\n');
-      if(!player.set_text(referenceOf(target).key,normalized))throw new RangeError('Runtime text must fit within 1048576 UTF-8 bytes on a live TextField.');
+      if(!invoke(target,'set_text',normalized))throw new RangeError('Runtime text must fit within 1048576 UTF-8 bytes on a live TextField.');
     }
     function lineText(target,index) {
       const lines=textValue(textKind(target).text).split('\r');
       if(!Number.isInteger(index)||index<0||index>=lines.length)throw new RangeError('TextField line index is outside the unwrapped text.');
       return lines[index]+(index<lines.length-1?'\r':'');
+    }
+    const graphicsCache=new WeakMap();
+    function graphics(target) {
+      descriptor(target);
+      if(graphicsCache.has(target))return graphicsCache.get(target);
+      const number=(value,name)=>{if(typeof value!=='number'||!Number.isFinite(value))throw new TypeError(`Graphics ${name} must be a finite number.`);return value;};
+      const rgb=value=>{if(!Number.isInteger(value)||value<0||value>0xffffff)throw new RangeError('Graphics color requires an RGB integer from 0 through 0xffffff.');return value;};
+      const opacity=value=>{number(value,'alpha');if(value<0||value>1)throw new RangeError('Graphics alpha requires 0 through 1.');return value;};
+      const apply=op=>{descriptor(target);player.graphics_apply(referenceOf(target).key,JSON.stringify([op]));};
+      const rectangle=(op,x,y,width,height)=>apply({op,x:number(x,'x'),y:number(y,'y'),width:number(width,'width'),height:number(height,'height')});
+      const methods={
+        clear:()=>apply({op:'clear'}),
+        beginFill:(color,alpha=1)=>apply({op:'begin_fill',color:rgb(color),alpha:opacity(alpha)}),
+        endFill:()=>apply({op:'end_fill'}),
+        lineStyle:(width=NaN,color=0,alpha=1,pixelHinting=false,scaleMode='normal',caps=null,joints=null,miterLimit=3)=>{
+          if(pixelHinting!==false||scaleMode!=='normal'||(caps!==null&&caps!=='round')||(joints!==null&&joints!=='round')||miterLimit!==3)throw new TypeError('Graphics.lineStyle currently supports scaling strokes with round caps/joins, no pixel hinting, and default miterLimit.');
+          if(width!==undefined&&!Number.isNaN(width)){number(width,'thickness');if(width<=0||width>255)throw new RangeError('Graphics thickness currently requires greater than 0 through 255; hairlines are pending.');}
+          apply({op:'line_style',width:width===undefined||Number.isNaN(width)?null:width,color:rgb(color),alpha:opacity(alpha)});
+        },
+        moveTo:(x,y)=>apply({op:'move_to',x:number(x,'x'),y:number(y,'y')}),
+        lineTo:(x,y)=>apply({op:'line_to',x:number(x,'x'),y:number(y,'y')}),
+        curveTo:(cx,cy,x,y)=>apply({op:'curve_to',cx:number(cx,'controlX'),cy:number(cy,'controlY'),x:number(x,'x'),y:number(y,'y')}),
+        drawRect:(x,y,width,height)=>rectangle('draw_rect',x,y,width,height),
+        drawEllipse:(x,y,width,height)=>rectangle('draw_ellipse',x,y,width,height),
+        drawCircle:(x,y,radius)=>{number(radius,'radius');if(radius<0)throw new RangeError('Graphics radius must be nonnegative.');rectangle('draw_ellipse',number(x,'x')-radius,number(y,'y')-radius,radius*2,radius*2);},
+      };
+      const facade=new Proxy(Object.freeze(methods),{get:(target,name)=>{if(typeof name==='symbol'||name==='then')return undefined;if(Object.hasOwn(target,name))return target[name];throw new TypeError(`Graphics.${name} is not implemented in the solid path profile.`);},set:()=>{throw new TypeError('Graphics members are read-only.');}});
+      graphicsInstances.add(facade);graphicsCache.set(target,facade);return facade;
+    }
+    function mutate(operation) {
+      const packet=JSON.parse(player.display_mutate(JSON.stringify(operation)));
+      onMutation(packet.events); // captured routes survive the completed reparent/removal
+    }
+    function containerMethods(target) {
+      const ref=()=>{requireContainer(target);return referenceOf(target).objectRef;};
+      const childRef=child=>{descriptor(child);return referenceOf(child).objectRef;};
+      return {
+        addChild:child=>{mutate({op:'add',parent:ref(),child:childRef(child),index:null});return child;},
+        addChildAt:(child,index)=>{if(!Number.isInteger(index)||index<0)throw new RangeError('Child index requires a nonnegative integer.');mutate({op:'add',parent:ref(),child:childRef(child),index});return child;},
+        removeChild:child=>{mutate({op:'remove',parent:ref(),child:childRef(child)});return child;},
+        removeChildAt:index=>{const child=methods(target).getChildAt(index);mutate({op:'remove',parent:ref(),child:childRef(child)});return child;},
+        setChildIndex:(child,index)=>{if(!Number.isInteger(index)||index<0)throw new RangeError('Child index requires a nonnegative integer.');mutate({op:'set_index',parent:ref(),child:childRef(child),index});},
+        swapChildren:(first,second)=>mutate({op:'swap',parent:ref(),first:childRef(first),second:childRef(second)}),
+        swapChildrenAt:(first,second)=>{const api=methods(target);mutate({op:'swap',parent:ref(),first:childRef(api.getChildAt(first)),second:childRef(api.getChildAt(second))});},
+      };
+    }
+    function legacyDrawing(target) {
+      const drawing=graphics(target);
+      return {
+        beginFill:(color,alpha=100)=>drawing.beginFill(color,alpha/100),
+        endFill:drawing.endFill,lineStyle:(width,color=0,alpha=100,...options)=>drawing.lineStyle(width,color,alpha/100,...options),
+        moveTo:drawing.moveTo,lineTo:drawing.lineTo,curveTo:drawing.curveTo,clear:drawing.clear,
+        getNextHighestDepth:()=>children(target).length,
+        createEmptyMovieClip:(name,depth)=>{
+          if(typeof name!=='string'||new TextEncoder().encode(name).length>4096)throw new TypeError('createEmptyMovieClip requires a name of at most 4096 UTF-8 bytes.');
+          if(depth!==children(target).length)throw new RangeError('createEmptyMovieClip currently supports append-only depth: pass getNextHighestDepth(). Flash depth replacement is pending.');
+          const clip=proxyForRef(JSON.parse(player.create_display('movie_clip')));clip.name=name;
+          containerMethods(target).addChild(clip);return clip;
+        },
+        removeMovieClip:()=>{const parent=parentSpace(target);if(parent&&parent!==getStage())containerMethods(parent).removeChild(target);else if(descriptor(target).authored_path!==null)throw new TypeError('Authored timelines cannot be removed at runtime.');},
+        attachMovie:()=>{throw new TypeError('attachMovie and linked dynamic timelines are not implemented yet. Use createEmptyMovieClip for a runtime drawing container.');},
+      };
     }
     function methods(target) {
       const result={
@@ -103,11 +183,13 @@
         getRect: space=>bounds(target,space===undefined?target:space,false),
         localToGlobal: value=>convert(target,value,true),
         globalToLocal: value=>convert(target,value,false),
-        getChildAt: index=>{requireContainer(target);const list=children(target);if(!Number.isInteger(index)||index<0||index>=list.length)throw new RangeError('Child index is outside this container.');return proxyFor(list[index].path);},
-        getChildByName: name=>{requireContainer(target);const child=children(target).find(node=>node.name===name);return child?proxyFor(child.path):null;},
-        getChildIndex: child=>{requireContainer(target);const node=descriptor(child),index=children(target).findIndex(candidate=>samePath(candidate.path,node.path));if(index<0)throw new RangeError('Object is not a direct child of this container.');return index;},
-        contains: child=>{requireContainer(target);const parent=descriptor(target),node=descriptor(child);return within(node.path,parent.path);},
+        getChildAt: index=>{requireContainer(target);const list=children(target);if(!Number.isInteger(index)||index<0||index>=list.length)throw new RangeError('Child index is outside this container.');return nodeProxy(list[index]);},
+        getChildByName: name=>{requireContainer(target);const child=children(target).find(node=>node.name===name);return child?nodeProxy(child):null;},
+        getChildIndex: child=>{requireContainer(target);const node=descriptor(child),index=children(target).findIndex(candidate=>nodeKey(candidate)===nodeKey(node));if(index<0)throw new RangeError('Object is not a direct child of this container.');return index;},
+        contains: child=>{requireContainer(target);const parent=descriptor(target),node=descriptor(child);return descendant(node,parent,nodes());},
       };
+      if(graph&&['movie_clip','sprite','graphic','button'].includes(descriptor(target).owner))Object.assign(result,containerMethods(target));
+      if(graph&&descriptor(target).owner==='movie_clip')Object.assign(result,legacyDrawing(target));
       if(descriptor(target).owner==='text')Object.assign(result,{
         appendText:value=>{if(typeof value!=='string')throw new TypeError('appendText currently requires a string.');writeText(target,textValue(textKind(target).text)+value);},
         replaceText:(begin,end,value)=>{
@@ -141,7 +223,8 @@
       if(name==='numChildren'){requireContainer(target);return children(target).length;}
       if(name==='width'||name==='_width')return bounds(target,parentSpace(target),true).width;
       if(name==='height'||name==='_height')return bounds(target,parentSpace(target),true).height;
-      if(name==='stage') {descriptor(target);return getStage();}
+      if(name==='stage') {return descriptor(target).on_stage===false?null:getStage();}
+      if(name==='graphics'&&graph&&['movie_clip','sprite','shape'].includes(descriptor(target).owner))return graphics(target);
       return UNHANDLED;
     }
     function set(target,name,value) {
@@ -152,14 +235,14 @@
           if(name==='text'){writeText(target,value);return true;}
           if(name==='textColor'){
             if(!Number.isInteger(value)||value<0||value>0xffffff)throw new RangeError('textColor currently requires an RGB integer from 0 through 0xffffff.');
-            if(!player.set_text_color(referenceOf(target).key,value))throw new Error('Runtime rejected textColor on this TextField.');return true;
+            if(!invoke(target,'set_text_color',value))throw new Error('Runtime rejected textColor on this TextField.');return true;
           }
           throw new TypeError(`TextField.${name} is read-only.`);
         }
       }
       if(name==='name'||name==='_name') {
         descriptor(target); if(typeof value!=='string')throw new TypeError('Display name must be a string.');
-        if(!player.set_name(referenceOf(target).key,value))throw new RangeError('Display name must be at most 4096 UTF-8 bytes.');return true;
+        if(!invoke(target,'set_name',value))throw new RangeError('Display name must be at most 4096 UTF-8 bytes.');return true;
       }
       if(name==='width'||name==='height'||name==='_width'||name==='_height') {
         const node=descriptor(target);if(name[0]==='_')value=Number(value);
@@ -167,9 +250,9 @@
         if(Math.abs(normalizedRotation(node.transform.rotation)%180)>1e-10)throw new RangeError('Setting dimensions of a rotated object is not supported yet. Set scaleX/scaleY explicitly; transformed bounds remain available.');
         const axis=name.includes('width')?'width':'height',local=bounds(target,target,true)[axis];
         if(local===0){if(value===0)return true;throw new RangeError('Cannot resize empty geometry to a nonzero dimension.');}
-        if(!player.set_property(referenceOf(target).key,axis==='width'?'scale_x':'scale_y',value/local))throw new RangeError('Runtime rejected the requested display dimension.');return true;
+        if(!invoke(target,'set_property',axis==='width'?'scale_x':'scale_y',value/local))throw new RangeError('Runtime rejected the requested display dimension.');return true;
       }
-      if(name==='numChildren'||name==='stage')throw new TypeError(`${name} is read-only.`);
+      if(name==='numChildren'||name==='stage'||(name==='graphics'&&graph&&['movie_clip','sprite','shape'].includes(descriptor(target).owner)))throw new TypeError(`${name} is read-only.`);
       return false;
     }
     function setLegacyCallback(target,name,value) {
@@ -196,19 +279,22 @@
       const handler=record?.dynamic?record.target[name]:record?.handlers.get(name);
       return typeof handler==='function'?handler:null;
     }
-    function alive(target){const ref=referenceOf(target);return !!ref&&player.lifetime_id(ref.key)===ref.lifetime;}
+    function alive(target){const ref=referenceOf(target);return !!ref&&(graph?player.object_alive(ref.key):player.lifetime_id(ref.key)===ref.lifetime);}
     function prune(){for(const[id,record]of legacy)if(!alive(record.target))legacy.delete(id);}
     function enterFrame(){prune();for(const record of [...legacy.values()]){if(!alive(record.target))continue;const handler=callback(record,'onEnterFrame');if(handler)Reflect.apply(handler,record.target,[]);}}
-    function press(target){prune();while(target&&referenceOf(target)){const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime),handler=callback(record,'onPress');if(handler){Reflect.apply(handler,target,[]);return;}target=ref.path.length?proxyFor(ref.path.slice(0,-1)):null;}}
-    const builtins={'flash.geom.Point':Point,'flash.geom.Rectangle':Rectangle,'flash.geom.Matrix':Matrix};
-    for(const[name,owners]of Object.entries({DisplayObject:null,DisplayObjectContainer:['movie_clip','graphic','button'],MovieClip:['movie_clip'],Sprite:['movie_clip','graphic','button'],TextField:['text']})) {
-      function NativeDisplay(){throw new TypeError(`Dynamic new ${name}() placements are not supported yet. Use an authored instance or symbol linkage.`);}
+    function press(target){prune();while(target&&referenceOf(target)){const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime),handler=callback(record,'onPress');if(handler){Reflect.apply(handler,target,[]);return;}target=parentSpace(target);if(target===getStage())target=null;}}
+    const builtins={'flash.display.Graphics':Graphics,'flash.geom.Point':Point,'flash.geom.Rectangle':Rectangle,'flash.geom.Matrix':Matrix};
+    for(const[name,owners]of Object.entries({DisplayObject:null,DisplayObjectContainer:['movie_clip','sprite','graphic','button'],MovieClip:['movie_clip'],Sprite:['movie_clip','sprite','graphic','button'],Shape:['shape'],TextField:['text']})) {
+      const allocation={Sprite:'sprite',Shape:'shape',MovieClip:'movie_clip'}[name];
+      function allocate(){if(!graph||!allocation)throw new TypeError(`Dynamic new ${name}() is not supported. Use an authored instance for this owner.`);return proxyForRef(JSON.parse(player.create_display(allocation)));}
+      function NativeDisplay(...args){if(args.length)throw new TypeError(`${name} construction requires no arguments.`);return allocate();}
+      if(allocation&&graph)NativeDisplay.__nfAllocate=()=>allocate();
       NativeDisplay.__nfIs=value=>{if(value&&value===getStage())return name==='DisplayObject'||name==='DisplayObjectContainer';try{const node=descriptor(value);return owners===null||owners.includes(node.owner);}catch(_){return false;}};
-      NativeDisplay.__nfInitialize=(receiver,args)=>{if(args.length||!NativeDisplay.__nfIs(receiver))throw new TypeError(`${name} base initialization requires an existing compatible authored instance and no arguments.`);};
+      NativeDisplay.__nfInitialize=(receiver,args)=>{if(args.length||!NativeDisplay.__nfIs(receiver))throw new TypeError(`${name} base initialization requires an existing compatible display instance and no arguments.`);if(name==='MovieClip')refreshLegacyCallbacks(receiver);};
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});
       builtins[(name==='TextField'?'flash.text.':'flash.display.')+name]=NativeDisplay;
     }
-    return {methods,get,set,builtins,descriptor,nodes,alive,convert,bounds,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,prune,clear:()=>legacy.clear(),UNHANDLED};
+    return {methods,get,set,builtins,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,prune,clear:()=>legacy.clear(),UNHANDLED};
   }
   const api={create,Point,Rectangle,Matrix,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

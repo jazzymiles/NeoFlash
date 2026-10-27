@@ -140,7 +140,7 @@
         if (player.activate_accessible(JSON.stringify(node.instance_path), node.lifetime_id)) {
           const target=proxyFor(node.instance_path);
           if(stageHost){stageHost.stage.focus=target;stageHost.handlePointer('click',{},target);}
-          dispatchScripts(node.instance_path); render();
+          dispatchScripts(target); render();
         }
       } catch (error) { fail(error); }
     });
@@ -166,9 +166,10 @@
       x: 'x', y: 'y', rotation: 'rotation', alpha: 'alpha', scaleX: 'scale_x', scaleY: 'scale_y',
       _x: 'x', _y: 'y', _rotation: 'rotation', _alpha: 'alpha', _xscale: 'scale_x', _yscale: 'scale_y',
     };
+    const graphMode=typeof player.runtime_snapshot_json==='function';
     const references = new WeakMap();
     const attachedClasses = new Map();
-    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, program = null;
+    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, program = null;
     let timerRenderGeneration=0;
     let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
@@ -194,7 +195,7 @@
     }
     function initializeFamily() {
       if (!global.NeoFlashDisplay || typeof player.display_nodes_json !== 'function') return;
-      display=global.NeoFlashDisplay.create({player,proxyFor,referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
+      display=global.NeoFlashDisplay.create({player,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
         measureText:(line,kind)=>{if(typeof context==='undefined')throw new Error('Text bounds require the Canvas font measurement service.');context.font=font(kind);return context.measureText(line).width;},
         pathBounds:(commands,matrix)=>global.NeoFlashAccessibility.pathBounds(commands,matrix)});
       if(global.NeoFlashEvents&&global.NeoFlashStage) {
@@ -203,9 +204,9 @@
         eventHub=global.NeoFlashEvents.create({alive,parentOf:target=>target===stageHost?.stage?null:target.parent,
           localPoint:local,globalPoint:(target,x,y)=>{const p=target===stageHost?.stage?{x,y}:display.convert(target,{x,y},true);return[p.x,p.y];}});
         stageHost=global.NeoFlashStage.create({events:eventHub,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,
-          frameRate:runtimeFrameRate,getFrameRate:()=>runtimeFrameRate,setFrameRate:value=>{runtimeFrameRate=value;},alive,localPoint:local,
+          frameRate:runtimeFrameRate,getFrameRate:()=>runtimeFrameRate,setFrameRate:value=>{runtimeFrameRate=value;},alive:target=>alive(target)&&(target===stageHost?.stage||display.descriptor(target).on_stage!==false),localPoint:local,
           canvas:typeof canvas==='undefined'?null:canvas,keyboardTarget:typeof viewport==='undefined'?null:viewport,
-          hitTest:event=>{const path=hitAt(event);if(!path)return null;const list=display.nodes();for(let depth=path.length;depth>=0;depth--){const node=list.find(n=>JSON.stringify(n.path)===JSON.stringify(path.slice(0,depth)));if(node&&node.owner!=='shape'&&node.owner!=='graphic')return proxyFor(node.path);}return proxyFor([]);},
+          hitTest:event=>{const hit=hitAt(event);return hit?interactiveTarget(hit):null;},
           coordinates:event=>{if(typeof canvas==='undefined')return null;const r=canvas.getBoundingClientRect();return[(event.clientX-r.left)*project.width/r.width,(event.clientY-r.top)*project.height/r.height];},
           isInputEnabled:()=>typeof failed==='undefined'||(!failed&&!preview.panMode&&!preview.suppressClick),
           onLegacyInput:(type,target,event)=>{if(type==='mouseDown'&&(event.button===undefined||event.button===0))display.press(target);},
@@ -220,6 +221,7 @@
       }
       if(global.NeoFlashTimers&&global.NeoFlashEvents)timerHost=global.NeoFlashTimers.create({events:global.NeoFlashEvents,
         onError:timerFailure,afterEvent:afterTimerEvent,requestRender:requestTimerRender});
+      if(global.NeoFlashByteArray)binaryHost=global.NeoFlashByteArray.create();
       initializeProgram();
     }
     function initializeProgram() {
@@ -231,20 +233,21 @@
       if(global.NeoFlashEvents)for(const name of ['Event','MouseEvent','KeyboardEvent','EventDispatcher','EventPhase'])builtins['flash.events.'+name]=global.NeoFlashEvents[name];
       if(global.NeoFlashStage)builtins['flash.display.Stage']=global.NeoFlashStage.Stage;
       if(timerHost){builtins['flash.utils.Timer']=timerHost.Timer;builtins['flash.events.TimerEvent']=timerHost.TimerEvent;builtins['flash.utils.getTimer']=timerHost.getTimer;}
+      if(binaryHost){builtins['flash.utils.ByteArray']=binaryHost.ByteArray;builtins['flash.utils.Endian']=binaryHost.Endian;}
       program=typeof bundle!=='undefined'&&bundle.program ? new Function('__nfBuiltins',bundle.program.code)(builtins) : {
         type:name=>{if(!builtins[name])throw new TypeError(`Unsupported built-in class ${name}.`);return builtins[name];},
         is:(value,name)=>Boolean(builtins[name]?.__nfIs?.(value)),
       };
     }
     function resetProject() {
-      stopTimers();
+      stopTimers();binaryHost?.reset();
       proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();lastTrace = '';
       player.reset();
       initializeProgram();
       dispatchScripts();
     }
     function disposeFamily() {
-      timerRenderGeneration++;timerHost?.dispose();
+      timerRenderGeneration++;timerHost?.dispose();binaryHost?.dispose();
       legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
     function attachNewInstances() {
@@ -252,23 +255,52 @@
       display.prune();eventHub?.prune();
       // Linked descendants are initialized before their container/document class,
       // so the constructor can call an authored child's initialized methods.
-      for(const node of display.nodes().sort((a,b)=>b.path.length-a.path.length)) {
-        const key=JSON.stringify(node.path),previous=attachedClasses.get(key);
-        if(player.lifetime_id(key)!==node.lifetime_id)continue;
-        if(previous===node.lifetime_id)continue;
-        attachedClasses.set(key,node.lifetime_id);
-        const receiver=proxyFor(node.path);
+      const nodes=display.nodes();
+      for(const node of nodes.sort((a,b)=>(b.authored_path||b.path).length-(a.authored_path||a.path).length)) {
+        if(graphMode&&node.authored_path===null)continue; // dynamic constructors attach at allocation
+        const key=graphMode?JSON.stringify(node.object_ref):JSON.stringify(node.path),previous=attachedClasses.get(key);
+        const lifetime=graphMode?node.object_ref.generation:node.lifetime_id;
+        if(graphMode?!player.object_alive(key):player.lifetime_id(key)!==lifetime)continue;
+        if(previous===lifetime)continue;
+        attachedClasses.set(key,lifetime);
+        const receiver=graphMode?proxyForRef(node.object_ref):proxyFor(node.path);
         if(node.class_name){
           if(!program?.attach)throw new Error(`Linked class ${node.class_name} has no compiled project program.`);
           program.attach(node.class_name,receiver);
           if(program.dialect?.(node.class_name)==='as2')display.refreshLegacyCallbacks(receiver);
         }
       }
-      for(const key of attachedClasses.keys())if(!player.lifetime_id(key))attachedClasses.delete(key);
+      for(const key of attachedClasses.keys())if(graphMode?!player.object_alive(key):!player.lifetime_id(key))attachedClasses.delete(key);
+      drainDisplayEvents();
+      // Canonical refs are never reused; retire cache entries without retaining every
+      // prior authored placement forever. Externally held stale proxies still reject access.
+      if(graphMode)for(const key of proxies.keys())if(!player.object_alive(key))proxies.delete(key);
     }
+    function deliverDisplayEvents(events) {
+      if(!eventHub||!events?.length)return;
+      const rootRef=JSON.parse(player.object_ref('[]')),rootKey=JSON.stringify(rootRef);
+      const types={added:'added',removed:'removed',added_to_stage:'addedToStage',removed_from_stage:'removedFromStage'};
+      for(const item of events) {
+        const key=JSON.stringify(item.target_ref);if(!player.object_alive(key))continue;
+        const target=proxyForRef(item.target_ref);
+        const route=item.route.map(ref=>{const key=JSON.stringify(ref);return player.object_alive(key)?proxyForRef(ref):proxies.get(key)?.proxy;}).filter(Boolean);
+        if(item.route.some(ref=>JSON.stringify(ref)===rootKey)&&stageHost)route.push(stageHost.stage);
+        const type=types[item.kind];if(!type)throw new Error(`Unsupported display lifecycle event ${item.kind}.`);
+        eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,type==='added'||type==='removed'),route);
+      }
+    }
+    function drainDisplayEvents() {
+      if(graphMode&&typeof player.display_events_json==='function')deliverDisplayEvents(JSON.parse(player.display_events_json()).events);
+    }
+    function interactiveTarget(hit) {
+      let target=graphMode?proxyForRef(hit):proxyFor(hit);
+      while(target&&target!==stageHost?.stage){const node=display.descriptor(target);if(node.owner!=='shape'&&node.owner!=='graphic')return target;target=display.parentSpace(target);}
+      return target;
+    }
+
     function broadcastFrame() {
       attachNewInstances();
-      try {if(display){display.enterFrame();stageHost?.tick(display.nodes().map(node=>proxyFor(node.path)));}}
+      try {if(display){display.enterFrame();stageHost?.tick(display.nodes().map(node=>display.nodeProxy(node)));}}
       catch(error){const cause=unwrapScriptThrow(error);throw new Error(`EnterFrame callback: ${describeThrown(cause)}`,{cause});}
       dispatchScripts();
     }
@@ -297,17 +329,27 @@
       return Number.isNaN(value) ? null : value !== 0;
     }
     function proxyFor(path) {
-      const key = JSON.stringify(path);
-      const lifetime = player.lifetime_id(key);
+      if(graphMode){const ref=JSON.parse(player.object_ref(JSON.stringify(path)));if(!ref)throw new Error(`Display object ${JSON.stringify(path)} is no longer active.`);return proxyForRef(ref);}
+      return createProxy(path,null);
+    }
+    function proxyForRef(objectRef) {
+      if(!graphMode)throw new Error('Stable display references require the current Rust runtime. Re-export this project.');
+      return createProxy(null,objectRef);
+    }
+    function createProxy(path,objectRef) {
+      const key = JSON.stringify(objectRef||path);
+      const lifetime = objectRef?objectRef.generation:player.lifetime_id(key);
       const cached = proxies.get(key);
       if (cached && cached.lifetime === lifetime) return cached.proxy;
-      if (!lifetime) {
+      const live=()=>objectRef?player.object_alive(key):player.lifetime_id(key)===lifetime;
+      if (!lifetime||!live()) {
         if (cached) return cached.proxy;
         throw new Error(`Display object ${key} is no longer active.`);
       }
+      const call=(name,...args)=>player[objectRef?'object_'+({clip_frame:'frame',clip_frame_count:'frame_count'}[name]||name):name](key,...args);
       const custom = Object.create(null);
       function assertAlive() {
-        if (player.lifetime_id(key) !== lifetime) throw new Error(`Display object ${key} was removed or replaced.`);
+        if (!live()) throw new Error(`Display object ${key} was removed or replaced.`);
       }
       const target = Object.create(null);
       const methods = {
@@ -315,45 +357,46 @@
         stop: () => control('stop'),
         gotoAndPlay: value => goto('goto_and_play', value),
         gotoAndStop: value => goto('goto_and_stop', value),
-        nextFrame: () => goto('goto_and_stop', Math.min(player.clip_frame(key) + 2, player.clip_frame_count(key))),
-        prevFrame: () => goto('goto_and_stop', Math.max(player.clip_frame(key), 1)),
+        nextFrame: () => goto('goto_and_stop', Math.min(call('clip_frame') + 2, call('clip_frame_count'))),
+        prevFrame: () => goto('goto_and_stop', Math.max(call('clip_frame'), 1)),
         trace: (...values) => trace(...values),
       };
-      function control(command) {assertAlive();if(!player.control(key,command,0))throw new Error(`Cannot control timeline at ${key}.`);}
+      function control(command) {assertAlive();if(!call('control',command,0))throw new Error(`Cannot control timeline at ${key}.`);}
       function goto(command, value, legacy = false) {
         assertAlive();
-        const total = player.clip_frame_count(key);
+        const total = call('clip_frame_count');
         if (!total) throw new Error('Timeline controls apply to symbols and the root scene.');
         const frame = legacy
-          ? as2Frame(value, total, label => player.resolve_frame_as2(key, label))
-          : oneBasedFrame(value, total, label => player.resolve_frame(key, label));
+          ? as2Frame(value, total, label => call('resolve_frame_as2',label))
+          : oneBasedFrame(value, total, label => call('resolve_frame',label));
         if (frame === null) return; // An unknown AS2 label changes neither frame nor play state.
-        if (!player.control(key, command, frame)) throw new Error(`Cannot control timeline at ${key}.`);
+        if (!call('control',command,frame)) throw new Error(`Cannot control timeline at ${key}.`);
       }
       const proxy = new Proxy(target, {
         get(_target, name) {
           if (name === Symbol.toStringTag) return 'NeoFlashDisplayObject';
           if (name === 'toString') return () => `[NeoFlash ${key}]`;
-          if (name === 'toJSON') return () => ({ path });
+          if (name === 'toJSON') return () => objectRef?({object_ref:objectRef}):({path});
           if (typeof name !== 'string') return undefined;
-          if (name === '_root' || name === 'root') return proxyFor([]);
-          if (name === '_parent' || name === 'parent') return path.length ? proxyFor(path.slice(0, -1)) : name==='parent' ? stageHost?.stage||null : null;
-          if (name === '_currentframe' || name === 'currentFrame') return player.clip_frame(key) + 1;
-          if (name === '_totalframes' || name === 'totalFrames') return player.clip_frame_count(key);
+          if (name === '_root' || name === 'root') {assertAlive();return name==='root'&&objectRef&&!display.descriptor(proxy).on_stage?null:proxyFor([]);}
+          if (name === '_parent' || name === 'parent') {assertAlive();const parent=display?display.parentSpace(proxy):path.length?proxyFor(path.slice(0,-1)):stageHost?.stage||null;return name==='_parent'&&parent===stageHost?.stage?null:parent;}
+          if (name === '_currentframe' || name === 'currentFrame') return call('clip_frame') + 1;
+          if (name === '_totalframes' || name === 'totalFrames') return call('clip_frame_count');
           if (Object.hasOwn(methods, name)) return methods[name];
           if(display){const value=display.get(proxy,name);if(value!==display.UNHANDLED)return value;}
           if (name === 'visible' || name === '_visible') {
             assertAlive();
-            return player.visible(key);
+            return call('visible');
           }
           if (Object.hasOwn(propertyMap, name)) {
             assertAlive();
-            const value = player.property(key, propertyMap[name]);
+            const value = call('property',propertyMap[name]);
             return percentage.has(name) ? value * 100 : propertyMap[name]==='rotation' ? ((value%360)>180?value%360-360:(value%360)<-180?value%360+360:value%360) : value;
           }
           if(Object.hasOwn(target,name))return Reflect.get(target,name,proxy);
           if (Object.hasOwn(custom, name)) return custom[name];
           if(Reflect.has(target,name))return Reflect.get(target,name,proxy);
+          if(objectRef){const child=display.children(proxy).find(node=>node.name===name);return child?display.nodeProxy(child):undefined;}
           const child = JSON.parse(player.child_path(key, name));
           return child ? proxyFor(child) : undefined;
         },
@@ -364,14 +407,14 @@
             assertAlive();
             const visible = name === '_visible' ? as2Visibility(value) : Boolean(value);
             if (visible === null) return true;
-            if (!player.set_visible(key, visible)) {
+            if (!call('set_visible',visible)) {
               throw new Error(`Cannot change ${name} on inactive display object ${key}.`);
             }
           } else if (Object.hasOwn(propertyMap, name)) {
             assertAlive();
             if (name.startsWith('_')) value = Number(value);
             if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`${name} must be a finite number.`);
-            if (!player.set_property(key, propertyMap[name], percentage.has(name) ? value / 100 : value)) {
+            if (!call('set_property',propertyMap[name],percentage.has(name)?value/100:value)) {
               throw new Error(`Cannot change ${name} on inactive display object ${key}.`);
             }
           } else if (['currentFrame', 'totalFrames', '_currentframe', '_totalframes', '_root', '_parent', 'root', 'parent'].includes(name)) {
@@ -381,7 +424,7 @@
           return true;
         },
       });
-      references.set(proxy,{path:[...path],key,lifetime});
+      references.set(proxy,{path:path?[...path]:null,objectRef,key,lifetime});
       if(display)Object.assign(methods,display.methods(proxy));
       if(eventHub)Object.assign(methods,eventHub.methods(proxy));
       as2.register(methods.gotoAndPlay, proxy, 'gotoAndPlay', value => goto('goto_and_play', value, true));
@@ -395,7 +438,7 @@
     }
     function dispatchScripts(clickTarget = null) {
       attachNewInstances();
-      const clickTargetScope = clickTarget ? proxyFor(clickTarget) : null;
+      const clickTargetScope = clickTarget ? references.has(clickTarget)?clickTarget:proxyFor(clickTarget) : null;
       let count = 0;
       for (;;) {
         const events = JSON.parse(player.scripts_json());
@@ -427,7 +470,8 @@
     function resize() { preview.resize(); }
     function font(kind) { return `${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`; }
     function render() {
-      scene = JSON.parse(player.scene_json());
+      const snapshot=graphMode?JSON.parse(player.runtime_snapshot_json()):null;
+      scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
       context.setTransform(canvas.width / project.width, 0, 0, canvas.height / project.height, 0, 0);
       context.clearRect(0, 0, project.width, project.height);
       context.fillStyle = color(project.background);
@@ -469,14 +513,15 @@
         } else throw new Error(`Unsupported display primitive: ${kind.type}`);
         context.restore();
       }
-      const targetCount = semanticLayer.update(JSON.parse(player.accessibility_json()), scene, project, preview.view.scale, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
+      const semanticScene=snapshot?scene.map(item=>{let node=snapshot.objects.find(node=>JSON.stringify(node.object_ref)===JSON.stringify(item.owner_ref));while(node&&node.authored_path===null)node=snapshot.objects.find(parent=>JSON.stringify(parent.object_ref)===JSON.stringify(node.parent_ref));return {...item,instance_path:node?.authored_path||[]};}):scene;
+      const targetCount = semanticLayer.update(snapshot?snapshot.semantics:JSON.parse(player.accessibility_json()), semanticScene, project, preview.view.scale, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
       if (targetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
       status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${runtimeFrameRate} fps`;
       if (traceElement.textContent !== lastTrace) traceElement.textContent = lastTrace;
       toggle.textContent = player.is_playing() ? 'Pause' : 'Play';
     }
     function hitAt(event) {
-      scene = JSON.parse(player.scene_json());
+      scene = graphMode?JSON.parse(player.runtime_snapshot_json()).draws:JSON.parse(player.scene_json());
       const rect = canvas.getBoundingClientRect();
       const x = (event.clientX - rect.left) * project.width / rect.width;
       const y = (event.clientY - rect.top) * project.height / rect.height;
@@ -488,17 +533,24 @@
         if (hitShape(item.kind, ...local, (line, kind) => {
           context.font = font(kind);
           return context.measureText(line).width;
-        }, (kind, x, y) => global.NeoFlashPaths.contains(context, kind, x, y, paths.get(kind.commands)))) return item.instance_path;
+        }, (kind, x, y) => global.NeoFlashPaths.contains(context, kind, x, y, paths.get(kind.commands)))) return graphMode?item.owner_ref:item.instance_path;
       }
       return null;
     }
     canvas.addEventListener('click', event => {
       if (failed || preview.panMode || preview.suppressClick) return;
       try {
-        const target = hitAt(event);
-        const lifetime=target?player.lifetime_id(JSON.stringify(target)):null;
+        const hit=hitAt(event),target=hit?(graphMode?proxyForRef(hit):proxyFor(hit)):null;
         stageHost?.handlePointer('click',event);
-        if (target&&player.lifetime_id(JSON.stringify(target))===lifetime) { player.click(JSON.stringify(target)); dispatchScripts(target); render(); }
+        if(target&&display.alive(target)){
+          let owner=target,node=display.descriptor(owner);
+          while(graphMode&&node.authored_path===null){owner=display.parentSpace(owner);if(!owner||owner===stageHost?.stage)break;node=display.descriptor(owner);}
+          const path=graphMode?node.authored_path:node.path;
+          if(path)player.click(JSON.stringify(path));
+          dispatchScripts(target);
+          render();
+        }
+
       } catch (error) { fail(error); }
     });
     canvas.addEventListener('pointermove', event => { pointerOverContent=Boolean(hitAt(event));updateCursor(); });
@@ -522,7 +574,7 @@
     panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
     global.addEventListener('pagehide', event => { if(!event.persisted)disposeFamily(); });
     new ResizeObserver(() => { resize(); render(); }).observe(viewport);
-    stopAsyncOnFailure=stopTimers;
+    stopAsyncOnFailure=()=>{stopTimers();binaryHost?.reset();};
     initializeFamily();
     canvas.tabIndex=-1;
     stageHost?.attach();

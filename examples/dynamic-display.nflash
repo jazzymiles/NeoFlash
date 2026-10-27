@@ -1,0 +1,215 @@
+{
+  "format_version": 2,
+  "name": "Dynamic display and Graphics",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    34,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Dynamic display and Graphics",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 42,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / DYNAMIC DISPLAY + GRAPHICS",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 86,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Create. Draw. Move. Keep the instance.",
+                      "font_family": "Arial",
+                      "font_size": 34,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 132,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Click the cyan card. Right moves it, Space detaches/reattaches, Up runs a lifecycle cycle.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 48,
+                      "y": 430,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Creating runtime objects…",
+                      "font_family": "Arial",
+                      "font_size": 21,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "measurements",
+                    "name": "measurements",
+                    "transform": {
+                      "x": 48,
+                      "y": 470,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "One shared scene graph. Dynamic graphics keep their object identity.",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        153,
+                        204,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 510,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Rust scene + AS3 classes + Graphics + ByteArray + Timer. Restart creates fresh objects.",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "var legacyClip = this.createEmptyMovieClip(\"legacy\", this.getNextHighestDepth());\nlegacyClip._x = 462;\nlegacyClip._y = 235;\nlegacyClip.lineStyle(2, 0xD4BEFF, 100);\nlegacyClip.beginFill(0x9369C7, 100);\nlegacyClip.moveTo(0, 0);\nlegacyClip.lineTo(36, 30);\nlegacyClip.lineTo(0, 60);\nlegacyClip.lineTo(0, 0);\nlegacyClip.endFill();\nlegacyClip.onPress = function() { trace(\"dynamic AS2 press\", this._name); };\ntrace(\"dynamic AS2 ready\", legacyClip._name, legacyClip._parent == this);\n"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n  import flash.display.MovieClip;\n  import flash.display.Sprite;\n  import flash.events.KeyboardEvent;\n  import flash.events.TimerEvent;\n  import flash.utils.Timer;\n  import flash.utils.ByteArray;\n  import flash.geom.Rectangle;\n  public class Main extends MovieClip {\n    public var leftPanel:Sprite;\n    public var rightPanel:Sprite;\n    public var card:Card;\n    public var underlay:Sprite;\n    public var timer:Timer;\n    public function Main() {\n      super(); stop();\n      leftPanel = new Sprite(); leftPanel.name = \"leftPanel\";\n      leftPanel.x = 60; leftPanel.y = 190;\n      leftPanel.graphics.beginFill(0x253449); leftPanel.graphics.drawRect(0, 0, 380, 190); leftPanel.graphics.endFill();\n      rightPanel = new Sprite(); rightPanel.name = \"rightPanel\";\n      rightPanel.x = 520; rightPanel.y = 190;\n      rightPanel.graphics.beginFill(0x253449); rightPanel.graphics.drawRect(0, 0, 380, 190); rightPanel.graphics.endFill();\n      addChild(leftPanel); addChild(rightPanel);\n      underlay = new Sprite(); underlay.name = \"underlay\"; underlay.x = 55; underlay.y = 60;\n      underlay.graphics.beginFill(0xD99845); underlay.graphics.drawRect(0, 0, 240, 95); underlay.graphics.endFill();\n      leftPanel.addChild(underlay);\n      var packet:ByteArray = new ByteArray(); packet.writeUnsignedInt(0x53C1D4); packet.position = 0;\n      card = new Card(packet.readUnsignedInt()); card.name = \"card\"; card.x = 25; card.y = 25;\n      leftPanel.addChild(card);\n      stage.addEventListener(KeyboardEvent.KEY_DOWN, onKey);\n      timer = new Timer(200, 4); timer.addEventListener(TimerEvent.TIMER, onTick); timer.start();\n      report(\"Ready\");\n      trace(\"dynamic ready\", leftPanel.numChildren, rightPanel.numChildren, card.numChildren, card.parent === leftPanel);\n    }\n    public function onTick(event:TimerEvent):void { card.y += 3; }\n    public function onKey(event:KeyboardEvent):void {\n      if (event.keyCode == 39) moveCard();\n      if (event.keyCode == 32) toggleCard();\n      if (event.keyCode == 38) runCycle();\n    }\n    public function moveCard():void {\n      if (card.parent === leftPanel) rightPanel.addChild(card); else leftPanel.addChild(card);\n      report(\"Reparented\"); trace(\"dynamic move\", card.parent.name, card.count);\n    }\n    public function toggleCard():void {\n      if (card.parent != null) card.parent.removeChild(card); else leftPanel.addChild(card);\n      report(\"Attachment changed\"); trace(\"dynamic attachment\", card.parent != null, card.count);\n    }\n    public function runCycle():void {\n      var saved:Card = card;\n      rightPanel.addChild(card);\n      rightPanel.removeChild(card);\n      var detached:Boolean = card.parent == null;\n      leftPanel.addChild(card);\n      leftPanel.swapChildren(card, underlay);\n      var index:int = leftPanel.getChildIndex(card);\n      leftPanel.setChildIndex(card, leftPanel.numChildren - 1);\n      var bounds:Rectangle = card.getBounds(this);\n      report(\"Cycle kept the instance\");\n      trace(\"dynamic cycle\", saved === card, detached, index, card.parent === leftPanel, bounds.width, bounds.height, card.count);\n    }\n    public function report(message:String):void {\n      status.text = message + \" | left \" + leftPanel.numChildren + \" / right \" + rightPanel.numChildren + \" | card clicks \" + card.count;\n      measurements.text = \"Use Right / Space / Up after clicking the scene. Detached cards keep their fields and listeners.\";\n    }\n  }\n}\n"
+    },
+    {
+      "id": "card-source",
+      "path": "app/Card.as",
+      "language": "action_script3",
+      "source": "package app {\n  import flash.display.Sprite;\n  import flash.display.Shape;\n  import flash.display.Graphics;\n  import flash.events.MouseEvent;\n  public class Card extends Sprite {\n    public var count:int = 0;\n    public function Card(color:uint) {\n      super();\n      var paint:Graphics = graphics;\n      paint.lineStyle(2, 0xD2F5FA); paint.beginFill(color); paint.drawRect(0, 0, 240, 100); paint.endFill();\n      var badge:Shape = new Shape(); badge.name = \"badge\"; badge.x = 195; badge.y = 50;\n      badge.graphics.beginFill(0x172638); badge.graphics.drawCircle(0, 0, 19); badge.graphics.endFill();\n      addChild(badge); addEventListener(MouseEvent.CLICK, onClick);\n    }\n    public function onClick(event:MouseEvent):void {\n      count++; root.status.text = \"Card clicks \" + count + \" | same instance in \" + parent.name;\n      trace(\"dynamic click\", count, parent.name, numChildren);\n    }\n  }\n}\n"
+    }
+  ]
+}

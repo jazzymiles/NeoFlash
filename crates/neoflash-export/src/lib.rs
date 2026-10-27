@@ -19,6 +19,7 @@ const STAGE: &str = include_str!("../../../web/stage.js");
 const LEGACY_INPUT: &str = include_str!("../../../web/legacy-input.js");
 const GEOMETRY: &str = include_str!("../../../web/geom.js");
 const TIMERS: &str = include_str!("../../../web/timers.js");
+const BYTE_ARRAY: &str = include_str!("../../../web/byte-array.js");
 const DISPLAY: &str = include_str!("../../../web/display.js");
 const MARKER: &str = "neoflash-export.json";
 
@@ -239,6 +240,7 @@ pub fn export_project(
         ("legacy-input.js", LEGACY_INPUT),
         ("geom.js", GEOMETRY),
         ("timers.js", TIMERS),
+        ("byte-array.js", BYTE_ARRAY),
         ("display.js", DISPLAY),
         ("bundle.js", bundle_js.as_str()),
         ("README.txt", readme.as_str()),
@@ -313,6 +315,7 @@ fn html_document(title: &str) -> String {
   <script defer src="legacy-input.js"></script>
   <script defer src="geom.js"></script>
   <script defer src="timers.js"></script>
+  <script defer src="byte-array.js"></script>
   <script defer src="display.js"></script>
   <script defer src="runtime.js"></script>
 </head>

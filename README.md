@@ -14,7 +14,7 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | AS2 | 2,307 | 15 | 211 | 1,964 | 117 |
-| AS3 | 43,740 | 15 | 241 | 43,235 | 249 |
+| AS3 | 43,740 | 15 | 257 | 43,218 | 250 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -106,6 +106,10 @@ Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two indep
 [collections-text.nflash](examples/collections-text.nflash) processes the same leaderboard in AS2 and AS3: parse rows, update records, sort with Flash array flags and display the result in authored text fields. The shared Array/String profile also works in project classes. Plain text mutation, color, line queries and Canvas-based measurements are available; rich text, editable input, wrapping and embedded fonts remain separate work.
 
 [geometry-timer.nflash](examples/geometry-timer.nflash) combines Point/Rectangle/Matrix with Timer events: four ticks move an authored marker, query typed bounds and update text. The timer service owns its callbacks for the publication session and clears them on Restart. Geometry uses a finite 2D profile; browser timer throttling still applies.
+
+[dynamic-display.nflash](examples/dynamic-display.nflash) creates Sprite/Shape components from code, draws Graphics, moves a Card subclass between containers and detaches/reattaches it without losing fields or listeners. Click the card, then use Right / Space / Up; the purple triangle uses AS2 creation and drawing. These runtime changes do not alter the authored document. Linked dynamic timelines and editing authored display-list ownership remain separate work.
+
+[binary-data.nflash](examples/binary-data.nflash) writes, reads and copies a typed binary/UTF packet with ByteArray/Endian and displays the decoded values. Buffers are bounded and session-owned; AMF, compression and other code pages remain unsupported.
 
 Prepare these and representative existing examples as one browser batch using an already built exporter:
 

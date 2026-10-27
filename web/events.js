@@ -151,6 +151,25 @@
       assertTarget(target);
       return [target, ...ancestry(target)].some(node => has(node, type));
     }
+    function capturedParents(target, route) {
+      // Host-only historical route: [target, oldParent, ..., stage]. The public
+      // dispatchEvent wrapper never accepts a route. Copy before listener code
+      // runs; retired ancestors may remain here but invoke still checks alive.
+      const count = Array.isArray(route) ? route.length : 0;
+      if (!Number.isInteger(count) || count < 1 || count > 257) {
+        throw new TypeError('Captured event route must contain its target first and at most 256 ancestors.');
+      }
+      const result = [], seen = new Set();
+      for (let index = 0; index < count; index++) {
+        const node = route[index];
+        if ((index === 0 && node !== target) || node === null || (typeof node !== 'object' && typeof node !== 'function') || seen.has(node)) {
+          throw new TypeError('Captured event route contains an invalid or duplicate target.');
+        }
+        seen.add(node);
+        if (index !== 0) result.push(node);
+      }
+      return result;
+    }
     function invoke(target, event, phase, capture) {
       if (!alive(target)) return;
       const s = state(event);
@@ -165,14 +184,15 @@
         Reflect.apply(listener, target, [event]);
       }
     }
-    function dispatch(target, original) {
+    function dispatch(target, original, capturedRoute) {
       assertTarget(target);
+      const captured = capturedRoute === undefined ? null : capturedParents(target, capturedRoute);
       const previous = state(original);
       const event = previous.target !== null || previous.dispatching ? original.clone() : original;
       const s = state(event);
       if (s.target !== null || s.dispatching) throw new TypeError('Event.clone() must return a fresh Event.');
       if (depth >= maxDepth) throw new Error('Event dispatch recursion limit exceeded.');
-      const parents = s.bubbles ? ancestry(target) : [];
+      const parents = s.bubbles ? (captured ?? ancestry(target)) : [];
       if (s.kind === 'mouse' && !s.stagePointSet && options.globalPoint) {
         const point = options.globalPoint(target, event.localX, event.localY);
         if (point) setStagePoint(event, point[0], point[1]);

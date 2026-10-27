@@ -74,7 +74,41 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     widget.amount = 8.9; assert.equal(widget.amount, 8);
     assert.equal(host.program().type('flash.display.MovieClip').__nfIs(widget), true);
     assert.equal(host.program().type('flash.display.DisplayObject').__nfIs(scene.stage), true);
-    assert.throws(() => new (host.program().type('flash.display.MovieClip'))(), /Dynamic new/);
+    // Dynamic objects use the same Rust scene and keep identity through hierarchy edits.
+    const Sprite=host.program().type('flash.display.Sprite'),Shape=host.program().type('flash.display.Shape');
+    const left=new Sprite(),right=new Sprite(),shape=new Shape();
+    left.name='runtimeLeft';right.name='runtimeRight';shape.name='drawing';
+    left.x=20;left.y=30;right.x=180;right.scaleX=2;
+    assert.equal(left.root,null);assert.equal(left.stage,null);assert.equal(shape.parent,null);
+    shape.graphics.beginFill(0x4288cc);shape.graphics.lineStyle(2,0x112233);
+    shape.graphics.drawRect(0,0,40,20);shape.graphics.endFill();
+    assert.equal(shape.width,42,'detached Graphics contributes bounds before first attachment');
+    assert.equal(left.addChild(shape),shape);assert.equal(left.getChildByName('drawing'),shape);
+    const identity=shape.toJSON().object_ref,events=[];
+    shape.addEventListener('added',event=>events.push([event.type,event.target===shape,event.currentTarget===shape]));
+    shape.addEventListener('removed',event=>events.push([event.type,event.target===shape,event.currentTarget===shape]));
+    left.addEventListener('removed',event=>events.push(['old-parent',event.target===shape,event.currentTarget===left]));
+    const prefix=scene.numChildren;
+    scene.addChild(left);scene.addChild(right);
+    assert.equal(left.stage,scene.stage);assert.equal(left.root,scene);
+    assert.equal(JSON.parse(player.runtime_snapshot_json()).draws.some(item=>item.owner_ref.id===identity.id),true);
+    right.addChild(shape);
+    assert.equal(shape.parent,right);assert.equal(shape.width,42);assert.equal(right.width,84);
+    assert.deepEqual(events,[['removed',true,true],['old-parent',true,true],['added',true,true]]);
+    assert.deepEqual(shape.toJSON().object_ref,identity,'reparent must not replace the Rust object');
+    right.removeChild(shape);assert.equal(shape.parent,null);assert.equal(shape.stage,null);
+    assert.equal(JSON.parse(player.runtime_snapshot_json()).draws.some(item=>item.owner_ref.id===identity.id),false);
+    right.addChild(shape);assert.equal(events.at(-1)[0],'added','listeners survive detachment');
+    scene.swapChildren(left,right);assert.equal(scene.getChildIndex(right),prefix);
+    scene.setChildIndex(left,prefix);assert.equal(scene.getChildAt(prefix),left);
+    assert.throws(()=>scene.addChildAt(left,0),/authored|prefix/i);
+    assert.throws(()=>scene.removeChild(widget),/authored/i);
+    assert.throws(()=>shape.graphics.lineStyle(0),/hairlines/);
+    const legacy=scene.createEmptyMovieClip('legacyRuntime',scene.getNextHighestDepth());
+    legacy.beginFill(0xaa33bb,100);legacy.moveTo(0,0);legacy.lineTo(20,0);legacy.lineTo(10,20);legacy.endFill();
+    assert.equal(legacy.totalFrames,1);assert.equal(legacy.width,20);
+    legacy.removeMovieClip();assert.equal(legacy.parent,null);
+
     assert.equal(host.program().type('flash.geom.Point').__nfIs(point), true);
 
     // Plain authored TextFields are live display objects backed by Rust overrides.
@@ -101,6 +135,8 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     assert.equal(widget.text, 'custom'); assert.equal(widget.htmlText, 'custom html');
     host.resetProject();
     assert.throws(() => title.text, /removed|replaced/);
+    assert.throws(() => shape.x, /removed|replaced/);
+    assert.throws(() => shape.graphics.clear(), /removed|replaced/);
     assert.equal(host.proxyFor([]).title.text, originalText);
   } finally {
     if (player) player.free();

@@ -363,8 +363,8 @@
       "id": "as2-display",
       "title": "Display properties",
       "status": "partial",
-      "scope": "Position, scale, alpha, bounded finite rotation readback, visibility, root/parent and AS2 aliases including _name/_width/_height. The shared facade supplies name lookup, transformed bounds/coordinates and supported nonrotated dimension changes.",
-      "limitations": "Full MovieClip APIs, dynamic placements, masks/filters and TextField/Button contracts remain incomplete. Rotated dimension writes and noninvertible coordinate conversions diagnose; legacy rotation/visibility coercion is not full AVM1 conformance. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.",
+      "scope": "Position, scale, alpha, bounded finite rotation readback, visibility, root/parent and AS2 aliases including _name/_width/_height. The shared facade supplies name lookup, transformed bounds/coordinates and supported nonrotated dimension changes. Runtime createEmptyMovieClip/removeMovieClip and append-only getNextHighestDepth share stable identities with the dynamic graph.",
+      "limitations": "Full MovieClip APIs, general depth management, masks/filters and TextField/Button contracts remain incomplete. Rotated dimension writes and noninvertible coordinate conversions diagnose; legacy rotation/visibility coercion is not full AVM1 conformance. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified. Authored children cannot be moved/removed; detached runtime objects remain allocated until Restart, with a 4,096-object bound. attachMovie and linked dynamic timelines remain unsupported. The combined dynamic-display browser workflow and Restart passed.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -377,7 +377,12 @@
         "crates/neoflash-core/tests/display_family.rs",
         "web/tests/display-family.test.cjs",
         "examples/display-family.nflash",
-        "docs/progress/actionscript-audit.json"
+        "docs/progress/actionscript-audit.json",
+        "crates/neoflash-core/src/runtime_graph.rs",
+        "crates/neoflash-core/src/runtime_graphics.rs",
+        "crates/neoflash-web/src/lib.rs",
+        "web/events.js",
+        "examples/dynamic-display.nflash"
       ]
     },
     {
@@ -404,13 +409,20 @@
     {
       "id": "as2-graphics-api",
       "title": "Programmatic drawing",
-      "status": "planned",
-      "scope": "MovieClip drawing APIs, bitmap fills and programmatic Flash graphics.",
-      "limitations": "Authored vector shapes and their Canvas rendering do not provide a Graphics API callable from ActionScript.",
+      "status": "partial",
+      "scope": "Runtime MovieClip beginFill/endFill/lineStyle/moveTo/lineTo/curveTo/clear use solid paths and percentage alpha through the shared Rust scene.",
+      "limitations": "Authored-owner drawing, hairlines, gradients, bitmap fills, non-round stroke modes, masks/filters and full legacy paint semantics remain unsupported. Graphics state is runtime-only and bounded to 100,000 commands/runs; the combined pointer/keyboard/dynamic-display workflow and Restart passed in the in-app browser.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",
-        "web/runtime.js"
+        "web/runtime.js",
+        "crates/neoflash-core/src/runtime_graph.rs",
+        "crates/neoflash-core/src/runtime_graphics.rs",
+        "crates/neoflash-web/src/lib.rs",
+        "web/display.js",
+        "web/events.js",
+        "web/tests/display-family.test.cjs",
+        "examples/dynamic-display.nflash"
       ]
     },
     {

@@ -2,6 +2,16 @@
 
 Date: 2026-10-27. This record covers the development preview, vector/object tools and clipboard, authored web semantics, ActionScript functions/control flow/exceptions, the bounded project/display/events family batch and binary preservation. It does not establish complete Flash compatibility. Historical desktop/browser observations apply only to their named increments; current family browser evidence and pending native acceptance are recorded below.
 
+## Independent geometry/timer verification of ed3c39b
+
+Run `GEOMETRY-TIMER-HTML5-20261027T0152Z` independently froze the integrated build, then matched all 131 source hashes to delivered commit `ed3c39b221c8fa55e51465f48733333d7e96ab3e`. Matching exporter/bindings/WASM published five projects in one batch. The existing geometry/timer class scenario was extended with two caught diagnostic branches beside the positive workflow. Four TIMER callbacks produced points (320,256), (460,292), (600,328), (740,364), typed bounds32x32 and matching local-to-global results, then TIMER_COMPLETE4/4/false. Screenshots show actual marker movement and updated text. A second immediate publication Restart before the first pending tick suppressed the abandoned session; exactly one fresh four-tick sequence completed. Visible elapsed time rebased from1617ms to1612ms across runs; no exact scheduling equivalence is claimed.
+
+Singular inversion and negative Timer delay give actionable RangeErrors without preventing the supported workflow. Nineteen exact declarations remain partial; Matrix.invert is needs_review because positive inversion was not exercised. Publication Restart does not establish public Timer.reset/stop. AS2 geometry counterparts and other methods inherit no result. One shared regression retains AS3/AS2 class/input, collection/text and numeric startup behavior; main full-suite results remain reported supplemental evidence, not an independent rerun.
+
+Only Codex in-app browser was checked; engine/version was not separately identified and original Flash was not run (`documented_only`). All five exports reached ready DOM and standalone console logs contain no error. The aggregate page still records the unlocated MutationObserver exception (`FAMILY-HARNESS-001`), despite zero visible runtime/observation counters; the separate main clean-console observation is not inherited. Native Sources/D-008 remains pending, and later ByteArray/dynamic-display work receives no pass.
+
+The public [normalized audit](progress/actionscript-audit.json) retains sanitized per-entry provenance. Local acceptance and screenshots remain under ignored `target/html5-geometry-timer-independent-20261027T0152Z/`; full local evidence is in `docs/actionscript-reference/implementation-evidence.json`.
+
 ## Independent AS2/input verification of a3fedc3
 
 Run `AS2-INPUT-HTML5-20261027T0140Z` pinned all 128 source fingerprints to `a3fedc33553b0c15885aca973769e2e4c6c96c21` and independently published five original projects using the matching exporter/bindings/WASM. Actual coordinate clicks now reach both original AS3 class listeners and the Stage example; listener removal/re-add, keyboard and Restart pass. This independently closes `FAMILY-INPUT-001` in the observed in-app-browser mouse route. Earlier 01f1381/a05a08d failures remain historical evidence, not current results for the corrected snapshot.
@@ -35,7 +45,7 @@ Full source fixtures, expected/actual traces and fingerprints: `docs/actionscrip
 `./scripts/check.sh` passes on Apple Silicon, macOS 15.8, Rust 1.99.1:
 
 - Formatting and Clippy (`--workspace --all-targets -- -D warnings`).
-- 309 workspace Rust tests: 55 core, 121 editor, 35 script, 94 importer and 4 exporter; four additional tests exercise the pinned egui-winit paste adapter.
+- 310 workspace Rust tests: 56 core, 121 editor, 35 script, 94 importer and 4 exporter; four additional tests exercise the pinned egui-winit paste adapter.
 - 66 browser-host/actual-WASM/cache and public-example tests in Node, including the current display, Stage and EventDispatcher family, semantic bounds, DOM identity, focus restoration, pan/zoom, lifetime-checked activation, recovery and failure reporting.
 - 90 execution fixtures using JavaScript emitted by the script compiler, plus an integration check using the actual host proxy/dispatch code with a lifecycle stub.
 - One combined project-program scenario covers class resolution/inheritance/slots/events, ordinary export and linked instances through actual WASM and host code.
@@ -47,7 +57,21 @@ Important regressions include independent nested clocks while a parent is stoppe
 
 The build emits an upstream future-compatibility notice for the Metal dependency `block 0.1.6`. This is not a current compilation or Clippy error; dependency modernization remains tracked work.
 
+## Dynamic display, Graphics and ByteArray — 27 October
+
+This delivery adds one coherent Rust graph scenario: 310 workspace tests (56 core), with the existing four adapter tests, 66 Node tests and 90 compiler fixtures. Existing display/event/project scenarios were extended; no per-method test matrix was added. The shared run passed formatting, Clippy, Rust, corpus and WASM build. One Node visibility harness failed because it extracted hitAt without its new graphMode binding. The harness now uses the actual graph branch and maps the returned owner ref back to the authored path for its existing assertions. The affected tests and remaining compiler/project/batch/demo stages passed; unrelated tests were not rerun. Logs: `target/verification/dynamic-binary-integrated-check.log` and `dynamic-binary-final-check.log`.
+
+Actual-WASM scenarios cover dynamic object creation, detached bounds, reparent/order, stable identity/listeners, captured removal routes, authored-operation refusal, AS2 drawing and Restart. The combined project runner additionally publishes a typed ByteArray packet with numeric/UTF encoding, copying/indexing, atomic failures, text output and buffer invalidation after Restart/disposal.
+
+The in-app browser loaded all thirteen ordinary exports in run `20261027T021311Z-4b7b237a`. In the combined dynamic example, coordinate clicks and keyboard actions produced counts one then two across left/right reparenting. Space removed the card pixels while retaining count two; clicking the empty area did not increment it. Reattachment and the Up cycle preserved identity, changed order, and reported bounds `242 × 102`. Clicking the Shape badge bubbled to the same Card and incremented exactly once to three. The AS2-created purple triangle ran its onPress callback. Restart visibly restored fresh objects/count zero, and the next click produced count one once.
+
+The binary example displayed its 50-byte packet, signed/unsigned/floating values, Unicode text `NeoFlash π 🦀 / done`, preserved destination position seven and zero unread bytes. Restart repeated both exact trace lines and visible output. The other eleven projects received startup checks only in this run. No project error overlay appeared. The aggregate console still captured one unlocated MutationObserver exception at startup (`FAMILY-HARNESS-001`); it remains open despite zero dashboard observation errors. Full native acceptance, other browser engines and original Flash comparisons are not claimed.
+
+Evidence: `target/verification/dynamic-binary-browser/observations.json`, `console.json`, `cycle.png` and `restart.png`. The optimized macOS package built and strict codesign verification passed. Executable SHA-256 `1c4d25ffed012ec9857b3c5f4f01135d6c6166c0c7427aaecd718e1b124da47a`; WASM `021465092900d7e365821f8277ca8342dcd36c5e1ffeb211a97af3ba1d1b075e`; exporter `ce7fbd41b93c4699d5040a41e8e068ac2032364f82d6ee542d6a69e68959c6ad`. Build identity is retained in `target/verification/dynamic-binary-build-evidence.json`. Native Sources/editor acceptance remains pending; the unsaved native session was preserved.
+
 ## Geometry and Timer family — 27 October
+
+Published `ed3c39b` passed the complete [GitHub Check workflow](https://github.com/jazzymiles/NeoFlash/actions/runs/40435156678) and Progress Pages.
 
 One shared `scripts/check.sh` run passed with unchanged totals: 309 workspace Rust tests, four adapter tests, 66 Node tests and 90 compiler fixtures. The existing project executor additionally runs one combined geometry/Timer workflow. It uses the ordinary exporter, actual WASM and shipped host with a deterministic scheduler: typed geometry returned by display methods, four ticks, completion, elapsed time, Restart, stale timer invalidation and disposal. Existing project checks also cover native Point/Timer subclass initialization and imported/qualified/locally shadowed getTimer. No per-method browser matrix was added. Log: `target/verification/geometry-timer-integrated-check.log`.
 

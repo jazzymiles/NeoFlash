@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added runtime-created Sprite/Shape/MovieClip objects and project subclasses, typed owner-supplied Graphics, solid path drawing, dynamic child reparent/reorder/remove and captured lifecycle routes in the shared Rust/WASM scene. Authored children remain immutable; AS2 empty clips use append-only depth. attachMovie, linked dynamic timelines and complete Flash lifecycle/paint semantics remain pending. The combined dynamic-display pointer/keyboard/lifecycle and Restart workflow passed in the in-app browser.
+
+- Independently verified the bounded geometry/timer workflow on ed3c39b, including typed display results, live text and cancellation of pending work on publication Restart. Exact per-declaration limits and the remaining aggregate observer exception are recorded separately in VERIFICATION.md.
+
+- Added bounded AS3 ByteArray/Endian imports, independent indexed binary buffers, numeric/UTF IO, copying and publication cleanup. Invalid sizes, overruns and invalid UTF preserve buffer state; unsupported AMF/compression/code pages and native subclass initialization fail explicitly. One original binary-data project passes ordinary export, real WASM/host, packet encoding/decoding, live text and Restart; the ordinary browser workflow also passed.
+
 - Added shared finite Point/Rectangle/Matrix geometry, exact AS2/AS3 project imports and matching typed display-coordinate results. Added publication-owned AS3 Timer/TimerEvent, session getTimer, listener delivery, completion and Restart cleanup. The original geometry-timer project passed four transformed steps, live text and Restart in the ordinary-export/WASM scenario and in-app browser. Historical coercion, timing, 3D geometry and native inheritance conformance remain incomplete.
 
 - Corrected shared Stage click delivery for mouse click events with isPrimary=false while retaining secondary-pointer filtering. Original AS3 class/Stage coordinate scenarios and Restart pass; an unlocated aggregate observer exception remains tracked separately.

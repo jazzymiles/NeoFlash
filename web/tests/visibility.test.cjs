@@ -154,7 +154,7 @@ test('published AS2/AS3 fixture filters drawing, click targets and semantics whi
     assert.ok(start >= 0 && end > start);
     const { localPoint, hitShape } = require('../runtime.js');
     const hitAt = new Function('player', 'canvas', 'project', 'localPoint', 'hitShape', 'context', 'global', 'paths',
-      'let scene;\n' + runtime.slice(start, end) + '\nreturn event => { scene = JSON.parse(player.scene_json()); return hitAt(event); };')(
+      'let scene; const graphMode = true;\n' + runtime.slice(start, end) + '\nreturn event => { const ref = hitAt(event); if (!ref) return null; return JSON.parse(player.runtime_snapshot_json()).objects.find(node => node.object_ref.id === ref.id && node.object_ref.generation === ref.generation).authored_path; };')(
       player, { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 480 }) }, bundle.project,
       localPoint, hitShape, { measureText: () => ({ width: 0 }) }, {}, {});
     modern.x = legacy.x;
