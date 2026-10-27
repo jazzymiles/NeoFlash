@@ -212,11 +212,11 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 `as2-primitive-globals` · **Partial**
 
-**Scope:** Number, String, Boolean, parseInt, parseFloat, isNaN and isFinite are available through JavaScript. Separate bounded AS2 parseInt profile now has pinned reference fixtures and ordinary Chrome/in-app HTML5 acceptance.
+**Scope:** Number, Boolean, parseFloat, isNaN and isFinite retain JavaScript-backed conversions. String now uses the bounded primitive family facade; parseInt retains its separate pinned AS2 profile and earlier HTML5 acceptance.
 
-**Limitations:** Flash-specific and version-specific rules, boxed values and the complete standard library are not implemented. Expectations are documented_only; original Flash runtime was not measured.
+**Limitations:** Complete historical coercions, boxed values and the full standard library remain unfinished. New Array/String expectations are documented_only; browser acceptance of that increment is pending.
 
-**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-script/tests/INTRINSICS.md](../../crates/neoflash-script/tests/INTRINSICS.md), [examples/as-intrinsics.nflash](../../examples/as-intrinsics.nflash), [docs/VERIFICATION.md](../../docs/VERIFICATION.md)
+**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-script/tests/INTRINSICS.md](../../crates/neoflash-script/tests/INTRINSICS.md), [examples/as-intrinsics.nflash](../../examples/as-intrinsics.nflash), [docs/VERIFICATION.md](../../docs/VERIFICATION.md), [crates/neoflash-script/src/actionscript/strings.js](../../crates/neoflash-script/src/actionscript/strings.js), [crates/neoflash-script/tests/strings-fixtures.mjs](../../crates/neoflash-script/tests/strings-fixtures.mjs)
 
 ### Math
 
@@ -232,11 +232,11 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 `as2-collections` · **Partial**
 
-**Scope:** Selected push/pop/shift/unshift/join/slice/indexOf/substring/charAt/charCodeAt/toString/toFixed/split/concat/reverse methods.
+**Scope:** Bounded Array constructors and mutation/slicing, comparator/flag sort and multi-field sortOn; primitive String conversion, UTF-16 access/search/slicing/splitting/concatenation/casing. Shared adapters preserve custom overrides and lookup order in handlers and project methods. AS2 Number formatting and the Array search extension remain JavaScript-backed rather than complete native AS2 contracts.
 
-**Limitations:** The list is limited and uses JavaScript behavior, with possible differences in ranges, coercion and errors.
+**Limitations:** Partial profiles: 1,000,000 array entries/string code units or results; ordinary records, restricted sortOn options, no native method extraction/prototype augmentation, RegExp/custom string patterns, locale operations or complete historical coercion/order. AS3 NUMERIC requires numeric values; AS2 boxed String is unsupported. See fixture profile constants for exact dialect limits. Browser acceptance of this increment is pending.
 
-**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md)
+**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-script/src/actionscript/collections.js](../../crates/neoflash-script/src/actionscript/collections.js), [crates/neoflash-script/src/actionscript/strings.js](../../crates/neoflash-script/src/actionscript/strings.js), [crates/neoflash-script/tests/collections-fixtures.mjs](../../crates/neoflash-script/tests/collections-fixtures.mjs), [crates/neoflash-script/tests/strings-fixtures.mjs](../../crates/neoflash-script/tests/strings-fixtures.mjs), [crates/neoflash-script/tests/project-execute.mjs](../../crates/neoflash-script/tests/project-execute.mjs), [examples/collections-text.nflash](../../examples/collections-text.nflash)
 
 ### Trace through the browser host
 
@@ -290,13 +290,13 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 ### TextField and text APIs
 
-`as2-text-api` · **Planned**
+`as2-text-api` · **Partial**
 
-**Scope:** Dynamic and input text, formatting, measurement, selection and programmatic TextField control.
+**Scope:** Existing authored Text elements now have live text/textColor, UTF-16 length, append/replace, line queries and partial Canvas text metrics through the shared runtime. Overrides leave authored content unchanged and clear with placement removal/replacement or Restart.
 
-**Limitations:** Static text in the document model does not implement Flash TextField; a custom field named text does not change the rendered string.
+**Limitations:** Plain string values and RGB integers only; 1 MiB UTF-8 text and bounded UTF-16 replacement ranges preserving complete characters. No rich formatting/HTML, wrapping, input/selection, embedded fonts or dynamic TextField creation. Canvas width and 1.2×font-size line height are not full Flash layout. Shared helpers do not establish every historical AS2 method. Browser acceptance of this increment is pending.
 
-**Evidence:** [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [docs/ROADMAP.md](../../docs/ROADMAP.md), [web/runtime.js](../../web/runtime.js)
+**Evidence:** [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [docs/ROADMAP.md](../../docs/ROADMAP.md), [web/runtime.js](../../web/runtime.js), [web/display.js](../../web/display.js), [crates/neoflash-core/src/evaluate.rs](../../crates/neoflash-core/src/evaluate.rs), [crates/neoflash-core/src/runtime.rs](../../crates/neoflash-core/src/runtime.rs), [crates/neoflash-web/src/lib.rs](../../crates/neoflash-web/src/lib.rs), [crates/neoflash-core/tests/display_family.rs](../../crates/neoflash-core/tests/display_family.rs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs), [examples/collections-text.nflash](../../examples/collections-text.nflash)
 
 ### Audio, video and resource loading
 
@@ -566,11 +566,11 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 `as3-primitive-globals` · **Partial**
 
-**Scope:** Number, String, Boolean, parseInt, parseFloat, isNaN and isFinite are available through JavaScript. Separate bounded AS3 parseInt profile now has pinned reference fixtures and ordinary Chrome/in-app HTML5 acceptance.
+**Scope:** Number, Boolean, parseFloat, isNaN and isFinite retain JavaScript-backed conversions. String now uses the bounded primitive family facade; parseInt retains its separate pinned AS3 profile and earlier HTML5 acceptance.
 
-**Limitations:** Flash-specific and version-specific rules, boxed values and the complete standard library are not implemented. Expectations are documented_only; original Flash runtime was not measured.
+**Limitations:** Complete historical coercions, boxed values and the full standard library remain unfinished. New Array/String expectations are documented_only; browser acceptance of that increment is pending.
 
-**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-script/tests/INTRINSICS.md](../../crates/neoflash-script/tests/INTRINSICS.md), [examples/as-intrinsics.nflash](../../examples/as-intrinsics.nflash), [docs/VERIFICATION.md](../../docs/VERIFICATION.md)
+**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-script/tests/INTRINSICS.md](../../crates/neoflash-script/tests/INTRINSICS.md), [examples/as-intrinsics.nflash](../../examples/as-intrinsics.nflash), [docs/VERIFICATION.md](../../docs/VERIFICATION.md), [crates/neoflash-script/src/actionscript/strings.js](../../crates/neoflash-script/src/actionscript/strings.js), [crates/neoflash-script/tests/strings-fixtures.mjs](../../crates/neoflash-script/tests/strings-fixtures.mjs)
 
 ### Math
 
@@ -586,11 +586,11 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 `as3-collections` · **Partial**
 
-**Scope:** Selected push/pop/shift/unshift/join/slice/indexOf/substring/charAt/charCodeAt/toString/toFixed/split/concat/reverse methods. Primitive toFixed supports int precision 0–20, RangeError1002 and fixed integral output at magnitude >=1e21; native method extraction is explicitly diagnosed without blocking custom fields.
+**Scope:** Bounded Array constructors and mutation/slicing, comparator/flag sort and multi-field sortOn; primitive String conversion, UTF-16 access/search/slicing/splitting/concatenation/casing. Shared adapters preserve custom overrides and lookup order in handlers and project methods. AS3 adds Array callbacks/search and literal-pattern String replacement. The earlier primitive toFixed adapter remains available.
 
-**Limitations:** The list is limited and uses JavaScript behavior, with possible differences in ranges, coercion and errors. Historical rounding and boxed Numbers remain unverified.
+**Limitations:** Partial profiles: 1,000,000 array entries/string code units or results; ordinary records, restricted sortOn options, no native method extraction/prototype augmentation, RegExp/custom string patterns, locale operations or complete historical coercion/order. AS3 NUMERIC requires numeric values; AS2 boxed String is unsupported. See fixture profile constants for exact dialect limits. Browser acceptance of this increment is pending.
 
-**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-script/tests/INTRINSICS.md](../../crates/neoflash-script/tests/INTRINSICS.md), [docs/VERIFICATION.md](../../docs/VERIFICATION.md)
+**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-script/tests/INTRINSICS.md](../../crates/neoflash-script/tests/INTRINSICS.md), [docs/VERIFICATION.md](../../docs/VERIFICATION.md), [crates/neoflash-script/src/actionscript/collections.js](../../crates/neoflash-script/src/actionscript/collections.js), [crates/neoflash-script/src/actionscript/strings.js](../../crates/neoflash-script/src/actionscript/strings.js), [crates/neoflash-script/tests/collections-fixtures.mjs](../../crates/neoflash-script/tests/collections-fixtures.mjs), [crates/neoflash-script/tests/strings-fixtures.mjs](../../crates/neoflash-script/tests/strings-fixtures.mjs), [crates/neoflash-script/tests/project-execute.mjs](../../crates/neoflash-script/tests/project-execute.mjs), [examples/collections-text.nflash](../../examples/collections-text.nflash)
 
 ### Trace through the browser host
 
@@ -644,13 +644,13 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 ### TextField and text APIs
 
-`as3-text-api` · **Planned**
+`as3-text-api` · **Partial**
 
-**Scope:** Dynamic and input text, formatting, measurement, selection and programmatic TextField control.
+**Scope:** Existing authored Text elements now have live text/textColor, UTF-16 length, append/replace, line queries and partial Canvas text metrics through the shared runtime. Overrides leave authored content unchanged and clear with placement removal/replacement or Restart.
 
-**Limitations:** Static text in the document model does not implement Flash TextField; a custom field named text does not change the rendered string.
+**Limitations:** Plain string values and RGB integers only; 1 MiB UTF-8 text and bounded UTF-16 replacement ranges preserving complete characters. No rich formatting/HTML, wrapping, input/selection, embedded fonts or dynamic TextField creation. Canvas width and 1.2×font-size line height are not full Flash layout. Shared helpers do not establish every historical AS2 method. Browser acceptance of this increment is pending.
 
-**Evidence:** [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [docs/ROADMAP.md](../../docs/ROADMAP.md), [web/runtime.js](../../web/runtime.js)
+**Evidence:** [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [docs/ROADMAP.md](../../docs/ROADMAP.md), [web/runtime.js](../../web/runtime.js), [web/display.js](../../web/display.js), [crates/neoflash-core/src/evaluate.rs](../../crates/neoflash-core/src/evaluate.rs), [crates/neoflash-core/src/runtime.rs](../../crates/neoflash-core/src/runtime.rs), [crates/neoflash-web/src/lib.rs](../../crates/neoflash-web/src/lib.rs), [crates/neoflash-core/tests/display_family.rs](../../crates/neoflash-core/tests/display_family.rs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs), [examples/collections-text.nflash](../../examples/collections-text.nflash)
 
 ### Audio, video and resource loading
 
@@ -820,11 +820,11 @@ Authoring tools: stage, vectors, text, selection and library.
 
 `editor-text` · **Partial**
 
-**Scope:** Editable text with font family, size and color; macOS system font families.
+**Scope:** Editable authored text with system font family, size and color. Published plain TextFields now support runtime text/color changes and bounded string editing/line queries without mutating authored content.
 
-**Limitations:** Rich text, dynamic/input TextField support and complete shaping/layout are missing. Font portability is tracked separately.
+**Limitations:** Rich text, input/selection, wrapping and complete shaping/layout remain missing. Runtime metrics follow the existing Canvas profile; portable fonts are separate work. Browser acceptance of the new plain TextField increment is pending.
 
-**Evidence:** [crates/neoflash-core/src/model.rs](../../crates/neoflash-core/src/model.rs), [crates/neoflash-editor/src/fonts.rs](../../crates/neoflash-editor/src/fonts.rs), [docs/ROADMAP.md](../../docs/ROADMAP.md)
+**Evidence:** [crates/neoflash-core/src/model.rs](../../crates/neoflash-core/src/model.rs), [crates/neoflash-editor/src/fonts.rs](../../crates/neoflash-editor/src/fonts.rs), [docs/ROADMAP.md](../../docs/ROADMAP.md), [web/display.js](../../web/display.js), [crates/neoflash-core/src/evaluate.rs](../../crates/neoflash-core/src/evaluate.rs), [crates/neoflash-core/src/runtime.rs](../../crates/neoflash-core/src/runtime.rs), [crates/neoflash-web/src/lib.rs](../../crates/neoflash-web/src/lib.rs), [crates/neoflash-core/tests/display_family.rs](../../crates/neoflash-core/tests/display_family.rs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs), [examples/collections-text.nflash](../../examples/collections-text.nflash), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md)
 
 ### Advanced vector tools
 

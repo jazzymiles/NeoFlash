@@ -101,6 +101,8 @@ Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two indep
 
 [project-program.nflash](examples/project-program.nflash) combines a document class, two linked components, shared state and input events. [display-family.nflash](examples/display-family.nflash) covers child traversal, geometry and AS2 callbacks; [events-stage.nflash](examples/events-stage.nflash) demonstrates propagation and Stage input. Compiler/host checks and visual acceptance are recorded separately in [VERIFICATION.md](docs/VERIFICATION.md).
 
+[collections-text.nflash](examples/collections-text.nflash) processes the same leaderboard in AS2 and AS3: parse rows, update records, sort with Flash array flags and display the result in authored text fields. The shared Array/String profile also works in project classes. Plain text mutation, color, line queries and Canvas-based measurements are available; rich text, editable input, wrapping and embedded fonts remain separate work.
+
 Prepare these and representative existing examples as one browser batch using an already built exporter:
 
 ```sh

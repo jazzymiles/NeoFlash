@@ -13,6 +13,28 @@ fn active_graph_retains_hidden_geometry_names_identity_and_root_transforms() {
     let path = child.path.clone();
     let lifetime = child.lifetime_id.clone();
     let world = child.world;
+    let text_node = original
+        .iter()
+        .find(|node| node.path.len() == 1 && node.owner == "text")
+        .unwrap();
+    let text_path = text_node.path.clone();
+    let authored_text = text_node.kind.clone();
+    let text_lifetime = player.lifetime_id(&text_path);
+    assert!(player.set_text(&text_path, "Zoe:45\nAda:30"));
+    assert!(player.set_text_color(&text_path, 0x23aabb));
+    assert!(!player.set_text(&path, "Not a TextField"));
+    assert!(!player.set_text_color(&text_path, 0x1000000));
+    assert!(!player.set_text(&text_path, &"x".repeat(1_048_577)));
+    let rendered_text = player
+        .evaluate(&project)
+        .into_iter()
+        .find(|item| item.instance_path == text_path)
+        .unwrap();
+    assert!(
+        matches!(rendered_text.kind, ElementKind::Text { ref text, color, .. }
+        if text == "Zoe:45\nAda:30" && color[..3] == [0x23, 0xaa, 0xbb])
+    );
+    assert_eq!(player.lifetime_id(&text_path), text_lifetime);
     assert!(original.iter().any(|node| node.kind.is_some()));
     assert!(player.set_property(&[], "x", 43.));
     assert!(player.set_property(&[], "y", -17.));
@@ -50,6 +72,15 @@ fn active_graph_retains_hidden_geometry_names_identity_and_root_transforms() {
     player.reset(&project);
     assert_ne!(player.lifetime_id(&path).unwrap().to_string(), lifetime);
     assert_eq!(player.property(&project, &[], "x"), Some(0.));
+    assert_eq!(
+        player
+            .display_nodes(&project)
+            .into_iter()
+            .find(|node| node.path == text_path)
+            .unwrap()
+            .kind,
+        authored_text
+    );
     assert_ne!(
         player
             .display_nodes(&project)
@@ -58,5 +89,38 @@ fn active_graph_retains_hidden_geometry_names_identity_and_root_transforms() {
             .unwrap()
             .name,
         "renamed"
+    );
+
+    // Disappearing text loses its override; re-entry creates a fresh authored field.
+    assert!(player.set_text(&text_path, "Temporary"));
+    let root_id = project.root.clone();
+    let root = project.symbol_mut(&root_id).unwrap();
+    let layer = root
+        .timeline
+        .layers
+        .iter_mut()
+        .find(|layer| {
+            layer.keyframes[0]
+                .elements
+                .iter()
+                .any(|element| element.id == text_path[0])
+        })
+        .unwrap();
+    let mut absent = layer.keyframes[0].clone();
+    absent.frame = 1;
+    absent.elements.retain(|element| element.id != text_path[0]);
+    layer.keyframes.push(absent);
+    layer.keyframes.sort_by_key(|key| key.frame);
+    assert!(player.control(&project, &[], PlaybackCommand::GotoAndStop(1)));
+    assert!(!player.set_text(&text_path, "Inactive"));
+    assert!(player.control(&project, &[], PlaybackCommand::GotoAndStop(0)));
+    assert_eq!(
+        player
+            .display_nodes(&project)
+            .into_iter()
+            .find(|node| node.path == text_path)
+            .unwrap()
+            .kind,
+        authored_text
     );
 }

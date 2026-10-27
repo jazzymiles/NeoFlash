@@ -141,12 +141,20 @@
       "category": "editor",
       "title": "Authored text",
       "status": "partial",
-      "scope": "Editable text with font family, size and color; macOS system font families.",
-      "limitations": "Rich text, dynamic/input TextField support and complete shaping/layout are missing. Font portability is tracked separately.",
+      "scope": "Editable authored text with system font family, size and color. Published plain TextFields now support runtime text/color changes and bounded string editing/line queries without mutating authored content.",
+      "limitations": "Rich text, input/selection, wrapping and complete shaping/layout remain missing. Runtime metrics follow the existing Canvas profile; portable fonts are separate work. Browser acceptance of the new plain TextField increment is pending.",
       "evidence": [
         "crates/neoflash-core/src/model.rs",
         "crates/neoflash-editor/src/fonts.rs",
-        "docs/ROADMAP.md"
+        "docs/ROADMAP.md",
+        "web/display.js",
+        "crates/neoflash-core/src/evaluate.rs",
+        "crates/neoflash-core/src/runtime.rs",
+        "crates/neoflash-web/src/lib.rs",
+        "crates/neoflash-core/tests/display_family.rs",
+        "web/tests/display-family.test.cjs",
+        "examples/collections-text.nflash",
+        "docs/COMPATIBILITY.md"
       ]
     },
     {

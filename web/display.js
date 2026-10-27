@@ -22,6 +22,9 @@
   Rectangle.prototype.contains=function(x,y){return x>=this.x && y>=this.y && x<this.right && y<this.bottom;};
   for (const [name,get] of Object.entries({left(){return this.x;},top(){return this.y;},right(){return this.x+this.width;},bottom(){return this.y+this.height;},xMin(){return this.x;},yMin(){return this.y;},xMax(){return this.x+this.width;},yMax(){return this.y+this.height;}})) Object.defineProperty(Rectangle.prototype,name,{get});
   function normalizedRotation(value) { const r=value%360;return r>180?r-360:r< -180?r+360:r; }
+  const textProperties=new Set(['text','textColor','length','numLines','textWidth','textHeight']);
+  const unsupportedText=new Set(['htmlText','defaultTextFormat','styleSheet','type','selectable','multiline','wordWrap','autoSize','embedFonts','displayAsPassword','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','background','backgroundColor','border','borderColor','antiAliasType','gridFitType','sharpness','thickness','condenseWhite','getTextFormat','setTextFormat','getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineIndexOfChar','getLineMetrics','getLineOffset','getParagraphLength','getFirstCharInParagraph','setSelection','replaceSelectedText']);
+  const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
   function create({player,proxyFor,referenceOf,getStage=()=>null,measureText,pathBounds}) {
     const legacy = new Map();
@@ -76,8 +79,31 @@
       if(!value || !Number.isFinite(value.x)||!Number.isFinite(value.y))throw new TypeError('Coordinate conversion requires finite point.x and point.y.');
       const m=descriptor(target).world,p=point(toGlobal?m:inverse(m),value.x,value.y);return new Point(p.x,p.y);
     }
+    function textKind(target) {
+      const node=descriptor(target);
+      if(node.owner!=='text')throw new TypeError('This operation requires an authored TextField.');
+      return node.kind;
+    }
+    function writeText(target,value) {
+      textKind(target);
+      if(typeof value!=='string')throw new TypeError('Plain TextField text currently requires a string. Convert primitive values explicitly with String().');
+      // Rust strings cannot retain lone UTF-16 surrogates. Reject before the
+      // WASM string encoder can silently replace one with U+FFFD.
+      for(let i=0;i<value.length;i++) {
+        const unit=value.charCodeAt(i);
+        if(unit>=0xd800&&unit<=0xdbff){const low=value.charCodeAt(++i);if(!(low>=0xdc00&&low<=0xdfff))throw new RangeError('TextField edits must preserve complete Unicode characters; split-surrogate text is not supported.');}
+        else if(unit>=0xdc00&&unit<=0xdfff)throw new RangeError('TextField edits must preserve complete Unicode characters; split-surrogate text is not supported.');
+      }
+      const normalized=value.replace(/\r\n?|\n/g,'\n');
+      if(!player.set_text(referenceOf(target).key,normalized))throw new RangeError('Runtime text must fit within 1048576 UTF-8 bytes on a live TextField.');
+    }
+    function lineText(target,index) {
+      const lines=textValue(textKind(target).text).split('\r');
+      if(!Number.isInteger(index)||index<0||index>=lines.length)throw new RangeError('TextField line index is outside the unwrapped text.');
+      return lines[index]+(index<lines.length-1?'\r':'');
+    }
     function methods(target) {
-      return {
+      const result={
         getBounds: space=>bounds(target,space===undefined?target:space,true),
         getRect: space=>bounds(target,space===undefined?target:space,false),
         localToGlobal: value=>convert(target,value,true),
@@ -87,8 +113,35 @@
         getChildIndex: child=>{requireContainer(target);const node=descriptor(child),index=children(target).findIndex(candidate=>samePath(candidate.path,node.path));if(index<0)throw new RangeError('Object is not a direct child of this container.');return index;},
         contains: child=>{requireContainer(target);const parent=descriptor(target),node=descriptor(child);return within(node.path,parent.path);},
       };
+      if(descriptor(target).owner==='text')Object.assign(result,{
+        appendText:value=>{if(typeof value!=='string')throw new TypeError('appendText currently requires a string.');writeText(target,textValue(textKind(target).text)+value);},
+        replaceText:(begin,end,value)=>{
+          const text=textValue(textKind(target).text);
+          if(!Number.isInteger(begin)||!Number.isInteger(end)||begin<0||end<begin||end>text.length)throw new RangeError('replaceText requires an ordered UTF-16 range within the current text.');
+          if(typeof value!=='string')throw new TypeError('replaceText currently requires string replacement text.');
+          writeText(target,text.slice(0,begin)+value+text.slice(end));
+        },
+        getLineText:index=>lineText(target,index),
+        getLineLength:index=>lineText(target,index).length,
+      });
+      return result;
     }
     function get(target,name) {
+      if(textProperties.has(name)||unsupportedText.has(name)) {
+        const node=descriptor(target);
+        if(node.owner==='text') {
+          if(unsupportedText.has(name))throw new TypeError(`TextField.${name} is not implemented in the plain-text profile. Rich formatting, input, selection and wrapping are pending.`);
+          const kind=node.kind,text=textValue(kind.text),lines=text.split('\r');
+          if(name==='text')return text;
+          if(name==='textColor')return kind.color[0]*65536+kind.color[1]*256+kind.color[2];
+          if(name==='length')return text.length;
+          if(name==='numLines')return lines.length;
+          // These are the current Canvas renderer's unwrapped logical metrics,
+          // not Flash's font-engine measurements or a TextFormat layout box.
+          if(name==='textHeight')return lines.length*kind.font_size*1.2;
+          let width=0;for(const line of lines)width=Math.max(width,measureText(line,kind));return width;
+        }
+      }
       if(name==='name'||name==='_name')return descriptor(target).name;
       if(name==='numChildren'){requireContainer(target);return children(target).length;}
       if(name==='width'||name==='_width')return bounds(target,parentSpace(target),true).width;
@@ -97,6 +150,18 @@
       return UNHANDLED;
     }
     function set(target,name,value) {
+      if(textProperties.has(name)||unsupportedText.has(name)) {
+        const node=descriptor(target);
+        if(node.owner==='text') {
+          if(unsupportedText.has(name))throw new TypeError(`TextField.${name} is not implemented in the plain-text profile. Rich formatting, input, selection and wrapping are pending.`);
+          if(name==='text'){writeText(target,value);return true;}
+          if(name==='textColor'){
+            if(!Number.isInteger(value)||value<0||value>0xffffff)throw new RangeError('textColor currently requires an RGB integer from 0 through 0xffffff.');
+            if(!player.set_text_color(referenceOf(target).key,value))throw new Error('Runtime rejected textColor on this TextField.');return true;
+          }
+          throw new TypeError(`TextField.${name} is read-only.`);
+        }
+      }
       if(name==='name'||name==='_name') {
         descriptor(target); if(typeof value!=='string')throw new TypeError('Display name must be a string.');
         if(!player.set_name(referenceOf(target).key,value))throw new RangeError('Display name must be at most 4096 UTF-8 bytes.');return true;

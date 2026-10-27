@@ -389,6 +389,7 @@ impl<'a> Analysis<'a> {
         match expr {
             Expr::Name(name) if is_error_type(name) && self.resolve(scope, name).is_none() => return Err(self.error(self.scopes[&scope].offset, "Core Error class values and constructor aliases are not supported; use an explicit new Error-family constructor.")),
             Expr::NewError(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Error constructor cannot be resolved as a core type; arbitrary constructor calls are unsupported.")),
+            Expr::NewBuiltin(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Array/String constructor requires arbitrary user-constructor semantics not supported here. Ordinary calls to the local binding remain supported.")),
             Expr::NewClass(name, _, offset) if name == "flash.events.EventPhase" => return Err(self.error(*offset,"EventPhase contains constants and is not constructible.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && self.resolve(scope, name).is_none() && self.as2_catch_names.contains_key(name) && !is_global(name) => return Err(self.error(self.as2_catch_names[name], "AS2 catch parameters used outside their catch need verified variable/register scope semantics; this form is unsupported.")),
             Expr::Function(f) => {self.function(scope,f)?; return Ok(());},
@@ -527,7 +528,9 @@ fn children(expr: &Expr) -> Vec<&Expr> {
         Expr::Object(v) => v.iter().map(|(_, e)| e).collect(),
         Expr::Conditional(a, b, c) => vec![a, b, c],
         Expr::Call(c, a, _) => std::iter::once(c.as_ref()).chain(a.iter()).collect(),
-        Expr::NewError(_, args, _) | Expr::NewClass(_, args, _) => args.iter().collect(),
+        Expr::NewError(_, args, _) | Expr::NewClass(_, args, _) | Expr::NewBuiltin(_, args, _) => {
+            args.iter().collect()
+        }
         _ => vec![],
     }
 }

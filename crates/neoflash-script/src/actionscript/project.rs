@@ -517,9 +517,8 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         return Err(errors);
     }
     let code = format!(
-        "{}\n{}\n{}\n{}\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
-        include_str!("exceptions.js"),
-        include_str!("intrinsics.js"),
+        "{}\n{}\n{}\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
+        embedded_helpers(),
         include_str!("project-runtime.js"),
         registrations
     );

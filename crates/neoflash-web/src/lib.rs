@@ -37,6 +37,14 @@ impl WebPlayer {
         Ok(self.player.set_name(&path(target)?, name))
     }
 
+    pub fn set_text(&mut self, target: &str, text: &str) -> Result<bool, JsValue> {
+        Ok(self.player.set_text(&path(target)?, text))
+    }
+
+    pub fn set_text_color(&mut self, target: &str, color: u32) -> Result<bool, JsValue> {
+        Ok(self.player.set_text_color(&path(target)?, color))
+    }
+
     pub fn accessibility_json(&self) -> Result<String, JsValue> {
         serde_json::to_string(&self.player.accessibility_nodes(&self.project))
             .map_err(|error| JsValue::from_str(&error.to_string()))

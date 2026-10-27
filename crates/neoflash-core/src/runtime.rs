@@ -603,6 +603,30 @@ impl Player {
         true
     }
 
+    /// Plain text remains a runtime override; authored evaluation and files stay unchanged.
+    /// Hosts use UTF-16 indices and normalize public line separators before this boundary.
+    pub fn set_text(&mut self, path: &[Id], text: &str) -> bool {
+        if text.len() > 1_048_576 || !self.is_text(path) {
+            return false;
+        }
+        self.overrides.entry(path.to_vec()).or_default().text = Some(text.into());
+        true
+    }
+
+    pub fn set_text_color(&mut self, path: &[Id], color: u32) -> bool {
+        if color > 0xff_ffff || !self.is_text(path) {
+            return false;
+        }
+        self.overrides.entry(path.to_vec()).or_default().text_color = Some(color);
+        true
+    }
+
+    fn is_text(&self, path: &[Id]) -> bool {
+        self.previous
+            .get(path)
+            .is_some_and(|node| matches!(node.kind, Some(ElementKind::Text { .. })))
+    }
+
     pub fn property(&self, project: &Project, path: &[Id], property: &str) -> Option<f64> {
         let scene = self.snapshot(project);
         let t = scene.nodes.iter().find(|n| n.path == path)?.transform;

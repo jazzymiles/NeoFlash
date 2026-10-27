@@ -205,6 +205,7 @@ enum Expr {
     Function(Function),
     NewError(String, Vec<Expr>, usize),
     NewClass(String, Vec<Expr>, usize),
+    NewBuiltin(String, Vec<Expr>, usize),
 }
 
 #[derive(Clone, Debug)]
@@ -262,9 +263,9 @@ impl Expr {
             Self::Call(c, args, _) => c
                 .depth()
                 .max(args.iter().map(Self::depth).max().unwrap_or(0)),
-            Self::NewError(_, args, _) | Self::NewClass(_, args, _) => {
-                args.iter().map(Self::depth).max().unwrap_or(0)
-            }
+            Self::NewError(_, args, _)
+            | Self::NewClass(_, args, _)
+            | Self::NewBuiltin(_, args, _) => args.iter().map(Self::depth).max().unwrap_or(0),
         }
     }
     fn assignable(&self) -> bool {
@@ -680,8 +681,8 @@ impl<'a> Frontend<'a> {
         }
         if let Kind::Ident(word) = &self.token().kind
             && is_unsupported_keyword(word)
-            && !(self.context.project
-                && (word == "new" || (word == "super" && self.context.class_name.is_some())))
+            && word != "new"
+            && !(self.context.project && word == "super" && self.context.class_name.is_some())
         {
             return Err(self.error(format!("ActionScript '{word}' is not implemented yet. See docs/COMPATIBILITY.md; use a JavaScript/TypeScript handler for this feature.")));
         }
@@ -728,8 +729,10 @@ impl<'a> Frontend<'a> {
             name.push_str(&self.ident()?);
         }
         let as3 = self.script.language == ScriptLanguage::ActionScript3;
-        let supported = matches!(name.as_str(), "Number" | "String" | "Boolean" | "Function")
-            || (as3 && matches!(name.as_str(), "int" | "uint" | "*" | "Object" | "Array"))
+        let supported = matches!(
+            name.as_str(),
+            "Number" | "String" | "Boolean" | "Function" | "Array" | "Object"
+        ) || (as3 && matches!(name.as_str(), "int" | "uint" | "*"))
             || (as3 && self.context.project && self.context.types.contains_key(&name))
             || (is_error_type(&name) && (as3 || name == "Error"))
             || (returns && name == if as3 { "void" } else { "Void" });
@@ -911,11 +914,13 @@ impl<'a> Frontend<'a> {
                 name.push_str(&self.ident()?);
             }
             let class = self.context.types.get(&name).cloned();
-            if class.is_none()
+            let builtin = matches!(name.as_str(), "Array" | "String");
+            if !builtin
+                && class.is_none()
                 && (!is_error_type(&name)
                     || (self.script.language == ScriptLanguage::ActionScript2 && name != "Error"))
             {
-                return Err(self.error("Only core Error constructors are supported here; arbitrary new and user classes require project type resolution."));
+                return Err(self.error("Only Array, String and core Error constructors are supported here; user classes require project type resolution."));
             }
             self.expect("(")?;
             let mut args = Vec::new();
@@ -928,6 +933,9 @@ impl<'a> Frontend<'a> {
                 }
             }
             self.expect(")")?;
+            if builtin {
+                return Ok(Expr::NewBuiltin(name, args, offset));
+            }
             if let Some(name) = class {
                 return Ok(Expr::NewClass(name, args, offset));
             }
@@ -1007,6 +1015,7 @@ impl<'a> Frontend<'a> {
                     "trace"
                         | "Number"
                         | "String"
+                        | "Array"
                         | "Boolean"
                         | "parseInt"
                         | "parseFloat"
@@ -1039,26 +1048,14 @@ impl<'a> Frontend<'a> {
             }
             Expr::Member(_, name) => {
                 is_timeline_method(name)
+                    || is_family_method(name)
                     || matches!(
                         name.as_str(),
-                        "trace"
-                            | "push"
-                            | "pop"
-                            | "shift"
-                            | "unshift"
-                            | "join"
-                            | "slice"
-                            | "indexOf"
-                            | "substring"
-                            | "charAt"
-                            | "charCodeAt"
-                            | "toString"
-                            | "toFixed"
-                            | "split"
-                            | "concat"
-                            | "reverse"
+                        "trace" | "appendText" | "replaceText" | "getLineText" | "getLineLength"
                     )
             }
+            Expr::Index(base, index) => literal_property_name(index)
+                .is_some_and(|name| Self::builtin_call(&Expr::Member(base.clone(), name))),
             _ => false,
         }
     }
@@ -1070,12 +1067,66 @@ fn is_timeline_method(name: &str) -> bool {
         "play" | "stop" | "gotoAndPlay" | "gotoAndStop" | "nextFrame" | "prevFrame"
     )
 }
+
+fn is_family_method(name: &str) -> bool {
+    matches!(
+        name,
+        "push"
+            | "pop"
+            | "shift"
+            | "unshift"
+            | "join"
+            | "slice"
+            | "concat"
+            | "reverse"
+            | "splice"
+            | "sort"
+            | "sortOn"
+            | "indexOf"
+            | "lastIndexOf"
+            | "map"
+            | "filter"
+            | "forEach"
+            | "every"
+            | "some"
+            | "charAt"
+            | "charCodeAt"
+            | "substring"
+            | "substr"
+            | "split"
+            | "toLowerCase"
+            | "toUpperCase"
+            | "replace"
+            | "toString"
+            | "valueOf"
+            | "fromCharCode"
+            | "toFixed"
+    )
+}
+
+fn literal_property_name(expr: &Expr) -> Option<String> {
+    let Expr::Literal(source) = expr else {
+        return None;
+    };
+    let allocator = oxc_allocator::Allocator::default();
+    let value = oxc_parser::Parser::new(&allocator, source, oxc_span::SourceType::cjs())
+        .parse_expression()
+        .ok()?;
+    match value {
+        oxc_ast::ast::Expression::StringLiteral(literal) if !literal.lone_surrogates => {
+            Some(literal.value.to_string())
+        }
+        _ => None,
+    }
+}
+
 fn is_global(name: &str) -> bool {
     matches!(
         name,
         "Math"
             | "Number"
             | "String"
+            | "Array"
             | "Boolean"
             | "parseInt"
             | "parseFloat"
@@ -1230,7 +1281,7 @@ impl Emitter<'_> {
                 format!("((__nfValue) => __nfValue == null ? null : __nfValue)({value})")
             }
             Some("Array") => format!(
-                "((__nfValue) => {{ if (__nfValue == null || Array.isArray(__nfValue)) return __nfValue == null ? null : __nfValue; throw new __nfTypeError('AS3 Array value required'); }})({value})"
+                "((__nfValue) => {{ if (__nfValue == null || __nfArrayIsArray(__nfValue)) return __nfValue == null ? null : __nfValue; throw new __nfTypeError('AS3 Array value required'); }})({value})"
             ),
             Some(ty) if is_error_type(ty) => format!(
                 "((__nfValue) => {{ if (__nfValue == null) return null; if (__nfCatchType(__nfValue, {ty:?})) return __nfValue; throw new __nfTypeError('AS3 {ty} value required'); }})({value})"
@@ -1251,6 +1302,9 @@ impl Emitter<'_> {
             .is_some_and(|(_, b)| b.ty.is_some())
     }
     fn name(&self, name: &str) -> String {
+        if self.analysis.resolve(self.scope, name).is_none() && matches!(name, "Array" | "String") {
+            return format!("__nf{name}Class({})", self.as3);
+        }
         if name == "__nfProgram" && self.analysis.context.project {
             return name.into();
         }
@@ -1384,6 +1438,7 @@ impl Emitter<'_> {
         }
         if self.analysis.context.project
             && let Some(name) = qualified_name(expr)
+            && !matches!(name.as_str(), "Array" | "String")
             && self
                 .analysis
                 .resolve(self.scope, name.split('.').next().unwrap())
@@ -1411,23 +1466,29 @@ impl Emitter<'_> {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
+            Expr::NewBuiltin(name, args, _) => format!(
+                "__nf{name}Create({}, [{}]{})",
+                self.as3,
+                args.iter()
+                    .map(|a| self.expression(a))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                if name == "String" { ", true" } else { "" }
+            ),
             Expr::Member(base, name) => {
-                if self.as3 {
-                    format!("__nfPropertyValue({}, {name:?})", self.expression(base))
-                } else {
-                    format!("({}).{name}", self.expression(base))
-                }
+                format!(
+                    "__nfFamilyPropertyValue({}, {name:?}, {})",
+                    self.expression(base),
+                    self.as3
+                )
             }
             Expr::Index(base, index) => {
-                if self.as3 {
-                    format!(
-                        "__nfPropertyValue({}, {})",
-                        self.expression(base),
-                        self.expression(index)
-                    )
-                } else {
-                    format!("({})[{}]", self.expression(base), self.expression(index))
-                }
+                format!(
+                    "__nfFamilyPropertyValue({}, {}, {})",
+                    self.expression(base),
+                    self.expression(index),
+                    self.as3
+                )
             }
             Expr::Array(values) => format!(
                 "[{}]",
@@ -1502,7 +1563,7 @@ impl Emitter<'_> {
                 if self.as3 && matches!(op.as_str(), "&&=" | "||=") {
                     // A short-circuited indexed ||= may itself extract the old
                     // function value without passing through an ordinary read.
-                    format!("__nfMethodValue({assignment})")
+                    format!("__nfFamilyValue({assignment}, true)")
                 } else {
                     assignment
                 }
@@ -1540,6 +1601,17 @@ impl Emitter<'_> {
                 if let Expr::Name(name) = callee.as_ref()
                     && self.analysis.resolve(self.scope, name).is_none()
                 {
+                    if matches!(name.as_str(), "Array" | "String") {
+                        return format!(
+                            "__nf{name}Create({}, [{}]{})",
+                            self.as3,
+                            args.iter()
+                                .map(|a| self.expression(a))
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                            if name == "String" { ", false" } else { "" }
+                        );
+                    }
                     if name == "super"
                         && let Some(class) = &self.analysis.context.class_name
                     {
@@ -1561,13 +1633,20 @@ impl Emitter<'_> {
                         );
                     }
                 }
-                if self.as3
-                    && let Expr::Member(base, name) = callee.as_ref()
-                    && name == "toFixed"
+                let member = match callee.as_ref() {
+                    Expr::Member(base, name) => Some((base.as_ref(), name.clone())),
+                    Expr::Index(base, index) => {
+                        literal_property_name(index).map(|name| (base.as_ref(), name))
+                    }
+                    _ => None,
+                };
+                if let Some((base, name)) = &member
+                    && is_family_method(name)
                 {
                     return format!(
-                        "__nfFixedMethod({})({})",
+                        "__nfMemberMethod({}, {name:?}, {})({})",
                         self.expression(base),
+                        self.as3,
                         args.iter()
                             .map(|arg| self.expression(arg))
                             .collect::<Vec<_>>()
@@ -1593,6 +1672,9 @@ impl Emitter<'_> {
                             ))
                         }
                         Expr::Member(base, name) => Some((self.expression(base), name)),
+                        Expr::Index(_, _) => member
+                            .as_ref()
+                            .map(|(base, name)| (self.expression(base), name)),
                         _ => None,
                     }
                 };
@@ -1615,6 +1697,10 @@ impl Emitter<'_> {
                             && let Expr::Member(base, name) = callee.as_ref()
                         {
                             format!("({}).{name}", self.expression(base))
+                        } else if self.as3
+                            && let Some((base, name)) = &member
+                        {
+                            format!("({})[{name:?}]", self.expression(base))
                         } else {
                             self.expression(callee)
                         }
@@ -1795,6 +1881,37 @@ pub(crate) fn compile(script: &Script) -> Result<String, Diagnostic> {
     compile_context(script, CompileContext::default())
 }
 
+// One helper profile for standalone handlers and project methods. Helpers are
+// lexically captured per compiled unit; JavaScript/TypeScript remain untouched.
+fn embedded_helpers() -> String {
+    [
+        include_str!("actionscript/exceptions.js"),
+        include_str!("actionscript/intrinsics.js"),
+        include_str!("actionscript/collections.js"),
+        include_str!("actionscript/strings.js"),
+        r#"
+function __nfFamilyValue(value, as3) {
+    value = __nfArrayMethodValue(value);
+    value = __nfStringMethodValue(value);
+    return as3 ? __nfMethodValue(value) : value;
+}
+function __nfFamilyPropertyValue(receiver, key, as3) {
+    return __nfFamilyValue(receiver[key], as3);
+}
+function __nfMemberMethod(receiver, key, as3) {
+    if (__nfArrayIsArray(receiver)) return __nfArrayMethod(receiver, key, as3);
+    if (typeof receiver === 'string') return __nfStringMethod(receiver, key, as3);
+    if (as3 && key === 'toFixed') return __nfFixedMethod(receiver);
+    // No family lookup has read this property. Preserve one getter invocation,
+    // the original receiver and argument evaluation order for custom methods.
+    const method = receiver[key];
+    return (...args) => __nfApply(method, receiver, args);
+}
+"#,
+    ]
+    .join("\n")
+}
+
 fn compile_context(script: &Script, context: CompileContext) -> Result<String, Diagnostic> {
     let tokens = Lexer { script, offset: 0 }.tokens()?;
     let mut parser = Frontend {
@@ -1816,9 +1933,8 @@ fn compile_context(script: &Script, context: CompileContext) -> Result<String, D
     }
     .body(&statements);
     let output = format!(
-        "const __nfFrame = this, __nfNumber = Number, __nfString = String, __nfBoolean = Boolean, __nfTypeError = TypeError;\nconst __nfTrace = trace;\n{}\n{}\n{body}",
-        include_str!("actionscript/exceptions.js"),
-        include_str!("actionscript/intrinsics.js")
+        "const __nfFrame = this, __nfNumber = Number, __nfString = String, __nfBoolean = Boolean, __nfTypeError = TypeError;\nconst __nfTrace = trace;\n{}\n{body}",
+        embedded_helpers()
     );
     // Validate literal spelling and the generated function body with an independent parser.
     let generated = Script {

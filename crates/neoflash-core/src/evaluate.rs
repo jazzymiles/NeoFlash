@@ -51,6 +51,8 @@ pub(crate) struct DisplayPatch {
     pub alpha: Option<f64>,
     pub visible: Option<bool>,
     pub name: Option<String>,
+    pub text: Option<String>,
+    pub text_color: Option<u32>,
 }
 
 impl DisplayPatch {
@@ -401,6 +403,16 @@ impl Walker<'_> {
                 let visible = patch.as_ref().and_then(|p| p.visible).unwrap_or(true);
                 if let Some(patch) = patch {
                     patch.apply(&mut e.transform);
+                    if let ElementKind::Text { text, color, .. } = &mut e.kind {
+                        if let Some(value) = patch.text {
+                            *text = value;
+                        }
+                        if let Some(value) = patch.text_color {
+                            color[0] = (value >> 16) as u8;
+                            color[1] = (value >> 8) as u8;
+                            color[2] = value as u8;
+                        }
+                    }
                     if let Some(name) = patch.name {
                         e.name = name;
                     }

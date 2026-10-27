@@ -10,6 +10,8 @@ import { createRequire } from 'node:module';
 import { verifyHostIntegration } from './host-integration.mjs';
 import { controlFlowFixtures } from './control-flow-fixtures.mjs';
 import { intrinsicFixtures } from './intrinsic-fixtures.mjs';
+import { collectionsFixtures } from './collections-fixtures.mjs';
+import { stringsFixtures } from './strings-fixtures.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const { createAs2Methods } = createRequire(import.meta.url)(resolve(root, 'web/runtime.js'));
@@ -19,6 +21,8 @@ const cargo = process.env.CARGO || (existsSync(localCargo) ? localCargo : 'cargo
 const fixtures = [
   ...controlFlowFixtures,
   ...intrinsicFixtures,
+  ...collectionsFixtures,
+  ...stringsFixtures,
   {
     language: 'action_script3',
     source: 'var count:int; function increment():int { count += 1; return count; } trace("Blue", increment());',
@@ -214,7 +218,8 @@ const fixtures = [
   },
 ];
 const result = spawnSync(cargo, ['run', '--quiet', '-p', 'neoflash-script', '--example', 'compile_batch'], {
-  cwd: root, encoding: 'utf8', input: JSON.stringify(fixtures.map(({ language, source }) => ({ language, source }))),
+  cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
+  input: JSON.stringify(fixtures.map(({ language, source }) => ({ language, source }))),
 });
 assert.equal(result.status, 0, result.stderr || result.error?.message);
 const outputs = JSON.parse(result.stdout);

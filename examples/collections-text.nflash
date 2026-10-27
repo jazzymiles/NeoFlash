@@ -1,0 +1,530 @@
+{
+  "format_version": 1,
+  "name": "Collections and text",
+  "width": 800,
+  "height": 500,
+  "fps": 24,
+  "background": [
+    19,
+    27,
+    40,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 32,
+                      "y": 28,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Collections / text processing",
+                      "font_family": "Arial",
+                      "font_size": 28,
+                      "color": [
+                        232,
+                        239,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "subtitle",
+                    "name": "subtitle",
+                    "transform": {
+                      "x": 32,
+                      "y": 80,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Parse rows, update scores, sort a leaderboard and report the result.",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        232,
+                        239,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "input",
+                    "name": "input",
+                    "transform": {
+                      "x": 32,
+                      "y": 126,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Input: Ada,30   •   zoe,15   •   Bob,20",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        169,
+                        186,
+                        210,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2",
+                    "name": "as2",
+                    "transform": {
+                      "x": 32,
+                      "y": 192,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "as2-art",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "var lines = new Array(\"Ada,30\", \"zoe,15\", \"Bob,20\");\nvar records = Array();\nfor (var i = 0; i < lines.length; i++) {\n    var parts = lines[i].split(\",\");\n    records.push({name:parts[0], score:Number(parts[1])});\n}\nvar original = records;\nvar removed = records.splice(1, 1, {name:\"Zoe\", score:45});\nrecords.unshift({name:\"Ann\", score:25});\nvar first = records.shift();\nrecords.push({name:\"Cy\", score:10});\nvar last = records.pop();\nvar preview = records.slice(0, 2);\nvar order = records.sortOn([\"score\", \"name\"], [Array.NUMERIC | Array.DESCENDING | Array.RETURNINDEXEDARRAY, Array.CASEINSENSITIVE]);\nvar unchanged = records[0].name;\nvar sorted = records.sortOn(\"score\", Array.NUMERIC | Array.DESCENDING);\nvar labels = new Array();\nfor (var j = 0; j < records.length; j++) labels.push(records[j].name + \":\" + records[j].score);\nvar numeric = new Array(30, 2, 11);\nnumeric.sort(Array.NUMERIC);\nvar duplicate = new Array(\"echo\", \"echo\");\nvar unique = duplicate.sort(Array.UNIQUESORT);\nvar copy = labels.concat([\"end\"]);\nvar reversed = copy.reverse();\nrecords.sort = function(flags) { return \"custom:\" + flags; };\nvar custom = records.sort(Array.NUMERIC);\nresult = labels.join(\"|\");\ntrace(\"AS2\", result, \"order\", order.join(\",\"), \"numbers\", numeric.join(\",\"));\n_root.as2Result.text = labels.join(\"\\n\");\n_root.as2Result.textColor = 7396858;"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Run AS2 leaderboard",
+                      "description": "Run the leaderboard data-processing scenario and show its transcript.",
+                      "role": "button",
+                      "tab_order": 32,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "as3",
+                    "name": "as3",
+                    "transform": {
+                      "x": 416,
+                      "y": 192,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "as3-art",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "var lines:Array = new Array(3);\nlines[0] = \"Ada,30\"; lines[1] = \"zoe,15\"; lines[2] = \"Bob,20\";\nvar records:Array = lines.map(function(line:*, index:int, source:Array):Object {\n    var parts:Array = line.split(\",\");\n    return {name:parts[0], score:Number(parts[1])};\n});\nrecords.splice(1, 1, {name:\"Zoe\", score:45});\nrecords.push({name:\"Cy\", score:10});\nvar selected:Array = records.filter(function(item:Object, index:int, source:Array):Boolean { return item.score >= 20; });\nvar order:Array = selected.sortOn([\"score\", \"name\"], [Array.NUMERIC | Array.DESCENDING | Array.RETURNINDEXEDARRAY, Array.CASEINSENSITIVE]);\nvar unchanged:String = selected[0].name;\nselected.sortOn(\"score\", Array.NUMERIC | Array.DESCENDING);\nvar labels:Array = selected.map(function(item:Object, index:int, source:Array):String { return item.name + \":\" + item.score; });\nvar total:int = 0;\nvar eachResult:* = selected.forEach(function(item:Object, index:int, source:Array):void { total += item.score; });\nvar all:Boolean = selected.every(function(item:Object, index:int, source:Array):Boolean { return item.score >= 20; });\nvar any:Boolean = selected.some(function(item:Object, index:int, source:Array):Boolean { return item.name == \"Zoe\"; });\nvar first:int = labels.indexOf(\"Ada:30\");\nvar last:int = labels.lastIndexOf(\"Bob:20\");\nvar numeric:Array = new Array(30, 2, 11);\nnumeric.sort(function(a:Number, b:Number):Number { return a - b; });\nvar duplicate:Array = new Array(\"echo\", \"echo\");\nvar unique:* = duplicate.sort(Array.UNIQUESORT);\nresult = labels.join(\"|\");\ntrace(\"AS3\", result, \"total\", total, \"checks\", all && any, \"find\", first, last);\nthis.root.as3Result.text = \"...\\n\" + labels.join(\"\\n\");\nthis.root.as3Result.replaceText(0, 4, \"\");\nthis.root.as3Result.appendText(\"\\nTotal: \" + total);\nthis.root.as3Result.textColor = 4774064;"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Run AS3 leaderboard",
+                      "description": "Run the leaderboard data-processing scenario and show its transcript.",
+                      "role": "button",
+                      "tab_order": 416,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "as2-heading",
+                    "name": "as2-heading",
+                    "transform": {
+                      "x": 32,
+                      "y": 300,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 result",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        232,
+                        239,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-heading",
+                    "name": "as3-heading",
+                    "transform": {
+                      "x": 416,
+                      "y": 300,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 result",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        232,
+                        239,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2Result",
+                    "name": "as2Result",
+                    "transform": {
+                      "x": 32,
+                      "y": 330,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run the AS2 card.",
+                      "font_family": "Arial",
+                      "font_size": 20,
+                      "color": [
+                        232,
+                        239,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3Result",
+                    "name": "as3Result",
+                    "transform": {
+                      "x": 416,
+                      "y": 330,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run the AS3 card.",
+                      "font_family": "Arial",
+                      "font_size": 20,
+                      "color": [
+                        232,
+                        239,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 32,
+                      "y": 456,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Click either card or use Tab, then Enter / Space. Restart restores both text fields.",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        232,
+                        239,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "java_script",
+              "source": "this.stop(); trace(\"Collections ready: choose AS2 or AS3\");"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "as2-art",
+      "name": "as2-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "as2-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "as2-face",
+                    "name": "as2-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 352,
+                      "height": 82,
+                      "fill": [
+                        45,
+                        80,
+                        124,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2-label",
+                    "name": "as2-label",
+                    "transform": {
+                      "x": 18,
+                      "y": 14,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 leaderboard",
+                      "font_family": "Arial",
+                      "font_size": 22,
+                      "color": [
+                        232,
+                        239,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2-description",
+                    "name": "as2-description",
+                    "transform": {
+                      "x": 18,
+                      "y": 49,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Mutation • sortOn flags • custom override",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        232,
+                        239,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "as3-art",
+      "name": "as3-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "as3-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "as3-face",
+                    "name": "as3-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 352,
+                      "height": 82,
+                      "fill": [
+                        34,
+                        102,
+                        93,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-label",
+                    "name": "as3-label",
+                    "transform": {
+                      "x": 18,
+                      "y": 14,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 leaderboard",
+                      "font_family": "Arial",
+                      "font_size": 22,
+                      "color": [
+                        232,
+                        239,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3-description",
+                    "name": "as3-description",
+                    "transform": {
+                      "x": 18,
+                      "y": 49,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Map • filter • search • aggregate",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        232,
+                        239,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ]
+}

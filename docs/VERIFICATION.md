@@ -9,7 +9,7 @@ Date: 2026-10-27. This record covers the development preview, vector/object tool
 - Formatting and Clippy (`--workspace --all-targets -- -D warnings`).
 - 309 workspace Rust tests: 55 core, 121 editor, 35 script, 94 importer and 4 exporter; four additional tests exercise the pinned egui-winit paste adapter.
 - 66 browser-host/actual-WASM/cache and public-example tests in Node, including the current display, Stage and EventDispatcher family, semantic bounds, DOM identity, focus restoration, pan/zoom, lifetime-checked activation, recovery and failure reporting.
-- 86 execution fixtures using JavaScript emitted by the script compiler, plus an integration check using the actual host proxy/dispatch code with a lifecycle stub.
+- 90 execution fixtures using JavaScript emitted by the script compiler, plus an integration check using the actual host proxy/dispatch code with a lifecycle stub.
 - One combined project-program scenario covers class resolution/inheritance/slots/events, ordinary export and linked instances through actual WASM and host code.
 - Five batch-preparation tests cover independent failure/timeout continuation, fresh output runs, source/file hashes, argument and HTML-data handling, and preservation of unrelated output directories.
 - 21 public-corpus CLI cases: seven successful imports and 14 explicit refusals, with source integrity and no-overwrite checks.
@@ -18,6 +18,20 @@ Date: 2026-10-27. This record covers the development preview, vector/object tool
 Important regressions include independent nested clocks while a parent is stopped; affine nesting; dispatch order/stale-instance protection; JSON validation and graph cycles; grouped undo; key insertion at an interpolated pose; midpoint duplicate/delete; symbol conversion and recursive-placement rejection; key move/copy/collision behavior; fast and normal pointer gestures; macOS collection-font loading; and the Metal backend being enabled in the actual desktop build.
 
 The build emits an upstream future-compatibility notice for the Metal dependency `block 0.1.6`. This is not a current compilation or Clippy error; dependency modernization remains tracked work.
+
+## Array, String and plain text families — 27 October
+
+The next delivery extends existing scenarios instead of creating a per-method test matrix. Rust test and Node test counts remain unchanged; four coherent Array/String scenarios bring the compiler execution batch from 86 to 90. The existing project scenario also exercises the shared adapters in classes, local shadowing and single property lookup before argument evaluation. The existing display scenario covers live text/color mutation, UTF-16 length/ranges, line queries, measurement, owner guards and reset through actual WASM.
+
+The shared run passed formatting, Clippy, Rust, corpus and WASM build stages. One Node scenario exposed a harness omission: supplying Canvas measurement also enabled an input-render callback, but the extracted headless harness had no renderer. A no-op renderer was added to that harness; production rendering was unchanged. The affected scenario passed, and the remaining compiler/project/batch/export stages then passed. Unrelated tests were not repeatedly rerun. Logs: `target/verification/collections-text-integrated-check.log` and `collections-text-final-check.log`.
+
+The previous committed family CI run failed because several Node launchers assumed Cargo lived at `~/.cargo/bin/cargo`; that runner supplied it elsewhere on PATH. The launchers now share the existing environment/home/PATH fallback and expose process-launch errors. The affected export scenarios and project scenario passed with `CARGO=cargo` (log `target/verification/cargo-path-check.log`). This is a test-tool portability fix, not a change in published project behavior.
+
+All nine ordinary exports in `examples/browser-batch.json` reached ready DOM state in the in-app browser, with zero reported runtime errors (run `20261027T010839Z-00a9a758`). In the new combined example, the AS2 and AS3 controls both rendered Zoe:45, Ada:30 and Bob:20; AS3 additionally rendered Total:95. The AS2 result changed to cyan and AS3 to green. Restart visibly restored the authored labels and colors; repeating both actions produced the same result and traces. The other eight projects received startup checks in this run; their full interaction checklists were not repeated.
+
+This verifies the ordinary data-to-text pipeline, not every Array/String method, original Flash equivalence, browser engine parity or full text layout. Plain text uses the existing Canvas font/line profile; HTML/CSS formatting, text input, wrapping and font embedding remain pending. Native Sources/editor acceptance also remains pending. Browser observations and screenshots are in `target/verification/collections-text-browser/observations.json`, `results.png` and `reset.png`.
+
+The optimized package was rebuilt and strict codesign verification passed. Executable SHA-256: `859c36cbe933400100de87c503a88258a9c33b2cdaaa544cb82e81480d1e8183`; WASM: `27797ba59dc7f2b53f67499c4ee9cb1cddc2b1b873f80c6796d0c30c268c701d`; exporter: `5768d800603eba24131d3942ab842b67f5620143160f84d78131d6ef40c8d1c2`. Build/source identity is retained in `target/verification/collections-text-build-evidence.json`.
 
 ## Integrated project, display and event families — 27 October
 

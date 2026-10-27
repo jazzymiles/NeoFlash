@@ -242,15 +242,17 @@
       "id": "as2-primitive-globals",
       "title": "Primitives and global conversions",
       "status": "partial",
-      "scope": "Number, String, Boolean, parseInt, parseFloat, isNaN and isFinite are available through JavaScript. Separate bounded AS2 parseInt profile now has pinned reference fixtures and ordinary Chrome/in-app HTML5 acceptance.",
-      "limitations": "Flash-specific and version-specific rules, boxed values and the complete standard library are not implemented. Expectations are documented_only; original Flash runtime was not measured.",
+      "scope": "Number, Boolean, parseFloat, isNaN and isFinite retain JavaScript-backed conversions. String now uses the bounded primitive family facade; parseInt retains its separate pinned AS2 profile and earlier HTML5 acceptance.",
+      "limitations": "Complete historical coercions, boxed values and the full standard library remain unfinished. New Array/String expectations are documented_only; browser acceptance of that increment is pending.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
         "docs/COMPATIBILITY.md",
         "crates/neoflash-script/tests/INTRINSICS.md",
         "examples/as-intrinsics.nflash",
-        "docs/VERIFICATION.md"
+        "docs/VERIFICATION.md",
+        "crates/neoflash-script/src/actionscript/strings.js",
+        "crates/neoflash-script/tests/strings-fixtures.mjs"
       ]
     },
     {
@@ -268,12 +270,18 @@
       "id": "as2-collections",
       "title": "Array, String and Number methods",
       "status": "partial",
-      "scope": "Selected push/pop/shift/unshift/join/slice/indexOf/substring/charAt/charCodeAt/toString/toFixed/split/concat/reverse methods.",
-      "limitations": "The list is limited and uses JavaScript behavior, with possible differences in ranges, coercion and errors.",
+      "scope": "Bounded Array constructors and mutation/slicing, comparator/flag sort and multi-field sortOn; primitive String conversion, UTF-16 access/search/slicing/splitting/concatenation/casing. Shared adapters preserve custom overrides and lookup order in handlers and project methods. AS2 Number formatting and the Array search extension remain JavaScript-backed rather than complete native AS2 contracts.",
+      "limitations": "Partial profiles: 1,000,000 array entries/string code units or results; ordinary records, restricted sortOn options, no native method extraction/prototype augmentation, RegExp/custom string patterns, locale operations or complete historical coercion/order. AS3 NUMERIC requires numeric values; AS2 boxed String is unsupported. See fixture profile constants for exact dialect limits. Browser acceptance of this increment is pending.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-script/src/actionscript/collections.js",
+        "crates/neoflash-script/src/actionscript/strings.js",
+        "crates/neoflash-script/tests/collections-fixtures.mjs",
+        "crates/neoflash-script/tests/strings-fixtures.mjs",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "examples/collections-text.nflash"
       ]
     },
     {
@@ -358,13 +366,20 @@
     {
       "id": "as2-text-api",
       "title": "TextField and text APIs",
-      "status": "planned",
-      "scope": "Dynamic and input text, formatting, measurement, selection and programmatic TextField control.",
-      "limitations": "Static text in the document model does not implement Flash TextField; a custom field named text does not change the rendered string.",
+      "status": "partial",
+      "scope": "Existing authored Text elements now have live text/textColor, UTF-16 length, append/replace, line queries and partial Canvas text metrics through the shared runtime. Overrides leave authored content unchanged and clear with placement removal/replacement or Restart.",
+      "limitations": "Plain string values and RGB integers only; 1 MiB UTF-8 text and bounded UTF-16 replacement ranges preserving complete characters. No rich formatting/HTML, wrapping, input/selection, embedded fonts or dynamic TextField creation. Canvas width and 1.2×font-size line height are not full Flash layout. Shared helpers do not establish every historical AS2 method. Browser acceptance of this increment is pending.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",
-        "web/runtime.js"
+        "web/runtime.js",
+        "web/display.js",
+        "crates/neoflash-core/src/evaluate.rs",
+        "crates/neoflash-core/src/runtime.rs",
+        "crates/neoflash-web/src/lib.rs",
+        "crates/neoflash-core/tests/display_family.rs",
+        "web/tests/display-family.test.cjs",
+        "examples/collections-text.nflash"
       ]
     },
     {

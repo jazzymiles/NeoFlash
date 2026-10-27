@@ -2,7 +2,7 @@
 const __nfProgram = (() => {
     const definitions = new Map(), identities = new WeakMap(), fieldStates = new WeakMap();
     const initialized = new WeakMap(), superMethods = new WeakMap(), failed = new WeakMap();
-    const builtins = { Object, Array, ...__nfBuiltins };
+    const builtins = { Object, Array: __nfArrayClass(true), ...__nfBuiltins };
     function type(name) {
         const value = definitions.get(name)?.facade ?? builtins[name];
         if (value === undefined) throw new Error(`Project type ${name} has no runtime implementation.`);

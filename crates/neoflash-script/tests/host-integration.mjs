@@ -23,7 +23,7 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const globals = { NeoFlashDisplay:require(resolve(root,'web/display.js')), NeoFlashEvents:require(resolve(root,'web/events.js')),
     NeoFlashStage:require(resolve(root,'web/stage.js')), NeoFlashAccessibility:require(resolve(root,'web/accessibility.js')) };
   const host = new Function('player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'traceSpy', 'global', 'bundle', 'project', 'context', 'font',
-    'const proxies = new Map(); let lastTrace = "";\n' + runtime.slice(start, end) +
+    'const proxies = new Map(); const render = () => {}; let lastTrace = "";\n' + runtime.slice(start, end) +
     '\nconst originalTrace = trace; trace = (...args) => { traceSpy(...args); return originalTrace(...args); };\n' +
     'initializeFamily(); return { proxyFor, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, display:()=>display, stage:()=>stageHost, program:()=>program, lastTrace: () => lastTrace };'
   )(player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args),

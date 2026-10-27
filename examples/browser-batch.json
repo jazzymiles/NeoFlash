@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "collections-text",
+      "path": "examples/collections-text.nflash",
+      "title": "AS2 / AS3 data processing and text output",
+      "checks": [
+        "Run both leaderboards: both show Zoe:45, Ada:30 and Bob:20 in the expected order; AS3 also shows Total:95.",
+        "The result labels update on the stage with their new colors, while the final traces report the array pipeline results.",
+        "Restart restores the authored labels; rerunning produces the same results."
+      ]
+    },
+    {
       "id": "project-program",
       "path": "examples/project-program.nflash",
       "title": "Project classes, linked instances and shared state",

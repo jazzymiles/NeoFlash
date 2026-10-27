@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed Cargo lookup in HTML5 verification launchers for CI runners that provide the Rust toolchain on PATH, and retained actionable process-launch errors.
+
+- Added bounded Array/String adapters shared by AS handlers and project methods: indexed mutation, Flash sort/sortOn flags, AS3 callbacks/search, UTF-16 text processing and AS3 literal-pattern replacement. Native method overrides keep their receiver/evaluation order; unsupported native extraction and richer coercion/prototype profiles diagnose.
+- Added live plain authored TextField text/color overrides, append/replace and line queries, with UTF-16 ranges and partial Canvas metrics. The collection example now displays AS2/AS3 leaderboard results on the stage. Authored content remains unchanged; rich text, wrapping/input and portable fonts remain pending. Browser acceptance of this increment is pending.
+
 - Added embedded project source units and version-2 document/symbol linkage, with a bounded AS3 public-class compiler: exact imports, inheritance/super, typed instance/static fields, initialized const fields and stable bound methods. Linked classes initialize per placement lifetime; AS2 project classes and JS/TS modules remain unsupported.
 - Added a coherent MovieClip/DisplayObject family: lifetime-aware hierarchy and child lookup, names, bounds and coordinate conversion, supported dimension setters, finite rotation readback and void timeline results. Added bounded AS2 onEnterFrame/onPress callbacks without claiming the complete Flash lifecycle.
 - Added shared EventDispatcher/Event/MouseEvent/KeyboardEvent facades, capture/target/bubble, listener priority/mutation, cancellation and reset cleanup. Added Stage dimensions, frame rate, focus and bounded pointer/keyboard input; automatic Flash resize modes, fullscreen and IME remain pending.
