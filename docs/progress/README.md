@@ -20,6 +20,8 @@ python3 scripts/progress_catalog.py --summary
 python3 scripts/progress_catalog.py --language AS3 --scope runtime --query MovieClip
 ```
 
+Independent follow-up runs can override explicitly reviewed declaration IDs while preserving their own source manifest, recorded HEAD, browser boundary and per-entry scope. The normalized rules retain these identities; raw local fixtures and browser logs stay in the research evidence. Product/import acceptance without AS declarations does not increase AS counts. The generated report lists these runs separately from the original baseline.
+
 The report is a dated audit, not a fresh test run. The page compares its published implementation with the baseline source fingerprints, showing when that implementation has changed. Documentation-only differences are separate. Original Flash differential testing was not performed. Later unshipped working-tree reviews in the original audit are not counted as shipped behavior or assigned baseline test passes.
 
 ## Product capability groups

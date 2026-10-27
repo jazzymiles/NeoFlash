@@ -1,0 +1,346 @@
+{
+  "format_version": 2,
+  "name": "Project classes and events",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    34,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Project classes",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 120,
+        "layers": [
+          {
+            "id": "scene-content",
+            "name": "scene-content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 42,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / PROJECT CLASSES + STAGE EVENTS",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 86,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "One class. Two independent components.",
+                      "font_family": "Arial",
+                      "font_size": 34,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 134,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Click either card to update its own count and shared state. Press Space to reset.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 476,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Main → Widget × 2 → SharedState · ordinary AS3 source units · HTML5 publication",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "left",
+                    "name": "left",
+                    "transform": {
+                      "x": 170,
+                      "y": 292,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "widget",
+                      "playback": "independent"
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "Activate left component",
+                      "description": "Updates its independent counter and the shared click total.",
+                      "role": "button",
+                      "tab_order": 1,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "right",
+                    "name": "right",
+                    "transform": {
+                      "x": 590,
+                      "y": 292,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "widget",
+                      "playback": "independent"
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "Activate right component",
+                      "description": "Updates its independent counter and the shared click total.",
+                      "role": "button",
+                      "tab_order": 2,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "widget",
+      "name": "Reusable component",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 120,
+        "layers": [
+          {
+            "id": "widget-content",
+            "name": "widget-content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "plate",
+                    "name": "plate",
+                    "transform": {
+                      "x": -110,
+                      "y": -75,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 150,
+                      "fill": [
+                        35,
+                        70,
+                        105,
+                        255
+                      ],
+                      "stroke": [
+                        99,
+                        202,
+                        218,
+                        255
+                      ],
+                      "stroke_width": 2
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "widget-title",
+                    "name": "widget-title",
+                    "transform": {
+                      "x": -84,
+                      "y": -43,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Widget",
+                      "font_family": "Arial",
+                      "font_size": 26,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "widget-subtitle",
+                    "name": "widget-subtitle",
+                    "transform": {
+                      "x": -84,
+                      "y": 3,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Click to move + count",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "widget-detail",
+                    "name": "widget-detail",
+                    "transform": {
+                      "x": -84,
+                      "y": 32,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Independent instance",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        153,
+                        204,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      },
+      "class_name": "app.Widget"
+    }
+  ],
+  "sources": [
+    {
+      "id": "source-0",
+      "path": "app/SharedState.as",
+      "language": "action_script3",
+      "source": "package app {\n  public class SharedState {\n    public static var instances:int = 0;\n    public static var clicks:int = 0;\n  }\n}"
+    },
+    {
+      "id": "source-1",
+      "path": "app/Widget.as",
+      "language": "action_script3",
+      "source": "package app {\n  import flash.display.MovieClip;\n  import flash.events.Event;\n  import flash.events.MouseEvent;\n  import app.SharedState;\n  public class Widget extends MovieClip {\n    public var count:int = 0;\n    public var ticks:uint = 0;\n    public var homeX:Number;\n    public function Widget() {\n      super();\n      homeX = x;\n      SharedState.instances++;\n      addEventListener(MouseEvent.CLICK, clicked);\n      addEventListener(Event.ENTER_FRAME, advanced);\n    }\n    public function clicked(e:MouseEvent):void {\n      count++;\n      SharedState.clicks++;\n      x += 6;\n      trace(\"component click\", name, count, SharedState.clicks);\n    }\n    public function advanced(e:Event):void {\n      ticks++;\n      rotation += 0.15;\n    }\n    public function reset():void {\n      count = 0;\n      x = homeX;\n      rotation = 0;\n    }\n  }\n}"
+    },
+    {
+      "id": "source-2",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n  import flash.display.MovieClip;\n  import flash.events.Event;\n  import flash.events.KeyboardEvent;\n  import app.Widget;\n  import app.SharedState;\n  public class Main extends MovieClip {\n    public var left:Widget;\n    public var right:Widget;\n    public function Main() {\n      super();\n      stop();\n      left = Widget(getChildByName(\"left\"));\n      right = Widget(getChildByName(\"right\"));\n      stage.addEventListener(KeyboardEvent.KEY_DOWN, keyPressed);\n      stage.addEventListener(Event.RESIZE, resized);\n      trace(\"project ready\", SharedState.instances, left.count, right.count);\n    }\n    public function keyPressed(e:KeyboardEvent):void {\n      if (e.keyCode == 32) {\n        left.reset();\n        right.reset();\n        trace(\"reset components\", left.count, right.count, SharedState.clicks);\n        e.preventDefault();\n      }\n    }\n    public function resized(e:Event):void {\n      trace(\"stage resize\", stage.stageWidth, stage.stageHeight);\n    }\n  }\n}"
+    }
+  ]
+}

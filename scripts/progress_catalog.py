@@ -117,10 +117,40 @@ def reviewed_rules(evidence, entries):
     for item in evidence["manual_rules"]:
         add(item["id"], item["id"].replace("-", " ").capitalize(), item["reason"],
             "Use only within the exact reviewed rule; no full Flash compatibility is claimed.", item.get("evidence", []))
+    for run in evidence.get("independent_verifications", []):
+        reviewed = run.get("catalog_overrides", [])
+        if not reviewed:
+            continue  # Product/import checks do not classify AS declarations.
+        definitions[run["id"]] = {
+            "id": run["id"],
+            "title": "Independent HTML5 acceptance: " + run["id"],
+            "reason": run["decision"].replace("_", " "),
+            "limitations": " ".join(run.get("limitations", [])),
+            "evidence": [reference(path, run["source_files"]) for path in sorted(run["source_files"])
+                         if path.startswith(("web/", "crates/")) and "/tests/" not in path],
+            "verification": verification_summary(run),
+            "reviewedEntries": [{"catalogId": item["catalog_id"], "status": item["status"],
+                                 "evidenceKind": item["evidence_kind"], "scopeNote": item["scope_note"]}
+                                for item in reviewed],
+        }
     used = {entry["rule_id"] for entry in entries}
     if not used.issubset(definitions):
         raise ValueError(f"Audit rules have no safe explanation: {sorted(used - definitions.keys())}")
     return [definitions[identifier] for identifier in sorted(used)]
+
+
+def verification_summary(run):
+    """Preserve a later run's own identity without exporting local fixtures/logs."""
+    if not re.fullmatch(r"[a-f0-9]{40}", run["head"]) or not HASH.fullmatch(run["source_manifest_sha256"]):
+        raise ValueError("Invalid independent verification source fingerprint")
+    return {
+        "id": run["id"], "recordedHead": run["head"],
+        "sourceCapturedAt": run["captured_at"], "verifiedAt": run["verified_at"],
+        "sourceManifestSha256": run["source_manifest_sha256"],
+        "browser": run["browser"]["name"], "engine": run["browser"]["engine"],
+        "originalFlashComparison": run["browser"]["original_flash_comparison"],
+        "decision": run["decision"], "currentSourceVerified": False,
+    }
 
 
 def catalogue_bytes(entries):
@@ -203,6 +233,7 @@ def import_catalog(source, root=ROOT):
         ],
         "coverageNote": "The denominator includes every declaration in the four selected documentation catalogues, including framework, component and platform-extension entries. It is not limited to browser-compatible runtime APIs. It is not every historical or third-party API; AS3 post-Adobe HARMAN additions and documented source gaps remain outside this snapshot.",
         "sourceReferenceNote": "Rule evidence paths and lines refer to the audited source fingerprints. They are not verified line links into the recorded HEAD or the current commit.",
+        "independentVerifications": [verification_summary(run) for run in evidence.get("independent_verifications", [])],
     }
     frozen = {"schemaVersion": 1, "catalogSha256": sha256(payload), "metadata": metadata,
               "summary": summary, "rules": reviewed_rules(evidence, entries)}

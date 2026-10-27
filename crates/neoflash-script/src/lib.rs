@@ -5,6 +5,7 @@
 //! deliberately small, explicit frontend; see docs/COMPATIBILITY.md.
 
 mod actionscript;
+pub use actionscript::project::{ProjectProgram, compile_project, compile_with_program};
 
 use neoflash_core::{Script, ScriptLanguage};
 use oxc_allocator::Allocator;

@@ -6,6 +6,7 @@ mod fonts;
 mod native_screens;
 mod panels;
 mod selection;
+mod sources;
 mod stage;
 mod stage_primitives;
 mod stage_selection;

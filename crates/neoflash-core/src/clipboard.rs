@@ -36,6 +36,8 @@ pub struct ClipboardPayload {
     anchor: [f64; 2],
     elements: Vec<Element>,
     symbols: Vec<Symbol>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    sources: Vec<SourceUnit>,
 }
 
 #[derive(Clone, Debug)]
@@ -64,6 +66,9 @@ impl ClipboardPayload {
             format_version: VERSION,
             source_session: source_session.to_owned(),
             anchor,
+            // Transfer the program snapshot as a conservative dependency closure.
+            // Class-level pruning can be added once all backends expose a graph.
+            sources: project.sources.clone(),
             elements,
             symbols: project
                 .symbols
@@ -197,6 +202,25 @@ impl ClipboardPayload {
             }
         }
         let mut candidate = destination.clone();
+        for source in &self.sources {
+            if let Some(existing) = candidate
+                .sources
+                .iter()
+                .find(|unit| unit.path.eq_ignore_ascii_case(&source.path))
+            {
+                if !same_session
+                    && (existing.language != source.language || existing.source != source.source)
+                {
+                    return invalid(
+                        "a project source path conflicts with different destination code; resolve the source conflict before pasting",
+                    );
+                }
+            } else {
+                let mut imported = source.clone();
+                imported.id = fresh_id("source", &mut occupied, &forbidden);
+                candidate.sources.push(imported);
+            }
+        }
         for original in self.symbols.iter().filter(|s| required.contains(&s.id)) {
             let mut imported = original.clone();
             imported.id = identities[&original.id].clone();
@@ -208,6 +232,9 @@ impl ClipboardPayload {
                 }
             }
             candidate.symbols.push(imported);
+        }
+        if candidate.has_program() {
+            candidate.enable_program();
         }
         let mut pasted = self.elements.clone();
         let mut element_ids = Vec::with_capacity(pasted.len());
@@ -270,6 +297,7 @@ impl ClipboardPayload {
         let wrapper_layer = synthetic_id("clipboard-layer", &mut used);
         let mut symbols = self.symbols.clone();
         symbols.push(Symbol {
+            class_name: None,
             id: wrapper_id.clone(),
             name: "Clipboard selection".into(),
             kind: SymbolKind::MovieClip,
@@ -292,7 +320,15 @@ impl ClipboardPayload {
         });
         validate_project(
             &Project {
-                format_version: 1,
+                sources: self.sources.clone(),
+                document_class: None,
+                format_version: if self.sources.is_empty()
+                    && !symbols.iter().any(|symbol| symbol.class_name.is_some())
+                {
+                    1
+                } else {
+                    2
+                },
                 name: "Clipboard validation".into(),
                 width: 1,
                 height: 1,
@@ -441,14 +477,19 @@ fn symbol_ids(symbol: &Symbol, ids: &mut HashSet<Id>) {
     }
 }
 fn project_ids(project: &Project) -> HashSet<Id> {
-    let mut ids = HashSet::new();
+    let mut ids = project
+        .sources
+        .iter()
+        .map(|source| source.id.clone())
+        .collect();
     for symbol in &project.symbols {
         symbol_ids(symbol, &mut ids);
     }
     ids
 }
 fn payload_ids(payload: &ClipboardPayload) -> HashSet<Id> {
-    let mut ids = payload.elements.iter().map(|e| e.id.clone()).collect();
+    let mut ids: HashSet<_> = payload.elements.iter().map(|e| e.id.clone()).collect();
+    ids.extend(payload.sources.iter().map(|source| source.id.clone()));
     for symbol in &payload.symbols {
         symbol_ids(symbol, &mut ids);
     }

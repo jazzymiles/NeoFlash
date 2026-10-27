@@ -27,6 +27,7 @@ pub enum BottomTab {
 pub enum ScriptTarget {
     Frame,
     Object,
+    Source,
 }
 
 pub struct Editor {
@@ -57,6 +58,8 @@ pub struct Editor {
     pub bottom: BottomTab,
     pub script_target: ScriptTarget,
     pub script_event: ObjectEvent,
+    pub selected_source: Option<String>,
+    pub code_feedback: Option<crate::sources::CodeFeedback>,
     pub status: String,
     pub output: Vec<String>,
     pub fonts: Fonts,
@@ -106,6 +109,7 @@ impl Editor {
             zoom: 0.75, pan: Vec2::ZERO, shape_draft: None,
             fill: [50, 117, 184, 255], bottom: BottomTab::Properties,
             script_target: ScriptTarget::Frame, script_event: ObjectEvent::Click,
+            selected_source: None, code_feedback: None,
             status: "Ready · F5 frame · F6 keyframe · F7 blank keyframe · ⌘↵ Test Movie".into(),
             output: vec!["NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser.".into()],
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
@@ -312,6 +316,7 @@ impl Editor {
             content.scripts.clear();
             content.accessibility = None;
             s.project.symbols.push(Symbol {
+                class_name: None,
                 id: id.clone(),
                 name: format!("{} symbol", element.name),
                 kind: SymbolKind::MovieClip,

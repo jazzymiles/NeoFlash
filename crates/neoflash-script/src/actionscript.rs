@@ -6,7 +6,17 @@ use std::collections::HashMap;
 mod completion;
 #[cfg(test)]
 mod control_tests;
+pub(crate) mod project;
 mod scope;
+
+#[derive(Clone, Default)]
+struct CompileContext {
+    types: std::collections::BTreeMap<String, String>,
+    members: std::collections::BTreeMap<String, Option<String>>,
+    class_name: Option<String>,
+    method_id: Option<usize>,
+    project: bool,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 enum Kind {
@@ -194,6 +204,7 @@ enum Expr {
     Call(Box<Expr>, Vec<Expr>, usize),
     Function(Function),
     NewError(String, Vec<Expr>, usize),
+    NewClass(String, Vec<Expr>, usize),
 }
 
 #[derive(Clone, Debug)]
@@ -251,7 +262,9 @@ impl Expr {
             Self::Call(c, args, _) => c
                 .depth()
                 .max(args.iter().map(Self::depth).max().unwrap_or(0)),
-            Self::NewError(_, args, _) => args.iter().map(Self::depth).max().unwrap_or(0),
+            Self::NewError(_, args, _) | Self::NewClass(_, args, _) => {
+                args.iter().map(Self::depth).max().unwrap_or(0)
+            }
         }
     }
     fn assignable(&self) -> bool {
@@ -292,6 +305,7 @@ struct Frontend<'a> {
     controls: Vec<ControlTarget>,
     function_depth: usize,
     next_function: usize,
+    context: CompileContext,
 }
 
 impl<'a> Frontend<'a> {
@@ -666,6 +680,8 @@ impl<'a> Frontend<'a> {
         }
         if let Kind::Ident(word) = &self.token().kind
             && is_unsupported_keyword(word)
+            && !(self.context.project
+                && (word == "new" || (word == "super" && self.context.class_name.is_some())))
         {
             return Err(self.error(format!("ActionScript '{word}' is not implemented yet. See docs/COMPATIBILITY.md; use a JavaScript/TypeScript handler for this feature.")));
         }
@@ -702,14 +718,19 @@ impl<'a> Frontend<'a> {
         if !self.eat(":") {
             return Ok(None);
         }
-        let name = if self.eat("*") {
+        let mut name = if self.eat("*") {
             "*".into()
         } else {
             self.ident()?
         };
+        while self.context.project && self.eat(".") {
+            name.push('.');
+            name.push_str(&self.ident()?);
+        }
         let as3 = self.script.language == ScriptLanguage::ActionScript3;
         let supported = matches!(name.as_str(), "Number" | "String" | "Boolean" | "Function")
-            || (as3 && matches!(name.as_str(), "int" | "uint" | "*"))
+            || (as3 && matches!(name.as_str(), "int" | "uint" | "*" | "Object" | "Array"))
+            || (as3 && self.context.project && self.context.types.contains_key(&name))
             || (is_error_type(&name) && (as3 || name == "Error"))
             || (returns && name == if as3 { "void" } else { "Void" });
         if !supported {
@@ -884,9 +905,15 @@ impl<'a> Frontend<'a> {
     fn primary(&mut self) -> Result<Expr, Diagnostic> {
         if self.eat("new") {
             let offset = self.token().offset;
-            let name = self.ident()?;
-            if !is_error_type(&name)
-                || (self.script.language == ScriptLanguage::ActionScript2 && name != "Error")
+            let mut name = self.ident()?;
+            while self.context.project && self.eat(".") {
+                name.push('.');
+                name.push_str(&self.ident()?);
+            }
+            let class = self.context.types.get(&name).cloned();
+            if class.is_none()
+                && (!is_error_type(&name)
+                    || (self.script.language == ScriptLanguage::ActionScript2 && name != "Error"))
             {
                 return Err(self.error("Only core Error constructors are supported here; arbitrary new and user classes require project type resolution."));
             }
@@ -901,6 +928,9 @@ impl<'a> Frontend<'a> {
                 }
             }
             self.expect(")")?;
+            if let Some(name) = class {
+                return Ok(Expr::NewClass(name, args, offset));
+            }
             let maximum = if self.script.language == ScriptLanguage::ActionScript3 {
                 2
             } else {
@@ -920,7 +950,7 @@ impl<'a> Frontend<'a> {
         match token.kind {
             Kind::Number(value) | Kind::String(value) => { self.pos += 1; Ok(Expr::Literal(value)) }
             Kind::Ident(name) => {
-                if is_unsupported_keyword(&name) || matches!(name.as_str(), "if" | "else" | "while" | "for" | "var" | "break" | "continue" | "return") {
+                if (is_unsupported_keyword(&name) && !(name == "super" && self.context.class_name.is_some())) || matches!(name.as_str(), "if" | "else" | "while" | "for" | "var" | "break" | "continue" | "return") {
                     return Err(self.error(format!("ActionScript construct '{name}' is not supported in this expression.")));
                 }
                 self.pos += 1;
@@ -1199,8 +1229,15 @@ impl Emitter<'_> {
             Some("Object") => {
                 format!("((__nfValue) => __nfValue == null ? null : __nfValue)({value})")
             }
+            Some("Array") => format!(
+                "((__nfValue) => {{ if (__nfValue == null || Array.isArray(__nfValue)) return __nfValue == null ? null : __nfValue; throw new __nfTypeError('AS3 Array value required'); }})({value})"
+            ),
             Some(ty) if is_error_type(ty) => format!(
                 "((__nfValue) => {{ if (__nfValue == null) return null; if (__nfCatchType(__nfValue, {ty:?})) return __nfValue; throw new __nfTypeError('AS3 {ty} value required'); }})({value})"
+            ),
+            Some(ty) if self.analysis.context.types.contains_key(ty) => format!(
+                "__nfProgram.cast({:?}, {value})",
+                self.analysis.context.types[ty]
             ),
             _ => value,
         }
@@ -1214,6 +1251,19 @@ impl Emitter<'_> {
             .is_some_and(|(_, b)| b.ty.is_some())
     }
     fn name(&self, name: &str) -> String {
+        if name == "__nfProgram" && self.analysis.context.project {
+            return name.into();
+        }
+        if name == "super"
+            && let Some(class) = &self.analysis.context.class_name
+        {
+            return format!("__nfProgram.superView({class:?}, __nfFrame)");
+        }
+        if self.analysis.resolve(self.scope, name).is_none()
+            && let Some(qname) = self.analysis.context.types.get(name)
+        {
+            return format!("__nfProgram.type({qname:?})");
+        }
         if name == "parseInt" && self.analysis.resolve(self.scope, name).is_none() {
             return if self.as3 {
                 "__nfParseInt3"
@@ -1247,9 +1297,10 @@ impl Emitter<'_> {
         match ty {
             Some("Number") => "NaN",
             Some("Boolean") => "false",
-            Some("String" | "Function") => "null",
+            Some("String" | "Function" | "Object" | "Array") => "null",
             Some(ty) if is_error_type(ty) => "null",
             Some("int" | "uint") => "0",
+            Some(ty) if self.analysis.context.types.contains_key(ty) => "null",
             _ => "undefined",
         }
     }
@@ -1260,6 +1311,9 @@ impl Emitter<'_> {
             scope: f.id,
         };
         let mut prologue = String::new();
+        if self.analysis.context.method_id == Some(f.id) {
+            prologue.push_str("const __nfFrame = this;\n");
+        }
         if self.as3 {
             prologue.push_str(&format!("if (arguments.length !== {}) throw new __nfTypeError('AS3 function expects {} arguments');\n",f.params.len(),f.params.len()));
         }
@@ -1321,6 +1375,23 @@ impl Emitter<'_> {
         }
     }
     fn expression(&self, expr: &Expr) -> String {
+        fn qualified_name(expr: &Expr) -> Option<String> {
+            match expr {
+                Expr::Name(n) => Some(n.clone()),
+                Expr::Member(base, n) => Some(format!("{}.{}", qualified_name(base)?, n)),
+                _ => None,
+            }
+        }
+        if self.analysis.context.project
+            && let Some(name) = qualified_name(expr)
+            && self
+                .analysis
+                .resolve(self.scope, name.split('.').next().unwrap())
+                .is_none()
+            && let Some(qname) = self.analysis.context.types.get(&name)
+        {
+            return format!("__nfProgram.type({qname:?})");
+        }
         match expr {
             Expr::Literal(value) => value.clone(),
             Expr::Name(name) => self.name(name),
@@ -1328,6 +1399,13 @@ impl Emitter<'_> {
             Expr::NewError(name, args, _) => format!(
                 "__nfMakeError({name:?}, {}, [{}])",
                 self.as3,
+                args.iter()
+                    .map(|a| self.expression(a))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Expr::NewClass(name, args, _) => format!(
+                "__nfProgram.construct({name:?}, [{}])",
                 args.iter()
                     .map(|a| self.expression(a))
                     .collect::<Vec<_>>()
@@ -1376,6 +1454,32 @@ impl Emitter<'_> {
             Expr::Assign(op, left, right) => {
                 let target = self.lvalue(left);
                 let value = self.expression(right);
+                if !self.as3 && op == "=" {
+                    let callback = match left.as_ref() {
+                        Expr::Name(name)
+                            if matches!(
+                                name.as_str(),
+                                "onEnterFrame" | "onPress" | "onRelease"
+                            ) && self.analysis.resolve(self.scope, name).is_none() =>
+                        {
+                            Some(("__nfFrame".into(), name))
+                        }
+                        Expr::Member(base, name)
+                            if matches!(
+                                name.as_str(),
+                                "onEnterFrame" | "onPress" | "onRelease"
+                            ) =>
+                        {
+                            Some((self.expression(base), name))
+                        }
+                        _ => None,
+                    };
+                    if let Some((receiver, name)) = callback {
+                        return format!(
+                            "__nfDisplay.setLegacyCallback({receiver}, {name:?}, {value})"
+                        );
+                    }
+                }
                 if let Expr::Name(name) = left.as_ref()
                     && self.as3
                     && self.typed(name)
@@ -1433,6 +1537,30 @@ impl Emitter<'_> {
                 self.expression(no)
             ),
             Expr::Call(callee, args, _) => {
+                if let Expr::Name(name) = callee.as_ref()
+                    && self.analysis.resolve(self.scope, name).is_none()
+                {
+                    if name == "super"
+                        && let Some(class) = &self.analysis.context.class_name
+                    {
+                        return format!(
+                            "__nfProgram.superConstruct({class:?}, __nfFrame, [{}])",
+                            args.iter()
+                                .map(|a| self.expression(a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
+                    if let Some(qname) = self.analysis.context.types.get(name) {
+                        return format!(
+                            "__nfProgram.cast({qname:?}, {})",
+                            args.iter()
+                                .map(|a| self.expression(a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
+                }
                 if self.as3
                     && let Expr::Member(base, name) = callee.as_ref()
                     && name == "toFixed"
@@ -1664,6 +1792,10 @@ impl Emitter<'_> {
 }
 
 pub(crate) fn compile(script: &Script) -> Result<String, Diagnostic> {
+    compile_context(script, CompileContext::default())
+}
+
+fn compile_context(script: &Script, context: CompileContext) -> Result<String, Diagnostic> {
     let tokens = Lexer { script, offset: 0 }.tokens()?;
     let mut parser = Frontend {
         script,
@@ -1673,9 +1805,10 @@ pub(crate) fn compile(script: &Script) -> Result<String, Diagnostic> {
         controls: Vec::new(),
         function_depth: 0,
         next_function: 1,
+        context: context.clone(),
     };
     let statements = parser.statements(false)?;
-    let analysis = scope::Analysis::new(script, &statements)?;
+    let analysis = scope::Analysis::with_context(script, &statements, context)?;
     let body = Emitter {
         as3: script.language == ScriptLanguage::ActionScript3,
         analysis: &analysis,

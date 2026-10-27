@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 const require = createRequire(import.meta.url);
 
-export function createRuntimeHost(root, player, compiledScripts) {
+export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const path = resolve(root, 'web/runtime.js');
   const runtime = readFileSync(path, 'utf8');
   const { sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow } = require(path);
@@ -15,16 +15,19 @@ export function createRuntimeHost(root, player, compiledScripts) {
   const end = runtime.indexOf('    function resize()', start);
   assert.ok(start >= 0 && end > start, 'host implementation boundaries changed');
   const scriptConsole = [], hostConsole = [], traceCalls = [];
-  const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value'];
+  const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value', '__nfProgram', '__nfDisplay'];
   const functions = new Map(compiledScripts.map(({ script, code, location }) => {
     const fn = new Function('console', `return function(${bindings.join(',')}) { "use strict"; return (function(){\n${code}\n}).call(this); }`)({ log: (...args) => scriptConsole.push(args) });
     return [sourceKey(script), { fn, location }];
   }));
-  const host = new Function('player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'traceSpy',
+  const globals = { NeoFlashDisplay:require(resolve(root,'web/display.js')), NeoFlashEvents:require(resolve(root,'web/events.js')),
+    NeoFlashStage:require(resolve(root,'web/stage.js')), NeoFlashAccessibility:require(resolve(root,'web/accessibility.js')) };
+  const host = new Function('player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'traceSpy', 'global', 'bundle', 'project', 'context', 'font',
     'const proxies = new Map(); let lastTrace = "";\n' + runtime.slice(start, end) +
     '\nconst originalTrace = trace; trace = (...args) => { traceSpy(...args); return originalTrace(...args); };\n' +
-    'return { proxyFor, dispatchScripts, lastTrace: () => lastTrace };'
-  )(player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args));
+    'initializeFamily(); return { proxyFor, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, display:()=>display, stage:()=>stageHost, program:()=>program, lastTrace: () => lastTrace };'
+  )(player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args),
+    globals, options.bundle, options.project || options.bundle?.project, options.context, kind=>`${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`);
   return { host, traceCalls, hostConsole, scriptConsole };
 }
 

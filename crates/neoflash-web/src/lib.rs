@@ -28,6 +28,15 @@ impl WebPlayer {
             .map_err(|error| JsValue::from_str(&error.to_string()))
     }
 
+    pub fn display_nodes_json(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&self.player.display_nodes(&self.project))
+            .map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
+    pub fn set_name(&mut self, target: &str, name: &str) -> Result<bool, JsValue> {
+        Ok(self.player.set_name(&path(target)?, name))
+    }
+
     pub fn accessibility_json(&self) -> Result<String, JsValue> {
         serde_json::to_string(&self.player.accessibility_nodes(&self.project))
             .map_err(|error| JsValue::from_str(&error.to_string()))

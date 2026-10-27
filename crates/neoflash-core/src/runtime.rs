@@ -37,6 +37,25 @@ pub struct AccessibleNode {
     pub accessibility: Accessibility,
 }
 
+/// Active placement metadata, including invisible content. Geometry queries,
+/// event receivers and linked classes share these lifetime-stamped identities.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DisplayNode {
+    pub path: Vec<Id>,
+    pub lifetime_id: String,
+    pub name: String,
+    pub owner: String,
+    pub class_name: Option<String>,
+    pub transform: Transform,
+    pub world: [f64; 6],
+    pub visible: bool,
+    pub effective_visible: bool,
+    pub frame: u32,
+    pub total_frames: u32,
+    pub independent: bool,
+    pub kind: Option<ElementKind>,
+}
+
 #[derive(Clone, Debug)]
 struct Clock {
     symbol_id: Id,
@@ -165,6 +184,44 @@ impl Player {
 
     pub fn evaluate(&self, project: &Project) -> Vec<DrawItem> {
         self.snapshot(project).items
+    }
+
+    pub fn display_nodes(&self, project: &Project) -> Vec<DisplayNode> {
+        self.snapshot(project)
+            .nodes
+            .into_iter()
+            .filter_map(|node| {
+                let lifetime_id = self.lifetime_id(&node.path)?.to_string();
+                let symbol = node.symbol_id.as_ref().and_then(|id| project.symbol(id));
+                let owner = match symbol.map(|s| s.kind) {
+                    Some(SymbolKind::MovieClip) => "movie_clip",
+                    Some(SymbolKind::Graphic) => "graphic",
+                    Some(SymbolKind::Button) => "button",
+                    None if matches!(node.kind, Some(ElementKind::Text { .. })) => "text",
+                    None => "shape",
+                };
+                let class_name = if node.path.is_empty() {
+                    project.document_class.clone()
+                } else {
+                    symbol.and_then(|s| s.class_name.clone())
+                };
+                Some(DisplayNode {
+                    path: node.path,
+                    lifetime_id,
+                    name: node.name,
+                    owner: owner.into(),
+                    class_name,
+                    transform: node.transform,
+                    world: node.world,
+                    visible: node.visible,
+                    effective_visible: node.effective_visible,
+                    frame: node.frame,
+                    total_frames: symbol.map_or(0, |s| s.timeline.frame_count),
+                    independent: node.independent,
+                    kind: node.kind,
+                })
+            })
+            .collect()
     }
 
     /// Stable authored order breaks equal tab-order ties. A semantic target's
@@ -513,7 +570,7 @@ impl Player {
     }
 
     pub fn set_property(&mut self, path: &[Id], property: &str, value: f64) -> bool {
-        if path.is_empty() || !value.is_finite() || !self.previous.contains_key(path) {
+        if !value.is_finite() || !self.previous.contains_key(path) {
             return false;
         }
         if property == "alpha" && !(0.0..=1.0).contains(&value) {
@@ -535,6 +592,14 @@ impl Player {
             "alpha" => patch.alpha = Some(value),
             _ => unreachable!(),
         }
+        true
+    }
+
+    pub fn set_name(&mut self, path: &[Id], name: &str) -> bool {
+        if !self.previous.contains_key(path) || name.len() > 4096 {
+            return false;
+        }
+        self.overrides.entry(path.to_vec()).or_default().name = Some(name.into());
         true
     }
 

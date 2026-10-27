@@ -33,15 +33,16 @@
       "category": "editor",
       "title": "Classic workspace",
       "status": "partial",
-      "scope": "Stage, tools, timeline, library, Properties and Actions; Light/Dark themes, saved panel visibility and sizes, and detached native Tools/Timeline/Actions windows with Dock and F9 controls.",
-      "limitations": "Drag-to-dock, tabs/splits and named presets are still missing; VoiceOver/IME and multiple monitors have not completed full native acceptance testing.",
+      "scope": "Stage, tools, timeline, library, Properties and Actions; Light/Dark themes, saved panel layout and detached Tools/Timeline/Actions. Actions now includes Sources editing, source import/removal, linkage fields and source-specific project-check feedback.",
+      "limitations": "Native Sources editing/feedback/save/reopen acceptance is pending. Drag-to-dock, tabs/splits and named presets are missing; VoiceOver/IME and multiple monitors are not fully verified.",
       "evidence": [
         "crates/neoflash-editor/src/panels.rs",
         "crates/neoflash-editor/src/detached.rs",
         "crates/neoflash-editor/src/workspace.rs",
         "crates/neoflash-editor/src/panel_tests.rs",
         "docs/WORKSPACE.md",
-        "docs/VERIFICATION.md"
+        "docs/VERIFICATION.md",
+        "crates/neoflash-editor/src/sources.rs"
       ]
     },
     {
@@ -112,13 +113,14 @@
       "category": "editor",
       "title": "Object clipboard",
       "status": "partial",
-      "scope": "Copy/Cut/Paste and Paste in Place transfer objects, dependent symbols, timelines and scripts; text fields retain normal text paste.",
-      "limitations": "Core/egui regressions exist; actual macOS clipboard delivery for this change remains unverified. Frame clipboard is a separate task.",
+      "scope": "Copy/Cut/Paste and Paste in Place transfer objects, dependent symbols, timelines and scripts; linked symbols include their project-source snapshot and reject conflicting sources before mutation. Text editors retain ordinary text paste.",
+      "limitations": "Native acceptance of the new linked-source transfer remains pending. General external resource dependencies and frame clipboard are separate work.",
       "evidence": [
         "crates/neoflash-core/src/clipboard.rs",
         "crates/neoflash-editor/src/clipboard_tests.rs",
         "docs/CLIPBOARD.md",
-        "docs/BACKLOG.md"
+        "docs/BACKLOG.md",
+        "crates/neoflash-core/tests/program.rs"
       ]
     },
     {
@@ -368,12 +370,21 @@
       "category": "web",
       "title": "Authored events and interactivity",
       "status": "partial",
-      "scope": "Frame scripts and object Load/Click/EnterFrame events; clicks propagate from leaves to ancestors, with instance fields and transform overrides.",
-      "limitations": "This is a foundation for interactive projects and games; complete input, EventDispatcher and Flash event compatibility remain unfinished.",
+      "scope": "Authored frame/Load/Click/EnterFrame handlers plus shared display/Stage EventDispatcher subscriptions, propagation/cancellation, bounded keyboard/pointer input and AS2 onEnterFrame/onPress callbacks.",
+      "limitations": "Full Flash construction/event order, remaining native callbacks, fullscreen/IME/touch and complete owner-specific API guards remain unfinished. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance.",
       "evidence": [
         "crates/neoflash-core/src/runtime.rs",
         "web/runtime.js",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "web/events.js",
+        "web/stage.js",
+        "web/tests/events.test.cjs",
+        "web/tests/stage.test.cjs",
+        "examples/events-stage.nflash",
+        "web/display.js",
+        "crates/neoflash-core/tests/display_family.rs",
+        "web/tests/display-family.test.cjs",
+        "examples/display-family.nflash"
       ]
     },
     {
@@ -419,13 +430,20 @@
     {
       "id": "web-project-toolchain",
       "category": "web",
-      "title": "Modules, dependencies and debugging",
-      "status": "planned",
-      "scope": "JS/TS modules/imports, dependency graphs, type checking, completion, diagnostic navigation and a debugger/source maps.",
-      "limitations": "Current handlers compile separately; a complete project build system is absent.",
+      "title": "Project sources, modules and debugging",
+      "status": "partial",
+      "scope": "Embedded AS3 source units, exact imports and bounded public classes compile into a shared publication program with document/symbol linkage and source-path diagnostics. Sources can be edited in Actions.",
+      "limitations": "AS2 project classes, JS/TS modules, SWC dependencies, complete type checking, completion, debugger/source maps and full class semantics remain pending. Representative linked-class behavior and Restart passed in the shared in-app-browser batch; native Sources acceptance remains pending.",
       "evidence": [
         "docs/BACKLOG.md",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/src/actionscript/project-runtime.js",
+        "crates/neoflash-script/tests/project.rs",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "examples/project-program.nflash",
+        "crates/neoflash-editor/src/sources.rs",
+        "crates/neoflash-core/tests/program.rs"
       ]
     },
     {
@@ -608,12 +626,13 @@
       "category": "platform",
       "title": "Independent project format",
       "status": "implemented",
-      "scope": "Versioned JSON stores symbols, instances, frames and scripts with stable IDs; validation checks references, cycles and bounds.",
-      "limitations": "Future version migrations and external resources require separate format extensions.",
+      "scope": "Versioned JSON stores stable symbols/placements/frames/scripts; version 2 adds logical project source units and document/symbol linkage with path, size and reference validation. Existing version-1 projects remain supported.",
+      "limitations": "Future migrations and external bitmap/font/media resources require further format work; project source text is not a general resource graph.",
       "evidence": [
         "crates/neoflash-core/src/model.rs",
         "crates/neoflash-core/src/validation.rs",
-        "crates/neoflash-core/tests/core.rs"
+        "crates/neoflash-core/tests/core.rs",
+        "crates/neoflash-core/tests/program.rs"
       ]
     },
     {
@@ -674,12 +693,16 @@
       "category": "platform",
       "title": "Automated checks",
       "status": "implemented",
-      "scope": "check.sh runs formatting/lint, Rust tests, the WASM build and tests with actual WASM; CI is defined in the repository.",
-      "limitations": "This records the existence of the test harness, not a new run result or a complete Flash conformance suite.",
+      "scope": "Shared check.sh covers lint, Rust tests, actual WASM and representative script/family scenarios. The no-build batch tool exports selected projects independently and prepares one dashboard with separate export, observed runtime and manual behavior states.",
+      "limitations": "Harness availability and export success do not establish browser behavior or Flash conformance. The current batch has shared automated evidence, eight successful exports and representative in-app-browser behavior; native Sources and other browser engines remain pending.",
       "evidence": [
         "scripts/check.sh",
         ".github/workflows/check.yml",
-        "docs/VERIFICATION.md"
+        "docs/VERIFICATION.md",
+        "scripts/prepare-browser-batch.py",
+        "scripts/tests/test_browser_batch.py",
+        "web/tests/batch-browser.html",
+        "examples/browser-batch.json"
       ]
     },
     {

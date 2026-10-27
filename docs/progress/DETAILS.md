@@ -10,7 +10,7 @@ ActionScript coverage uses the [complete declaration catalogue and audit](ACTION
 | --- | ---: | ---: | ---: | ---: |
 | Editor and graphics | 5/12 | 5 | 2 | 41.7% |
 | Timelines and animation | 5/10 | 3 | 2 | 50.0% |
-| HTML5 and interactivity | 6/12 | 2 | 4 | 50.0% |
+| HTML5 and interactivity | 6/12 | 3 | 3 | 50.0% |
 | Import and file compatibility | 1/10 | 6 | 3 | 10.0% |
 | Platform and quality | 4/10 | 5 | 1 | 40.0% |
 
@@ -122,11 +122,11 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 `as2-receiver` · **Partial**
 
-**Scope:** this refers to the frame/object handler owner; owner-field names are available inside functions.
+**Scope:** this refers to the frame/object handler owner; recognized onEnterFrame/onPress callback functions use the active callback receiver. Lexical owner fields remain available inside other functions.
 
-**Limitations:** Explicit this in AS2 functions, nested declarations and function expressions is rejected; general receiver behavior is not implemented.
+**Limitations:** General explicit this in other AS2 functions and nested/expression functions remains rejected where receiver/global semantics are not implemented.
 
-**Evidence:** [crates/neoflash-script/src/actionscript/scope.rs](../../crates/neoflash-script/src/actionscript/scope.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [crates/neoflash-script/tests/host-integration.mjs](../../crates/neoflash-script/tests/host-integration.mjs)
+**Evidence:** [crates/neoflash-script/src/actionscript/scope.rs](../../crates/neoflash-script/src/actionscript/scope.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [crates/neoflash-script/tests/host-integration.mjs](../../crates/neoflash-script/tests/host-integration.mjs), [web/display.js](../../web/display.js), [crates/neoflash-core/tests/display_family.rs](../../crates/neoflash-core/tests/display_family.rs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs), [examples/display-family.nflash](../../examples/display-family.nflash)
 
 ### Annotations and type system
 
@@ -164,7 +164,7 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 **Scope:** A complete model of class/interface, extends/implements, members, super, getters/setters and general new.
 
-**Limitations:** These constructs are rejected by the frontend; the Error facade does not implement arbitrary classes.
+**Limitations:** AS2 class/prototype source units remain unsupported. The new AS3 project program does not implement the separate AS2 class model.
 
 **Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [docs/ROADMAP.md](../../docs/ROADMAP.md)
 
@@ -174,7 +174,7 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 **Scope:** import, external AS2 classes, symbol linkage and cross-file resolution.
 
-**Limitations:** The current compilation unit is an individual synchronous frame or object handler.
+**Limitations:** AS2 continues to compile synchronous frame/object handlers. Project sources/linkage currently require the separate AS3 class profile; AS2 external class resolution is not implemented.
 
 **Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/src/actionscript/scope.rs](../../crates/neoflash-script/src/actionscript/scope.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [docs/ROADMAP.md](../../docs/ROADMAP.md)
 
@@ -252,31 +252,31 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 `as2-timeline` · **Partial**
 
-**Scope:** play/stop, gotoAndPlay/gotoAndStop, nextFrame/prevFrame, current/total frames, named children and independent nested clocks. AS2 labels use ASCII case folding, resolve duplicate labels to the first occurrence, and do nothing for unknown labels; numeric strings within a bounded range take precedence.
+**Scope:** play/stop, gotoAndPlay/gotoAndStop and nextFrame/prevFrame return undefined; current/total frames, named children and independent nested clocks remain available. AS2 labels use ASCII folding, first duplicate match and missing-label no-op; bounded numeric strings take precedence.
 
 **Limitations:** This is a limited MovieClip facade; complete construction/re-entry, scenes, dynamic display lists and the Flash lifecycle are not implemented. Native goto aliases and complete historical numeric and lookup rules are unsupported.
 
-**Evidence:** [web/runtime.js](../../web/runtime.js), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [web/tests/runtime.test.cjs](../../web/tests/runtime.test.cjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-core/tests/frame_labels.rs](../../crates/neoflash-core/tests/frame_labels.rs), [web/tests/real-fla-frame-labels.test.cjs](../../web/tests/real-fla-frame-labels.test.cjs)
+**Evidence:** [web/runtime.js](../../web/runtime.js), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [web/tests/runtime.test.cjs](../../web/tests/runtime.test.cjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-core/tests/frame_labels.rs](../../crates/neoflash-core/tests/frame_labels.rs), [web/tests/real-fla-frame-labels.test.cjs](../../web/tests/real-fla-frame-labels.test.cjs), [web/display.js](../../web/display.js), [crates/neoflash-core/tests/display_family.rs](../../crates/neoflash-core/tests/display_family.rs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs), [examples/display-family.nflash](../../examples/display-family.nflash)
 
 ### Display properties
 
 `as2-display` · **Partial**
 
-**Scope:** Position, rotation, alpha and scale; AS2 aliases _x/_y/_rotation/_alpha/_xscale/_yscale, root/parent. Runtime visibility retains hidden clocks/state and removes rendering/input targets; Boolean MovieClip cases passed Chrome/in-app browser acceptance.
+**Scope:** Position, scale, alpha, bounded finite rotation readback, visibility, root/parent and AS2 aliases including _name/_width/_height. The shared facade supplies name lookup, transformed bounds/coordinates and supported nonrotated dimension changes.
 
-**Limitations:** Full DisplayObject APIs, dimensions, masks, filters and class-specific TextField/Button contracts remain incomplete. Rotation semantics remain pending; legacy visibility conversion has an explicit bounded profile.
+**Limitations:** Full MovieClip APIs, dynamic placements, masks/filters and TextField/Button contracts remain incomplete. Rotated dimension writes and noninvertible coordinate conversions diagnose; legacy rotation/visibility coercion is not full AVM1 conformance. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance.
 
-**Evidence:** [web/runtime.js](../../web/runtime.js), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-core/tests/visibility.rs](../../crates/neoflash-core/tests/visibility.rs), [web/tests/visibility.test.cjs](../../web/tests/visibility.test.cjs), [examples/visibility.nflash](../../examples/visibility.nflash), [docs/VERIFICATION.md](../../docs/VERIFICATION.md)
+**Evidence:** [web/runtime.js](../../web/runtime.js), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-core/tests/visibility.rs](../../crates/neoflash-core/tests/visibility.rs), [web/tests/visibility.test.cjs](../../web/tests/visibility.test.cjs), [examples/visibility.nflash](../../examples/visibility.nflash), [docs/VERIFICATION.md](../../docs/VERIFICATION.md), [web/display.js](../../web/display.js), [crates/neoflash-core/tests/display_family.rs](../../crates/neoflash-core/tests/display_family.rs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs), [examples/display-family.nflash](../../examples/display-family.nflash)
 
 ### Events and handlers
 
 `as2-events` · **Partial**
 
-**Scope:** Authored frame scripts and load/click/enter_frame object events; target-lifetime checks and a limit on recursive dispatch.
+**Scope:** Authored frame and load/click/enter_frame handlers plus recognized onEnterFrame/onPress callback assignment/removal on compatible authored instances, with receiver/lifetime checks and bounded dispatch.
 
-**Limitations:** The complete Flash event model, keyboard/mouse APIs, button states and compatible ordering of all lifecycle events are absent.
+**Limitations:** Other native callback properties, AS2 global Stage/Key/Mouse listener APIs, source on/onClipEvent wrappers and exact Flash lifecycle ordering remain pending. The AS3 EventDispatcher bridge is not an AS2 class implementation.
 
-**Evidence:** [web/runtime.js](../../web/runtime.js), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md)
+**Evidence:** [web/runtime.js](../../web/runtime.js), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [web/display.js](../../web/display.js), [crates/neoflash-core/tests/display_family.rs](../../crates/neoflash-core/tests/display_family.rs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs), [examples/display-family.nflash](../../examples/display-family.nflash)
 
 ### Programmatic drawing
 
@@ -446,11 +446,11 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 `as3-functions` · **Partial**
 
-**Scope:** Function declarations and expressions, recursion, mutual recursion, return, callbacks and immediately invoked function expressions.
+**Scope:** Function declarations/expressions, recursion, return, callbacks and immediate invocation; project declared methods have stable bound identity and can be shared across resolved source units.
 
-**Limitations:** Declarations must be directly inside a function or handler body; general dynamic method lookup and cross-script symbol resolution are absent.
+**Limitations:** The supported handler/project profiles do not implement unrestricted dynamic lookup, defaults/rest/arguments or complete Flash method semantics.
 
-**Evidence:** [crates/neoflash-script/src/actionscript/scope.rs](../../crates/neoflash-script/src/actionscript/scope.rs), [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs)
+**Evidence:** [crates/neoflash-script/src/actionscript/scope.rs](../../crates/neoflash-script/src/actionscript/scope.rs), [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [crates/neoflash-script/src/actionscript/project.rs](../../crates/neoflash-script/src/actionscript/project.rs), [crates/neoflash-script/src/actionscript/project-runtime.js](../../crates/neoflash-script/src/actionscript/project-runtime.js), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [crates/neoflash-script/tests/project-execute.mjs](../../crates/neoflash-script/tests/project-execute.mjs), [examples/project-program.nflash](../../examples/project-program.nflash)
 
 ### Closures and variable capture
 
@@ -476,21 +476,21 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 `as3-receiver` · **Partial**
 
-**Scope:** this refers to the handler owner; AS3 functions declared at handler level retain their owner when detached.
+**Scope:** Handler-level declared methods retain the handler owner when detached. Project declared methods retain stable bound instance/static receivers; explicit super method calls use the current instance.
 
-**Limitations:** Explicit this in AS2 functions, nested declarations and function expressions is rejected; general receiver behavior is not implemented.
+**Limitations:** General nested/expression-function receiver/global semantics remain incomplete; accessors and the complete Flash object model are not implemented.
 
-**Evidence:** [crates/neoflash-script/src/actionscript/scope.rs](../../crates/neoflash-script/src/actionscript/scope.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [crates/neoflash-script/tests/host-integration.mjs](../../crates/neoflash-script/tests/host-integration.mjs)
+**Evidence:** [crates/neoflash-script/src/actionscript/scope.rs](../../crates/neoflash-script/src/actionscript/scope.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [crates/neoflash-script/tests/host-integration.mjs](../../crates/neoflash-script/tests/host-integration.mjs), [crates/neoflash-script/src/actionscript/project.rs](../../crates/neoflash-script/src/actionscript/project.rs), [crates/neoflash-script/src/actionscript/project-runtime.js](../../crates/neoflash-script/src/actionscript/project-runtime.js), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [crates/neoflash-script/tests/project-execute.mjs](../../crates/neoflash-script/tests/project-execute.mjs), [examples/project-program.nflash](../../examples/project-program.nflash)
 
 ### Annotations and type system
 
 `as3-types` · **Partial**
 
-**Scope:** Selected Number/int/uint/Boolean/String/Function/Error/* defaults and coercion for bare-name writes, arguments and returns.
+**Scope:** Selected primitive/Error defaults and coercions for handler bindings, arguments and returns; resolved project-class/native facade types; project class slot descriptors enforce supported defaults, writes and const protection across aliases.
 
-**Limitations:** There is no complete type checker, user-defined class model or typed instance-slot model; this.field writes and writes from another handler do not enforce the declared type.
+**Limitations:** No complete AS3 type checker/VM. Old handler var declarations still do not create globally enforced class slots. Typed member assignment-expression results, complete host ownership/type rules and initialization conformance remain pending.
 
-**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md)
+**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-script/src/actionscript/project.rs](../../crates/neoflash-script/src/actionscript/project.rs), [crates/neoflash-script/src/actionscript/project-runtime.js](../../crates/neoflash-script/src/actionscript/project-runtime.js), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [crates/neoflash-script/tests/project-execute.mjs](../../crates/neoflash-script/tests/project-execute.mjs), [examples/project-program.nflash](../../examples/project-program.nflash)
 
 ### Throw, catch and finally
 
@@ -514,23 +514,23 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 ### Classes, inheritance and interfaces
 
-`as3-classes` · **Planned**
+`as3-classes` · **Partial**
 
-**Scope:** A complete model of class/interface, extends/implements, members, super, getters/setters and general new.
+**Scope:** One public AS3 class per embedded source unit; constructors, public instance/static var and initialized const fields, project inheritance, super calls, project-method overrides and stable bound methods. Document/symbol classes attach once per active placement lifetime.
 
-**Limitations:** These constructs are rejected by the frontend; the Error facade does not implement arbitrary classes.
+**Limitations:** Interfaces, accessors, private/protected/internal access, final/dynamic classes, native overrides, full lazy static dependency ordering and dynamic display-list construction remain unsupported. This is a bounded useful class profile, not full AS3.
 
-**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [docs/ROADMAP.md](../../docs/ROADMAP.md)
+**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [docs/ROADMAP.md](../../docs/ROADMAP.md), [crates/neoflash-script/src/actionscript/project.rs](../../crates/neoflash-script/src/actionscript/project.rs), [crates/neoflash-script/src/actionscript/project-runtime.js](../../crates/neoflash-script/src/actionscript/project-runtime.js), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [crates/neoflash-script/tests/project-execute.mjs](../../crates/neoflash-script/tests/project-execute.mjs), [examples/project-program.nflash](../../examples/project-program.nflash)
 
 ### Imports and project linking
 
-`as3-imports` · **Planned**
+`as3-imports` · **Partial**
 
-**Scope:** package/import, document classes, linkage and cross-file resolution.
+**Scope:** Optional packages, exact imports, same-package/qualified resolution, embedded source units and document/symbol linkage share a publication program. Unresolved/duplicate/cyclic types produce source-path diagnostics.
 
-**Limitations:** The current compilation unit is an individual synchronous frame or object handler.
+**Limitations:** Wildcard imports, SWC/bytecode libraries, filesystem/network module discovery and a general dependency toolchain are absent. AS2 classes and JS/TS modules remain separate work.
 
-**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/src/actionscript/scope.rs](../../crates/neoflash-script/src/actionscript/scope.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [docs/ROADMAP.md](../../docs/ROADMAP.md)
+**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/src/actionscript/scope.rs](../../crates/neoflash-script/src/actionscript/scope.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [docs/ROADMAP.md](../../docs/ROADMAP.md), [crates/neoflash-script/src/actionscript/project.rs](../../crates/neoflash-script/src/actionscript/project.rs), [crates/neoflash-script/src/actionscript/project-runtime.js](../../crates/neoflash-script/src/actionscript/project-runtime.js), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [crates/neoflash-script/tests/project-execute.mjs](../../crates/neoflash-script/tests/project-execute.mjs), [examples/project-program.nflash](../../examples/project-program.nflash)
 
 ### Dynamic objects and prototypes
 
@@ -554,13 +554,13 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 ### Additional language operators
 
-`as3-special-operators` · **Planned**
+`as3-special-operators` · **Partial**
 
-**Scope:** is, as, instanceof, in, delete, unary void and general new.
+**Scope:** new constructs resolved project classes, selected Error types and supported native value/event facades. Remaining is/as/instanceof/in/delete/unary void operators are still pending.
 
-**Limitations:** These are rejected with diagnostics; the separate new Error facade does not complete this capability.
+**Limitations:** This does not implement all additional operators or arbitrary native construction; new native display placements are explicitly rejected.
 
-**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md)
+**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-script/src/actionscript/project.rs](../../crates/neoflash-script/src/actionscript/project.rs), [crates/neoflash-script/src/actionscript/project-runtime.js](../../crates/neoflash-script/src/actionscript/project-runtime.js), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [crates/neoflash-script/tests/project-execute.mjs](../../crates/neoflash-script/tests/project-execute.mjs), [examples/project-program.nflash](../../examples/project-program.nflash)
 
 ### Primitives and global conversions
 
@@ -606,31 +606,31 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 `as3-timeline` · **Partial**
 
-**Scope:** play/stop, gotoAndPlay/gotoAndStop, nextFrame/prevFrame, current/total frames, named children and independent nested clocks.
+**Scope:** Void play/stop/gotoAndPlay/gotoAndStop/nextFrame/prevFrame, current/total frames, named children and independent nested clocks. Linked authored classes initialize per active placement lifetime.
 
-**Limitations:** This is a limited MovieClip facade; complete construction/re-entry, scenes, dynamic display lists and the Flash lifecycle are not implemented.
+**Limitations:** Full construction/re-entry/scenes/dynamic display lists and original Flash lifecycle order remain unverified. Linked child-before-container initialization is the current bounded host contract.
 
-**Evidence:** [web/runtime.js](../../web/runtime.js), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [web/tests/runtime.test.cjs](../../web/tests/runtime.test.cjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md)
+**Evidence:** [web/runtime.js](../../web/runtime.js), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [web/tests/runtime.test.cjs](../../web/tests/runtime.test.cjs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [web/display.js](../../web/display.js), [crates/neoflash-core/tests/display_family.rs](../../crates/neoflash-core/tests/display_family.rs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs), [examples/display-family.nflash](../../examples/display-family.nflash), [crates/neoflash-script/src/actionscript/project.rs](../../crates/neoflash-script/src/actionscript/project.rs), [crates/neoflash-script/src/actionscript/project-runtime.js](../../crates/neoflash-script/src/actionscript/project-runtime.js), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [crates/neoflash-script/tests/project-execute.mjs](../../crates/neoflash-script/tests/project-execute.mjs), [examples/project-program.nflash](../../examples/project-program.nflash)
 
 ### Display properties
 
 `as3-display` · **Partial**
 
-**Scope:** x/y, rotation, alpha, scaleX/scaleY and root/parent through a limited host facade. Runtime visibility retains hidden clocks/state and removes rendering/input targets; Boolean MovieClip cases passed Chrome/in-app browser acceptance.
+**Scope:** Position, alpha, scale, bounded finite rotation readback, visibility, names, root/parent/stage, child traversal, transformed bounds and coordinates, and supported nonrotated width/height writes.
 
-**Limitations:** Full DisplayObject APIs, dimensions, masks, filters and class-specific TextField/Button contracts remain incomplete. Rotation semantics remain pending; legacy visibility conversion has an explicit bounded profile.
+**Limitations:** Dynamic placement construction, masks/filters, full text layout and all owner-specific native APIs remain incomplete. Rotated dimension setters and singular coordinate conversions diagnose. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance.
 
-**Evidence:** [web/runtime.js](../../web/runtime.js), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-core/tests/visibility.rs](../../crates/neoflash-core/tests/visibility.rs), [web/tests/visibility.test.cjs](../../web/tests/visibility.test.cjs), [examples/visibility.nflash](../../examples/visibility.nflash), [docs/VERIFICATION.md](../../docs/VERIFICATION.md)
+**Evidence:** [web/runtime.js](../../web/runtime.js), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-core/tests/visibility.rs](../../crates/neoflash-core/tests/visibility.rs), [web/tests/visibility.test.cjs](../../web/tests/visibility.test.cjs), [examples/visibility.nflash](../../examples/visibility.nflash), [docs/VERIFICATION.md](../../docs/VERIFICATION.md), [web/display.js](../../web/display.js), [crates/neoflash-core/tests/display_family.rs](../../crates/neoflash-core/tests/display_family.rs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs), [examples/display-family.nflash](../../examples/display-family.nflash)
 
 ### Events and handlers
 
 `as3-events` · **Partial**
 
-**Scope:** Authored frame scripts and load/click/enter_frame object events; target-lifetime checks and a limit on recursive dispatch.
+**Scope:** Shared EventDispatcher add/remove/has/willTrigger/dispatch with capture/target/bubble, priorities, phase snapshots, cancellation and redispatch cloning. Event/MouseEvent/KeyboardEvent facades, Stage dimensions/frameRate/focus and bounded pointer/keyboard input share placement lifetimes.
 
-**Limitations:** The complete Flash event model, keyboard/mouse APIs, button states and compatible ordering of all lifecycle events are absent.
+**Limitations:** Aggregation targets, full lifecycle/broadcast ordering, AS3 GC equivalence, fullscreen/scale modes, IME/touch and complete focus/input behavior remain pending. Exposed constants do not imply automatic lifecycle events; current fitted export has fixed logical Stage dimensions. Representative Stage behavior passed in the shared in-app-browser batch; native Sources and broader input acceptance remain pending.
 
-**Evidence:** [web/runtime.js](../../web/runtime.js), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md)
+**Evidence:** [web/runtime.js](../../web/runtime.js), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [web/events.js](../../web/events.js), [web/stage.js](../../web/stage.js), [web/tests/events.test.cjs](../../web/tests/events.test.cjs), [web/tests/stage.test.cjs](../../web/tests/stage.test.cjs), [examples/events-stage.nflash](../../examples/events-stage.nflash)
 
 ### Programmatic drawing
 
@@ -740,11 +740,11 @@ Authoring tools: stage, vectors, text, selection and library.
 
 `editor-workspace` · **Partial**
 
-**Scope:** Stage, tools, timeline, library, Properties and Actions; Light/Dark themes, saved panel visibility and sizes, and detached native Tools/Timeline/Actions windows with Dock and F9 controls.
+**Scope:** Stage, tools, timeline, library, Properties and Actions; Light/Dark themes, saved panel layout and detached Tools/Timeline/Actions. Actions now includes Sources editing, source import/removal, linkage fields and source-specific project-check feedback.
 
-**Limitations:** Drag-to-dock, tabs/splits and named presets are still missing; VoiceOver/IME and multiple monitors have not completed full native acceptance testing.
+**Limitations:** Native Sources editing/feedback/save/reopen acceptance is pending. Drag-to-dock, tabs/splits and named presets are missing; VoiceOver/IME and multiple monitors are not fully verified.
 
-**Evidence:** [crates/neoflash-editor/src/panels.rs](../../crates/neoflash-editor/src/panels.rs), [crates/neoflash-editor/src/detached.rs](../../crates/neoflash-editor/src/detached.rs), [crates/neoflash-editor/src/workspace.rs](../../crates/neoflash-editor/src/workspace.rs), [crates/neoflash-editor/src/panel_tests.rs](../../crates/neoflash-editor/src/panel_tests.rs), [docs/WORKSPACE.md](../../docs/WORKSPACE.md), [docs/VERIFICATION.md](../../docs/VERIFICATION.md)
+**Evidence:** [crates/neoflash-editor/src/panels.rs](../../crates/neoflash-editor/src/panels.rs), [crates/neoflash-editor/src/detached.rs](../../crates/neoflash-editor/src/detached.rs), [crates/neoflash-editor/src/workspace.rs](../../crates/neoflash-editor/src/workspace.rs), [crates/neoflash-editor/src/panel_tests.rs](../../crates/neoflash-editor/src/panel_tests.rs), [docs/WORKSPACE.md](../../docs/WORKSPACE.md), [docs/VERIFICATION.md](../../docs/VERIFICATION.md), [crates/neoflash-editor/src/sources.rs](../../crates/neoflash-editor/src/sources.rs)
 
 ### Rectangle and oval
 
@@ -800,11 +800,11 @@ Authoring tools: stage, vectors, text, selection and library.
 
 `editor-clipboard` · **Partial**
 
-**Scope:** Copy/Cut/Paste and Paste in Place transfer objects, dependent symbols, timelines and scripts; text fields retain normal text paste.
+**Scope:** Copy/Cut/Paste and Paste in Place transfer objects, dependent symbols, timelines and scripts; linked symbols include their project-source snapshot and reject conflicting sources before mutation. Text editors retain ordinary text paste.
 
-**Limitations:** Core/egui regressions exist; actual macOS clipboard delivery for this change remains unverified. Frame clipboard is a separate task.
+**Limitations:** Native acceptance of the new linked-source transfer remains pending. General external resource dependencies and frame clipboard are separate work.
 
-**Evidence:** [crates/neoflash-core/src/clipboard.rs](../../crates/neoflash-core/src/clipboard.rs), [crates/neoflash-editor/src/clipboard_tests.rs](../../crates/neoflash-editor/src/clipboard_tests.rs), [docs/CLIPBOARD.md](../../docs/CLIPBOARD.md), [docs/BACKLOG.md](../../docs/BACKLOG.md)
+**Evidence:** [crates/neoflash-core/src/clipboard.rs](../../crates/neoflash-core/src/clipboard.rs), [crates/neoflash-editor/src/clipboard_tests.rs](../../crates/neoflash-editor/src/clipboard_tests.rs), [docs/CLIPBOARD.md](../../docs/CLIPBOARD.md), [docs/BACKLOG.md](../../docs/BACKLOG.md), [crates/neoflash-core/tests/program.rs](../../crates/neoflash-core/tests/program.rs)
 
 ### Library and nested editing
 
@@ -1008,11 +1008,11 @@ Publishing websites, apps, games and animation; JS/TS and the browser runtime.
 
 `web-script-events` · **Partial**
 
-**Scope:** Frame scripts and object Load/Click/EnterFrame events; clicks propagate from leaves to ancestors, with instance fields and transform overrides.
+**Scope:** Authored frame/Load/Click/EnterFrame handlers plus shared display/Stage EventDispatcher subscriptions, propagation/cancellation, bounded keyboard/pointer input and AS2 onEnterFrame/onPress callbacks.
 
-**Limitations:** This is a foundation for interactive projects and games; complete input, EventDispatcher and Flash event compatibility remain unfinished.
+**Limitations:** Full Flash construction/event order, remaining native callbacks, fullscreen/IME/touch and complete owner-specific API guards remain unfinished. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance.
 
-**Evidence:** [crates/neoflash-core/src/runtime.rs](../../crates/neoflash-core/src/runtime.rs), [web/runtime.js](../../web/runtime.js), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md)
+**Evidence:** [crates/neoflash-core/src/runtime.rs](../../crates/neoflash-core/src/runtime.rs), [web/runtime.js](../../web/runtime.js), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [web/events.js](../../web/events.js), [web/stage.js](../../web/stage.js), [web/tests/events.test.cjs](../../web/tests/events.test.cjs), [web/tests/stage.test.cjs](../../web/tests/stage.test.cjs), [examples/events-stage.nflash](../../examples/events-stage.nflash), [web/display.js](../../web/display.js), [crates/neoflash-core/tests/display_family.rs](../../crates/neoflash-core/tests/display_family.rs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs), [examples/display-family.nflash](../../examples/display-family.nflash)
 
 ### Accessible Button/Image targets
 
@@ -1044,15 +1044,15 @@ Publishing websites, apps, games and animation; JS/TS and the browser runtime.
 
 **Evidence:** [docs/PRODUCT.md](../../docs/PRODUCT.md), [docs/ROADMAP.md](../../docs/ROADMAP.md), [docs/WEB.md](../../docs/WEB.md)
 
-### Modules, dependencies and debugging
+### Project sources, modules and debugging
 
-`web-project-toolchain` · **Planned**
+`web-project-toolchain` · **Partial**
 
-**Scope:** JS/TS modules/imports, dependency graphs, type checking, completion, diagnostic navigation and a debugger/source maps.
+**Scope:** Embedded AS3 source units, exact imports and bounded public classes compile into a shared publication program with document/symbol linkage and source-path diagnostics. Sources can be edited in Actions.
 
-**Limitations:** Current handlers compile separately; a complete project build system is absent.
+**Limitations:** AS2 project classes, JS/TS modules, SWC dependencies, complete type checking, completion, debugger/source maps and full class semantics remain pending. Representative linked-class behavior and Restart passed in the shared in-app-browser batch; native Sources acceptance remains pending.
 
-**Evidence:** [docs/BACKLOG.md](../../docs/BACKLOG.md), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md)
+**Evidence:** [docs/BACKLOG.md](../../docs/BACKLOG.md), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-script/src/actionscript/project.rs](../../crates/neoflash-script/src/actionscript/project.rs), [crates/neoflash-script/src/actionscript/project-runtime.js](../../crates/neoflash-script/src/actionscript/project-runtime.js), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [crates/neoflash-script/tests/project-execute.mjs](../../crates/neoflash-script/tests/project-execute.mjs), [examples/project-program.nflash](../../examples/project-program.nflash), [crates/neoflash-editor/src/sources.rs](../../crates/neoflash-editor/src/sources.rs), [crates/neoflash-core/tests/program.rs](../../crates/neoflash-core/tests/program.rs)
 
 ### Portable fonts and text layout
 
@@ -1196,11 +1196,11 @@ Project format, macOS, verification, accessibility and application delivery.
 
 `platform-document-model` · **Implemented**
 
-**Scope:** Versioned JSON stores symbols, instances, frames and scripts with stable IDs; validation checks references, cycles and bounds.
+**Scope:** Versioned JSON stores stable symbols/placements/frames/scripts; version 2 adds logical project source units and document/symbol linkage with path, size and reference validation. Existing version-1 projects remain supported.
 
-**Limitations:** Future version migrations and external resources require separate format extensions.
+**Limitations:** Future migrations and external bitmap/font/media resources require further format work; project source text is not a general resource graph.
 
-**Evidence:** [crates/neoflash-core/src/model.rs](../../crates/neoflash-core/src/model.rs), [crates/neoflash-core/src/validation.rs](../../crates/neoflash-core/src/validation.rs), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs)
+**Evidence:** [crates/neoflash-core/src/model.rs](../../crates/neoflash-core/src/model.rs), [crates/neoflash-core/src/validation.rs](../../crates/neoflash-core/src/validation.rs), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [crates/neoflash-core/tests/program.rs](../../crates/neoflash-core/tests/program.rs)
 
 ### Save and open projects
 
@@ -1246,11 +1246,11 @@ Project format, macOS, verification, accessibility and application delivery.
 
 `platform-verification` · **Implemented**
 
-**Scope:** check.sh runs formatting/lint, Rust tests, the WASM build and tests with actual WASM; CI is defined in the repository.
+**Scope:** Shared check.sh covers lint, Rust tests, actual WASM and representative script/family scenarios. The no-build batch tool exports selected projects independently and prepares one dashboard with separate export, observed runtime and manual behavior states.
 
-**Limitations:** This records the existence of the test harness, not a new run result or a complete Flash conformance suite.
+**Limitations:** Harness availability and export success do not establish browser behavior or Flash conformance. The current batch has shared automated evidence, eight successful exports and representative in-app-browser behavior; native Sources and other browser engines remain pending.
 
-**Evidence:** [scripts/check.sh](../../scripts/check.sh), [.github/workflows/check.yml](../../.github/workflows/check.yml), [docs/VERIFICATION.md](../../docs/VERIFICATION.md)
+**Evidence:** [scripts/check.sh](../../scripts/check.sh), [.github/workflows/check.yml](../../.github/workflows/check.yml), [docs/VERIFICATION.md](../../docs/VERIFICATION.md), [scripts/prepare-browser-batch.py](../../scripts/prepare-browser-batch.py), [scripts/tests/test_browser_batch.py](../../scripts/tests/test_browser_batch.py), [web/tests/batch-browser.html](../../web/tests/batch-browser.html), [examples/browser-batch.json](../../examples/browser-batch.json)
 
 ### Scaling to large projects
 

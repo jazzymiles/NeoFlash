@@ -130,12 +130,16 @@
       "id": "as2-receiver",
       "title": "this and method binding",
       "status": "partial",
-      "scope": "this refers to the frame/object handler owner; owner-field names are available inside functions.",
-      "limitations": "Explicit this in AS2 functions, nested declarations and function expressions is rejected; general receiver behavior is not implemented.",
+      "scope": "this refers to the frame/object handler owner; recognized onEnterFrame/onPress callback functions use the active callback receiver. Lexical owner fields remain available inside other functions.",
+      "limitations": "General explicit this in other AS2 functions and nested/expression functions remains rejected where receiver/global semantics are not implemented.",
       "evidence": [
         "crates/neoflash-script/src/actionscript/scope.rs",
         "crates/neoflash-script/tests/execute.mjs",
-        "crates/neoflash-script/tests/host-integration.mjs"
+        "crates/neoflash-script/tests/host-integration.mjs",
+        "web/display.js",
+        "crates/neoflash-core/tests/display_family.rs",
+        "web/tests/display-family.test.cjs",
+        "examples/display-family.nflash"
       ]
     },
     {
@@ -180,7 +184,7 @@
       "title": "Classes, inheritance and interfaces",
       "status": "planned",
       "scope": "A complete model of class/interface, extends/implements, members, super, getters/setters and general new.",
-      "limitations": "These constructs are rejected by the frontend; the Error facade does not implement arbitrary classes.",
+      "limitations": "AS2 class/prototype source units remain unsupported. The new AS3 project program does not implement the separate AS2 class model.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "docs/COMPATIBILITY.md",
@@ -192,7 +196,7 @@
       "title": "Imports and project linking",
       "status": "planned",
       "scope": "import, external AS2 classes, symbol linkage and cross-file resolution.",
-      "limitations": "The current compilation unit is an individual synchronous frame or object handler.",
+      "limitations": "AS2 continues to compile synchronous frame/object handlers. Project sources/linkage currently require the separate AS3 class profile; AS2 external class resolution is not implemented.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/src/actionscript/scope.rs",
@@ -288,7 +292,7 @@
       "id": "as2-timeline",
       "title": "MovieClip and timelines",
       "status": "partial",
-      "scope": "play/stop, gotoAndPlay/gotoAndStop, nextFrame/prevFrame, current/total frames, named children and independent nested clocks. AS2 labels use ASCII case folding, resolve duplicate labels to the first occurrence, and do nothing for unknown labels; numeric strings within a bounded range take precedence.",
+      "scope": "play/stop, gotoAndPlay/gotoAndStop and nextFrame/prevFrame return undefined; current/total frames, named children and independent nested clocks remain available. AS2 labels use ASCII folding, first duplicate match and missing-label no-op; bounded numeric strings take precedence.",
       "limitations": "This is a limited MovieClip facade; complete construction/re-entry, scenes, dynamic display lists and the Flash lifecycle are not implemented. Native goto aliases and complete historical numeric and lookup rules are unsupported.",
       "evidence": [
         "web/runtime.js",
@@ -296,15 +300,19 @@
         "web/tests/runtime.test.cjs",
         "docs/COMPATIBILITY.md",
         "crates/neoflash-core/tests/frame_labels.rs",
-        "web/tests/real-fla-frame-labels.test.cjs"
+        "web/tests/real-fla-frame-labels.test.cjs",
+        "web/display.js",
+        "crates/neoflash-core/tests/display_family.rs",
+        "web/tests/display-family.test.cjs",
+        "examples/display-family.nflash"
       ]
     },
     {
       "id": "as2-display",
       "title": "Display properties",
       "status": "partial",
-      "scope": "Position, rotation, alpha and scale; AS2 aliases _x/_y/_rotation/_alpha/_xscale/_yscale, root/parent. Runtime visibility retains hidden clocks/state and removes rendering/input targets; Boolean MovieClip cases passed Chrome/in-app browser acceptance.",
-      "limitations": "Full DisplayObject APIs, dimensions, masks, filters and class-specific TextField/Button contracts remain incomplete. Rotation semantics remain pending; legacy visibility conversion has an explicit bounded profile.",
+      "scope": "Position, scale, alpha, bounded finite rotation readback, visibility, root/parent and AS2 aliases including _name/_width/_height. The shared facade supplies name lookup, transformed bounds/coordinates and supported nonrotated dimension changes.",
+      "limitations": "Full MovieClip APIs, dynamic placements, masks/filters and TextField/Button contracts remain incomplete. Rotated dimension writes and noninvertible coordinate conversions diagnose; legacy rotation/visibility coercion is not full AVM1 conformance. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -312,19 +320,27 @@
         "crates/neoflash-core/tests/visibility.rs",
         "web/tests/visibility.test.cjs",
         "examples/visibility.nflash",
-        "docs/VERIFICATION.md"
+        "docs/VERIFICATION.md",
+        "web/display.js",
+        "crates/neoflash-core/tests/display_family.rs",
+        "web/tests/display-family.test.cjs",
+        "examples/display-family.nflash"
       ]
     },
     {
       "id": "as2-events",
       "title": "Events and handlers",
       "status": "partial",
-      "scope": "Authored frame scripts and load/click/enter_frame object events; target-lifetime checks and a limit on recursive dispatch.",
-      "limitations": "The complete Flash event model, keyboard/mouse APIs, button states and compatible ordering of all lifecycle events are absent.",
+      "scope": "Authored frame and load/click/enter_frame handlers plus recognized onEnterFrame/onPress callback assignment/removal on compatible authored instances, with receiver/lifetime checks and bounded dispatch.",
+      "limitations": "Other native callback properties, AS2 global Stage/Key/Mouse listener APIs, source on/onClipEvent wrappers and exact Flash lifecycle ordering remain pending. The AS3 EventDispatcher bridge is not an AS2 class implementation.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "web/display.js",
+        "crates/neoflash-core/tests/display_family.rs",
+        "web/tests/display-family.test.cjs",
+        "examples/display-family.nflash"
       ]
     },
     {

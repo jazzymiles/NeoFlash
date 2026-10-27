@@ -661,6 +661,7 @@ impl Parser<'_> {
                 "Timeline lacks layers.",
             );
             return Symbol {
+                class_name: None,
                 id,
                 name: node.attribute("name").unwrap_or("Scene 1").into(),
                 kind,
@@ -886,6 +887,7 @@ impl Parser<'_> {
         // XFL lists topmost layers first; NeoFlash stores painter order.
         timeline.layers.reverse();
         Symbol {
+            class_name: None,
             id,
             name: node.attribute("name").unwrap_or("Scene 1").into(),
             kind,

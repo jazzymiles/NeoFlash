@@ -67,6 +67,9 @@ fn allocated_ids() -> &'static Mutex<HashSet<Id>> {
 /// Register imported identities so future editor allocations cannot collide.
 pub(crate) fn reserve_ids(project: &Project) {
     let mut used = allocated_ids().lock().unwrap_or_else(|e| e.into_inner());
+    for source in &project.sources {
+        used.insert(source.id.clone());
+    }
     for symbol in &project.symbols {
         used.insert(symbol.id.clone());
         for layer in &symbol.timeline.layers {
@@ -90,6 +93,20 @@ pub struct Project {
     pub background: Color,
     pub root: Id,
     pub symbols: Vec<Symbol>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<SourceUnit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_class: Option<String>,
+}
+
+/// A logical project file. Compilation resolves paths within this snapshot and
+/// never reads arbitrary filesystem paths from authored source.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SourceUnit {
+    pub id: Id,
+    pub path: String,
+    pub language: ScriptLanguage,
+    pub source: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -98,6 +115,8 @@ pub struct Symbol {
     pub name: String,
     pub kind: SymbolKind,
     pub timeline: Timeline,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class_name: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -292,6 +311,20 @@ pub struct ObjectScript {
 }
 
 impl Project {
+    pub fn has_program(&self) -> bool {
+        !self.sources.is_empty()
+            || self.document_class.is_some()
+            || self
+                .symbols
+                .iter()
+                .any(|symbol| symbol.class_name.is_some())
+    }
+
+    /// Old documents remain version 1 until project-level code is authored.
+    pub fn enable_program(&mut self) {
+        self.format_version = self.format_version.max(2);
+    }
+
     pub fn symbol(&self, id: &str) -> Option<&Symbol> {
         self.symbols.iter().find(|s| s.id == id)
     }

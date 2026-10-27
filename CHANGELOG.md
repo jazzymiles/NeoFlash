@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added embedded project source units and version-2 document/symbol linkage, with a bounded AS3 public-class compiler: exact imports, inheritance/super, typed instance/static fields, initialized const fields and stable bound methods. Linked classes initialize per placement lifetime; AS2 project classes and JS/TS modules remain unsupported.
+- Added a coherent MovieClip/DisplayObject family: lifetime-aware hierarchy and child lookup, names, bounds and coordinate conversion, supported dimension setters, finite rotation readback and void timeline results. Added bounded AS2 onEnterFrame/onPress callbacks without claiming the complete Flash lifecycle.
+- Added shared EventDispatcher/Event/MouseEvent/KeyboardEvent facades, capture/target/bubble, listener priority/mutation, cancellation and reset cleanup. Added Stage dimensions, frame rate, focus and bounded pointer/keyboard input; automatic Flash resize modes, fullscreen and IME remain pending.
+- Added Sources editing within Actions, including source import/removal, linkage fields, project checks and feedback tied to the current source. Native verification of this workflow remains pending.
+- Added a no-build batch export tool and one review dashboard, with independent case failures, artifact hashes and separate export/runtime/manual acceptance states. The eight original family/regression examples export and reach ready DOM state in the in-app browser; representative class/display/event interactions pass. Restart now recreates the program and static state. One shared automated run and a focused Restart regression cover the changes; native Sources acceptance remains pending.
+
 - Added runtime `visible` / `_visible`: hidden subtrees retain clocks, scripts and instance state while rendering, pointer hits and semantic controls agree. Replacing a symbol at the same placement resets its subtree and preserves unrelated instances.
 - Read XFL hidden-layer publication policy from the selected profile, keep artwork when included, and reject unsupported hidden scripts/labels or ambiguous adjacent placement continuity. Blank-gap re-entry receives fresh identities. Tightened XML wrapper/namespace auditing.
 - Added separate bounded AS2/AS3 `parseInt` profiles and AS3 primitive `toFixed` precision/range handling, with explicit unsupported method-extraction boundaries. Ordinary published examples were exercised in Chrome and the in-app browser; original Flash runtime conformance is not claimed.

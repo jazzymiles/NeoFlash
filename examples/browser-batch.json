@@ -1,0 +1,63 @@
+{
+  "cases": [
+    {
+      "id": "project-program",
+      "path": "examples/project-program.nflash",
+      "title": "Project classes, linked instances and shared state",
+      "checks": [
+        "Both linked cards initialize before the document class uses them.",
+        "Click both cards: independent counts and shared total update; Space resets them.",
+        "Restart clears class/static state and listeners without duplicate callbacks."
+      ]
+    },
+    {
+      "id": "display-family",
+      "path": "examples/display-family.nflash",
+      "title": "MovieClip / DisplayObject family",
+      "checks": [
+        "Inspect, resize, rotate and rename report coherent bounds, coordinates and child identity.",
+        "Pressing the cyan clip invokes its AS2 callback; stopping callbacks preserves independent timeline playback."
+      ]
+    },
+    {
+      "id": "events-stage",
+      "path": "examples/events-stage.nflash",
+      "title": "Stage, events and input",
+      "checks": [
+        "Click the blue pad and inspect capture/target/bubble output.",
+        "Toggle the listener with the orange pad, then repeat; arrow keys move the blue pad.",
+        "Restart clears listeners and focus, and restores the initial frame rate."
+      ]
+    },
+    {
+      "id": "visibility",
+      "path": "examples/visibility.nflash",
+      "title": "Visibility and nested lifecycle",
+      "checks": ["Hide and restore the clip: pixels and semantic targets agree while its nested clock continues."]
+    },
+    {
+      "id": "as-intrinsics",
+      "path": "examples/as-intrinsics.nflash",
+      "title": "AS2 / AS3 value profiles",
+      "checks": ["The ordinary export produces its expected intrinsic traces and repeats them after Restart."]
+    },
+    {
+      "id": "keyboard-controls",
+      "path": "examples/keyboard-controls.nflash",
+      "title": "Keyboard and semantic HTML5 controls",
+      "checks": ["Tab navigation and Enter/Space activation remain usable at a narrow viewport."]
+    },
+    {
+      "id": "vector-paths",
+      "path": "examples/vector-paths.nflash",
+      "title": "Vector geometry",
+      "checks": ["Curves, compound fills and transformed geometry render without runtime errors."]
+    },
+    {
+      "id": "nested-orbit",
+      "path": "examples/nested-orbit.nflash",
+      "title": "Nested animation",
+      "checks": ["Independent nested animation and playback controls still work."]
+    }
+  ]
+}

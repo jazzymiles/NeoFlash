@@ -99,6 +99,7 @@ fn absent_as2_labels_do_not_change_frame_or_playback() {
 fn as2_resolves_only_the_target_timeline() {
     let mut project = fixture();
     project.symbols.push(Symbol {
+        class_name: None,
         id: "child-symbol".into(),
         name: "Child".into(),
         kind: SymbolKind::MovieClip,

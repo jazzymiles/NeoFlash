@@ -1,0 +1,364 @@
+{
+  "format_version": 1,
+  "name": "Stage and EventDispatcher — family example",
+  "width": 760,
+  "height": 440,
+  "fps": 24,
+  "background": [
+    25,
+    31,
+    45,
+    255
+  ],
+  "root": "root",
+  "symbols": [
+    {
+      "id": "root",
+      "name": "Scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 2,
+        "layers": [
+          {
+            "id": "root-layer",
+            "name": "Scene",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 40,
+                      "y": 30,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Stage and EventDispatcher",
+                      "font_family": "Arial",
+                      "font_size": 30,
+                      "color": [
+                        228,
+                        234,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 40,
+                      "y": 84,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Click blue; toggle its listener with orange. Focus the stage and use arrow keys.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        228,
+                        234,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pad",
+                    "name": "pad",
+                    "transform": {
+                      "x": 60,
+                      "y": 155,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "blue",
+                      "playback": "independent"
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "Count pad clicks",
+                      "description": "EventDispatcher family example control",
+                      "role": "button",
+                      "tab_order": 1,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "toggle",
+                    "name": "toggle",
+                    "transform": {
+                      "x": 360,
+                      "y": 155,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "orange",
+                      "playback": "independent"
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "Toggle pad click listener",
+                      "description": "EventDispatcher family example control",
+                      "role": "button",
+                      "tab_order": 2,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "notes",
+                    "name": "notes",
+                    "transform": {
+                      "x": 40,
+                      "y": 315,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Capture / target / bubble, listener removal, keyboard focus and custom cancellation.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        228,
+                        234,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "output",
+                    "name": "output",
+                    "transform": {
+                      "x": 40,
+                      "y": 352,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Watch the trace below. Restart clears subscriptions and resets the count.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        228,
+                        234,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "java_script",
+              "source": "stop();\nvar owner = this;\nvar Event = NeoFlashEvents.Event;\nvar MouseEvent = NeoFlashEvents.MouseEvent;\nvar KeyboardEvent = NeoFlashEvents.KeyboardEvent;\nthis.stage.frameRate = 30;\nthis.clicks = 0;\nthis.listening = true;\nthis.pad.addEventListener(\"check\", function(event) { event.preventDefault(); });\ntrace(\"Custom cancellation\", this.pad.dispatchEvent(new Event(\"check\", true, true)));\nthis.stage.addEventListener(MouseEvent.CLICK, function(event) {\n  owner.lastCapturePhase = event.eventPhase;\n}, true);\nthis.onPadClick = function(event) {\n  owner.clicks += 1;\n  trace(\"Pad\", owner.clicks, \"capture\", owner.lastCapturePhase, \"phase\", event.eventPhase,\n    \"mouse\", owner.stage.mouseX, owner.stage.mouseY);\n};\nthis.pad.addEventListener(MouseEvent.CLICK, this.onPadClick);\nthis.toggle.addEventListener(MouseEvent.CLICK, function(event) {\n  owner.listening = !owner.listening;\n  if (owner.listening) owner.pad.addEventListener(MouseEvent.CLICK, owner.onPadClick);\n  else owner.pad.removeEventListener(MouseEvent.CLICK, owner.onPadClick);\n  trace(\"Pad listener\", owner.pad.hasEventListener(MouseEvent.CLICK));\n});\nthis.stage.addEventListener(KeyboardEvent.KEY_DOWN, function(event) {\n  if (event.keyCode === 37 || event.keyCode === 39) {\n    owner.pad.x += event.keyCode === 37 ? -10 : 10;\n    event.preventDefault();\n    trace(\"Keyboard\", event.keyCode, \"pad x\", owner.pad.x);\n  }\n});\nthis.stage.addEventListener(Event.RESIZE, function(event) {\n  trace(\"Resize\", owner.stage.stageWidth, owner.stage.stageHeight);\n});\ntrace(\"Stage ready\", this.stage.stageWidth, this.stage.stageHeight, this.stage.frameRate);\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "blue",
+      "name": "Blue pad",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 2,
+        "layers": [
+          {
+            "id": "blue-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "blue-face",
+                    "name": "face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 230,
+                      "height": 110,
+                      "fill": [
+                        36,
+                        112,
+                        195,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        255,
+                        255,
+                        40
+                      ],
+                      "stroke_width": 2
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "blue-label",
+                    "name": "blue-label",
+                    "transform": {
+                      "x": 17,
+                      "y": 40,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "CLICK / ARROW KEYS",
+                      "font_family": "Arial",
+                      "font_size": 20,
+                      "color": [
+                        228,
+                        234,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "orange",
+      "name": "Listener switch",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 2,
+        "layers": [
+          {
+            "id": "orange-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "orange-face",
+                    "name": "face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 230,
+                      "height": 110,
+                      "fill": [
+                        183,
+                        91,
+                        41,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        255,
+                        255,
+                        40
+                      ],
+                      "stroke_width": 2
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "orange-label",
+                    "name": "orange-label",
+                    "transform": {
+                      "x": 17,
+                      "y": 40,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "TOGGLE LISTENER",
+                      "font_family": "Arial",
+                      "font_size": 20,
+                      "color": [
+                        228,
+                        234,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ]
+}

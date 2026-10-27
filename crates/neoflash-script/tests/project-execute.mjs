@@ -1,0 +1,81 @@
+// One coherent project build, then actual emitted classes and event facade execution.
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { homedir } from 'node:os';
+import { resolve, dirname } from 'node:path';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import vm from 'node:vm';
+import { createRuntimeHost } from './host-integration.mjs';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
+const events=createRequire(import.meta.url)(resolve(root,'web/events.js'));
+const source=(id,path,source)=>({id,path,language:'action_script3',source});
+const project={format_version:2,name:'Original program fixture',width:320,height:180,fps:24,background:[255,255,255,255],root:'scene',
+  symbols:[{id:'scene',name:'Scene',kind:'movie_clip',timeline:{frame_count:1,layers:[],scripts:[]}}],
+  sources:[
+    source('base','model/Base.as','package model { public class Base { public var value:int=1; public function Base(seed:int) { value=seed; } public function increment():int { value+=1; return value; } } }'),
+    source('counter','model/Counter.as','package model { import model.Base; public class Counter extends Base { public static var created:int=0; public const label:String="counter"; public var step:int=3; public function Counter(seed:int) { super(seed); value+=2; Counter.created++; } public override function increment():int { return super.increment()+10; } public function callback():Function { return increment; } } }'),
+    source('watcher','app/Watcher.as','package app { import flash.events.Event; import flash.events.EventDispatcher; public class Watcher extends EventDispatcher { public var count:int=0; public function Watcher() { super(); addEventListener(Event.CHANGE,changed); } public function changed(e:Event):void { count++; } public function close():void { removeEventListener(Event.CHANGE,changed); } } }'),
+  ]};
+const scripts=[{language:'action_script3',source:'import model.Counter; import app.Watcher; import flash.events.Event; var a:Counter=new Counter(2); var b:Counter=new Counter(7); first=a.increment(); second=b.value; total=Counter.created; var cb:Function=a.callback(); detached=cb(); var w:Watcher=new Watcher(); w.dispatchEvent(new Event(Event.CHANGE)); w.close(); w.dispatchEvent(new Event(Event.CHANGE)); events=w.count;'}];
+const result=spawnSync(resolve(homedir(),'.cargo/bin/cargo'),['run','--quiet','-p','neoflash-script','--example','compile_project'],{cwd:root,input:JSON.stringify({project,scripts}),encoding:'utf8'});
+assert.equal(result.status,0,result.stderr);
+const compiled=JSON.parse(result.stdout);assert.ok(compiled.Ok,JSON.stringify(compiled));
+const builtins={__nfTrace:()=>{}};
+for(const name of ['Event','MouseEvent','KeyboardEvent','EventPhase','EventDispatcher'])builtins[`flash.events.${name}`]=events[name];
+const program=new Function('__nfBuiltins',compiled.Ok.code)(builtins), context={};
+new Function('__nfProgram','trace',compiled.Ok.scripts[0]).call(context,program,()=>{});
+assert.equal(context.first,15);assert.equal(context.second,9);assert.equal(context.total,2);assert.equal(context.detached,16);
+assert.equal(context.a.value,6);assert.equal(context.b.value,9);assert.equal(context.events,1);
+assert.equal(context.a.increment,context.a.increment,'method extraction is stable');
+assert.equal(context.a.callback(),context.a.increment);
+assert.equal(program.is(context.a,'model.Base'),true);assert.equal(program.is({},'model.Base'),false);
+assert.equal(program.cast('model.Counter',null),null);assert.throws(()=>program.cast('model.Counter',{}),/value required/);
+context.a.value=4294967295;assert.equal(context.a.value,-1,'qualified and aliased slot writes coerce');
+assert.throws(()=>{context.a.label='changed';},/read-only/);
+assert.equal(program.type('model.Counter').created,2);
+const attached={};program.attach('model.Counter',attached,[8]);assert.equal(attached.value,10);
+program.attach('model.Counter',attached,[9]);assert.equal(attached.value,10,'attach is once per object');
+assert.equal(program.type('model.Counter').created,3);
+const failed={};let failure;
+try { program.attach('model.Counter',failed,[Symbol('invalid numeric seed')]); } catch(error) { failure=error; }
+assert.ok(failure);assert.throws(()=>program.attach('model.Counter',failed,[1]),error=>error===failure,'failed construction cannot later masquerade as successful attachment');
+
+// The same family through an ordinary published bundle, real Rust/WASM Player,
+// host display proxies and Stage. No browser/DOM acceptance is implied here.
+const directory=mkdtempSync(resolve(root,'target/project-program-'));
+let player;
+try {
+  const exported=spawnSync(resolve(homedir(),'.cargo/bin/cargo'),['run','--quiet','--locked','-p','neoflash-export','--','examples/project-program.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+  assert.equal(exported.status,0,exported.stderr);
+  const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
+  vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);
+  const bundle=vm.runInContext('NeoFlashBundle',sandbox);
+  vm.runInContext(readFileSync(resolve(directory,'neoflash_web.js'),'utf8'),sandbox);
+  sandbox.wasmBytes=Buffer.from(bundle.wasm,'base64');
+  const wasm=await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)',sandbox);
+  player=new wasm.WebPlayer(JSON.stringify(bundle.project));
+  const {host}=createRuntimeHost(root,player,Array.from(bundle.scripts,item=>({script:{language:item.language,source:item.source},code:item.code,location:item.location})),{bundle});
+  host.dispatchScripts();
+  const scene=host.proxyFor([]),left=scene.left,right=scene.right;
+  assert.equal(host.lastTrace(),'project ready 2 0 0');
+  host.stage().handlePointer('click',{},left);
+  assert.equal(left.count,1);assert.equal(right.count,0);
+  assert.equal(host.lastTrace(),'component click left 1 1');
+  host.broadcastFrame();player.tick();host.dispatchScripts();
+  assert.equal(left.ticks,1);assert.equal(right.ticks,1);
+  assert.equal(scene.currentFrame,1,'stopped document does not stop child event clocks');
+  host.stage().handleKey('keydown',{key:' ',code:'Space',keyCode:32});
+  assert.equal(left.count,0);assert.equal(right.count,0);
+  assert.equal(host.program().type('app.SharedState').clicks,1);
+  host.resetProject();
+  assert.equal(host.lastTrace(),'project ready 2 0 0','Restart rebuilds class statics and linked instances');
+  const restartedLeft=host.proxyFor([]).left;
+  assert.notEqual(restartedLeft,left);
+  host.stage().handlePointer('click',{},restartedLeft);
+  assert.equal(host.lastTrace(),'component click left 1 1','Restart has fresh shared state and one callback');
+} finally {
+  player?.free();rmSync(directory,{recursive:true,force:true});
+}
+console.log('Project program: imports, inheritance/super, typed fields, constructors, static/const, stable methods, independent instances and actual EventDispatcher passed.');

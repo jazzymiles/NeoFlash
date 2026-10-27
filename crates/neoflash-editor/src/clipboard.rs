@@ -75,6 +75,7 @@ struct TextTarget {
     bottom: BottomTab,
     script_target: ScriptTarget,
     script_event: ObjectEvent,
+    selected_source: Option<String>,
 }
 
 #[derive(Clone)]
@@ -94,6 +95,7 @@ impl ClipboardTarget {
                     && text.bottom == editor.bottom
                     && text.script_target == editor.script_target
                     && text.script_event == editor.script_event
+                    && text.selected_source == editor.selected_source
             })
     }
     fn restore_text_focus(&self, ctx: &egui::Context) {
@@ -151,6 +153,7 @@ impl Editor {
                     bottom: self.bottom,
                     script_target: self.script_target,
                     script_event: self.script_event,
+                    selected_source: self.selected_source.clone(),
                 }),
         }
     }

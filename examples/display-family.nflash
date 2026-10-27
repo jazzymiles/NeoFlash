@@ -1,0 +1,890 @@
+{
+  "format_version": 1,
+  "name": "Display family",
+  "width": 800,
+  "height": 440,
+  "fps": 12,
+  "background": [
+    19,
+    27,
+    40,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 120,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 28,
+                      "y": 30,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "MovieClip / DisplayObject family",
+                      "font_family": "Arial",
+                      "font_size": 27,
+                      "color": [
+                        237,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "subtitle",
+                    "name": "subtitle",
+                    "transform": {
+                      "x": 28,
+                      "y": 78,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Click the cyan instance to rotate it; controls inspect the same live objects.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        237,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "widget",
+                    "name": "widget",
+                    "transform": {
+                      "x": 80,
+                      "y": 164,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "widget-art",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "load",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "this.ticks = 0; this.onEnterFrame = function() { this.ticks += 1; }; this.onPress = function() { this.rotation += 15; trace(\"AS2 press\", this.name, this.rotation); };"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "MovieClip widget",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 280,
+                      "y": 186,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Independent nested timeline + AS2 callbacks",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        237,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "inspect",
+                    "name": "inspect",
+                    "transform": {
+                      "x": 24,
+                      "y": 320,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "inspect-art",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "const w=this.root.widget, b=w.getBounds(w), p=w.localToGlobal({x:0,y:0}); trace(\"family\", \"children\",w.numChildren,\"identity\",w.getChildAt(1)===w.getChildByName(\"tile\"),\"bounds\",b.width+\"x\"+b.height,\"global\",p.x+\",\"+p.y);"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Inspect",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "resize",
+                    "name": "resize",
+                    "transform": {
+                      "x": 178,
+                      "y": 320,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "resize-art",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "const w=this.root.widget; w.rotation=0; w.width=200; w.height=120; trace(\"resize\",w.width,w.height,w.scaleX,w.scaleY);"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Resize",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "rotate",
+                    "name": "rotate",
+                    "transform": {
+                      "x": 332,
+                      "y": 320,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "rotate-art",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "const w=this.root.widget;w.rotation=405;trace(\"rotate\",w.rotation,\"bounds\",Math.round(w.width),Math.round(w.height));"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Rotate",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "identity",
+                    "name": "identity",
+                    "transform": {
+                      "x": 486,
+                      "y": 320,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "identity-art",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "const w=this.root.widget,c=w.getChildAt(1);c.name=\"renamed\";trace(\"rename\",w.getChildByName(\"renamed\")===c,w.renamed===c,w.getChildIndex(c),w.contains(c));"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Rename child",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "callbacks",
+                    "name": "callbacks",
+                    "transform": {
+                      "x": 640,
+                      "y": 320,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "callbacks-art",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "var w = _root.widget; var child = w.renamed || w.tile; w.onEnterFrame = null; trace(\"callbacks stopped\",w.ticks,\"frame\",w._currentframe,\"child\",child._currentframe);"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Stop callbacks",
+                      "description": "",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 28,
+                      "y": 390,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Inspect \u2192 Resize \u2192 Rotate \u2192 Rename child. Restart restores names, transforms and callbacks.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        237,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "java_script",
+              "source": "this.stop();trace(\"family ready\");"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "detail",
+      "name": "detail",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 120,
+        "layers": [
+          {
+            "id": "detail-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "tile-face",
+                    "name": "tile-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 40,
+                      "height": 30,
+                      "fill": [
+                        255,
+                        190,
+                        93,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "widget-art",
+      "name": "widget-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 120,
+        "layers": [
+          {
+            "id": "widget-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "panel-face",
+                    "name": "panel-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 100,
+                      "height": 80,
+                      "fill": [
+                        53,
+                        193,
+                        207,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "tile",
+                    "name": "tile",
+                    "transform": {
+                      "x": 30,
+                      "y": 10,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "detail",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "inspect-art",
+      "name": "inspect-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "inspect-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "inspect-back",
+                    "name": "inspect-back",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 144,
+                      "height": 44,
+                      "fill": [
+                        49,
+                        66,
+                        92,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "inspect-caption",
+                    "name": "inspect-caption",
+                    "transform": {
+                      "x": 10,
+                      "y": 13,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Inspect",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        237,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "resize-art",
+      "name": "resize-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "resize-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "resize-back",
+                    "name": "resize-back",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 144,
+                      "height": 44,
+                      "fill": [
+                        49,
+                        66,
+                        92,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "resize-caption",
+                    "name": "resize-caption",
+                    "transform": {
+                      "x": 10,
+                      "y": 13,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Resize",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        237,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "rotate-art",
+      "name": "rotate-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "rotate-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "rotate-back",
+                    "name": "rotate-back",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 144,
+                      "height": 44,
+                      "fill": [
+                        49,
+                        66,
+                        92,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rotate-caption",
+                    "name": "rotate-caption",
+                    "transform": {
+                      "x": 10,
+                      "y": 13,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Rotate",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        237,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "identity-art",
+      "name": "identity-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "identity-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "identity-back",
+                    "name": "identity-back",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 144,
+                      "height": 44,
+                      "fill": [
+                        49,
+                        66,
+                        92,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "identity-caption",
+                    "name": "identity-caption",
+                    "transform": {
+                      "x": 10,
+                      "y": 13,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Rename child",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        237,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "callbacks-art",
+      "name": "callbacks-art",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "callbacks-art-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "callbacks-back",
+                    "name": "callbacks-back",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 144,
+                      "height": 44,
+                      "fill": [
+                        49,
+                        66,
+                        92,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "callbacks-caption",
+                    "name": "callbacks-caption",
+                    "transform": {
+                      "x": 10,
+                      "y": 13,
+                      "rotation": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Stop callbacks",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        237,
+                        242,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ]
+}

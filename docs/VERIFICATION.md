@@ -1,21 +1,52 @@
 # Verification record
 
-Date: 2026-10-27. This record covers the development preview, vector/object tools and clipboard, authored web semantics, ActionScript functions/control flow/exceptions and binary geometry/Contents/timeline preservation plus a strict contour adapter, not complete Flash compatibility.
+Date: 2026-10-27. This record covers the development preview, vector/object tools and clipboard, authored web semantics, ActionScript functions/control flow/exceptions, the bounded project/display/events family batch and binary preservation. It does not establish complete Flash compatibility. Historical desktop/browser observations apply only to their named increments; current family browser evidence and pending native acceptance are recorded below.
 
 ## Automated checks
 
 `./scripts/check.sh` passes on Apple Silicon, macOS 15.8, Rust 1.99.1:
 
 - Formatting and Clippy (`--workspace --all-targets -- -D warnings`).
-- 303 workspace Rust tests: 52 core, 121 editor, 32 script, 94 importer and 4 exporter; four additional tests exercise the pinned egui-winit paste adapter.
-- 47 browser-host/actual-WASM/cache and public-example tests in Node, including semantic bounds, DOM identity, focus restoration, pan/zoom, lifetime-checked activation, recovery and failure reporting.
+- 309 workspace Rust tests: 55 core, 121 editor, 35 script, 94 importer and 4 exporter; four additional tests exercise the pinned egui-winit paste adapter.
+- 66 browser-host/actual-WASM/cache and public-example tests in Node, including the current display, Stage and EventDispatcher family, semantic bounds, DOM identity, focus restoration, pan/zoom, lifetime-checked activation, recovery and failure reporting.
 - 86 execution fixtures using JavaScript emitted by the script compiler, plus an integration check using the actual host proxy/dispatch code with a lifecycle stub.
+- One combined project-program scenario covers class resolution/inheritance/slots/events, ordinary export and linked instances through actual WASM and host code.
+- Five batch-preparation tests cover independent failure/timeout continuation, fresh output runs, source/file hashes, argument and HTML-data handling, and preservation of unrelated output directories.
 - 21 public-corpus CLI cases: seven successful imports and 14 explicit refusals, with source integrity and no-overwrite checks.
 - Release WebAssembly build and standalone demo export.
 
 Important regressions include independent nested clocks while a parent is stopped; affine nesting; dispatch order/stale-instance protection; JSON validation and graph cycles; grouped undo; key insertion at an interpolated pose; midpoint duplicate/delete; symbol conversion and recursive-placement rejection; key move/copy/collision behavior; fast and normal pointer gestures; macOS collection-font loading; and the Metal backend being enabled in the actual desktop build.
 
 The build emits an upstream future-compatibility notice for the Metal dependency `block 0.1.6`. This is not a current compilation or Clippy error; dependency modernization remains tracked work.
+
+## Integrated project, display and event families — 27 October
+
+The frozen family implementation passed one shared `scripts/check.sh` run. The local log is `target/verification/family-integrated-check.log`. The totals above describe that run, not a count of implemented Flash methods or a compatibility percentage. Representative family scenarios are used together; a separate browser/test cycle for every API is not required for this delivery.
+
+The project scenario executes imports, project inheritance and super calls, typed fields, static/const members, stable bound methods and independent objects. Its second half publishes `examples/project-program.nflash` through the ordinary exporter and runs the emitted program with the actual WASM timeline and host: a linked document class accesses two initialized linked children, their instance counts remain separate, shared state changes, and Click/EnterFrame/Stage keyboard paths operate. Constructor failures remain failures on retry, and native member redeclaration is diagnosed. This is executable evidence for the bounded class profile, not complete AS3 initialization/type conformance.
+
+The display scenario connects child identity/name lookup, transformed bounds, coordinate conversion, supported dimension changes, public void timeline results and AS2 callbacks to the same real host/WASM instance graph. Stage/events tests exercise capture/target/bubble, priority and phase snapshots, cancellation, redispatch cloning, stale/replaced lifetimes, focus, keyboard and mouse coordinates, and restart cleanup. Installed input listeners are driven through DOM EventTarget in Node; that does not substitute for actual browser input or pixel inspection.
+
+The Sources editor is implemented in the Actions workspace: new/import/remove source files, source paths and languages, document/symbol linkage, project checks and source-specific feedback. Model tests cover version-2 save/open boundaries and linked-source clipboard conflicts. Native Sources interaction, detached-window feedback, source editing/Undo and reopen acceptance have not yet been performed for this build.
+
+`scripts/prepare-browser-batch.py` uses an existing exporter and never builds code. It continues after an individual compile/export failure, records source/export hashes and logs, and creates one dashboard with iframes and manual checklists. It observes visible loading/status/error DOM with one readiness deadline per case, without runtime debug globals or automatic retry cycles. Export success, observed DOM readiness and manual behavior acceptance remain separate fields; the reviewer can download the observations JSON. Local-file frame isolation is reported as unobservable, with a local HTTP serving hint.
+
+The ordinary batch manifest is `examples/browser-batch.json`. All eight cases exported successfully to `dist/acceptance/index.html`: project program, display family, Stage/events, visibility, numeric profiles, keyboard controls, vector paths and nested animation. Export fingerprints and per-case results are in `dist/acceptance/batch.json`; the export report establishes export success separately from the browser observations below.
+
+| Acceptance item | Current evidence / remaining record |
+| --- | --- |
+| Shared automated family pass | Passed; `target/verification/family-integrated-check.log`. |
+| Ordinary batch export | Eight of eight exported; manifest and generated batch report above. |
+| Browser startup/rendering | In-app browser: all eight frames reached ready DOM state, with zero reported runtime errors. Screenshots and observations are recorded below; other browser engines are not covered by this batch. |
+| Browser behavior | Representative linked-class counts/shared state/Space reset, display geometry traces, Stage capture/listener removal/ArrowRight and fresh Restart state observed. This does not complete every manual checklist item. |
+| Native Sources/editor workflow | Pending live source editing, feedback, Undo, save/reopen and relevant panel checks. |
+| Packaged artifact identity | Rebuilt and strict codesign verification passed; fingerprints below. Native launch/Sources workflow remains pending. |
+
+The final observed batch run was `20261027T005223Z-a5d8adae`. Linked widgets produced left `1/1` and right `1/2`; Space reset their instance counts while retaining the shared click total. The shared Restart check exposed retained static state: the host now recreates the program and resolves the public root against the live program. The existing project scenario passed after this fix, and a fresh eight-case export/browser pass observed initial `2/0/0` state followed by left `1/1`; the Stage example restarted with a fresh count of one. The shared suite preceded this isolated fix; the focused scenario and browser check cover its final state. Evidence: `target/verification/family-browser/final-observations.json`, `batch.png`, `batch-top.png` and `target/verification/family-build-evidence.json`.
+
+Final executable SHA-256: `4b89babde4423c038461f77ba9a66990cfcada80cea2adb25363271ab5adb033`; WASM: `a1f6d1a9f98d9d426959ebf80296d355552cbbf5bb19c4205aa8de6fda66ad17`; exporter: `b09e23caed7d503c3b6fba18c42395145929081d1e3fa520d21665270266fb77`.
+
+Sources, screenshots and logs remain under ignored `target/verification/`. A missing resource, runtime error or failed manual case must remain visible in the batch report; successfully exporting the other cases does not turn it into a passed behavior check.
 
 ## Observed desktop checks
 
@@ -180,7 +211,7 @@ The automated suite supplements these observations with actual WASM/host activat
 
 Browser console errors were zero in the accepted fixtures. Named Arial references produce the expected nonembedded-font warning. In-app engine identity was not established; it is not counted as another independently named engine. These new P0 cases have not been accepted in Safari or Firefox. Screenshots, DOM traces, exact comparisons, source/runtime/export SHA-256 records and logs remain under ignored `target/verification/p0-browser/`.
 
-Owner-aware unsupported API diagnostics, full visibility coercion/class contracts, cross-handler typed slots/defaults, rotation normalization and public void returns remain P0. The separate native review of executable d2614307… confirmed bounded arrows, readable themes, detached panels and synchronized scroll, and found missing Check Script feedback in detached Actions (D-008). That review does not verify this new HTML5 increment or complete native accessibility.
+At that P0 increment, rotation/public void results, class slots and owner-aware APIs remained open. The later integrated family section above records the new bounded rotation/void/class work; full visibility/type/owner-aware contracts remain incomplete. The separate native review of executable d2614307… confirmed bounded arrows, readable themes, detached panels and synchronized scroll, and found missing Check Script feedback in detached Actions (D-008). Source-specific feedback has since been implemented, but that older native review does not verify the new Sources UI or complete native accessibility.
 
 ## Legacy corpus
 

@@ -13,8 +13,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 14 | 171 | 1,998 | 124 |
-| AS3 | 43,740 | 14 | 175 | 43,287 | 264 |
+| AS2 | 2,307 | 15 | 171 | 1,995 | 126 |
+| AS3 | 43,740 | 15 | 175 | 43,286 | 264 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -24,7 +24,7 @@ Counts use the complete selected documentation catalogue, including AIR, Flex an
 | --- | ---: | ---: | ---: | ---: |
 | Editor and graphics | 5/12 | 5 | 2 | 41.7% |
 | Timelines and animation | 5/10 | 3 | 2 | 50.0% |
-| HTML5 and interactivity | 6/12 | 2 | 4 | 50.0% |
+| HTML5 and interactivity | 6/12 | 3 | 3 | 50.0% |
 | Import and file compatibility | 1/10 | 6 | 3 | 10.0% |
 | Platform and quality | 4/10 | 5 | 1 | 40.0% |
 
@@ -72,6 +72,8 @@ For object editing, **Selection (V)** moves objects; Shift-click toggles objects
 
 **Window** switches Light/Dark, hides or restores panels, and detaches Tools, Timeline or Actions into separate macOS windows. **Dock** returns a panel; **Restore Workspace** restores the default layout. Appearance and layout preferences do not change your project. See [workspace controls](docs/WORKSPACE.md).
 
+**Actions → Project files** stores reusable source code inside the project. Add or import source files, set the document class or a nested symbol's class, and use **Check project** for compiler feedback. The initial project program supports public AS3 classes, imports, inheritance, typed fields and methods; unsupported constructs report diagnostics. Projects with source files use document version 2. Older projects remain readable, and linked-symbol clipboard transfers preserve source files.
+
 Example frame script:
 
 ```js
@@ -96,6 +98,17 @@ The [public FLA corpus](examples/fla-corpus/README.md) contains 15 licensed, pin
 Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two independent AS3 counter instances, [script-recovery.nflash](examples/script-recovery.nflash) for AS2/AS3 exceptions and cleanup on animated instances, or [vector-paths.nflash](examples/vector-paths.nflash) for curved strokes and compound fills. HTML5 previews provide Fit, 100% and fixed zoom levels with scrolling and a Pan tool.
 
 [visibility.nflash](examples/visibility.nflash) exercises hidden AS2/AS3 clips that keep running, [symbol-replacement.nflash](examples/symbol-replacement.nflash) checks fresh nested state after replacement, and [as-intrinsics.nflash](examples/as-intrinsics.nflash) demonstrates the documented `parseInt`/`toFixed` profiles. These are bounded compatibility examples, not complete Flash API support.
+
+[project-program.nflash](examples/project-program.nflash) combines a document class, two linked components, shared state and input events. [display-family.nflash](examples/display-family.nflash) covers child traversal, geometry and AS2 callbacks; [events-stage.nflash](examples/events-stage.nflash) demonstrates propagation and Stage input. Compiler/host checks and visual acceptance are recorded separately in [VERIFICATION.md](docs/VERIFICATION.md).
+
+Prepare these and representative existing examples as one browser batch using an already built exporter:
+
+```sh
+python3 scripts/prepare-browser-batch.py --exporter target/debug/neoflash-export --runtime target/web-runtime --manifest examples/browser-batch.json
+python3 -m http.server 8000 --directory dist/acceptance
+```
+
+Open `http://localhost:8000` to review the batch. Export success, runtime readiness and observed behavior have separate statuses; an export failure does not prevent the remaining examples from being prepared.
 
 ## Project layout
 

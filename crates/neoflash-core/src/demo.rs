@@ -5,6 +5,8 @@ impl Project {
         let root = new_id("symbol");
         Self {
             format_version: 1,
+            sources: vec![],
+            document_class: None,
             name: "Untitled".into(),
             width: 960,
             height: 600,
@@ -12,6 +14,7 @@ impl Project {
             background: [255, 255, 255, 255],
             root: root.clone(),
             symbols: vec![Symbol {
+                class_name: None,
                 id: root,
                 name: "Scene 1".into(),
                 kind: SymbolKind::MovieClip,
@@ -47,6 +50,7 @@ impl Project {
         let spark_id = new_id("symbol");
         let dot = ellipse("Spark", 0., 0., 24., 24., orange);
         p.symbols.push(Symbol {
+            class_name: None,
             id: spark_id.clone(),
             name: "Spark".into(),
             kind: SymbolKind::Graphic,
@@ -115,6 +119,7 @@ impl Project {
             })
             .collect();
         p.symbols.push(Symbol {
+            class_name: None,
             id: orbit_id.clone(),
             name: "Orbit".into(),
             kind: SymbolKind::MovieClip,

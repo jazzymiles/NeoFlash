@@ -131,6 +131,34 @@ class CatalogTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "hash differs"):
             self.import_catalog()
 
+    def test_later_verification_keeps_its_snapshot_scope_and_omits_private_logs(self):
+        path = self.source / "implementation-evidence.json"
+        evidence = json.loads(path.read_text())
+        row = self.audit["entries"][0]
+        row["rule_id"] = "independent-visibility"
+        evidence["source_files"] = {"web/runtime.js": "b" * 64}
+        evidence["independent_verifications"] = [{
+            "id": row["rule_id"], "head": "c" * 40,
+            "captured_at": "2026-10-28T10:00:00Z", "verified_at": "2026-10-28T11:00:00Z",
+            "source_manifest_sha256": "d" * 64, "source_files": {"web/runtime.js": "e" * 64},
+            "browser": {"name": "IAB", "engine": "unspecified", "original_flash_comparison": "documented_only"},
+            "decision": "bounded_visibility_pass", "limitations": ["Boolean authored placements only."],
+            "catalog_overrides": [{"catalog_id": row["catalog_id"], "status": row["status"],
+                                   "evidence_kind": "browser", "scope_note": "Boolean true/false only."}],
+            "private_log": "/Users/__private__/target/browser.log",
+        }]
+        write_json(path, evidence)
+        self.audit["evidence_sha256"] = fingerprint(path)
+        self.save_audit()
+        data = self.import_catalog()
+        rule = next(rule for rule in data["rules"] if rule["id"] == row["rule_id"])
+        self.assertEqual(rule["evidence"][0]["sha256"], "e" * 64)
+        self.assertEqual(rule["verification"]["recordedHead"], "c" * 40)
+        self.assertEqual(rule["reviewedEntries"][0]["scopeNote"], "Boolean true/false only.")
+        self.assertEqual(data["metadata"]["baselineRevision"], "a" * 40)
+        self.assertFalse(data["metadata"]["independentVerifications"][0]["currentSourceVerified"])
+        self.assertNotIn("__private__", json.dumps(data))
+
     def test_changed_evidence_bytes_fail(self):
         path = self.source / "implementation-evidence.json"
         path.write_text(path.read_text() + "\n")

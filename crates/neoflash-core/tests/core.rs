@@ -38,6 +38,7 @@ fn key(frame: u32, elements: Vec<Element>, tween: Option<Easing>) -> Keyframe {
 }
 fn symbol(id: &str, frames: u32, keys: Vec<Keyframe>) -> Symbol {
     Symbol {
+        class_name: None,
         id: id.into(),
         name: id.into(),
         kind: SymbolKind::MovieClip,
@@ -56,6 +57,8 @@ fn symbol(id: &str, frames: u32, keys: Vec<Keyframe>) -> Symbol {
 }
 fn project(symbols: Vec<Symbol>) -> Project {
     Project {
+        sources: vec![],
+        document_class: None,
         format_version: 1,
         name: "Test".into(),
         width: 640,
@@ -339,7 +342,7 @@ fn persistence_validation_and_import_id_reservation() {
     let round = Project::from_json(&json).unwrap();
     assert_eq!(p, round);
     let mut invalid = p.clone();
-    invalid.format_version = 2;
+    invalid.format_version = 3;
     assert!(invalid.to_json().is_err());
     invalid = p.clone();
     invalid.symbols[0].timeline.layers[0].keyframes[0].elements[0]

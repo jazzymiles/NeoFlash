@@ -10,6 +10,7 @@ pub(super) enum BindingKind {
     Declaration,
     SelfName,
     Catch,
+    Field,
 }
 pub(super) struct Binding {
     pub ty: Option<String>,
@@ -28,13 +29,19 @@ pub(super) struct Analysis<'a> {
     pub scopes: HashMap<usize, Scope>,
     script: &'a Script,
     as2_catch_names: HashMap<String, usize>,
+    pub context: CompileContext,
 }
 impl<'a> Analysis<'a> {
-    pub fn new(script: &'a Script, body: &[Stmt]) -> Result<Self, Diagnostic> {
+    pub fn with_context(
+        script: &'a Script,
+        body: &[Stmt],
+        context: CompileContext,
+    ) -> Result<Self, Diagnostic> {
         let mut result = Self {
             scopes: HashMap::new(),
             script,
             as2_catch_names: HashMap::new(),
+            context,
         };
         result.scopes.insert(
             0,
@@ -48,6 +55,15 @@ impl<'a> Analysis<'a> {
                 members: HashSet::new(),
             },
         );
+        for (name, ty) in result.context.members.clone() {
+            result.scopes.get_mut(&0).unwrap().bindings.insert(
+                name,
+                Binding {
+                    ty,
+                    kind: BindingKind::Field,
+                },
+            );
+        }
         result.collect_catch_names(body);
         result.body(0, body)?;
         Ok(result)
@@ -186,8 +202,11 @@ impl<'a> Analysis<'a> {
         {
             return Err(self.error(f.offset, "AS2 functions inside catch require verified catch-register closure semantics and are not supported yet."));
         }
-        let allow_this =
-            f.declaration && parent == 0 && self.script.language == ScriptLanguage::ActionScript3;
+        let allow_this = self.script.language == ScriptLanguage::ActionScript2
+            || (f.declaration
+                && parent == 0
+                && self.script.language == ScriptLanguage::ActionScript3)
+            || self.context.method_id == Some(f.id);
         self.scopes.insert(
             f.id,
             Scope {
@@ -370,6 +389,7 @@ impl<'a> Analysis<'a> {
         match expr {
             Expr::Name(name) if is_error_type(name) && self.resolve(scope, name).is_none() => return Err(self.error(self.scopes[&scope].offset, "Core Error class values and constructor aliases are not supported; use an explicit new Error-family constructor.")),
             Expr::NewError(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Error constructor cannot be resolved as a core type; arbitrary constructor calls are unsupported.")),
+            Expr::NewClass(name, _, offset) if name == "flash.events.EventPhase" => return Err(self.error(*offset,"EventPhase contains constants and is not constructible.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && self.resolve(scope, name).is_none() && self.as2_catch_names.contains_key(name) && !is_global(name) => return Err(self.error(self.as2_catch_names[name], "AS2 catch parameters used outside their catch need verified variable/register scope semantics; this form is unsupported.")),
             Expr::Function(f) => {self.function(scope,f)?; return Ok(());},
             Expr::Name(name) if name=="this" && !self.scopes[&scope].allow_this => return Err(self.error(self.scopes[&scope].offset,"Explicit this in an AS2 or nested/expression function needs receiver/global semantics not implemented yet. Use lexical locals or bare timeline fields; AS3 top-level declared methods support bound this.")),
@@ -385,13 +405,18 @@ impl<'a> Analysis<'a> {
                 }
                 let user_binding=binding.is_some_and(|(_,b)| self.script.language==ScriptLanguage::ActionScript2 || !b.ty.as_deref().is_some_and(|t|matches!(t,"Number"|"String"|"Boolean"|"int"|"uint")));
                 let shadowed_math=matches!(callee.as_ref(),Expr::Member(base,_) if matches!(base.as_ref(),Expr::Name(name) if name=="Math" && self.resolve(scope,name).is_some()));
+                let project_call = self.context.project && match callee.as_ref() {
+                    Expr::Name(name) => self.context.types.contains_key(name) || project::is_host_method(name) || (name == "super" && self.context.class_name.is_some()),
+                    Expr::Member(_, _) => true,
+                    _ => false,
+                };
                 let builtin=binding.is_none() && !shadowed_math && Frontend::builtin_call(callee);
                 // AS2 permits a later frame or a parent script to install a
                 // function on this timeline. The host checks the actual value
                 // when the call executes; arbitrary member APIs stay blocked.
                 let dynamic_timeline = self.script.language == ScriptLanguage::ActionScript2
                     && binding.is_none() && matches!(callee.as_ref(), Expr::Name(name) if !is_global(name));
-                if !builtin && !user_binding && !dynamic_timeline && !matches!(callee.as_ref(),Expr::Function(_)) && !self.known_member(scope,callee) {
+                if !builtin && !project_call && !user_binding && !dynamic_timeline && !matches!(callee.as_ref(),Expr::Function(_)) && !self.known_member(scope,callee) {
                     return Err(self.error(*offset,"This ActionScript call is not a supported API or a declared user function/value. Unknown member APIs and dynamic computed calls remain unsupported; source is not discarded."));
                 }
             }
@@ -502,7 +527,7 @@ fn children(expr: &Expr) -> Vec<&Expr> {
         Expr::Object(v) => v.iter().map(|(_, e)| e).collect(),
         Expr::Conditional(a, b, c) => vec![a, b, c],
         Expr::Call(c, a, _) => std::iter::once(c.as_ref()).chain(a.iter()).collect(),
-        Expr::NewError(_, args, _) => args.iter().collect(),
+        Expr::NewError(_, args, _) | Expr::NewClass(_, args, _) => args.iter().collect(),
         _ => vec![],
     }
 }

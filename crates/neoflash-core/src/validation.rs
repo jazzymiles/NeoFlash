@@ -54,13 +54,19 @@ impl Project {
 pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if project.format_version != 1 {
+    if !matches!(project.format_version, 1 | 2) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported version is 1",
+                "unsupported version {}; supported versions are 1 and 2",
                 project.format_version
             ),
+        );
+    }
+    if project.has_program() && project.format_version < 2 {
+        add(
+            "format_version".into(),
+            "project sources and class linkage require document version 2".into(),
         );
     }
     if project.width == 0 || project.height == 0 || project.width > 65535 || project.height > 65535
@@ -77,6 +83,67 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
         add("root".into(), "root symbol does not exist".into());
     }
     let mut identities: HashMap<&str, String> = HashMap::new();
+    let mut source_paths = HashSet::new();
+    let mut source_bytes = 0usize;
+    if project.sources.len() > 4096 {
+        add("sources".into(), "source file count exceeds 4096".into());
+    }
+    for (index, source) in project.sources.iter().enumerate() {
+        let path = format!("sources[{index}]");
+        register(
+            &mut identities,
+            &source.id,
+            &format!("source:{index}"),
+            &format!("{path}.id"),
+            &mut add,
+        );
+        let parts: Vec<_> = source.path.split('/').collect();
+        if source.path.len() > 1024
+            || source.path.contains(['\\', '\0', ':'])
+            || parts
+                .iter()
+                .any(|part| part.is_empty() || matches!(*part, "." | ".."))
+        {
+            add(
+                format!("{path}.path"),
+                "source path must be a normalized relative project path".into(),
+            );
+        }
+        if !source_paths.insert(source.path.to_lowercase()) {
+            add(
+                format!("{path}.path"),
+                "source paths must be unique, including on case-insensitive filesystems".into(),
+            );
+        }
+        source_bytes = source_bytes.saturating_add(source.source.len());
+        if source.source.len() > 1_048_576 {
+            add(
+                format!("{path}.source"),
+                "a source file exceeds 1 MiB".into(),
+            );
+        }
+    }
+    if source_bytes > 16 * 1024 * 1024 {
+        add("sources".into(), "combined source exceeds 16 MiB".into());
+    }
+    let class_name_valid = |name: &str| {
+        !name.is_empty()
+            && name.len() <= 1024
+            && name.split('.').all(|part| {
+                !part.is_empty()
+                    && part.chars().enumerate().all(|(i, c)| {
+                        c == '_' || c == '$' || c.is_alphabetic() || (i > 0 && c.is_numeric())
+                    })
+            })
+    };
+    if let Some(name) = &project.document_class
+        && !class_name_valid(name)
+    {
+        add(
+            "document_class".into(),
+            "expected a qualified class name".into(),
+        );
+    }
     let mut symbol_ids = HashSet::new();
     for symbol in &project.symbols {
         symbol_ids.insert(symbol.id.as_str());
@@ -84,6 +151,24 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     let mut elements_count = 0usize;
     for (si, symbol) in project.symbols.iter().enumerate() {
         let sp = format!("symbols[{si}]");
+        if let Some(name) = &symbol.class_name
+            && !class_name_valid(name)
+        {
+            add(
+                format!("{sp}.class_name"),
+                "expected a qualified class name".into(),
+            );
+        }
+        if symbol.id == project.root
+            && symbol.class_name.is_some()
+            && project.document_class.is_some()
+            && symbol.class_name != project.document_class
+        {
+            add(
+                format!("{sp}.class_name"),
+                "root class linkage conflicts with the document class".into(),
+            );
+        }
         register(
             &mut identities,
             &symbol.id,

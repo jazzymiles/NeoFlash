@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) const MAX_DEPTH: usize = 64;
 pub(crate) const MAX_NODES: usize = 100_000;
-pub(crate) const IDENTITY: [f64; 6] = [1., 0., 0., 1., 0., 0.];
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DrawItem {
@@ -33,6 +32,7 @@ pub(crate) struct Node {
     /// Local script property; inherited visibility must not change readback.
     pub visible: bool,
     pub effective_visible: bool,
+    pub kind: Option<ElementKind>,
 }
 
 #[derive(Default)]
@@ -50,6 +50,7 @@ pub(crate) struct DisplayPatch {
     pub rotation: Option<f64>,
     pub alpha: Option<f64>,
     pub visible: Option<bool>,
+    pub name: Option<String>,
 }
 
 impl DisplayPatch {
@@ -319,20 +320,25 @@ pub(crate) fn snapshot(
         return result;
     };
     let frame = frame.min(root.timeline.frame_count.saturating_sub(1));
-    let visible = patch(&[]).and_then(|p| p.visible).unwrap_or(true);
+    let root_patch = patch(&[]).unwrap_or_default();
+    let visible = root_patch.visible.unwrap_or(true);
+    let mut transform = Transform::default();
+    root_patch.apply(&mut transform);
+    let world = transform_matrix(transform);
     result.nodes.push(Node {
         path: vec![],
-        name: root.name.clone(),
+        name: root_patch.name.unwrap_or_else(|| root.name.clone()),
         symbol_id: Some(root.id.clone()),
         frame,
         independent: true,
         scripts: vec![],
-        transform: Transform::default(),
+        transform,
         accessibility: None,
-        world: IDENTITY,
-        alpha: 1.,
+        world,
+        alpha: transform.alpha,
         visible,
         effective_visible: visible,
+        kind: None,
     });
     let mut walker = Walker {
         project,
@@ -345,8 +351,8 @@ pub(crate) fn snapshot(
         frame,
         &[],
         InheritedDisplay {
-            matrix: IDENTITY,
-            alpha: 1.,
+            matrix: world,
+            alpha: transform.alpha,
             visible,
         },
         0,
@@ -395,6 +401,9 @@ impl Walker<'_> {
                 let visible = patch.as_ref().and_then(|p| p.visible).unwrap_or(true);
                 if let Some(patch) = patch {
                     patch.apply(&mut e.transform);
+                    if let Some(name) = patch.name {
+                        e.name = name;
+                    }
                 }
                 let world = affine_multiply(inherited.matrix, transform_matrix(e.transform));
                 let opacity = inherited.alpha * e.transform.alpha.clamp(0., 1.);
@@ -412,6 +421,7 @@ impl Walker<'_> {
                     alpha: opacity,
                     visible,
                     effective_visible,
+                    kind: None,
                 };
                 if let ElementKind::Instance {
                     symbol_id,
@@ -448,6 +458,7 @@ impl Walker<'_> {
                         depth + 1,
                     );
                 } else {
+                    node.kind = Some(e.kind.clone());
                     self.result.nodes.push(node);
                     if effective_visible {
                         self.result.items.push(DrawItem {

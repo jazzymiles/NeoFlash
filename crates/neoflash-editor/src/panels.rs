@@ -1478,8 +1478,18 @@ impl Editor {
         }
     }
     pub(crate) fn actions_editor_id(&self) -> egui::Id {
+        if self.script_target == ScriptTarget::Source {
+            return egui::Id::new((
+                "neoflash-project-source-editor",
+                &self.clipboard.session,
+                &self.selected_source,
+            ));
+        }
         let target = match self.script_target {
             ScriptTarget::Frame => "frame".to_owned(),
+            ScriptTarget::Source => {
+                format!("source:{}", self.selected_source.as_deref().unwrap_or(""))
+            }
             ScriptTarget::Object => format!(
                 "object:{}:{:?}",
                 self.selected_element().map_or("", |e| e.id.as_str()),
@@ -1516,6 +1526,11 @@ impl Editor {
                     "Selected object",
                 );
             });
+            ui.selectable_value(
+                &mut self.script_target,
+                ScriptTarget::Source,
+                "Project files",
+            );
             if self.script_target == ScriptTarget::Object {
                 egui::ComboBox::from_id_salt("event")
                     .selected_text(format!("{:?}", self.script_event))
@@ -1530,6 +1545,10 @@ impl Editor {
                     });
             }
         });
+        if self.script_target == ScriptTarget::Source {
+            self.project_sources(ui);
+            return;
+        }
         if self.script_target == ScriptTarget::Object && !self.selected_editable() {
             if self.selection.len() > 1 {
                 ui.strong(format!("{} objects selected", self.selection.len()));
@@ -1539,6 +1558,7 @@ impl Editor {
         }
         let object_id = self.selected_element().map(|element| element.id.clone());
         let original = match self.script_target {
+            ScriptTarget::Source => unreachable!("Project files use their own editor"),
             ScriptTarget::Frame => self
                 .symbol()
                 .timeline
@@ -1567,21 +1587,11 @@ impl Editor {
                     }
                 });
             if ui.button("Check script").clicked() {
-                match neoflash_script::compile(&script) {
-                    Ok(_) => self.message("Script syntax accepted for current language support."),
-                    Err(errors) => {
-                        for e in errors {
-                            self.message(format!(
-                                "Line {}, column {}: {}",
-                                e.line, e.column, e.message
-                            ));
-                        }
-                        self.show_panel(PanelId::Output);
-                    }
-                }
+                self.check_action_source(&script);
             }
             ui.small("Test Movie runs code. Timeline preview does not.");
         });
+        self.show_code_feedback(ui, &script);
         let editable = self.script_target == ScriptTarget::Frame || self.selected_editable();
         let editor_id = self.actions_editor_id();
         let mut text_editing = false;
@@ -1618,6 +1628,7 @@ impl Editor {
                 self.select_single_id(id);
             }
             self.transact(|s| match s.script_target {
+                ScriptTarget::Source => unreachable!("Project files use their own editor"),
                 ScriptTarget::Frame => {
                     let frame = s.frame;
                     let scripts = &mut s.symbol_mut().timeline.scripts;

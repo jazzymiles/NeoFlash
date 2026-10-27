@@ -14,6 +14,9 @@ const HOST: &str = include_str!("../../../web/runtime.js");
 const PATH_GEOMETRY: &str = include_str!("../../../web/path.js");
 const ACCESSIBILITY: &str = include_str!("../../../web/accessibility.js");
 const PREVIEW: &str = include_str!("../../../web/preview.js");
+const EVENTS: &str = include_str!("../../../web/events.js");
+const STAGE: &str = include_str!("../../../web/stage.js");
+const DISPLAY: &str = include_str!("../../../web/display.js");
 const MARKER: &str = "neoflash-export.json";
 
 #[derive(Debug, Error)]
@@ -46,8 +49,15 @@ struct CompiledScript {
 struct Bundle<'a> {
     project: &'a Project,
     scripts: Vec<CompiledScript>,
+    program: ProgramBundle<'a>,
     wasm: String,
     warnings: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct ProgramBundle<'a> {
+    code: &'a str,
+    class_names: &'a [String],
 }
 
 /// Reports current publish limitations before the user exports their work.
@@ -69,7 +79,10 @@ pub fn export_warnings(project: &Project) -> Vec<String> {
     )).collect()
 }
 
-fn compile_scripts(project: &Project) -> Result<Vec<CompiledScript>, ExportError> {
+fn compile_scripts(
+    project: &Project,
+    program: &neoflash_script::ProjectProgram,
+) -> Result<Vec<CompiledScript>, ExportError> {
     let mut scripts = Vec::new();
     let mut failures = Vec::new();
     let mut seen = BTreeSet::new();
@@ -81,7 +94,7 @@ fn compile_scripts(project: &Project) -> Result<Vec<CompiledScript>, ExportError
         if !seen.insert(key) {
             return;
         }
-        match neoflash_script::compile(script) {
+        match neoflash_script::compile_with_program(script, program) {
             Ok(code) => scripts.push(CompiledScript {
                 language: script.language,
                 source: script.source.clone(),
@@ -144,7 +157,16 @@ pub fn export_project(
     if !issues.is_empty() {
         return Err(ExportError::InvalidProject(format!("{issues:?}")));
     }
-    let scripts = compile_scripts(project)?;
+    let program = neoflash_script::compile_project(project).map_err(|errors| {
+        ExportError::Scripts(
+            errors
+                .into_iter()
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    })?;
+    let scripts = compile_scripts(project, &program)?;
     let bindings_path = runtime_dir.join("neoflash_web.js");
     let wasm_path = runtime_dir.join("neoflash_web_bg.wasm");
     let bindings = fs::read_to_string(&bindings_path)
@@ -165,6 +187,10 @@ pub fn export_project(
     let bundle = Bundle {
         project,
         scripts,
+        program: ProgramBundle {
+            code: &program.code,
+            class_names: &program.class_names,
+        },
         wasm: STANDARD.encode(wasm),
         warnings: warnings.clone(),
     };
@@ -205,6 +231,9 @@ pub fn export_project(
         ("path.js", PATH_GEOMETRY),
         ("accessibility.js", ACCESSIBILITY),
         ("preview.js", PREVIEW),
+        ("events.js", EVENTS),
+        ("stage.js", STAGE),
+        ("display.js", DISPLAY),
         ("bundle.js", bundle_js.as_str()),
         ("README.txt", readme.as_str()),
     ] {
@@ -273,6 +302,9 @@ fn html_document(title: &str) -> String {
   <script defer src="path.js"></script>
   <script defer src="accessibility.js"></script>
   <script defer src="preview.js"></script>
+  <script defer src="events.js"></script>
+  <script defer src="stage.js"></script>
+  <script defer src="display.js"></script>
   <script defer src="runtime.js"></script>
 </head>
 <body>

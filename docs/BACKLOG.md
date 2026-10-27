@@ -4,6 +4,15 @@ Priority is based on the stated product goal, with explicit evidence required fo
 
 Current execution policy (user update, 27 October): breadth first, useful partial support across whole subsystems. Work and test in coherent batches, not one method at a time. P0 labels below identify risks, not a mandate to finish every edge case before the next subsystem. Prefer one representative integration/browser acceptance and a shared regression pass per delivery; defer non-blocking cases explicitly.
 
+## Delivered family batch; native acceptance pending
+
+- Project program: source files, AS3 packages/imports/classes, reusable fields/methods, document and symbol linkage, Sources editing, save/reopen and clipboard preservation.
+- MovieClip / DisplayObject: timeline controls, bounds/dimensions, coordinate conversion, child traversal, identity, callbacks and class construction.
+- Stage / EventDispatcher: stage geometry and input, listener management, propagation, event objects, keyboard/pointer/resize delivery.
+- Integration: one shared regression run and a combined ordinary export/WASM scenario passed. The aggregate in-app browser batch loaded all eight exports; representative class, geometry, input and restart interactions passed. A shared Restart/static-state defect was fixed and rechecked in the existing scenario. Native Sources editing and detached Actions feedback remain pending; further edge cases do not hold up the next family.
+
+While the user is away, the next background family covers Array/String constructors, mutation, searches, Flash sorting and data-processing callbacks across handlers and project classes. Reuse coherent scenarios and keep test growth controlled. Following broad batches cover TextField/fonts and bitmap/resource documents; then dynamic display content, media, authoring operations and responsive DOM components. Catalogue entries only change status when their bounded behavior exists; a family module alone does not mark all of its declarations implemented.
+
 ## P0 — HTML5 correctness
 
 - Known built-in properties must implement their contract or diagnose unsupported behavior: visibility must agree across pixels, scene, hit testing and semantic targets; text, dimensions and callback assignments must not become silent custom fields. Preserve genuine user fields and callbacks.
@@ -17,7 +26,7 @@ Delivered bounded portions, with actual Chrome/in-app browser checks in VERIFICA
 - [x] Explicit XFL hidden-layer publish policy, fresh IDs after blank gaps and diagnostic rejection of ambiguous adjacent continuity. Unsupported excluded-layer scripts/labels/duration are refused, not discarded.
 - [x] Separate documented AS2/AS3 parseInt profiles and AS3 primitive toFixed precision 0–20/range behavior. Full primitive conversion and historical formatting are still open.
 
-Still P0: owner-aware unsupported API diagnostics (including TextField text, dimensions and callback assignments), typed slots/defaults across handlers and aliases, rotation normalization and public void results. Visibility conversion beyond Boolean and broader class/lifecycle conformance need separate evidence.
+Still open: broader owner-aware unsupported API diagnostics (including TextField mutation and callbacks outside the supported subset), typed handler slots/defaults across aliases, complete visibility conversion, construction/lifecycle conformance and rotated dimension setters. The delivered family includes linked AS3 typed fields, rotation normalization, public void timeline results and unrotated dimension setters; these are bounded partial support.
 
 ## Completed foundation
 

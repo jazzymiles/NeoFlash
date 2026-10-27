@@ -123,6 +123,16 @@ def catalog_report(catalog):
              catalog_table(catalog), "", "These are documented declarations, not thousands of independently executed tests or equally sized features. **Implemented subset** means only the linked rule's bounded behavior. All entries lack full Flash compatibility certification; this does not mean nothing works. Most missing entries are architectural absence inferences. Original Flash differential testing was not performed.", "",
              "## Scope breakdown", "", "The full reference includes AIR, Flex and component libraries. Even the core/language/runtime view includes some AIR declarations; it is not a Flash Player-only API list.", "",
              "| Language | Scope | Entries | Implemented subset | Partial | Missing | Needs review |", "| --- | --- | ---: | ---: | ---: | ---: | ---: |"]
+    runs = meta.get("independentVerifications", [])
+    if runs:
+        later = ["## Independent follow-up acceptance", "",
+                 "The counts combine the historical baseline with explicitly reviewed declaration overrides below. Each follow-up has its own frozen source fingerprint; none certifies the current working tree. Product/import runs may add evidence without changing AS declaration counts.", "",
+                 "| Run | Recorded HEAD | Source capture | Verification recorded | Browser |",
+                 "| --- | --- | --- | --- | --- |"]
+        later.extend(f"| `{run['id']}` | `{run['recordedHead'][:12]}` + source manifest | {run['sourceCapturedAt']} | {run['verifiedAt']} | {run['browser']} |" for run in runs)
+        later.extend(["", "Exact manifest fingerprints, engine limitations and documented-only reference boundaries remain in the audit metadata and each linked evidence rule.", ""])
+        position = lines.index("## Scope breakdown")
+        lines[position:position] = later
     for language, scopes in catalog["summary"]["byLanguageScope"].items():
         for scope, row in scopes.items():
             lines.append(f"| {language} | {scope} | {row['total']:,} | {row['implemented_subset']} | {row['partial']} | {row['missing']:,} | {row['needs_review']} |")
@@ -131,6 +141,10 @@ def catalog_report(catalog):
                   "The public page checks the baseline source fingerprints against its published revision. Changed implementation files make the audit a visibly dated snapshot; documentation changes are reported separately. Later working-tree reviews in the original audit are not promoted to shipped implementation or fresh test passes.", "", "## Evidence rules", ""])
     for rule in catalog["rules"]:
         lines.extend([f"### {rule['id']} — {rule['title']}", "", rule["reason"], "", rule["limitations"], ""])
+        for item in rule.get("reviewedEntries", []):
+            lines.append(f"- `{item['catalogId']}` — **{item['status']}**: {item['scopeNote']}")
+        if rule.get("reviewedEntries"):
+            lines.append("")
         refs = [f"[{r['path']}](../../{r['path']})" for r in rule["evidence"]]
         if refs:
             lines.extend(["Evidence: " + ", ".join(refs), ""])

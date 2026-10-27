@@ -92,12 +92,17 @@
       "id": "as3-functions",
       "title": "Function declarations and calls",
       "status": "partial",
-      "scope": "Function declarations and expressions, recursion, mutual recursion, return, callbacks and immediately invoked function expressions.",
-      "limitations": "Declarations must be directly inside a function or handler body; general dynamic method lookup and cross-script symbol resolution are absent.",
+      "scope": "Function declarations/expressions, recursion, return, callbacks and immediate invocation; project declared methods have stable bound identity and can be shared across resolved source units.",
+      "limitations": "The supported handler/project profiles do not implement unrestricted dynamic lookup, defaults/rest/arguments or complete Flash method semantics.",
       "evidence": [
         "crates/neoflash-script/src/actionscript/scope.rs",
         "crates/neoflash-script/src/actionscript.rs",
-        "crates/neoflash-script/tests/execute.mjs"
+        "crates/neoflash-script/tests/execute.mjs",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/src/actionscript/project-runtime.js",
+        "crates/neoflash-script/tests/project.rs",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "examples/project-program.nflash"
       ]
     },
     {
@@ -128,24 +133,34 @@
       "id": "as3-receiver",
       "title": "this and method binding",
       "status": "partial",
-      "scope": "this refers to the handler owner; AS3 functions declared at handler level retain their owner when detached.",
-      "limitations": "Explicit this in AS2 functions, nested declarations and function expressions is rejected; general receiver behavior is not implemented.",
+      "scope": "Handler-level declared methods retain the handler owner when detached. Project declared methods retain stable bound instance/static receivers; explicit super method calls use the current instance.",
+      "limitations": "General nested/expression-function receiver/global semantics remain incomplete; accessors and the complete Flash object model are not implemented.",
       "evidence": [
         "crates/neoflash-script/src/actionscript/scope.rs",
         "crates/neoflash-script/tests/execute.mjs",
-        "crates/neoflash-script/tests/host-integration.mjs"
+        "crates/neoflash-script/tests/host-integration.mjs",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/src/actionscript/project-runtime.js",
+        "crates/neoflash-script/tests/project.rs",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "examples/project-program.nflash"
       ]
     },
     {
       "id": "as3-types",
       "title": "Annotations and type system",
       "status": "partial",
-      "scope": "Selected Number/int/uint/Boolean/String/Function/Error/* defaults and coercion for bare-name writes, arguments and returns.",
-      "limitations": "There is no complete type checker, user-defined class model or typed instance-slot model; this.field writes and writes from another handler do not enforce the declared type.",
+      "scope": "Selected primitive/Error defaults and coercions for handler bindings, arguments and returns; resolved project-class/native facade types; project class slot descriptors enforce supported defaults, writes and const protection across aliases.",
+      "limitations": "No complete AS3 type checker/VM. Old handler var declarations still do not create globally enforced class slots. Typed member assignment-expression results, complete host ownership/type rules and initialization conformance remain pending.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/src/actionscript/project-runtime.js",
+        "crates/neoflash-script/tests/project.rs",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "examples/project-program.nflash"
       ]
     },
     {
@@ -176,26 +191,36 @@
     {
       "id": "as3-classes",
       "title": "Classes, inheritance and interfaces",
-      "status": "planned",
-      "scope": "A complete model of class/interface, extends/implements, members, super, getters/setters and general new.",
-      "limitations": "These constructs are rejected by the frontend; the Error facade does not implement arbitrary classes.",
+      "status": "partial",
+      "scope": "One public AS3 class per embedded source unit; constructors, public instance/static var and initialized const fields, project inheritance, super calls, project-method overrides and stable bound methods. Document/symbol classes attach once per active placement lifetime.",
+      "limitations": "Interfaces, accessors, private/protected/internal access, final/dynamic classes, native overrides, full lazy static dependency ordering and dynamic display-list construction remain unsupported. This is a bounded useful class profile, not full AS3.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "docs/COMPATIBILITY.md",
-        "docs/ROADMAP.md"
+        "docs/ROADMAP.md",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/src/actionscript/project-runtime.js",
+        "crates/neoflash-script/tests/project.rs",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "examples/project-program.nflash"
       ]
     },
     {
       "id": "as3-imports",
       "title": "Imports and project linking",
-      "status": "planned",
-      "scope": "package/import, document classes, linkage and cross-file resolution.",
-      "limitations": "The current compilation unit is an individual synchronous frame or object handler.",
+      "status": "partial",
+      "scope": "Optional packages, exact imports, same-package/qualified resolution, embedded source units and document/symbol linkage share a publication program. Unresolved/duplicate/cyclic types produce source-path diagnostics.",
+      "limitations": "Wildcard imports, SWC/bytecode libraries, filesystem/network module discovery and a general dependency toolchain are absent. AS2 classes and JS/TS modules remain separate work.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/src/actionscript/scope.rs",
         "docs/COMPATIBILITY.md",
-        "docs/ROADMAP.md"
+        "docs/ROADMAP.md",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/src/actionscript/project-runtime.js",
+        "crates/neoflash-script/tests/project.rs",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "examples/project-program.nflash"
       ]
     },
     {
@@ -224,12 +249,17 @@
     {
       "id": "as3-special-operators",
       "title": "Additional language operators",
-      "status": "planned",
-      "scope": "is, as, instanceof, in, delete, unary void and general new.",
-      "limitations": "These are rejected with diagnostics; the separate new Error facade does not complete this capability.",
+      "status": "partial",
+      "scope": "new constructs resolved project classes, selected Error types and supported native value/event facades. Remaining is/as/instanceof/in/delete/unary void operators are still pending.",
+      "limitations": "This does not implement all additional operators or arbitrary native construction; new native display placements are explicitly rejected.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/src/actionscript/project-runtime.js",
+        "crates/neoflash-script/tests/project.rs",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "examples/project-program.nflash"
       ]
     },
     {
@@ -288,21 +318,30 @@
       "id": "as3-timeline",
       "title": "MovieClip and timelines",
       "status": "partial",
-      "scope": "play/stop, gotoAndPlay/gotoAndStop, nextFrame/prevFrame, current/total frames, named children and independent nested clocks.",
-      "limitations": "This is a limited MovieClip facade; complete construction/re-entry, scenes, dynamic display lists and the Flash lifecycle are not implemented.",
+      "scope": "Void play/stop/gotoAndPlay/gotoAndStop/nextFrame/prevFrame, current/total frames, named children and independent nested clocks. Linked authored classes initialize per active placement lifetime.",
+      "limitations": "Full construction/re-entry/scenes/dynamic display lists and original Flash lifecycle order remain unverified. Linked child-before-container initialization is the current bounded host contract.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
         "web/tests/runtime.test.cjs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "web/display.js",
+        "crates/neoflash-core/tests/display_family.rs",
+        "web/tests/display-family.test.cjs",
+        "examples/display-family.nflash",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/src/actionscript/project-runtime.js",
+        "crates/neoflash-script/tests/project.rs",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "examples/project-program.nflash"
       ]
     },
     {
       "id": "as3-display",
       "title": "Display properties",
       "status": "partial",
-      "scope": "x/y, rotation, alpha, scaleX/scaleY and root/parent through a limited host facade. Runtime visibility retains hidden clocks/state and removes rendering/input targets; Boolean MovieClip cases passed Chrome/in-app browser acceptance.",
-      "limitations": "Full DisplayObject APIs, dimensions, masks, filters and class-specific TextField/Button contracts remain incomplete. Rotation semantics remain pending; legacy visibility conversion has an explicit bounded profile.",
+      "scope": "Position, alpha, scale, bounded finite rotation readback, visibility, names, root/parent/stage, child traversal, transformed bounds and coordinates, and supported nonrotated width/height writes.",
+      "limitations": "Dynamic placement construction, masks/filters, full text layout and all owner-specific native APIs remain incomplete. Rotated dimension setters and singular coordinate conversions diagnose. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -310,19 +349,28 @@
         "crates/neoflash-core/tests/visibility.rs",
         "web/tests/visibility.test.cjs",
         "examples/visibility.nflash",
-        "docs/VERIFICATION.md"
+        "docs/VERIFICATION.md",
+        "web/display.js",
+        "crates/neoflash-core/tests/display_family.rs",
+        "web/tests/display-family.test.cjs",
+        "examples/display-family.nflash"
       ]
     },
     {
       "id": "as3-events",
       "title": "Events and handlers",
       "status": "partial",
-      "scope": "Authored frame scripts and load/click/enter_frame object events; target-lifetime checks and a limit on recursive dispatch.",
-      "limitations": "The complete Flash event model, keyboard/mouse APIs, button states and compatible ordering of all lifecycle events are absent.",
+      "scope": "Shared EventDispatcher add/remove/has/willTrigger/dispatch with capture/target/bubble, priorities, phase snapshots, cancellation and redispatch cloning. Event/MouseEvent/KeyboardEvent facades, Stage dimensions/frameRate/focus and bounded pointer/keyboard input share placement lifetimes.",
+      "limitations": "Aggregation targets, full lifecycle/broadcast ordering, AS3 GC equivalence, fullscreen/scale modes, IME/touch and complete focus/input behavior remain pending. Exposed constants do not imply automatic lifecycle events; current fitted export has fixed logical Stage dimensions. Representative Stage behavior passed in the shared in-app-browser batch; native Sources and broader input acceptance remain pending.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "web/events.js",
+        "web/stage.js",
+        "web/tests/events.test.cjs",
+        "web/tests/stage.test.cjs",
+        "examples/events-stage.nflash"
       ]
     },
     {

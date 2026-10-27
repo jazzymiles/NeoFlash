@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NeoFlash · browser batch acceptance</title>
+  <style>
+    :root { color-scheme: dark; font: 14px system-ui,sans-serif; background: #171b24; color: #e1e7f1; }
+    body { margin: 0; padding: 24px; } h1 { margin: 0 0 12px; font-size: 26px; }
+    p { line-height: 1.5; max-width: 1000px; } a { color: #9dc6ff; }
+    button,select,textarea { font: inherit; background: #242d3d; color: inherit; border: 1px solid #64748b; border-radius: 4px; padding: 7px; }
+    button { cursor: pointer; } button:focus-visible,a:focus-visible,select:focus-visible,textarea:focus-visible { outline: 2px solid #adceff; }
+    #cases { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,530px),1fr)); gap: 20px; margin-top: 24px; }
+    article { background: #202633; border: 1px solid #424e62; border-radius: 8px; padding: 16px; min-width: 0; }
+    h2 { margin: 0 0 10px; font-size: 19px; } .states { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+    .state { padding: 6px 9px; border-radius: 4px; background: #303b50; } .good { background: #244f40; } .bad { background: #693431; }
+    .info { color: #bdc9dc; overflow-wrap: anywhere; } iframe { width: 100%; height: 420px; border: 1px solid #586780; background: white; }
+    textarea { display: block; box-sizing: border-box; width: 100%; margin-top: 9px; resize: vertical; min-height: 65px; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; padding: 10px; background: #151c27; }
+    label { display: block; margin-top: 12px; } ul { padding-left: 20px; line-height: 1.6; } #summary { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>NeoFlash · browser batch acceptance</h1>
+  <p>Exports, observed runtime readiness and manual behavior are separate results. Each successful export loads once below.
+    A timeout or failure does not stop other cases. A “DOM ready” result does not prove correct pixels or behavior.</p>
+  <p class="info">Use a local HTTP server for same-origin iframe inspection. A browser may isolate local <code>file://</code> pages;
+    those cases remain unobservable here and can still be opened individually. Only trusted project scripts belong in this batch.</p>
+  <p id="summary" aria-live="polite"></p>
+  <button id="download" type="button">Download observations JSON</button>
+  <p class="info" id="identity"></p>
+  <main id="cases"></main>
+  <script id="batch-data" type="application/json">__BATCH_DATA__</script>
+  <script>
+    'use strict';
+    let batch;
+    try { batch = JSON.parse(document.getElementById('batch-data').textContent); }
+    catch (_) { document.getElementById('summary').textContent = 'This is a template. Run scripts/prepare-browser-batch.py to create a batch.'; }
+    if (batch) {
+      const observations = batch.cases.map(item => ({ ...item, runtime: { status: item.export.status === 'exported' ? 'loading' : 'not_run' }, manual: { status: 'not_checked', notes: '' } }));
+      function element(tag, text, parent, className) {
+        const node = document.createElement(tag);
+        if (text !== undefined) node.textContent = text;
+        if (className) node.className = className;
+        parent?.append(node); return node;
+      }
+      function summary() {
+        const count = predicate => observations.filter(predicate).length;
+        document.getElementById('summary').textContent = `${observations.length} cases · ${count(x => x.export.status === 'exported')} exported · ${count(x => x.runtime.status === 'dom_ready')} DOM ready · ${count(x => x.runtime.status === 'runtime_error')} runtime errors · ${count(x => x.manual.status === 'accepted')} manually accepted`;
+      }
+      document.getElementById('identity').textContent = `Run ${batch.run_id} · Prepared ${batch.created_utc} · Browser observations start ${new Date().toISOString()}`;
+      for (const item of observations) {
+        const card = element('article', undefined, document.getElementById('cases'));
+        element('h2', item.title, card);
+        element('div', item.source, card, 'info');
+        const states = element('div', undefined, card, 'states');
+        element('span', `Export: ${item.export.status}`, states, `state ${item.export.status === 'exported' ? 'good' : 'bad'}`);
+        const runtime = element('span', `Runtime: ${item.runtime.status}`, states, 'state');
+        const detail = element('p', '', card, 'info');
+        const log = element('a', 'Exporter log', card); log.href = item.export.log_url; log.target = '_blank'; log.rel = 'noopener';
+        if (item.export.message) {
+          const details = element('details', undefined, card);
+          element('summary', 'Export diagnostics / warnings', details); element('pre', item.export.message, details);
+        }
+        if (item.checks.length) {
+          const checks = element('ul', undefined, card);
+          for (const check of item.checks) element('li', check, checks);
+        }
+        const label = element('label', 'Manual behavior: ', card);
+        const manual = element('select', undefined, label);
+        for (const [value, text] of [['not_checked', 'Not checked'], ['accepted', 'Accepted by reviewer'], ['failed', 'Behavior failed'], ['pending', 'Pending / needs evidence']]) {
+          const option = element('option', text, manual); option.value = value;
+        }
+        const notes = element('textarea', undefined, card); notes.placeholder = 'Observed behavior, pixel differences or steps still pending'; notes.setAttribute('aria-label', `${item.title}: review notes`);
+        manual.addEventListener('change', () => { item.manual.status = manual.value; item.manual.observed_utc = new Date().toISOString(); summary(); });
+        notes.addEventListener('input', () => { item.manual.notes = notes.value; });
+        if (item.export.status !== 'exported') continue;
+        const link = element('p', undefined, card);
+        const open = element('a', 'Open this exported project', link); open.href = item.url; open.target = '_blank'; open.rel = 'noopener';
+        const frame = element('iframe'); frame.title = item.title; frame.loading = 'eager';
+        let observer = null, finished = false;
+        function result(status, message) {
+          item.runtime = { status, message, observed_utc: new Date().toISOString() };
+          runtime.textContent = `Runtime: ${status}`;
+          runtime.className = `state ${status === 'dom_ready' ? 'good' : status === 'runtime_error' ? 'bad' : ''}`;
+          detail.textContent = message; summary();
+        }
+        function visible(node) {
+          if (!node || node.hidden) return false;
+          const style = node.ownerDocument.defaultView.getComputedStyle(node);
+          return style.display !== 'none' && style.visibility !== 'hidden' && node.getClientRects().length > 0;
+        }
+        // One bounded observation window, no reload or retry loop. Runtime alerts remain observed after readiness.
+        const deadline = setTimeout(() => {
+          if (finished) return;
+          finished = true; observer?.disconnect();
+          result('timed_out', 'No readiness or visible error was observed before the one-time deadline. Inspect this case manually.');
+        }, batch.runtime_timeout_ms);
+        frame.addEventListener('load', () => {
+          if (finished) return;
+          let doc;
+          try { doc = frame.contentDocument; if (!doc?.body) throw new Error('Frame DOM is unavailable.'); }
+          catch (_) {
+            finished = true; clearTimeout(deadline);
+            result('unobservable', 'Same-origin DOM access is unavailable. Serve the batch over local HTTP or inspect the project link manually.'); return;
+          }
+          function inspect() {
+            const alert = doc.querySelector('#error, [role="alert"]');
+            if (visible(alert) && alert.textContent.trim()) {
+              finished = true; clearTimeout(deadline); observer?.disconnect();
+              result('runtime_error', alert.textContent.trim().slice(0, 4000)); return;
+            }
+            if (finished) return;
+            const loading = doc.getElementById('loading'), canvas = doc.getElementById('stage'), status = doc.getElementById('status');
+            if (loading && !visible(loading) && canvas?.width > 0 && canvas?.height > 0 && status?.textContent.trim()) {
+              finished = true; clearTimeout(deadline); observer?.disconnect();
+              result('dom_ready', `Loading completed; canvas and status are present (${status.textContent.trim()}). Pixels and interactions need manual acceptance.`);
+              if (alert) observer.observe(alert, { subtree: true, childList: true, characterData: true, attributes: true });
+            }
+          }
+          observer = new MutationObserver(inspect);
+          observer.observe(doc.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['style', 'hidden'] });
+          inspect();
+        }, { once: true });
+        frame.src = item.url;
+        card.append(frame);
+      }
+      summary();
+      document.getElementById('download').addEventListener('click', () => {
+        const report = { ...batch, observed_utc: new Date().toISOString(), user_agent: navigator.userAgent, cases: observations };
+        const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2) + '\n'], { type: 'application/json' }));
+        const anchor = element('a'); anchor.href = url; anchor.download = `neoflash-browser-${batch.run_id}.json`; anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      });
+    }
+  </script>
+</body>
+</html>

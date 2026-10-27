@@ -399,6 +399,7 @@ fn nested_hit_selects_the_outer_placement_and_skips_a_locked_foreground() {
     let mut inside = layer("inside-layer", vec![object("inside", 0., 0.)], false);
     inside.locked = true;
     editor.project.symbols.push(Symbol {
+        class_name: None,
         id: "nested-symbol".into(),
         name: "Nested".into(),
         kind: SymbolKind::MovieClip,
