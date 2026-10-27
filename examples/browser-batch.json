@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "saved-game",
+      "path": "examples/saved-game.nflash",
+      "title": "SharedObject persistence and AMF object graphs",
+      "checks": [
+        "ByteArray AMF0/AMF3 round trips retain references/cycles, Date, named arrays and trailing records.",
+        "Collect saves both dialects; browser reload and publication Restart retain scores and shared identities.",
+        "Clear only this example’s named saves, reload to zero, then save once again; no callbacks or saves leak between publication sessions."
+      ]
+    },
+    {
       "id": "loader-gallery",
       "path": "examples/loader-gallery.nflash",
       "title": "Loaded images, LoaderInfo and legacy content replacement",

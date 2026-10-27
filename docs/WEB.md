@@ -81,3 +81,7 @@ These families use captured browser-backed adapters. Regex patterns currently us
 ## Scripted image loading
 
 [loader-gallery.nflash](../examples/loader-gallery.nflash) loads original image resources through AS3 Loader/LoaderInfo, ByteArray loadBytes and AS2 MovieClipLoader. Loaded images use the shared Rust pixel buffers and normal scene transforms/input. Loader owns its content child; unload detaches that content, so saved AS3 Bitmap references remain usable. AS2 loadClip replaces the original target artwork and unloadClip leaves it empty. The same resource/HTTP rules and cancellation lifetime apply as for data loading. SWF/GIF loading and Flash security/application-domain emulation remain unsupported.
+
+## Local saved state
+
+Use SharedObject.getLocal for named application/game state, and call flush after meaningful changes. AS3 returns SharedObjectFlushStatus.FLUSHED; AS2 returns true. The saved-game example demonstrates both dialects and ByteArray AMF0/AMF3 object records. Reloading the same HTTP(S) publication or using Restart restores successfully saved data. Clear removes only that named record. Browser access/quota failures must be handled by project code; file/opaque origins cannot use this persistence profile. A best-effort pagehide flush is not a durability guarantee, and Restart discards unflushed changes. Remote SharedObjects and Flash .sol files are separate work.

@@ -172,7 +172,7 @@
     const graphMode=typeof player.runtime_snapshot_json==='function';
     const references = new WeakMap();
     const attachedClasses = new Map();
-    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, audioHost = null, xmlHost = null, loaderHost = null, program = null;
+    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, audioHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, program = null;
     let timerRenderGeneration=0;
     let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
@@ -198,7 +198,7 @@
     }
     function netFailure(error) {
       const cause=unwrapScriptThrow(error),failure=new Error(`Resource callback: ${describeThrown(cause)}`,{cause});
-      if(typeof fail==='function')fail(failure);else {loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();throw failure;}
+      if(typeof fail==='function')fail(failure);else {storageHost?.reset();loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();throw failure;}
     }
     function audioFailure(error){
       const cause=unwrapScriptThrow(error),failure=new Error(`Audio callback: ${describeThrown(cause)}`,{cause});
@@ -243,6 +243,14 @@
       if(global.NeoFlashTimers&&global.NeoFlashEvents)timerHost=global.NeoFlashTimers.create({events:global.NeoFlashEvents,
         onError:timerFailure,afterEvent:afterTimerEvent,requestRender:requestTimerRender});
       if(global.NeoFlashByteArray)binaryHost=global.NeoFlashByteArray.create();
+      if(global.NeoFlashAMF&&binaryHost&&typeof player.amf_encode==='function'){
+        amfHost=global.NeoFlashAMF.create({binary:binaryHost,encode:(format,graph)=>player.amf_encode(format,graph),decode:(format,bytes)=>player.amf_decode(format,bytes),getProgram:()=>program,isUnsupported:value=>references.has(value)});
+        binaryHost.setObjectCodec(amfHost);
+        if(global.NeoFlashStorage&&global.NeoFlashEvents){
+          storageHost=global.NeoFlashStorage.create({amf:amfHost,events:global.NeoFlashEvents,onError:error=>console.warn(error)});
+          legacyGlobals=Object.freeze({...legacyGlobals,SharedObject:storageHost.LegacySharedObject});
+        }
+      }
       if(global.NeoFlashNet&&binaryHost&&global.NeoFlashEvents){
         netHost=global.NeoFlashNet.create({events:global.NeoFlashEvents,binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],onError:netFailure,onAfterDispatch:afterTimerEvent});
         legacyGlobals=Object.freeze({...legacyGlobals,LoadVars:netHost.LoadVars});
@@ -274,6 +282,7 @@
       if(timerHost){builtins['flash.utils.Timer']=timerHost.Timer;builtins['flash.events.TimerEvent']=timerHost.TimerEvent;builtins['flash.utils.getTimer']=timerHost.getTimer;}
       if(bitmapHost){builtins['flash.display.BitmapData']=bitmapHost.BitmapData;builtins['flash.display.PixelSnapping']=bitmapHost.PixelSnapping;}
       if(textHost){builtins['flash.text.TextFormat']=textHost.TextFormat;builtins['flash.text.TextFormatAlign']=textHost.TextFormatAlign;}
+      if(storageHost)for(const name of ['SharedObject','SharedObjectFlushStatus','ObjectEncoding'])builtins['flash.net.'+name]=storageHost[name];
       if(loaderHost)for(const name of ['Loader','LoaderInfo'])builtins['flash.display.'+name]=loaderHost[name];
       if(audioHost)for(const name of ['Sound','SoundChannel','SoundTransform'])builtins['flash.media.'+name]=audioHost[name];
       if(binaryHost){builtins['flash.utils.ByteArray']=binaryHost.ByteArray;builtins['flash.utils.Endian']=binaryHost.Endian;}
@@ -287,14 +296,14 @@
       };
     }
     function resetProject() {
-      loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
+      storageHost?.reset();loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
       proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();lastTrace = '';
       player.reset();
       initializeProgram();
       dispatchScripts();
     }
     function disposeFamily() {
-      loaderHost?.dispose();xmlHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
+      storageHost?.dispose();loaderHost?.dispose();xmlHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
       legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
     function prepareLinked(receiver,allocatedByProgram) {
@@ -684,9 +693,9 @@
     document.getElementById('zoom').addEventListener('change', event => preview.setMode(event.target.value));
     const panButton = document.getElementById('pan');
     panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
-    global.addEventListener('pagehide', event => { if(!event.persisted){gradients.clear();clippings.clear();disposeFamily();} });
+    global.addEventListener('pagehide', event => { storageHost?.flushAll();if(!event.persisted){gradients.clear();clippings.clear();disposeFamily();} });
     new ResizeObserver(() => { resize(); render(); }).observe(viewport);
-    stopAsyncOnFailure=()=>{gradients.clear();clippings.clear();loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
+    stopAsyncOnFailure=()=>{gradients.clear();clippings.clear();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
     initializeFamily();
     canvas.tabIndex=-1;
     stageHost?.attach();

@@ -1,0 +1,752 @@
+{
+  "format_version": 2,
+  "name": "Saved game and AMF object records",
+  "width": 1040,
+  "height": 690,
+  "fps": 24,
+  "background": [
+    16,
+    23,
+    32,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Saved game",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 60,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / SHAREDOBJECT + AMF0 / AMF3",
+                      "font_family": "Arial",
+                      "font_size": 12,
+                      "color": [
+                        145,
+                        190,
+                        197,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 60,
+                      "y": 79,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Keep the progress. Reopen the world.",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 60,
+                      "y": 130,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Save both players, then reload this page or use Restart. The scores remain.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modern-back",
+                    "name": "modern-back",
+                    "transform": {
+                      "x": 60,
+                      "y": 195,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 430,
+                      "height": 220,
+                      "fill": [
+                        30,
+                        45,
+                        56,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-back",
+                    "name": "legacy-back",
+                    "transform": {
+                      "x": 550,
+                      "y": 195,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 430,
+                      "height": 220,
+                      "fill": [
+                        38,
+                        40,
+                        60,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modern-label",
+                    "name": "modern-label",
+                    "transform": {
+                      "x": 80,
+                      "y": 218,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 / AMF3 SAVED STATE",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        145,
+                        202,
+                        195,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-label",
+                    "name": "legacy-label",
+                    "transform": {
+                      "x": 570,
+                      "y": 218,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 / AMF0 SAVED STATE",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        198,
+                        168,
+                        221,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "score",
+                    "name": "scoreText",
+                    "transform": {
+                      "x": 80,
+                      "y": 258,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Score 0",
+                      "font_family": "Arial",
+                      "font_size": 31,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-score",
+                    "name": "legacyScore",
+                    "transform": {
+                      "x": 570,
+                      "y": 258,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Score 0",
+                      "font_family": "Arial",
+                      "font_size": 31,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "progress-bar",
+                    "name": "progressBar",
+                    "transform": {
+                      "x": 80,
+                      "y": 315,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 1,
+                      "height": 12,
+                      "fill": [
+                        64,
+                        185,
+                        167,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-progress",
+                    "name": "legacyBar",
+                    "transform": {
+                      "x": 570,
+                      "y": 315,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 1,
+                      "height": 12,
+                      "fill": [
+                        177,
+                        128,
+                        207,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "saved-detail",
+                    "name": "savedDetail",
+                    "transform": {
+                      "x": 80,
+                      "y": 349,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "No saved progress",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-detail",
+                    "name": "legacyDetail",
+                    "transform": {
+                      "x": 570,
+                      "y": 349,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "No saved progress",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "binary-report",
+                    "name": "binaryReport",
+                    "transform": {
+                      "x": 60,
+                      "y": 450,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Preparing object round trip...",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "identity-report",
+                    "name": "identityReport",
+                    "transform": {
+                      "x": 60,
+                      "y": 482,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Shared references and values",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 60,
+                      "y": 525,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Ready to save",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "save-button",
+                    "name": "saveButton",
+                    "transform": {
+                      "x": 60,
+                      "y": 584,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "save-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.collect();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "this._root.collectLegacy();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Collect and save",
+                      "description": "Collect and save for both dialects.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "clear-button",
+                    "name": "clearButton",
+                    "transform": {
+                      "x": 300,
+                      "y": 584,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "clear-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.clearSave();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "this._root.clearLegacy();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Clear saved progress",
+                      "description": "Clear saved progress for both dialects.",
+                      "role": "button",
+                      "tab_order": 1,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 540,
+                      "y": 598,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Only this example’s two named saves are cleared.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        159,
+                        182,
+                        197,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "this.legacySave=SharedObject.getLocal(\"neoflash-saved-game-as2\");this.legacyFlush=false;\nthis.reportLegacy=function(){var value:Number=this.legacySave.data.score===undefined?0:this.legacySave.data.score;this.legacyScore.text=\"Score \"+value;this.legacyBar._width=value==0?1:Math.min(value*2,390);this.legacyDetail.text=value==0?\"No saved progress\":\"AMF0 refs \"+(this.legacySave.data.primary===this.legacySave.data.alias)+\" / self \"+(this.legacySave.data.self===this.legacySave.data);};\nthis.collectLegacy=function(){var next:Number=this.legacySave.data.score===undefined?25:this.legacySave.data.score+25;var hero:Object={name:\"Legacy\",rank:next/25};this.legacySave.data.score=next;this.legacySave.data.primary=hero;this.legacySave.data.alias=hero;this.legacySave.data.self=this.legacySave.data;this.legacySave.data.savedAt=new Date(Date.UTC(2026,9,27));this.legacySave.data.inventory=[\"pen\",\"film\",next];this.legacySave.data.unset=undefined;this.legacyFlush=this.legacySave.flush();this.reportLegacy();trace(\"save AS2\",next,this.legacyFlush,this.legacySave.getSize());};\nthis.clearLegacy=function(){this.legacySave.clear();this.reportLegacy();trace(\"save AS2 clear\",this.legacySave.data.score===undefined);};\nthis.reportLegacy();\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "save-control",
+      "name": "Save progress",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "save-control-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "save-face",
+                    "name": "save-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 215,
+                      "height": 42,
+                      "fill": [
+                        62,
+                        152,
+                        128,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "save-caption",
+                    "name": "save-caption",
+                    "transform": {
+                      "x": 18,
+                      "y": 12,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Collect + save both",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "clear-control",
+      "name": "Clear saved progress",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "clear-control-layer",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "clear-face",
+                    "name": "clear-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 215,
+                      "height": 42,
+                      "fill": [
+                        136,
+                        80,
+                        104,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "clear-caption",
+                    "name": "clear-caption",
+                    "transform": {
+                      "x": 18,
+                      "y": 12,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Clear saved progress",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        217,
+                        233,
+                        241,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip; import flash.net.SharedObject; import flash.net.SharedObjectFlushStatus; import flash.net.ObjectEncoding; import flash.utils.ByteArray;\n public class Main extends MovieClip {\n  public var save:SharedObject; public var packet:ByteArray;public var oldPacket:ByteArray;public var round:Object;public var oldRound:Object;\n  public var lastFlush:String=\"none\";public var restores:Boolean=false;\n  public function Main(){super();stop();save=SharedObject.getLocal(\"neoflash-saved-game-as3\");verifyPackets();report();trace(\"save ready\",score(),save.objectEncoding,restores);}\n  public function score():int{return save.data.score===undefined?0:save.data.score;}\n  public function collect():void{\n   var next:int=score()+25;var hero:Object={name:\"Pilot\",rank:next/25};\n   save.data.score=next;save.data.primary=hero;save.data.alias=hero;save.data.self=save.data;save.data.savedAt=new Date(Date.UTC(2026,9,27,0,0,next/25));\n   save.data.inventory=[\"ink\",\"paper\",next];save.data.unset=undefined;save.data.nan=0/0;save.data.infinity=1/0;save.data.negativeZero=-0;\n   var badge:ByteArray=new ByteArray();badge.writeUTF(\"LEVEL-\"+(next/25));save.data.badge=badge;\n   lastFlush=save.flush();report();status.text=\"AS3 flush \"+lastFlush+\" / reload or Restart preserves both scores\";trace(\"save AS3\",next,lastFlush,save.size);\n  }\n  public function clearSave():void{save.clear();lastFlush=\"cleared\";report();status.text=\"Named saves cleared. Reload starts from zero.\";trace(\"save AS3 clear\",score());}\n  public function verifyPackets():void{\n   var shared:Object={label:\"linked\"};var data:Object={left:shared,right:shared,unset:undefined,nan:0/0,infinity:1/0,negativeZero:-0,when:new Date(Date.UTC(2026,9,27))};data.self=data;\n   var values:Array=[];values[2]=\"third\";values.tag=\"bag\";data.values=values;\n   packet=new ByteArray();packet.objectEncoding=ObjectEncoding.AMF3;packet.writeObject(data);packet.writeUTF(\"tail3\");packet.position=0;round=packet.readObject();var tail3:String=packet.readUTF();\n   oldPacket=new ByteArray();oldPacket.objectEncoding=ObjectEncoding.AMF0;oldPacket.writeObject(data);oldPacket.writeUTF(\"tail0\");oldPacket.position=0;oldRound=oldPacket.readObject();var tail0:String=oldPacket.readUTF();\n   restores=round.left===round.right&&round.self===round&&oldRound.left===oldRound.right&&oldRound.self===oldRound&&tail3==\"tail3\"&&tail0==\"tail0\";\n   binaryReport.text=\"ByteArray AMF3: \"+packet.length+\" bytes / AMF0: \"+oldPacket.length+\" bytes / trailing records intact\";\n   identityReport.text=\"Shared identity + cycles: \"+restores+\" / Date: \"+round.when.getUTCFullYear()+\" / named array: \"+round.values.tag;\n  }\n  public function report():void{var value:int=score();scoreText.text=\"Score \"+value;progressBar.width=value==0?1:Math.min(value*2,390);savedDetail.text=value==0?\"No saved progress\":\"Rank \"+save.data.primary.rank+\" / refs \"+(save.data.primary===save.data.alias)+\" / self \"+(save.data.self===save.data);}\n }\n}"
+    }
+  ]
+}

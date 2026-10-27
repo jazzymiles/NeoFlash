@@ -407,9 +407,11 @@ impl<'a> Analysis<'a> {
             Expr::NewBuiltin(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed native constructor requires arbitrary user-constructor semantics not supported here. Ordinary calls to the local binding remain supported.")),
             Expr::NewBuiltin(name, args, offset) if name == "LoadVars" && !args.is_empty() => return Err(self.error(*offset,"AS2 LoadVars construction takes no arguments in this profile.")),
             Expr::NewBuiltin(name, args, offset) if name == "MovieClipLoader" && !args.is_empty() => return Err(self.error(*offset,"AS2 MovieClipLoader construction takes no arguments. Pass a URL and target to loadClip().")),
+            Expr::NewBuiltin(name, _, offset) if name == "SharedObject" => return Err(self.error(*offset,"Local SharedObject instances are supplied by SharedObject.getLocal(name); direct construction is unsupported in this persistence profile.")),
             Expr::NewBuiltin(name, args, offset) if name == "Sound" && !args.is_empty() => return Err(self.error(*offset,"AS2 Sound construction takes no target argument in this profile; create Sound() and load a non-streaming resource.")),
             Expr::NewClass(name, _, offset) if name == "flash.media.SoundChannel" => return Err(self.error(*offset,"SoundChannel is returned by Sound.play and cannot be directly constructed in this profile.")),
             Expr::NewClass(name, _, offset) if name == "flash.display.LoaderInfo" => return Err(self.error(*offset,"LoaderInfo is supplied by Loader.contentLoaderInfo and cannot be directly constructed.")),
+            Expr::NewClass(name, _, offset) if name == "flash.net.SharedObject" => return Err(self.error(*offset,"SharedObject is supplied by SharedObject.getLocal(name) and cannot be directly constructed in this persistence profile.")),
             Expr::NewClass(name, args, offset) if name == "flash.display.Loader" && !args.is_empty() => return Err(self.error(*offset,"Loader construction takes no arguments. Pass a URLRequest to load() or ByteArray to loadBytes().")),
             Expr::NewClass(name, args, offset) if name == "flash.geom.Transform" && args.len() != 1 => return Err(self.error(*offset,"Transform construction requires one existing display object. Use object.transform or new Transform(object).")),
             Expr::NewClass(name, _, offset) if name == "flash.events.EventPhase" => return Err(self.error(*offset,"EventPhase contains constants and is not constructible.")),
@@ -418,7 +420,7 @@ impl<'a> Analysis<'a> {
             Expr::NewClass(name, _, offset) if name == "flash.text.TextFormatAlign" => return Err(self.error(*offset,"TextFormatAlign contains alignment constants and is not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.text.TextField" && self.script.language == ScriptLanguage::ActionScript2 => return Err(self.error(*offset,"AS2 TextField creation uses MovieClip.createTextField with an append-only depth, not new TextField().")),
             Expr::NewClass(name, args, offset) if name == "flash.text.TextField" && !args.is_empty() => return Err(self.error(*offset,"TextField construction takes no arguments in the bounded display-text profile.")),
-            Expr::NewClass(name, _, offset) if matches!(name.as_str(),"flash.net.URLRequestMethod"|"flash.net.URLLoaderDataFormat") => return Err(self.error(*offset,"Network method/data-format facades provide constants and cannot be constructed.")),
+            Expr::NewClass(name, _, offset) if matches!(name.as_str(),"flash.net.URLRequestMethod"|"flash.net.URLLoaderDataFormat"|"flash.net.ObjectEncoding"|"flash.net.SharedObjectFlushStatus") => return Err(self.error(*offset,"Network/persistence method, encoding and status facades provide constants and cannot be constructed.")),
             Expr::NewClass(name, _, offset) if self.context.interfaces.contains(name) => return Err(self.error(*offset,"An interface is a nominal contract and cannot be constructed. Instantiate an implementing project class.")),
             Expr::NewClass(name, _, offset) if name == "flash.utils.Endian" => return Err(self.error(*offset,"Endian contains byte-order constants and is not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.display.Graphics" => return Err(self.error(*offset,"Graphics is supplied by a compatible display object's graphics property and is not directly constructible.")),
@@ -453,7 +455,7 @@ impl<'a> Analysis<'a> {
                     Expr::Member(_, _) => true,
                     _ => false,
                 };
-                let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"|"loadClip"|"unloadClip"|"getProgress"));
+                let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"|"loadClip"|"unloadClip"|"getProgress"|"getLocal"|"getSize"|"flush"|"clear"));
                 let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_api||matches!(callee.as_ref(),Expr::Name(name)if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)));
                 // AS2 permits a later frame or a parent script to install a
                 // function on this timeline. The host checks the actual value

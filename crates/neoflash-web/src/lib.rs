@@ -15,6 +15,21 @@ pub fn parse_xml_json(source: &str) -> String {
     }
 }
 
+/// Pure AMF codecs; graph JSON is a transport IR, never the persisted encoding.
+#[wasm_bindgen]
+pub fn amf_encode(format: u8, graph_json: &str) -> Result<Vec<u8>, JsValue> {
+    if graph_json.len() > neoflash_core::MAX_AMF_JSON_BYTES {
+        return Err(JsValue::from_str("AMF graph JSON exceeds 64 MiB"));
+    }
+    let graph: neoflash_core::AmfGraph = serde_json::from_str(graph_json).map_err(display_error)?;
+    neoflash_core::amf_encode(format, &graph).map_err(display_error)
+}
+#[wasm_bindgen]
+pub fn amf_decode(format: u8, bytes: &[u8]) -> Result<String, JsValue> {
+    serde_json::to_string(&neoflash_core::amf_decode(format, bytes).map_err(display_error)?)
+        .map_err(display_error)
+}
+
 #[wasm_bindgen]
 pub struct WebPlayer {
     project: Project,
@@ -107,6 +122,12 @@ impl WebPlayer {
         Ok(Self { project, player })
     }
 
+    pub fn amf_encode(&self, format: u8, graph_json: &str) -> Result<Vec<u8>, JsValue> {
+        amf_encode(format, graph_json)
+    }
+    pub fn amf_decode(&self, format: u8, bytes: &[u8]) -> Result<String, JsValue> {
+        amf_decode(format, bytes)
+    }
     pub fn scene_json(&self) -> Result<String, JsValue> {
         serde_json::to_string(&self.player.runtime_snapshot(&self.project).draws)
             .map_err(|error| JsValue::from_str(&error.to_string()))

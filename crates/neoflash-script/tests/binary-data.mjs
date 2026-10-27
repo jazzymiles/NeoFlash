@@ -48,9 +48,10 @@ export async function verifyBinaryData(root,cargo) {
     assert.throws(()=>overlap.readUTF(),/available data/);assert.equal(overlap.position,0);
     overlap.position=2;assert.throws(()=>overlap.readUTFBytes(1),/valid UTF-8/);assert.equal(overlap.position,2);
     assert.throws(()=>overlap.writeUTF('\ud800'),/unpaired surrogate/);assert.equal(overlap.position,2);
-    assert.throws(()=>overlap.readObject(),/not implemented/);
+    assert.throws(()=>overlap.readObject(),/AMF|marker|truncated|available/i);
+    assert.equal(overlap.position,2,'failed AMF decoding keeps the cursor');
     assert.throws(()=>overlap.compress(),/not implemented/);
-    assert.throws(()=>overlap.objectEncoding,/not implemented/);
+    assert.equal(overlap.objectEncoding,3);
     host.resetProject();
     assert.throws(()=>oldPacket.length,/previous publication|disposed/);
     assert.equal(host.lastTrace(),'binary ready 50 NeoFlash π 🦀 / done 0 0');

@@ -88,6 +88,12 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { import flash.display.BitmapData; public class A extends BitmapData {} }",
         "package { import flash.display.PixelSnapping; public class A { public function A(){new PixelSnapping();} } }",
         "package { import flash.net.URLLoader; public class A extends URLLoader {} }",
+        "package { import flash.net.SharedObject; public class A extends SharedObject {} }",
+        "package { import flash.net.ObjectEncoding; public class A extends ObjectEncoding {} }",
+        "package { import flash.net.SharedObjectFlushStatus; public class A extends SharedObjectFlushStatus {} }",
+        "package { import flash.net.SharedObject; public class A { public function A(){new SharedObject();} } }",
+        "package { import flash.net.ObjectEncoding; public class A { public function A(){new ObjectEncoding();} } }",
+        "package { import flash.net.SharedObjectFlushStatus; public class A { public function A(){new SharedObjectFlushStatus();} } }",
         "package { import flash.net.URLVariables; public class A extends URLVariables {} }",
         "package { import flash.events.ProgressEvent; public class A extends ProgressEvent {} }",
         "package { import flash.net.URLRequestMethod; public class A { public function A(){new URLRequestMethod();} } }",
@@ -139,6 +145,10 @@ fn class_syntax_outside_profile_is_never_erased() {
         "class A {public function A(){new Sound(this);}}",
         "class A {public function A(){new MovieClipLoader(this);}}",
         "class A extends MovieClipLoader {}",
+        "class A {public function A(){new SharedObject();}}",
+        "class A extends SharedObject {}",
+        "import flash.net.SharedObject; class A {}",
+        "import flash.net.ObjectEncoding; class A {}",
         "import flash.display.Loader; class A {}",
         "import flash.display.LoaderInfo; class A {}",
         "import flash.media.Sound; class A {}",
@@ -150,7 +160,7 @@ fn class_syntax_outside_profile_is_never_erased() {
             "{source}"
         );
     }
-    legacy.sources[0].source = "class A {public var images:MovieClipLoader; public function A(){images=new MovieClipLoader();} public function load(target:MovieClip):Boolean {images.addListener(this);return images.loadClip(\"image.png\",target);} public function progress(target:MovieClip):Object {return images.getProgress(target);} public function unload(target:MovieClip):Boolean {images.removeListener(this);return images.unloadClip(target);}}".into();
+    legacy.sources[0].source = "class A {public var images:MovieClipLoader; public var saved:SharedObject; public function A(){images=new MovieClipLoader();saved=SharedObject.getLocal(\"save\");} public function persist(value:Object):Boolean{saved.data.value=value;var size:Number=saved.getSize();return saved.flush();} public function erase():Void{saved.clear();} public function load(target:MovieClip):Boolean {images.addListener(this);return images.loadClip(\"image.png\",target);} public function progress(target:MovieClip):Object {return images.getProgress(target);} public function unload(target:MovieClip):Boolean {images.removeListener(this);return images.unloadClip(target);}}".into();
     assert!(neoflash_script::compile_project(&legacy).is_ok());
     legacy.sources[0].source = "import flash.utils.ByteArray; class A {}".into();
     assert!(
@@ -314,8 +324,25 @@ fn linked_classes_are_resolved_before_publication() {
             import flash.display.Loader;
             import flash.display.LoaderInfo;
             import flash.net.URLRequest;
+            import flash.net.SharedObject;
+            import flash.net.SharedObjectFlushStatus;
+            import flash.net.ObjectEncoding;
             import flash.utils.ByteArray;
             public class Model extends flash.display.MovieClip {
+                public var saved:SharedObject;
+                public function persist(value:Object):Boolean {
+                    SharedObject.defaultObjectEncoding=ObjectEncoding.AMF3;
+                    saved=SharedObject.getLocal("compiler-save");
+                    var typed:SharedObject=SharedObject(saved);
+                    if (!(typed is SharedObject)) {return false;}
+                    var bytes:ByteArray=new ByteArray();
+                    ByteArray.defaultObjectEncoding=ObjectEncoding.AMF0;
+                    bytes.objectEncoding=ObjectEncoding.AMF3;
+                    bytes.writeObject(value);bytes.position=0;
+                    typed.data.value=bytes.readObject();
+                    var result:String=typed.flush();
+                    return result==SharedObjectFlushStatus.FLUSHED && (typed as SharedObject)!=null;
+                }
                 public var imageLoader:Loader;
                 public var imageInfo:LoaderInfo;
                 public function loadImage(request:URLRequest,bytes:ByteArray):LoaderInfo {

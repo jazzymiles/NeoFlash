@@ -23,7 +23,7 @@
  * UTF-16 BOM/system code pages are unsupported. readBytes into itself is rejected
  * because its source/destination cursor aliases need a separate legacy contract;
  * writeBytes self-copy uses snapshot semantics and supports overlapping ranges.
- * Native subclass initialization/index enumeration, AMF/objectEncoding, shared
+ * Native subclass initialization/index enumeration, shared
  * workers, compression and multibyte code pages explicitly reject. This module
  * shares its per-publication lifecycle with the browser runtime. Host-only bulk
  * transfers copy bytes without exposing the backing store or changing cursors.
@@ -42,7 +42,8 @@
     }
     const states=new WeakMap(),records=new Set(),encoder=new TextEncoder();
     const decoder=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true});
-    let generation=1,allocated=0,disposed=false;
+    let generation=1,allocated=0,disposed=false,objectCodec=null,defaultEncoding=3;
+    function encoding(value){if(value!==0&&value!==3)throw new RangeError('ByteArray.objectEncoding must be AMF0 (0) or AMF3 (3).');return value;}
     function open(){if(disposed)throw new Error('This ByteArray service has been disposed.');}
     function state(receiver){
       open();const record=states.get(receiver);
@@ -130,7 +131,7 @@
     function initialize(target,args){
       open();if(args.length)throw new TypeError('ByteArray construction expects no arguments.');
       if(records.size>=maxArrays)throw new RangeError('ByteArray publication instance limit exceeded.');
-      const record={bytes:new Uint8Array(0),length:0,position:0,little:false,generation};
+      const record={bytes:new Uint8Array(0),length:0,position:0,little:false,objectEncoding:defaultEncoding,generation};
       const proxy=new Proxy(target,{
         get(object,key,receiver){const i=index(key);if(i===null)return Reflect.get(object,key,receiver);const r=state(receiver);size(i,'index');return i<r.length?r.bytes[i]:undefined;},
         set(object,key,value,receiver){
@@ -169,6 +170,19 @@
         record.little=value===Endian.LITTLE_ENDIAN;
       }
       clear(){free(state(this));}
+      get objectEncoding(){return state(this).objectEncoding;}
+      set objectEncoding(value){state(this).objectEncoding=encoding(value);}
+      writeObject(value){
+        const record=state(this);if(!objectCodec)unsupported('writeObject without the shared Rust AMF codec');
+        const position=record.position,version=record.generation,bytes=objectCodec.encode(value,record.objectEncoding);
+        if(state(this)!==record||record.generation!==version||record.position!==position)throw new Error('ByteArray changed during AMF serialization.');
+        const end=writeEnd(position,bytes.length);extend(record,end);record.bytes.set(bytes,position);record.position=end;
+      }
+      readObject(){
+        const record=state(this);if(!objectCodec)unsupported('readObject without the shared Rust AMF codec');
+        const result=objectCodec.decode(record.bytes.subarray(record.position,record.length),record.objectEncoding);
+        record.position+=result.consumed;return result.value;
+      }
       readBoolean(){return readNumber(this,1,'getUint8')!==0;}
       readByte(){return readNumber(this,1,'getInt8');}
       readUnsignedByte(){return readNumber(this,1,'getUint8');}
@@ -218,9 +232,9 @@
       toString(){const record=state(this);return decoded(record.bytes.subarray(0,record.length),false);}
     }
     Object.defineProperties(ByteArray,{__nfIs:{value:value=>states.has(value)},__nfInitialize:{value:()=>{throw new TypeError('Native ByteArray subclass initialization requires indexed proxy construction and is not implemented.');}}});
-    for(const name of ['objectEncoding','shareable'])Object.defineProperty(ByteArray.prototype,name,{get(){unsupported(name);},set(){unsupported(name);}});
-    Object.defineProperty(ByteArray,'defaultObjectEncoding',{get(){unsupported('defaultObjectEncoding');},set(){unsupported('defaultObjectEncoding');}});
-    for(const name of ['readObject','writeObject','compress','uncompress','deflate','inflate','readMultiByte','writeMultiByte','atomicCompareAndSwapIntAt','atomicCompareAndSwapLength','toBase64','toHexString','writeBase64','writeHexString','writeRandomBytes'])Object.defineProperty(ByteArray.prototype,name,{value(){unsupported(name);}});
+    for(const name of ['shareable'])Object.defineProperty(ByteArray.prototype,name,{get(){unsupported(name);},set(){unsupported(name);}});
+    Object.defineProperty(ByteArray,'defaultObjectEncoding',{get(){open();return defaultEncoding;},set(value){open();defaultEncoding=encoding(value);}});
+    for(const name of ['compress','uncompress','deflate','inflate','readMultiByte','writeMultiByte','atomicCompareAndSwapIntAt','atomicCompareAndSwapLength','toBase64','toHexString','writeBase64','writeHexString','writeRandomBytes'])Object.defineProperty(ByteArray.prototype,name,{value(){unsupported(name);}});
     for(const name of ['createFromBase64','createFromHexString'])Object.defineProperty(ByteArray,name,{value(){unsupported(name);}});
     // Host-only copies for resource/network adapters. No mutable backing storage
     // escapes, and transfers never change an existing ByteArray cursor.
@@ -231,10 +245,17 @@
       try {extend(record,bytes.byteLength);record.bytes.set(new Uint8Array(bytes.buffer,bytes.byteOffset,bytes.byteLength));return result;}
       catch(error){free(record);records.delete(record);throw error;}
     }
+    function fromByteArrays(chunks){
+      open();if(!Array.isArray(chunks)||chunks.length>maxArrays-records.size)throw new RangeError('AMF ByteArrays exceed the publication instance budget.');
+      const result=[];
+      try{for(const chunk of chunks)result.push(fromBytes(chunk));return result;}
+      catch(error){for(const value of result){const record=states.get(value);free(record);records.delete(record);record.generation=-1;}throw error;}
+    }
+    function setObjectCodec(codec){if(!codec||typeof codec.encode!=='function'||typeof codec.decode!=='function')throw new TypeError('Expected the shared AMF value codec.');objectCodec=codec;}
     function toBytes(receiver){const record=state(receiver);return record.bytes.slice(0,record.length);}
-    function reset(){open();for(const record of records)free(record);records.clear();generation++;}
+    function reset(){open();for(const record of records)free(record);records.clear();generation++;defaultEncoding=3;}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({ByteArray,Endian,fromBytes,toBytes,reset,dispose});
+    return Object.freeze({ByteArray,Endian,fromBytes,fromByteArrays,toBytes,setObjectCodec,reset,dispose});
   }
   const api=Object.freeze({create});
   if(typeof module!=='undefined'&&module.exports)module.exports=api;

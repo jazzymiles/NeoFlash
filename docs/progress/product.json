@@ -366,8 +366,8 @@
       "category": "web",
       "title": "Shared Rust/WASM core",
       "status": "implemented",
-      "scope": "The browser uses the same timeline runtime; tests call the actual compiled WASM. Runtime-created object identity, hierarchy, solid drawing, transformed bounds/hits and captured lifecycle routes use the shared Rust/WASM scene while authored documents remain immutable. Explicit linked MovieClip namespaces reuse the shared timeline evaluator with independent frame scripts, nested clocks and ref-based semantic targets, including detached playback.",
-      "limitations": "A shared implementation does not prove compatibility with Flash behavior. The combined dynamic-display browser workflow and Restart passed; authored/dynamic reordering and full Flash construction order remain bounded. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile.",
+      "scope": "The browser uses the same timeline runtime; tests call the actual compiled WASM. Runtime-created object identity, hierarchy, solid drawing, transformed bounds/hits and captured lifecycle routes use the shared Rust/WASM scene while authored documents remain immutable. Explicit linked MovieClip namespaces reuse the shared timeline evaluator with independent frame scripts, nested clocks and ref-based semantic targets, including detached playback. Bounded AMF0/AMF3 values are encoded/decoded in Rust and used by ByteArray object records and local AS2/AS3 SharedObject persistence.",
+      "limitations": "A shared implementation does not prove compatibility with Flash behavior. The combined dynamic-display browser workflow and Restart passed; authored/dynamic reordering and full Flash construction order remain bounded. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. This persistence/codec delivery has separate evidence. Typed aliases/class reconstruction, externalizable/XML/Vector/Dictionary values, native .sol files and remote synchronization remain pending. Browser quota/access and HTTP(S) origin rules apply; Restart discards unflushed edits. AMF payload size excludes the storage envelope and historical filesystem overhead.",
       "evidence": [
         "crates/neoflash-web/src/lib.rs",
         "web/tests/wasm.test.cjs",
@@ -381,7 +381,13 @@
         "docs/VERIFICATION.md",
         "docs/progress/actionscript-audit.json",
         "crates/neoflash-core/src/runtime_graph/linked.rs",
-        "examples/linked-movieclips.nflash"
+        "examples/linked-movieclips.nflash",
+        "crates/neoflash-core/src/amf.rs",
+        "web/amf.js",
+        "web/storage.js",
+        "examples/saved-game.nflash",
+        "crates/neoflash-script/tests/saved-game.mjs",
+        "docs/decisions/0025-shared-objects-and-amf.md"
       ]
     },
     {

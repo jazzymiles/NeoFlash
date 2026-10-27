@@ -45,6 +45,9 @@ const BUILTINS: &[&str] = &[
     "flash.net.URLVariables",
     "flash.net.URLLoader",
     "flash.net.URLLoaderDataFormat",
+    "flash.net.SharedObject",
+    "flash.net.SharedObjectFlushStatus",
+    "flash.net.ObjectEncoding",
     "flash.events.ProgressEvent",
     "flash.events.IOErrorEvent",
     "flash.events.HTTPStatusEvent",
@@ -157,6 +160,12 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "load"
                 | "loadBytes"
                 | "unload"
+                | "getLocal"
+                | "flush"
+                | "setProperty"
+                | "setDirty"
+                | "readObject"
+                | "writeObject"
                 | "close"
                 | "decode"
                 | "getPixel"
@@ -646,7 +655,7 @@ fn parse_class(
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "Network request/loader/value and network-event subclasses are outside this profile; create the supported native facade and use listener composition.",
+            "Network/persistence request, loader, value and event subclasses are outside this profile; use the supported native facade through composition. Constant classes cannot be native bases.",
         ));
     }
     let as2 = header.script.language == ScriptLanguage::ActionScript2;

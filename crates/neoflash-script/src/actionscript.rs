@@ -962,7 +962,7 @@ impl<'a> Frontend<'a> {
             || (!as3
                 && matches!(
                     name,
-                    "LoadVars" | "TextFormat" | "Sound" | "MovieClipLoader"
+                    "LoadVars" | "TextFormat" | "Sound" | "MovieClipLoader" | "SharedObject"
                 ))
             || (self.context.project && self.context.types.contains_key(name))
             || (is_error_type(name) && (as3 || name == "Error"))
@@ -1328,7 +1328,7 @@ impl<'a> Frontend<'a> {
                     && matches!(name.as_str(), "LoadVars" | "TextFormat" | "Sound"))
                 || (self.script.language == ScriptLanguage::ActionScript2
                     && class.is_none()
-                    && name == "MovieClipLoader");
+                    && matches!(name.as_str(), "MovieClipLoader" | "SharedObject"));
             if !builtin
                 && vector_element(&name).is_none()
                 && class.is_none()
@@ -1866,7 +1866,8 @@ impl Emitter<'_> {
             && (matches!(
                 name,
                 "Key" | "Mouse" | "Stage" | "LoadVars" | "TextFormat" | "Sound"
-            ) || (name == "MovieClipLoader" && !self.analysis.context.types.contains_key(name)))
+            ) || (matches!(name, "MovieClipLoader" | "SharedObject")
+                && !self.analysis.context.types.contains_key(name)))
         {
             return format!("__nfLegacy.{name}");
         }

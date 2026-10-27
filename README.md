@@ -13,8 +13,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 306 | 1,876 | 110 |
-| AS3 | 43,740 | 15 | 459 | 43,046 | 220 |
+| AS2 | 2,307 | 15 | 313 | 1,869 | 110 |
+| AS3 | 43,740 | 15 | 482 | 43,023 | 220 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -127,7 +127,9 @@ Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two indep
 
 [resource-loading.nflash](examples/resource-loading.nflash) loads embedded text, repeated form fields and a 50-byte binary packet through AS3 URLLoader and AS2 LoadVars, handles an absent file and cancels a load. When served over HTTP, **Load HTTP notes** reads the published README and displays the response status/size. Restart repeats the portable pipeline.
 
-[binary-data.nflash](examples/binary-data.nflash) writes, reads and copies a typed binary/UTF packet with ByteArray/Endian and displays the decoded values. Buffers are bounded and session-owned; AMF, compression and other code pages remain unsupported.
+[saved-game.nflash](examples/saved-game.nflash) saves scores through AS3/AS2 SharedObject and round-trips cyclic object graphs through ByteArray AMF0/AMF3. Save, reload or Restart, then clear only the example’s named saves. Browser persistence requires an HTTP(S) origin with storage enabled.
+
+[binary-data.nflash](examples/binary-data.nflash) writes, reads and copies a typed binary/UTF packet with ByteArray/Endian and displays the decoded values. Buffers are bounded and session-owned; AMF0/AMF3 object records are also supported, while compression and other code pages remain separate work.
 
 [typed-collections.nflash](examples/typed-collections.nflash) connects Vector models with Dictionary keys that retain linked-card identity. Process a batch to update stock, reuse a card and regenerate JSON through public model getters. An AS2 record loop runs alongside the AS3 workflow. Typed collections and enumeration have bounded partial support; XML/E4X and full historical coercion remain pending.
 

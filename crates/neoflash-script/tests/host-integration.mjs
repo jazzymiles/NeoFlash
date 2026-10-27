@@ -35,6 +35,12 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   globals.NeoFlashXML={create:settings=>xmlModule.create({...settings,...options.xml})};
   const loaderModule=require(resolve(root,'web/loader.js'));
   if(typeof player.pixel_decode==='function')globals.NeoFlashLoader={create:settings=>loaderModule.create({...settings,...options.loader})};
+  if(typeof player.amf_encode==='function'){
+    const amfModule=require(resolve(root,'web/amf.js'));
+    globals.NeoFlashAMF={...amfModule,create:settings=>amfModule.create({...settings,...options.amf})};
+    const storageModule=require(resolve(root,'web/storage.js'));
+    globals.NeoFlashStorage={create:settings=>storageModule.create({...settings,...options.storage})};
+  }
   globals.NeoFlashGeom=require(resolve(root,'web/geom.js'));
   const timerModule=require(resolve(root,'web/timers.js'));
   globals.NeoFlashTimers={create:settings=>timerModule.create({...settings,...options.timers})};
@@ -43,7 +49,7 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const host = new Function('player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'traceSpy', 'global', 'bundle', 'project', 'context', 'font', 'canvas', 'viewport',
     'const proxies = new Map(); const render = () => {}; let lastTrace = "";\n' + runtime.slice(start, end) +
     '\nconst originalTrace = trace; trace = (...args) => { traceSpy(...args); return originalTrace(...args); };\n' +
-    'initializeFamily(); return { proxyFor, proxyForRef, activateSemantic, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, disposeFamily, stopTimers, display:()=>display, stage:()=>stageHost, legacy:()=>legacyGlobals, timers:()=>timerHost, binary:()=>binaryHost, net:()=>netHost, bitmap:()=>bitmapHost, text:()=>textHost, audio:()=>audioHost, xml:()=>xmlHost, loader:()=>loaderHost, program:()=>program, lastTrace: () => lastTrace };'
+    'initializeFamily(); return { proxyFor, proxyForRef, activateSemantic, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, disposeFamily, stopTimers, display:()=>display, stage:()=>stageHost, legacy:()=>legacyGlobals, timers:()=>timerHost, binary:()=>binaryHost, net:()=>netHost, bitmap:()=>bitmapHost, text:()=>textHost, audio:()=>audioHost, xml:()=>xmlHost, loader:()=>loaderHost, amf:()=>amfHost, storage:()=>storageHost, program:()=>program, lastTrace: () => lastTrace };'
   )(player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args),
     globals, options.bundle, options.project || options.bundle?.project, options.context, kind=>`${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`, options.canvas, options.keyboardTarget);
   return { host, traceCalls, hostConsole, scriptConsole };

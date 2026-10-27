@@ -1,4 +1,5 @@
 //! Document model and deterministic authoring/runtime evaluation shared by desktop and web.
+mod amf;
 mod clipboard;
 mod demo;
 mod evaluate;
@@ -55,4 +56,9 @@ pub use xml::{
     MAX_XML_ATTRIBUTES, MAX_XML_BYTES, MAX_XML_DEPTH, MAX_XML_ITEMS, MAX_XML_NAME_BYTES,
     MAX_XML_STRING_BYTES, XmlAttribute, XmlDeclaration, XmlErrorKind, XmlName, XmlNode,
     XmlNodeKind, XmlParseError, XmlParseTree, parse_xml,
+};
+
+pub use amf::{
+    AmfDecoded, AmfError, AmfGraph, AmfNode, AmfValue, MAX_AMF_BYTES, MAX_AMF_JSON_BYTES,
+    amf_decode, amf_encode,
 };
