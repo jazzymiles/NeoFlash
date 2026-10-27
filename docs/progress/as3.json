@@ -22,12 +22,14 @@
       "id": "as3-literals",
       "title": "Literals",
       "status": "partial",
-      "scope": "Decimal, hexadecimal and exponent numbers; strings; Boolean, null, undefined, NaN and Infinity; arrays without holes and object literals.",
-      "limitations": "The full set of literals and historical Flash rules is not implemented; legacy numbers with leading zeroes are rejected.",
+      "scope": "Decimal, hexadecimal and exponent numbers; strings; Boolean, null, undefined, NaN and Infinity; arrays without holes and object literals. Static-name XML/XMLList literals with child and whole-attribute interpolation.",
+      "limitations": "The full set of literals and historical Flash rules is not implemented; legacy numbers with leading zeroes are rejected. XML dynamic names, namespace interpolation and partial-attribute holes remain unsupported.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "crates/neoflash-script/tests/execute.mjs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-script/src/actionscript/xml_literals.rs",
+        "crates/neoflash-script/tests/xml-catalog.mjs"
       ]
     },
     {
@@ -607,8 +609,8 @@
       "id": "as3-namespaces-e4x",
       "title": "Namespaces, XML and E4X",
       "status": "partial",
-      "scope": "XML/XMLList string construction, nullable typed slots, is/as and typed project/handler transfer; list indices/for-each, explicit traversal, copy/child mutation, simple versus markup serialization and shared static settings. Shared Rust parsing preserves namespace declarations and expanded names.",
-      "limitations": "XML literals/interpolation, @/../::/filter/default-namespace syntax, QName/Namespace mutation, implicit list targets and full E4X remain unfinished. Branded XML addition/equality/switch operands explicitly diagnose; explicit String/tree methods work. The namespace selector and insertion/coercion rules are bounded profiles. Restart retires wrappers/settings; limits and separate delivery evidence are documented in COMPATIBILITY/VERIFICATION. Independent per-declaration audit and original-player comparison remain separate.",
+      "scope": "XML/XMLList string construction, nullable typed slots, is/as and typed project/handler transfer; list indices/for-each, explicit traversal, copy/child mutation, simple versus markup serialization and shared static settings. Shared Rust parsing preserves namespace declarations and expanded names. E4X child/computed/attribute/descendant/qualified selectors, staged target-list edits, URI/local Namespace/QName values and static-name XML/XMLList literals with ordered holes.",
+      "limitations": "Filters, default XML namespace, class namespace declarations/use namespace, dynamic names and namespace/partial-attribute interpolation remain pending. Multi-parent/wildcard creation and direct descendant writes diagnose. XML/Namespace/QName equality and switch remain guarded; XML addition remains unsupported. Target memberships are snapshots and XML assignment/insertion copies. This is bounded useful E4X, not complete ECMA-357 or original-player conformance. Independent declaration acceptance remains separate.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "docs/COMPATIBILITY.md",
@@ -618,7 +620,11 @@
         "web/runtime.js",
         "crates/neoflash-script/tests/xml-catalog.mjs",
         "examples/xml-catalog.nflash",
-        "docs/decisions/0020-xml-tree-and-language-facades.md"
+        "docs/decisions/0020-xml-tree-and-language-facades.md",
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json",
+        "crates/neoflash-script/src/actionscript/xml_literals.rs",
+        "docs/decisions/0021-e4x-references-and-literals.md"
       ]
     },
     {

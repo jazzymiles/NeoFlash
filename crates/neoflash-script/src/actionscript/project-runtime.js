@@ -4,7 +4,7 @@ const __nfProgram = (() => {
     const accessorStates = new WeakMap();
     const elementDescriptors = new Map();
     const initialized = new WeakMap(), superMethods = new WeakMap(), failed = new WeakMap();
-    const builtins = { Object, Array: __nfArrayClass(true), Date: __nfDateClass(true), RegExp: __nfRegExpClass(true), JSON: __nfJSON, XML:__nfXML?.XML, XMLList:__nfXML?.XMLList, 'flash.utils.Dictionary':__nfDictionaryClass(true), ...__nfBuiltins };
+    const builtins = { Object, Array: __nfArrayClass(true), Date: __nfDateClass(true), RegExp: __nfRegExpClass(true), JSON: __nfJSON, XML:__nfXML?.XML, XMLList:__nfXML?.XMLList, Namespace:__nfXML?.Namespace, QName:__nfXML?.QName, 'flash.utils.Dictionary':__nfDictionaryClass(true), ...__nfBuiltins };
     function type(name) {
         const value = definitions.get(name)?.facade ?? interfaces.get(name) ?? builtins[name];
         if (value === undefined) throw new Error(`Project type ${name} has no runtime implementation.`);

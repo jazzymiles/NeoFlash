@@ -3,8 +3,12 @@
  * Contracts: AIR XML/XMLList; Adobe AS2 XML/XMLNode reference (open-flash mirror).
  * AS2 DOM insertion moves nodes. AS3 insertion copies XML/XMLList inputs, and
  * primitive input becomes text: an explicit profile, not historical SWF-version
- * insertion/aliasing conformance. QName mutation, E4X operators and native XML
- * subclassing are pending. Namespace names/declarations survive serialization.
+ * insertion/aliasing conformance. E4X equality/addition, filters/default-namespace scope and native XML
+ * subclassing are pending. Namespace/QName values are immutable in this profile.
+ * Target lists snapshot membership; selected nodes retain identity. XML inputs
+ * are copied on assignment, scalar named-child writes preserve the first named
+ * element. Ambiguous list writes diagnose before commit. Namespace names and
+ * declarations survive serialization, with generated prefixes when required.
  * Per publication: 50000 allocated nodes/declarations, 8MiB owned text/name data,
  * 1M list references, depth128; parser input1MiB, serialized output4MiB.
  * Detached nodes count until Restart, so held wrappers retain coherent identity.
@@ -26,10 +30,11 @@
     if(typeof parse!=='function')throw new TypeError('XML requires the shared Rust parse_xml_json service. Re-export this project.');
     let generation=1,disposed=false,nodeCount=0,stringBytes=0,listRefs=0,settings={...defaults};
     const nodes=new Set(),records=new WeakMap(),xmlWrappers=new WeakMap(),legacyWrappers=new WeakMap(),attributeWrappers=new WeakMap(),loads=new Set();
+    const namespaces=new WeakMap(),qnames=new WeakMap(),selectors=new WeakSet();
     function active(){if(disposed)throw new Error('XML service has been disposed.');}
     function state(value){active();const r=records.get(value);if(!r)throw new TypeError('Expected XML from this publication.');if(r.generation!==generation)throw new Error('XML belongs to a previous publication session.');return r;}
     const is=value=>records.has(value);
-    const kind=value=>records.get(value)?.kind||null;
+    const kind=value=>records.get(value)?.kind||(namespaces.has(value)?'namespace':qnames.has(value)?'qname':null);
     function units(n){return 1+n.declarations.length;}
     function bytes(n){return encoder.encode(n.value+(n.declaration||'')+(n.name?Object.values(n.name).join(''):'')+n.declarations.map(d=>d.prefix+d.uri).join('')).length;}
     function walk(roots){
@@ -106,14 +111,35 @@
     function stringOf(value){const r=state(value),list=r.nodes;if(list.length===1)return simple(list[0])?simpleText(list[0]):serialize(list);if(!list.length)return '';if(!list.some(n=>n.kind==='element'))return list.filter(simple).map(simpleText).join('');return serialize(list);}
     function single(value){const r=state(value);if(r.nodes.length!==1)throw new TypeError('This XML operation requires exactly one XMLList item.');return r.nodes[0];}
     function checkList(count){if(listRefs+count>MAX_REFS)throw new RangeError('XMLList snapshots exceed 1000000 retained references per publication.');}
-    function list(items){active();checkList(items.length);listRefs+=items.length;return facade('list',items.slice());}
+    function list(items,target=null){active();checkList(items.length);listRefs+=items.length;return facade('list',items.slice(),target);}
     function wrapped(n){active();if(!xmlWrappers.has(n))xmlWrappers.set(n,facade('xml',[n]));return xmlWrappers.get(n);}
-    function selector(value='*'){if(typeof value!=='string'||value.includes(':')||value.startsWith('@'))unsupported('QName/namespace selectors; use an empty-namespace name or *');return value;}
-    function matches(n,key){return key==='*'||(n.name&&n.name.uri===''&&n.name.local===key);}
+    function namespaceData(value){return namespaces.get(value);}
+    function qnameData(value){return qnames.get(value);}
+    function Namespace(prefix='',uri){
+      active();let p,u;if(arguments.length<2){const ns=namespaceData(prefix),qn=qnameData(prefix);u=ns?ns.uri:qn&&qn.uri!==null?qn.uri:text(prefix);p=ns?ns.prefix:u===''?'':undefined;}
+      else{u=text(uri);p=prefix===undefined?undefined:text(prefix);if(p){name(p);if(p==='xml'&&u!=='http://www.w3.org/XML/1998/namespace'||p==='xmlns')throw new TypeError('Reserved XML namespace prefix.');}if(!u&&p)throw new TypeError('An empty namespace URI requires an empty prefix.');}
+      const result=Object.create(Namespace.prototype);namespaces.set(result,{prefix:p,uri:u});return Object.freeze(result);
+    }
+    Object.defineProperties(Namespace.prototype,{prefix:{get(){const n=namespaceData(this);if(!n)throw new TypeError('Expected Namespace.');return n.prefix;}},uri:{get(){const n=namespaceData(this);if(!n)throw new TypeError('Expected Namespace.');return n.uri;}},toString:{value(){return this.uri;}},valueOf:{value(){return this.uri;}}});
+    function QName(uri='',local){
+      active();let q;if(arguments.length<2){const old=qnameData(uri);q=old?{...old}:{uri:uri==='*'?null:'',local:text(uri),prefix:undefined};}
+      else{const ns=namespaceData(uri),old=qnameData(local);q={uri:uri===null?null:ns?ns.uri:text(uri),local:old?old.local:text(local),prefix:ns?.prefix};}
+      const result=Object.create(QName.prototype);qnames.set(result,q);return Object.freeze(result);
+    }
+    Object.defineProperties(QName.prototype,{uri:{get(){const q=qnameData(this);if(!q)throw new TypeError('Expected QName.');return q.uri;}},localName:{get(){const q=qnameData(this);if(!q)throw new TypeError('Expected QName.');return q.local;}},toString:{value(){return this.uri===null?'*::'+this.localName:this.uri?this.uri+'::'+this.localName:this.localName;}},valueOf:{value(){return this;}}});
+    for(const[Type,predicate]of [[Namespace,v=>namespaces.has(v)],[QName,v=>qnames.has(v)]])Object.defineProperties(Type,{__nfIs:{value:predicate},__nfInitialize:{value:()=>unsupported('native subclassing')},[Symbol.hasInstance]:{value:predicate}});
+    function selector(local='*',namespace=undefined,attribute=false,descendant=false){
+      if(selectors.has(local)){if(namespace!==undefined||attribute||descendant)throw new TypeError('A selector descriptor cannot be nested.');return local;}
+      const q=qnameData(local),ns=namespaceData(namespace);let uri=namespace===null?null:namespace===undefined?(q?q.uri:local==='*'?null:''):ns?ns.uri:text(namespace);
+      const key=q?q.local:text(local);if(key.includes(':')||key.startsWith('@'))unsupported('colon/attribute strings as names; use QName or a compiled selector');
+      const result=Object.freeze({local:key,uri,prefix:ns?.prefix??q?.prefix,attribute:Boolean(attribute),descendant:Boolean(descendant)});selectors.add(result);return result;
+    }
+    const indexOfKey=key=>typeof key==='number'&&Number.isInteger(key)&&key>=0&&key<4294967295?key:typeof key==='string'&&/^(0|[1-9]\d*)$/.test(key)&&Number(key)<4294967295?Number(key):null;
+    function matches(n,key){return (key.local==='*'||n.name?.local===key.local)&&(key.uri===null||n.name?.uri===key.uri);}
     function selected(value,operation,arg){
       const source=state(value).nodes,result=[];
-      const index=operation==='child'&&((typeof arg==='number'&&Number.isInteger(arg)&&arg>=0)||(typeof arg==='string'&&/^(0|[1-9]\d*)$/.test(arg)))?Number(arg):null;
-      const key=index!==null||operation==='children'||operation==='text'||operation==='comments'?'*':selector(arg);
+      const index=operation==='child'?indexOfKey(arg):null;
+      const key=selector(index!==null||['children','text','comments','attributes'].includes(operation)?'*':arg===undefined?'*':arg);
       for(const n of source){
         if(index!==null){if(n.children[index])result.push(n.children[index]);continue;}
         const candidates=operation==='attributes'||operation==='attribute'?n.attributes:operation==='descendants'?descendants(n):n.children;
@@ -124,7 +150,126 @@
           if(matches(child,key))result.push(child);
         }
       }
-      return list(result);
+      const target=['child','elements','children','attribute','attributes'].includes(operation)&&index===null?{object:value,name:selector(key.local,key.uri,operation==='attribute'||operation==='attributes'),descendant:false}:null;
+      return list(result,target);
+    }
+    function select(value,key){
+      const r=state(value),s=selector(key);if(r.kind==='legacy')unsupported('E4X selection of legacy XMLNode');const result=[];
+      for(const n of r.nodes){const candidates=s.descendant?(s.attribute?[n,...descendants(n)].flatMap(v=>v.attributes):descendants(n)):s.attribute?n.attributes:n.children;
+        for(const child of candidates)if((s.attribute?child.kind==='attribute':s.local==='*'||child.kind==='element')&&matches(child,s))result.push(child);
+      }
+      return list(result,{object:value,name:s,descendant:s.descendant});
+    }
+    // A transaction stages edges, list membership and value changes. Existing node
+    // identity is retained; copied/new nodes are charged only after all checks pass.
+    function transaction(){
+      const created=new Set(),edges=new Map(),attrs=new Map(),values=new Map(),members=new Map(),parents=new Map();
+      const children=n=>edges.get(n)||n.children,attributes=n=>attrs.get(n)||n.attributes,items=r=>members.get(r)||r.nodes;
+      const track=n=>{for(const child of walk([n]))if(!nodes.has(child))created.add(child);return n;};
+      const setEdges=(n,next,attribute=false)=>{const old=attribute?attributes(n):children(n);for(const child of old)if(!next.includes(child))parents.set(child,null);for(const child of next)parents.set(child,n);(attribute?attrs:edges).set(n,next);};
+      return {children,attributes,items,track,setEdges,members,values,
+        commit(){
+          let count=0,size=0,extra=0,refs=0;for(const n of created){count+=units(n);size+=bytes(n);}
+          for(const[n,value]of values){extra+=encoder.encode(value).length-encoder.encode(n.value).length;}
+          for(const[r,next]of members)refs+=Math.max(0,next.length-r.nodes.length);
+          if(nodeCount+count>MAX_NODES||stringBytes+size+extra>MAX_BYTES)throw new RangeError('XML staged mutation exceeds publication allocation bounds.');checkList(refs);
+          for(const[n,next]of attrs)if(next.length+n.declarations.length>256)throw new RangeError('XML element exceeds 256 attributes/declarations.');
+          for(const n of created){let d=0,seen=new Set();for(let p=n;p;p=parents.has(p)?parents.get(p):p.parent){if(seen.has(p))throw new TypeError('XML mutation would create a cycle.');seen.add(p);if(p.kind==='element')d++;if(d>128)throw new RangeError('XML mutation exceeds 128 element levels.');}}
+          for(const n of created)nodes.add(n);nodeCount+=count;stringBytes+=size+extra;listRefs+=refs;
+          for(const[n,next]of edges)n.children=next;for(const[n,next]of attrs)n.attributes=next;for(const[n,value]of values)n.value=value;for(const[n,parent]of parents)n.parent=parent;for(const[r,next]of members)r.nodes=next;
+        }
+      };
+    }
+    function prepared(input){
+      if(is(input)){const r=state(input);if(r.kind==='legacy')unsupported('legacy DOM as an E4X assignment value');return {xml:true,items:r.nodes.map(n=>clone(n)),scalar:r.nodes.map(n=>simple(n)?simpleText(n):serialize([n])).join(' ')};}
+      return {xml:false,items:null,scalar:text(input)};
+    }
+    function logicalName(s,parent,attribute=false){
+      if(s.local==='*'||s.uri===null)throw new TypeError('Creating an XML target requires a concrete QName, not a wildcard.');
+      const base=name(s.local),uri=s.uri;let prefix=s.prefix;
+      if(!uri)return base;
+      if(uri==='http://www.w3.org/XML/1998/namespace')prefix='xml';
+      else if(uri==='http://www.w3.org/2000/xmlns/')throw new TypeError('Namespace declarations cannot be assigned as ordinary XML attributes.');
+      const bindings=new Map([['xml','http://www.w3.org/XML/1998/namespace']]);const ancestry=[];for(let p=parent;p;p=p.parent)ancestry.unshift(p);
+      for(const p of ancestry){for(const d of p.declarations)bindings.set(d.prefix,d.uri);if(p.name)bindings.set(p.name.prefix,p.name.uri);for(const a of p.attributes)if(a.name.prefix)bindings.set(a.name.prefix,a.name.uri);}
+      if(prefix&&bindings.has(prefix)&&bindings.get(prefix)!==uri)prefix=undefined;
+      if(prefix===undefined){for(const[p,u]of bindings)if(u===uri&&(!attribute||p)){prefix=p;break;}}
+      if(prefix===undefined||attribute&&!prefix){let i=1;while(bindings.has('ns'+i))i++;prefix=attribute?'ns'+i:'';}
+      return {qualified:prefix?prefix+':'+base.local:base.local,local:base.local,prefix,uri};
+    }
+    function sourceForWrite(value,tx,seen=new Set()){
+      const r=state(value),current=tx.items(r);if(current.length>1)throw new TypeError('E4X assignment has multiple target parents; select one XMLList item explicitly.');if(current.length)return current[0];
+      if(seen.size>=128)throw new RangeError('XML target resolution exceeds 128 levels.');if(seen.has(r)||!r.target||r.target.descendant)throw new TypeError('Empty XMLList has no unique writable target.');seen.add(r);
+      const s=r.target.name;if(s.attribute||s.local==='*'||s.uri===null)throw new TypeError('Empty wildcard/attribute XMLList cannot create a child parent.');
+      const parent=sourceForWrite(r.target.object,tx,seen);if(parent.kind!=='element')throw new TypeError('XML child target requires an element parent.');
+      const matching=tx.children(parent).filter(n=>n.kind==='element'&&matches(n,s));if(matching.length>1)throw new TypeError('Empty XMLList target resolves to multiple parents.');
+      const child=matching[0]||tx.track(node('element',logicalName(s,parent)));if(!matching.length)tx.setEdges(parent,[...tx.children(parent),child]);tx.members.set(r,[child]);return child;
+    }
+    function replaceMatches(tx,parent,s,content){
+      if(parent.kind!=='element')throw new TypeError('E4X child/attribute assignment requires an element.');
+      if(s.descendant)unsupported('direct descendant assignment; select an indexed item first');
+      if(s.attribute){
+        const old=tx.attributes(parent),matching=old.filter(n=>matches(n,s));if(s.local==='*'&&matching.length!==1)throw new TypeError('Wildcard attribute assignment requires exactly one existing attribute.');
+        const first=matching[0]||tx.track(node('attribute',logicalName(s,parent,true)));tx.values.set(first,content.scalar);
+        tx.setEdges(parent,[...old.filter(n=>!matching.includes(n)||n===first),...(matching.length?[]:[first])],true);return;
+      }
+      const old=tx.children(parent),matching=old.filter(n=>(s.local==='*'||n.kind==='element')&&matches(n,s));let replacement;
+      const scalar=!content.xml||content.items.length===1&&['text','attribute'].includes(content.items[0].kind);
+      if(scalar&&s.local!=='*'){
+        const element=matching[0]?.kind==='element'?matching[0]:tx.track(node('element',logicalName(s,parent)));
+        const child=content.scalar?tx.track(node('text',null,content.scalar)):null;tx.setEdges(element,child?[child]:[]);replacement=[element];
+      }else replacement=content.xml?content.items.map(n=>tx.track(n.kind==='attribute'?node('text',null,n.value):n)):content.scalar?[tx.track(node('text',null,content.scalar))]:[];
+      const position=matching.length?old.indexOf(matching[0]):old.length,next=old.filter(n=>!matching.includes(n));next.splice(position,0,...replacement);tx.setEdges(parent,next);
+    }
+    function writeIndex(value,index,input){
+      const content=prepared(input),r=state(value);if(r.kind!=='list')unsupported('indexed replacement of XML itself; use an XMLList selection');const tx=transaction(),items=tx.items(r).slice(),old=items[index];
+      if(old){
+        if(old.kind==='attribute'){tx.values.set(old,content.scalar);tx.commit();return input;}
+        if(!content.xml&&old.kind==='element'){const child=content.scalar?[tx.track(node('text',null,content.scalar))]:[];tx.setEdges(old,child);tx.commit();return input;}
+        const replacement=content.xml?content.items.map(n=>tx.track(n.kind==='attribute'?node('text',null,n.value):n)):[tx.track(node('text',null,content.scalar))];
+        if(old.parent){const siblings=tx.children(old.parent).slice(),at=siblings.indexOf(old);if(at<0)throw new TypeError('XMLList target is no longer a child of its recorded parent.');siblings.splice(at,1,...replacement);tx.setEdges(old.parent,siblings);}
+        items.splice(index,1,...replacement);tx.members.set(r,items);tx.commit();return input;
+      }
+      if(!r.target||r.target.descendant)throw new TypeError('Appending to this XMLList requires an unambiguous child target.');
+      const parent=sourceForWrite(r.target.object,tx),s=r.target.name;if(parent.kind!=='element')throw new TypeError('XMLList target requires an element parent.');
+      if(s.attribute){replaceMatches(tx,parent,s,content);tx.members.set(r,tx.attributes(parent).filter(n=>matches(n,s)));}
+      else{
+        let added;if(content.xml)added=content.items.map(n=>tx.track(n.kind==='attribute'?node('text',null,n.value):n));
+        else{const element=tx.track(node('element',logicalName(s,parent))),child=content.scalar?tx.track(node('text',null,content.scalar)):null;if(child)tx.setEdges(element,[child]);added=[element];}
+        const siblings=tx.children(parent).slice(),last=items.at(-1),at=last&&last.parent===parent?siblings.indexOf(last)+1:siblings.length;siblings.splice(at,0,...added);tx.setEdges(parent,siblings);tx.members.set(r,[...items,...added]);
+      }
+      tx.commit();return input;
+    }
+    function write(value,key,input){
+      const index=indexOfKey(key);if(index!==null)return writeIndex(value,index,input);
+      const s=selector(key),content=prepared(input);state(value);const tx=transaction(),parent=sourceForWrite(value,tx);replaceMatches(tx,parent,s,content);tx.commit();return input;
+    }
+    function remove(value,key){
+      const r=state(value),index=indexOfKey(key),tx=transaction();
+      if(index!==null){if(r.kind!=='list')unsupported('indexed deletion of XML itself; use an XMLList selection');const old=r.nodes[index];if(!old)return true;
+        if(old.parent)tx.setEdges(old.parent,(old.kind==='attribute'?tx.attributes(old.parent):tx.children(old.parent)).filter(n=>n!==old),old.kind==='attribute');tx.members.set(r,r.nodes.filter((_,i)=>i!==index));
+      }else{const s=selector(key);if(s.descendant)unsupported('direct descendant deletion; select an indexed item first');for(const parent of r.nodes){const old=s.attribute?tx.attributes(parent):tx.children(parent);tx.setEdges(parent,old.filter(n=>!((s.attribute||s.local==='*'||n.kind==='element')&&matches(n,s))),s.attribute);}}
+      tx.commit();return true;
+    }
+    function literal(ir,thunks){
+      active();const born=generation;
+      if(!ir||typeof ir.list!=='boolean'||!Array.isArray(ir.parts)||!Array.isArray(thunks)||ir.parts.length>2049||thunks.length>1024)throw new TypeError('Invalid bounded XML literal IR.');
+      const staticText=ir.parts.map(p=>typeof p.text==='string'?p.text:'').join('');let tag='__neoflash_xml_hole';while(staticText.includes(tag))tag+='_';
+      const replacements=new Map(),used=new Set(),pieces=[];let bytesTotal=0;
+      const emit=value=>{bytesTotal+=encoder.encode(value).length;if(bytesTotal>1024*1024)throw new RangeError('XML literal skeleton exceeds 1 MiB.');pieces.push(value);};
+      for(const part of ir.parts){
+        if(Object.hasOwn(part,'text')){if(typeof part.text!=='string'||Object.keys(part).length!==1)throw new TypeError('Invalid XML static literal part.');emit(part.text);continue;}
+        if(!Number.isInteger(part.hole)||part.hole<0||part.hole>=thunks.length||used.has(part.hole)||!['child','attribute'].includes(part.context)||typeof thunks[part.hole]!=='function')throw new TypeError('Invalid XML literal expression hole.');
+        used.add(part.hole);const input=thunks[part.hole]();if(disposed||generation!==born)throw new Error('XML literal evaluation crossed a publication reset.');
+        if(part.context==='attribute'){const content=is(input)?stringOf(input):text(input);emit('"'+escapeAttribute(text(content))+'"');}
+        else{const content=prepared(input);const children=content.xml?content.items.map(n=>n.kind==='attribute'?node('text',null,n.value):n):[node('text',null,content.scalar)];const marker=tag+'_'+part.hole;replacements.set(marker,children);emit('<'+marker+'/>');}
+        if(disposed||generation!==born)throw new Error('XML literal conversion crossed a publication reset.');
+      }
+      if(used.size!==thunks.length)throw new TypeError('XML literal contains unused expression holes.');
+      const result=parsed(pieces.join(''),{...settings,trim:settings.ignoreWhitespace});
+      const replace=children=>{const out=[];for(const n of children){const copy=n.kind==='element'?replacements.get(n.name.qualified):undefined;if(copy){out.push(...copy);replacements.delete(n.name.qualified);}else{n.children=replace(n.children);for(const child of n.children)child.parent=n;out.push(n);}}return out;};
+      result.roots=replace(result.roots);for(const n of result.roots)n.parent=null;if(replacements.size)throw new TypeError('XML literal expression markers were not preserved by parsing.');
+      if(!ir.list&&result.roots.length!==1)throw new TypeError('XML literal requires one root; use an XMLList fragment.');if(ir.list)checkList(result.roots.length);commit(result.roots);return ir.list?list(result.roots):wrapped(result.roots[0]);
     }
     function insert(value,input,mode){
       const parent=single(value);if(parent.kind!=='element')throw new TypeError('XML child insertion requires an element.');
@@ -167,11 +312,11 @@
       hasComplexContent:value=>{const items=state(value).nodes;return items.length===1?items[0].children.some(n=>n.kind==='element'):items.some(n=>n.kind==='element');},
       appendChild:(value,input)=>insert(value,input,'append'),prependChild:(value,input)=>insert(value,input,'prepend'),setChildren:(value,input)=>insert(value,input,'replace'),normalize,
     };
-    function facade(type,items){
-      const target=Object.create(type==='xml'?XML.prototype:XMLList.prototype),r={kind:type,nodes:items,generation,methods:new Map()};let value;
+    function facade(type,items,targetSelection=null){
+      const target=Object.create(type==='xml'?XML.prototype:XMLList.prototype),r={kind:type,nodes:items,generation,methods:new Map(),target:targetSelection};let value;
       value=new Proxy(target,{
         get(target,key){state(value);if(key===Symbol.toStringTag)return type==='xml'?'XML':'XMLList';if(key===Symbol.toPrimitive)return ()=>stringOf(value);if(typeof key==='symbol')return undefined;
-          if(/^(0|[1-9]\d*)$/.test(key))return items[Number(key)]?wrapped(items[Number(key)]):undefined;
+          if(/^(0|[1-9]\d*)$/.test(key))return r.nodes[Number(key)]?wrapped(r.nodes[Number(key)]):undefined;
           if(Object.hasOwn(xmlMethods,key)){if(!r.methods.has(key))r.methods.set(key,(...args)=>xmlMethods[key](value,...args));return r.methods.get(key);}
           if(key==='then')return undefined;unsupported(`property ${key}; use explicit child()/attribute() methods`);
         },
@@ -295,14 +440,14 @@
     for(const[Type,predicate]of [[XML,v=>records.get(v)?.kind==='xml'],[XMLList,v=>records.get(v)?.kind==='list'],[LegacyXML,v=>records.get(v)?.kind==='legacy'&&records.get(v).nodes[0].kind==='document'],[XMLNode,v=>records.get(v)?.kind==='legacy']])Object.defineProperties(Type,{__nfIs:{value:predicate},__nfInitialize:{value:()=>unsupported('native subclassing')},[Symbol.hasInstance]:{value:predicate}});
     function ref(value,key,as3){
       const r=state(value);if(r.kind==='legacy')return {get:()=>value[key],set:next=>{value[key]=next;return next;},delete:()=>Reflect.deleteProperty(value,key),has:()=>key in value};
-      if(!as3)unsupported('AS3 XML access from the AS2 DOM interface');const property=String(key);
-      return {get:()=>value[property],set:()=>unsupported('E4X property/index assignment'),delete:()=>unsupported('E4X delete'),has:()=>/^(0|[1-9]\d*)$/.test(property)?Number(property)<r.nodes.length:Object.hasOwn(xmlMethods,property)};
+      if(!as3)unsupported('AS3 XML access from the AS2 DOM interface');
+      return {get:()=>{const r=state(value),i=indexOfKey(key);return i===null?select(value,key):r.nodes[i]?wrapped(r.nodes[i]):undefined;},set:next=>write(value,key,next),delete:()=>remove(value,key),has:()=>{const r=state(value),i=indexOfKey(key);return i===null?state(select(value,key)).nodes.length>0:i<r.nodes.length;}};
     }
     function enumerate(value,values,as3){const r=state(value);if(r.kind==='legacy')unsupported('XMLNode enumeration; use childNodes or attributes');if(!as3)unsupported('AS3 XMLList iteration from AS2');const items=r.nodes.slice();return (function*(){for(let i=0;i<items.length;i++){state(value);yield values?wrapped(items[i]):String(i);}})();}
-    function method(value,key,as3){const fn=ref(value,key,as3).get();return(...args)=>Reflect.apply(fn,value,args);}
+    function method(value,key,as3){const r=state(value);if(r.kind==='legacy'){const fn=value[key];return(...args)=>Reflect.apply(fn,value,args);}if(!as3)unsupported('AS3 XML methods from AS2');if(typeof key!=='string'||!Object.hasOwn(xmlMethods,key))unsupported('method '+String(key));return(...args)=>xmlMethods[key](value,...args);}
     function reset(){active();for(const op of [...loads])cancel(op.record);generation++;nodes.clear();nodeCount=0;stringBytes=0;listRefs=0;settings={...defaults};}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({XML,XMLList,LegacyXML,XMLNode,is,kind,ref,enumerate,method,reset,dispose,stats:()=>({nodes:nodeCount,stringBytes,listRefs})});
+    return Object.freeze({XML,XMLList,LegacyXML,XMLNode,Namespace,QName,selector,select,literal,is,kind,ref,enumerate,method,reset,dispose,stats:()=>({nodes:nodeCount,stringBytes,listRefs})});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashXML=api;
 })(globalThis);

@@ -169,7 +169,7 @@ struct Header {
     interfaces: Vec<String>,
     is_interface: bool,
     imports: Vec<String>,
-    tokens: Vec<Token>,
+    tokens: TokenCursor,
     body: usize,
     packaged: bool,
 }
@@ -236,7 +236,7 @@ fn scalar_initializer(value: &Expr) -> bool {
     }
 }
 
-fn frontend(script: &Script, tokens: Vec<Token>, context: CompileContext) -> Frontend<'_> {
+fn frontend(script: &Script, tokens: TokenCursor, context: CompileContext) -> Frontend<'_> {
     Frontend {
         script,
         tokens,
@@ -287,11 +287,7 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
             "A source unit is limited to 1 MiB.",
         ));
     }
-    let tokens = Lexer {
-        script: &script,
-        offset: 0,
-    }
-    .tokens()?;
+    let tokens = TokenCursor::default();
     let mut p = frontend(&script, tokens, CompileContext::default());
     let as2 = script.language == ScriptLanguage::ActionScript2;
     if as2 && p.is("package") {
@@ -455,7 +451,16 @@ fn context(
     // Source classes/imports win over these top-level native names. In
     // particular, AS2 projects may define their own JSON or RegExp classes.
     for name in if language == ScriptLanguage::ActionScript3 {
-        &["Date", "RegExp", "JSON", "Vector", "XML", "XMLList"][..]
+        &[
+            "Date",
+            "RegExp",
+            "JSON",
+            "Vector",
+            "XML",
+            "XMLList",
+            "Namespace",
+            "QName",
+        ][..]
     } else {
         &["Date", "XML", "XMLNode"][..]
     } {
@@ -1346,7 +1351,7 @@ pub fn compile_with_program(
     ) {
         return crate::compile(script);
     }
-    let tokens = Lexer { script, offset: 0 }.tokens().map_err(|e| vec![e])?;
+    let tokens = TokenCursor::default();
     let mut p = frontend(script, tokens, CompileContext::default());
     let imported = imports(&mut p).map_err(|e| vec![e])?;
     let c = context(

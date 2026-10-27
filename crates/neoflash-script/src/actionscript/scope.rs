@@ -388,12 +388,12 @@ impl<'a> Analysis<'a> {
         }
         match expr {
             Expr::Name(name) if !direct_callee && self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3) && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"Native int/uint values are currently supported through direct conversion calls; class values and constructor aliases are outside this profile.")),
-            Expr::Delete(target,offset) if !matches!(target.as_ref(),Expr::Member(_,_)|Expr::Index(_,_)) => return Err(self.error(*offset,"delete requires a property or indexed element.")),
+            Expr::Delete(target,offset) if !matches!(target.as_ref(),Expr::Member(_,_)|Expr::Index(_,_)|Expr::XmlSelect{descendant:false,..}) => return Err(self.error(*offset,"delete requires a property or indexed element.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "Vector"|"Dictionary") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,format!("{name} is an AS3 native collection; AS2 user bindings/classes may use that name, but the native family is unavailable."))),
             Expr::Name(name) if name=="Vector" && self.context.intrinsic_type(name,self.script.language==ScriptLanguage::ActionScript3) && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"Vector requires a resolved element type: Vector.<T>. Untyped native Vector class values are unsupported.")),
             Expr::TypeValue(_,offset) | Expr::NewVector(_,_,offset) if self.resolve(scope,"Vector").is_some() => return Err(self.error(*offset,"A shadowed Vector value cannot act as the native generic class; use an unshadowed type name.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript3 && name=="XMLNode" && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"Bare XMLNode belongs to the AS2 legacy DOM profile. AS3 XML/XMLList are supported; flash.xml legacy aliases are not integrated yet.")),
-            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "RegExp" | "JSON" | "XMLList") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset, format!("{name} is an AS3 native family; AS2 has no native {name} in this profile. A declared user binding/class with that name is supported."))),
+            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "RegExp" | "JSON" | "XMLList" | "Namespace" | "QName") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset, format!("{name} is an AS3 native family; AS2 has no native {name} in this profile. A declared user binding/class with that name is supported."))),
             Expr::TypeTest(_, _, name, offset) if self.resolve(scope,name.split('.').next().unwrap()).is_some() => return Err(self.error(*offset, "is/as requires a resolved type name; a shadowed value or dynamic class alias is outside this profile.")),
             Expr::NewBuiltin(name, _, offset) if matches!(name.as_str(), "RegExp" | "JSON") && self.script.language == ScriptLanguage::ActionScript2 => return Err(self.error(*offset, format!("{name} is an AS3 native family, not an AS2 constructor."))),
             Expr::NewBuiltin(name, _, offset) if name == "JSON" => return Err(self.error(*offset, "JSON supplies parse/stringify static functions and is not constructible.")),
@@ -579,7 +579,16 @@ fn children(expr: &Expr) -> Vec<&Expr> {
         | Expr::TypeTest(_, v, _, _)
         | Expr::Delete(v, _) => vec![v],
         Expr::Index(a, b) | Expr::Binary(_, a, b) | Expr::Assign(_, a, b) => vec![a, b],
-        Expr::Array(v) => v.iter().collect(),
+        Expr::XmlSelect {
+            base,
+            local,
+            namespace,
+            ..
+        } => std::iter::once(base.as_ref())
+            .chain(namespace.as_deref())
+            .chain(std::iter::once(local.as_ref()))
+            .collect(),
+        Expr::Array(v) | Expr::XmlLiteral(_, v) => v.iter().collect(),
         Expr::Object(v) => v.iter().map(|(_, e)| e).collect(),
         Expr::Conditional(a, b, c) => vec![a, b, c],
         Expr::Call(c, a, _) => std::iter::once(c.as_ref()).chain(a.iter()).collect(),

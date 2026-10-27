@@ -604,7 +604,7 @@
       "title": "XML",
       "status": "partial",
       "scope": "XML/XMLNode constructors and strict shared Rust parsing; DOM traversal, individual attributes/text, clone/move/remove, serialization and namespace preservation. XML.load reuses URLLoader with legacy callbacks/byte counters and publication lifetime.",
-      "limitations": "This is a bounded XML1.0 UTF-8 profile, separate from XFL parsing. DTD/custom entities, declaration/namespace mutation, send/sendAndLoad and full legacy status/coercion/partial-tree recovery remain unsupported. Strict syntax/namespace/character failure sets -6 and preserves prior content; other unsupported forms diagnose. Detached nodes count against publication bounds until Restart. Combined delivery evidence does not imply independent per-declaration audit or original-player conformance.",
+      "limitations": "This is a bounded XML1.0 UTF-8 profile, separate from XFL parsing. DTD/custom entities, declaration/namespace mutation, send/sendAndLoad and full legacy status/coercion/partial-tree recovery remain unsupported. Strict syntax/namespace/character failure sets -6 and preserves prior content; other unsupported forms diagnose. Detached nodes count against publication bounds until Restart. Combined delivery evidence does not imply independent per-declaration audit or original-player conformance. Independent f4fcb71 evidence (XML-HTML5-20261027T0545Z) covers only the actual embedded-resource tree/catalog workflow, full logical-tree comparisons, copy/mutation/serialization and Restart in VERIFICATION.md. It does not imply byte-identical serialization syntax, full historical parser/coercion behavior or later E4X syntax. Direct parseXML remains needs_review: only malformed-input status -6 with the previous safe tree preserved was independently observed.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",
@@ -614,7 +614,9 @@
         "web/runtime.js",
         "crates/neoflash-script/tests/xml-catalog.mjs",
         "examples/xml-catalog.nflash",
-        "docs/decisions/0020-xml-tree-and-language-facades.md"
+        "docs/decisions/0020-xml-tree-and-language-facades.md",
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     }
   ]

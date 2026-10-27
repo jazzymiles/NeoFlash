@@ -2,12 +2,14 @@
 
 use crate::Diagnostic;
 use neoflash_core::{Script, ScriptLanguage};
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 mod completion;
 #[cfg(test)]
 mod control_tests;
 pub(crate) mod project;
 mod scope;
+mod xml_literals;
 
 #[derive(Clone, Default)]
 struct CompileContext {
@@ -26,7 +28,11 @@ struct CompileContext {
 impl CompileContext {
     fn intrinsic_type(&self, name: &str, as3: bool) -> bool {
         (matches!(name, "Date" | "XML")
-            || (as3 && matches!(name, "RegExp" | "JSON" | "Vector" | "XMLList"))
+            || (as3
+                && matches!(
+                    name,
+                    "RegExp" | "JSON" | "Vector" | "XMLList" | "Namespace" | "QName"
+                ))
             || (!as3 && name == "XMLNode"))
             && (!self.project || self.intrinsic_types.contains(name))
     }
@@ -54,12 +60,14 @@ enum Kind {
     String(String),
     Punct(&'static str),
     End,
+    Invalid(Diagnostic),
 }
 
 #[derive(Clone, Debug)]
 struct Token {
     kind: Kind,
     offset: usize,
+    end: usize,
 }
 
 struct Lexer<'a> {
@@ -79,8 +87,7 @@ impl<'a> Lexer<'a> {
     fn error(&self, offset: usize, message: impl Into<String>) -> Diagnostic {
         Diagnostic::at(self.script, offset, message)
     }
-    fn tokens(mut self) -> Result<Vec<Token>, Diagnostic> {
-        let mut tokens = Vec::new();
+    fn next_token(&mut self) -> Result<Token, Diagnostic> {
         while !self.rest().is_empty() {
             if self.rest().starts_with(char::is_whitespace) {
                 self.bump();
@@ -201,19 +208,78 @@ impl<'a> Lexer<'a> {
                 self.offset += operator.len();
                 Kind::Punct(operator)
             };
-            tokens.push(Token {
+            return Ok(Token {
                 kind,
                 offset: start,
+                end: self.offset,
             });
-            if tokens.len() > 100_000 {
-                return Err(self.error(start, "Script exceeds the 100,000-token limit."));
-            }
         }
-        tokens.push(Token {
+        Ok(Token {
             kind: Kind::End,
             offset: self.offset,
+            end: self.offset,
+        })
+    }
+}
+
+// Buffered on demand: the parser decides when '<' starts an XML literal.
+// XML content is never lexed as ActionScript ahead of that decision.
+#[derive(Clone, Default)]
+struct TokenCursor {
+    buffer: RefCell<Vec<Token>>,
+    offset: Cell<usize>,
+    produced: Cell<usize>,
+}
+impl TokenCursor {
+    fn get(&self, script: &Script, index: usize) -> Option<Token> {
+        let mut buffer = self.buffer.borrow_mut();
+        while buffer.len() <= index {
+            if buffer
+                .last()
+                .is_some_and(|t| matches!(t.kind, Kind::End | Kind::Invalid(_)))
+            {
+                return None;
+            }
+            let mut lexer = Lexer {
+                script,
+                offset: self.offset.get(),
+            };
+            let result = if self.produced.get() >= 100_000 {
+                Err(Diagnostic::at(
+                    script,
+                    lexer.offset,
+                    "Script exceeds the 100,000-token limit.",
+                ))
+            } else {
+                lexer.next_token()
+            };
+            self.produced.set(self.produced.get() + 1);
+            let token = result.unwrap_or_else(|error| Token {
+                kind: Kind::Invalid(error),
+                offset: lexer.offset,
+                end: lexer.offset,
+            });
+            self.offset.set(lexer.offset);
+            buffer.push(token);
+        }
+        buffer.get(index).cloned()
+    }
+    fn split(&self, index: usize, kind: Kind) {
+        let mut buffer = self.buffer.borrow_mut();
+        buffer[index].kind = kind;
+        buffer[index].offset += 1;
+    }
+    fn jump(&self, index: usize, offset: usize) {
+        self.buffer.borrow_mut().truncate(index);
+        self.offset.set(offset);
+    }
+    fn literal(&self, index: usize, start: usize, end: usize) {
+        self.jump(index, end);
+        self.buffer.borrow_mut().push(Token {
+            kind: Kind::String(String::new()),
+            offset: start,
+            end,
         });
-        Ok(tokens)
     }
 }
 
@@ -223,6 +289,14 @@ enum Expr {
     Name(String),
     Member(Box<Expr>, String),
     Index(Box<Expr>, Box<Expr>),
+    XmlSelect {
+        base: Box<Expr>,
+        local: Box<Expr>,
+        namespace: Option<Box<Expr>>,
+        attribute: bool,
+        descendant: bool,
+    },
+    XmlLiteral(String, Vec<Expr>),
     Array(Vec<Expr>),
     Object(Vec<(PropertyKey, Expr)>),
     Unary(String, Box<Expr>),
@@ -294,7 +368,16 @@ impl Expr {
             Self::Index(a, b) | Self::Binary(_, a, b) | Self::Assign(_, a, b) => {
                 a.depth().max(b.depth())
             }
-            Self::Array(v) => v.iter().map(Self::depth).max().unwrap_or(0),
+            Self::XmlSelect {
+                base,
+                local,
+                namespace,
+                ..
+            } => base
+                .depth()
+                .max(local.depth())
+                .max(namespace.as_deref().map_or(0, Self::depth)),
+            Self::Array(v) | Self::XmlLiteral(_, v) => v.iter().map(Self::depth).max().unwrap_or(0),
             Self::Object(v) => v.iter().map(|(_, e)| e.depth()).max().unwrap_or(0),
             Self::Conditional(a, b, c) => a.depth().max(b.depth()).max(c.depth()),
             Self::Call(c, args, _) => c
@@ -311,6 +394,7 @@ impl Expr {
             // Writes to globals are checked after lexical scope resolution.
             Self::Name(name) => name != "this",
             Self::Member(_, _) | Self::Index(_, _) => true,
+            Self::XmlSelect { descendant, .. } => !descendant,
             _ => false,
         }
     }
@@ -339,7 +423,7 @@ enum Stmt {
 
 struct Frontend<'a> {
     script: &'a Script,
-    tokens: Vec<Token>,
+    tokens: TokenCursor,
     pos: usize,
     depth: usize,
     controls: Vec<ControlTarget>,
@@ -350,8 +434,11 @@ struct Frontend<'a> {
 }
 
 impl<'a> Frontend<'a> {
-    fn token(&self) -> &Token {
-        &self.tokens[self.pos]
+    fn peek(&self, index: usize) -> Option<Token> {
+        self.tokens.get(self.script, index)
+    }
+    fn token(&self) -> Token {
+        self.peek(self.pos).expect("parser does not consume EOF")
     }
     fn is(&self, text: &str) -> bool {
         match &self.token().kind {
@@ -376,7 +463,12 @@ impl<'a> Frontend<'a> {
         }
     }
     fn error(&self, message: impl Into<String>) -> Diagnostic {
-        Diagnostic::at(self.script, self.token().offset, message)
+        let token = self.token();
+        if let Kind::Invalid(error) = token.kind {
+            error
+        } else {
+            Diagnostic::at(self.script, token.offset, message)
+        }
     }
     fn ident(&mut self) -> Result<String, Diagnostic> {
         if let Kind::Ident(name) = &self.token().kind {
@@ -405,7 +497,7 @@ impl<'a> Frontend<'a> {
     }
     fn line_break_before_token(&self) -> bool {
         self.pos > 0
-            && self.script.source[self.tokens[self.pos - 1].offset..self.token().offset]
+            && self.script.source[self.peek(self.pos - 1).unwrap().end..self.token().offset]
                 .contains(['\n', '\r', '\u{2028}', '\u{2029}'])
     }
     fn statements(&mut self, block: bool) -> Result<Vec<Stmt>, Diagnostic> {
@@ -427,8 +519,7 @@ impl<'a> Frontend<'a> {
     fn statement_inner(&mut self) -> Result<Stmt, Diagnostic> {
         if matches!(self.token().kind, Kind::Ident(_))
             && self
-                .tokens
-                .get(self.pos + 1)
+                .peek(self.pos + 1)
                 .is_some_and(|t| t.kind == Kind::Punct(":"))
         {
             if self.script.language != ScriptLanguage::ActionScript3 {
@@ -447,15 +538,14 @@ impl<'a> Frontend<'a> {
             }
             self.expect(":")?;
             let mut at = self.pos;
-            while matches!(self.tokens.get(at).map(|t| &t.kind), Some(Kind::Ident(_)))
+            while matches!(self.peek(at).map(|t| t.kind), Some(Kind::Ident(_)))
                 && self
-                    .tokens
-                    .get(at + 1)
+                    .peek(at + 1)
                     .is_some_and(|t| t.kind == Kind::Punct(":"))
             {
                 at += 2;
             }
-            let iteration = matches!(self.tokens.get(at).map(|t| &t.kind), Some(Kind::Ident(s)) if matches!(s.as_str(), "for" | "while" | "do"));
+            let iteration = matches!(self.peek(at).map(|t| t.kind), Some(Kind::Ident(s)) if matches!(s.as_str(), "for" | "while" | "do"));
             self.controls.push(ControlTarget {
                 label: Some(name.clone()),
                 iteration,
@@ -812,7 +902,7 @@ impl<'a> Frontend<'a> {
         while self.is(".")
             && (self.context.project
                 || matches!(
-                    self.tokens.get(self.pos + 1).map(|t| &t.kind),
+                    self.peek(self.pos + 1).map(|t| t.kind),
                     Some(Kind::Punct("<"))
                 ))
         {
@@ -854,8 +944,7 @@ impl<'a> Frontend<'a> {
             Kind::Punct(">>>=") => ">>=",
             _ => return Err(self.error("Expected '>' after the Vector element type.")),
         };
-        self.tokens[self.pos].kind = Kind::Punct(rest);
-        self.tokens[self.pos].offset += 1;
+        self.tokens.split(self.pos, Kind::Punct(rest));
         Ok(())
     }
     fn supported_type(&self, name: &str, returns: bool) -> bool {
@@ -891,7 +980,7 @@ impl<'a> Frontend<'a> {
         let accessor = if member
             && (self.is("get") || self.is("set"))
             && matches!(
-                self.tokens.get(self.pos + 1).map(|token| &token.kind),
+                self.peek(self.pos + 1).map(|token| token.kind),
                 Some(Kind::Ident(_))
             ) {
             let kind = self.ident()?;
@@ -964,6 +1053,66 @@ impl<'a> Frontend<'a> {
             accessor,
         ))
     }
+    fn xml_name(&mut self) -> Result<Expr, Diagnostic> {
+        if self.eat("[") {
+            let name = self.expression(0)?;
+            self.expect("]")?;
+            Ok(name)
+        } else if self.eat("*") {
+            Ok(Expr::Literal("\"*\"".into()))
+        } else {
+            Ok(Expr::Literal(format!("{:?}", self.ident()?)))
+        }
+    }
+    fn xml_selector(&mut self, base: Expr, descendant: bool) -> Result<Expr, Diagnostic> {
+        if self.script.language != ScriptLanguage::ActionScript3 {
+            return Err(self.error("E4X selectors require AS3; use AS2 XMLNode DOM methods."));
+        }
+        let attribute = self.eat("@");
+        let first = self.xml_name()?;
+        let (local, namespace) = if self.eat("::") {
+            let namespace=match &first {
+                Expr::Literal(value) if value=="\"*\""=>Expr::Literal("null".into()),
+                Expr::Literal(value)=>Expr::Name(serde_json::from_str(value).map_err(|_|self.error("Invalid namespace identifier."))?),
+                _=>return Err(self.error("Computed namespace qualifiers are outside this selector profile; use an explicit QName value in brackets.")),
+            };
+            (self.xml_name()?, Some(Box::new(namespace)))
+        } else {
+            (first, None)
+        };
+        Ok(Expr::XmlSelect {
+            base: Box::new(base),
+            local: Box::new(local),
+            namespace,
+            attribute,
+            descendant,
+        })
+    }
+    fn xml_literal(&mut self) -> Result<Expr, Diagnostic> {
+        if self.script.language != ScriptLanguage::ActionScript3 {
+            return Err(self.error("XML literals require AS3; use the AS2 XML constructor."));
+        }
+        let start = self.token().offset;
+        let position = self.pos;
+        let script = self.script;
+        let mut holes = Vec::new();
+        let literal = xml_literals::scan(script, start, |at| {
+            self.tokens.jump(self.pos, at);
+            let outer_no_in = self.no_in;
+            self.no_in = false;
+            let value = self.expression(0)?;
+            self.no_in = outer_no_in;
+            let close = self.token();
+            self.expect("}")?;
+            holes.push(value);
+            Ok(close.end)
+        })?;
+        let encoded = serde_json::to_string(&literal)
+            .map_err(|_| self.error("XML literal template could not be encoded."))?;
+        self.tokens.literal(position, start, literal.end);
+        self.pos = position + 1;
+        Ok(Expr::XmlLiteral(encoded, holes))
+    }
     fn expression(&mut self, min_bp: u8) -> Result<Expr, Diagnostic> {
         self.enter()?;
         let result = self.expression_inner(min_bp)?;
@@ -981,9 +1130,17 @@ impl<'a> Frontend<'a> {
             self.pos += 1;
             Expr::Unary(operator, Box::new(self.expression(25)?))
         } else if self.eat("delete") {
-            let offset = self.tokens[self.pos - 1].offset;
+            let offset = self.peek(self.pos - 1).unwrap().offset;
             let operand = self.expression(25)?;
-            if !matches!(operand, Expr::Member(_, _) | Expr::Index(_, _)) {
+            if !matches!(
+                operand,
+                Expr::Member(_, _)
+                    | Expr::Index(_, _)
+                    | Expr::XmlSelect {
+                        descendant: false,
+                        ..
+                    }
+            ) {
                 return Err(self.error("delete requires a property or indexed element; deleting lexical bindings is unsupported."));
             }
             Expr::Delete(Box::new(operand), offset)
@@ -1004,13 +1161,17 @@ impl<'a> Frontend<'a> {
                     "Expression exceeds 128 nested operations; split it into smaller expressions.",
                 ));
             }
+            if min_bp <= 30 && self.eat("..") {
+                lhs = self.xml_selector(lhs, true)?;
+                continue;
+            }
             if min_bp <= 30 && self.eat(".") {
                 if self.eat("<") {
                     if !matches!(&lhs,Expr::Name(name) if name=="Vector" && self.context.intrinsic_type(name,self.script.language==ScriptLanguage::ActionScript3))
                     {
                         return Err(self.error("Only the unshadowed AS3 Vector.<T> native type supports type parameters."));
                     }
-                    let offset = self.tokens[self.pos - 1].offset;
+                    let offset = self.peek(self.pos - 1).unwrap().offset;
                     let element = self.type_name()?;
                     if !self.supported_type(&element, false) {
                         return Err(
@@ -1019,6 +1180,18 @@ impl<'a> Frontend<'a> {
                     }
                     self.type_close()?;
                     lhs = Expr::TypeValue(format!("Vector.<{element}>"), offset);
+                    continue;
+                }
+                if self.is("(") {
+                    return Err(self.error("E4X filters require an XML predicate scope not implemented yet; use explicit for each and conditions."));
+                }
+                if self.is("@")
+                    || self.is("*")
+                    || self
+                        .peek(self.pos + 1)
+                        .is_some_and(|t| t.kind == Kind::Punct("::"))
+                {
+                    lhs = self.xml_selector(lhs, false)?;
                     continue;
                 }
                 lhs = Expr::Member(Box::new(lhs), self.ident()?);
@@ -1120,10 +1293,13 @@ impl<'a> Frontend<'a> {
         match &self.token().kind {
             Kind::Ident(s) | Kind::Number(s) | Kind::String(s) => s.clone(),
             Kind::Punct(s) => s.to_string(),
-            Kind::End => String::new(),
+            Kind::End | Kind::Invalid(_) => String::new(),
         }
     }
     fn primary(&mut self) -> Result<Expr, Diagnostic> {
+        if self.is("<") {
+            return self.xml_literal();
+        }
         if self.eat("new") {
             let offset = self.token().offset;
             let name = self.type_name()?;
@@ -1261,6 +1437,8 @@ impl<'a> Frontend<'a> {
                         | "XML"
                         | "XMLList"
                         | "XMLNode"
+                        | "Namespace"
+                        | "QName"
                 ) || is_timeline_method(name)
             }
             Expr::Member(base, name) if matches!(base.as_ref(), Expr::Name(n) if n == "Math") => {
@@ -1618,7 +1796,9 @@ impl Emitter<'_> {
             Some("Array") => format!(
                 "((__nfValue) => {{ if (__nfValue == null || __nfArrayIsArray(__nfValue)) return __nfValue == null ? null : __nfValue; throw new __nfTypeError('AS3 Array value required'); }})({value})"
             ),
-            Some(ty @ ("XML" | "XMLList")) if self.analysis.context.intrinsic_type(ty, true) => {
+            Some(ty @ ("XML" | "XMLList" | "Namespace" | "QName"))
+                if self.analysis.context.intrinsic_type(ty, true) =>
+            {
                 format!("__nfXMLCast({ty:?}, {value})")
             }
             Some(ty @ ("Date" | "RegExp")) if self.analysis.context.intrinsic_type(ty, true) => {
@@ -1697,7 +1877,7 @@ impl Emitter<'_> {
         if self.analysis.resolve(self.scope, name).is_none()
             && self.analysis.context.intrinsic_type(name, self.as3)
         {
-            return if matches!(name, "XML" | "XMLList" | "XMLNode") {
+            return if matches!(name, "XML" | "XMLList" | "XMLNode" | "Namespace" | "QName") {
                 format!("__nfXMLClass({name:?}, {})", self.as3)
             } else if name == "JSON" {
                 "__nfJSON".into()
@@ -1753,7 +1933,7 @@ impl Emitter<'_> {
             Some("Number") => "NaN",
             Some("Boolean") => "false",
             Some("String" | "Function" | "Object" | "Array") => "null",
-            Some(ty @ ("Date" | "RegExp" | "XML" | "XMLList"))
+            Some(ty @ ("Date" | "RegExp" | "XML" | "XMLList" | "Namespace" | "QName"))
                 if self.analysis.context.intrinsic_type(ty, true) =>
             {
                 "null"
@@ -1841,6 +2021,31 @@ impl Emitter<'_> {
                 self.expression(base),
                 self.as3
             )),
+            Expr::XmlSelect {
+                base,
+                local,
+                namespace,
+                attribute,
+                descendant,
+            } => {
+                let selector = if let Some(namespace) = namespace {
+                    format!(
+                        "((__nfNamespace,__nfLocal)=>__nfXML.selector(__nfLocal,__nfNamespace,{attribute},{descendant}))({}, {})",
+                        self.expression(namespace),
+                        self.expression(local)
+                    )
+                } else {
+                    format!(
+                        "__nfXML.selector({},undefined,{attribute},{descendant})",
+                        self.expression(local)
+                    )
+                };
+                Some(format!(
+                    "__nfXML.ref({}, {selector}, {})",
+                    self.expression(base),
+                    self.as3
+                ))
+            }
             Expr::Index(base, key) => Some(format!(
                 "__nfContainerRef({}, {}, {})",
                 self.expression(base),
@@ -1891,6 +2096,18 @@ impl Emitter<'_> {
             return format!("__nfProgram.type({qname:?})");
         }
         match expr {
+            Expr::XmlLiteral(template, holes) => format!(
+                "__nfXML.literal({template}, [{}])",
+                holes
+                    .iter()
+                    .map(|hole| format!("()=>({})", self.expression(hole)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Expr::XmlSelect { .. } => format!(
+                "({}).get()",
+                self.reference(expr).expect("XML selector ref")
+            ),
             Expr::TypeValue(ty, _) => self.vector_type(ty),
             Expr::NewVector(ty, args, _) => format!(
                 "new ({})({})",
@@ -1923,7 +2140,10 @@ impl Emitter<'_> {
                     .join(", ")
             ),
             Expr::NewBuiltin(name, args, _)
-                if matches!(name.as_str(), "XML" | "XMLList" | "XMLNode") =>
+                if matches!(
+                    name.as_str(),
+                    "XML" | "XMLList" | "XMLNode" | "Namespace" | "QName"
+                ) =>
             {
                 format!(
                     "new (__nfXMLClass({name:?}, {}))({})",
@@ -1998,7 +2218,7 @@ impl Emitter<'_> {
             Expr::TypeTest(op, value, ty, _) => {
                 let predicate = if vector_element(ty).is_some() {
                     format!("{}.__nfIs(__nfValue)", self.vector_type(ty))
-                } else if matches!(ty.as_str(), "XML" | "XMLList")
+                } else if matches!(ty.as_str(), "XML" | "XMLList" | "Namespace" | "QName")
                     && self.analysis.context.intrinsic_type(ty, true)
                 {
                     format!("__nfXMLClass({ty:?}, true).__nfIs(__nfValue)")
@@ -2021,7 +2241,11 @@ impl Emitter<'_> {
                 )
             }
             Expr::Assign(op, left, right) => {
-                let target = self.lvalue(left);
+                let target = if matches!(left.as_ref(), Expr::XmlSelect { .. }) {
+                    String::new()
+                } else {
+                    self.lvalue(left)
+                };
                 let value = self.expression(right);
                 if !self.as3 && op == "=" {
                     let callback = match left.as_ref() {
@@ -2168,8 +2392,10 @@ impl Emitter<'_> {
                             if name == "int" { "|" } else { ">>>" }
                         );
                     }
-                    if matches!(name.as_str(), "XML" | "XMLList" | "XMLNode")
-                        && self.analysis.context.intrinsic_type(name, self.as3)
+                    if matches!(
+                        name.as_str(),
+                        "XML" | "XMLList" | "XMLNode" | "Namespace" | "QName"
+                    ) && self.analysis.context.intrinsic_type(name, self.as3)
                     {
                         return format!(
                             "(__nfXMLClass({name:?}, {}))({})",
@@ -2545,14 +2771,14 @@ function __nfXMLCast(name,value) {
 function __nfXMLSwitch(value) {
     if(typeof __nfXML!=='undefined'&&__nfXML) {
         const kind=__nfXML.kind(value);
-        if(kind==='xml'||kind==='list')throw new __nfTypeError('E4X XML switch equality is not implemented; explicitly convert the selector and case values.');
+        if(kind==='xml'||kind==='list'||kind==='namespace'||kind==='qname')throw new __nfTypeError('E4X XML switch equality is not implemented; explicitly convert the selector and case values.');
     }
     return value;
 }
 function __nfXMLBinary(op,left,right) {
     if(typeof __nfXML!=='undefined'&&__nfXML) {
         const a=__nfXML.kind(left),b=__nfXML.kind(right);
-        if(a==='xml'||a==='list'||b==='xml'||b==='list')throw new __nfTypeError('E4X XML addition and equality are not implemented; explicitly convert content with String()/toXMLString() before comparing or combining it.');
+        if(a==='xml'||a==='list'||b==='xml'||b==='list'||(op!=='+'&&(a==='namespace'||a==='qname'||b==='namespace'||b==='qname')))throw new __nfTypeError('E4X XML addition and equality are not implemented; explicitly convert content with String()/toXMLString() before comparing or combining it.');
     }
     switch(op){case '+':return left+right;case '==':return left==right;case '!=':return left!=right;case '===':return left===right;case '!==':return left!==right;}
     throw new __nfTypeError('Unsupported XML operator.');
@@ -2573,7 +2799,7 @@ function __nfPrimitiveDescriptor(name) {
       case 'Object':token=__nfObjectType;coerce=nullable;break;
       case 'Function':token=__nfFunctionType;coerce=value=>{if(value==null)return null;if(typeof value==='function')return value;throw new __nfTypeError('AS3 Function value required');};break;
       case 'Array':token=__nfArrayType;coerce=value=>{if(value==null)return null;if(__nfArrayIsArray(value))return value;throw new __nfTypeError('AS3 Array value required');};break;
-      case 'XML':case 'XMLList':token=__nfXMLClass(name,true);coerce=value=>__nfXMLCast(name,value);break;
+      case 'XML':case 'XMLList':case 'Namespace':case 'QName':token=__nfXMLClass(name,true);coerce=value=>__nfXMLCast(name,value);break;
       case 'Date':token=__nfDateNative;coerce=__nfDateCast;break;
       case 'RegExp':token=Symbol.for('neoflash.vector.element.RegExp');coerce=value=>{if(value==null)return null;if(__nfRegExpIs(value))return value;throw new __nfTypeError('AS3 RegExp value required');};break;
       default:
@@ -2605,7 +2831,7 @@ function __nfMemberMethod(receiver, key, as3) {
 }
 
 fn compile_context(script: &Script, context: CompileContext) -> Result<String, Diagnostic> {
-    let tokens = Lexer { script, offset: 0 }.tokens()?;
+    let tokens = TokenCursor::default();
     let mut parser = Frontend {
         script,
         tokens,
@@ -2720,7 +2946,7 @@ mod tests {
     #[test]
     fn missing_compatibility_features_fail_explicitly() {
         for source in [
-            "var x:XML = <a/>;",
+            "var x:XML = <a/>; x.(@id==1);",
             "x = y is String;",
             "on(release) { play(); }",
             "getURL('https://example.com');",

@@ -76,4 +76,4 @@ These families use captured browser-backed adapters. Regex patterns currently us
 
 ## XML catalogs
 
-[xml-catalog.nflash](../examples/xml-catalog.nflash) loads one portable XML resource through AS3 URLLoader and AS2 XML.load. The AS3 side traverses XMLList values, copies an item and serializes a new tree; the AS2 side clones, moves and removes DOM nodes. Both retain namespace declarations and decoded entity text. Update both catalogs and Restart exercise publication lifetime. This bounded data API is separate from unfinished E4X syntax and full historical XML semantics.
+[xml-catalog.nflash](../examples/xml-catalog.nflash) loads one portable XML resource through AS3 URLLoader and AS2 XML.load. The AS3 side uses E4X selectors, edits target lists, inserts XML/XMLList literals and serializes a new tree; the AS2 side clones, moves and removes DOM nodes. Both retain namespace declarations and decoded entity text. Update both catalogs and Restart exercise publication lifetime. Filters, scoped default XML namespace and complete historical XML/E4X semantics remain pending.

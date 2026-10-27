@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added an E4X source layer: child/attribute/descendant/qualified selectors, editable target lists, Namespace/QName values and XML/XMLList literals with ordered interpolation. A buffered lexer handles XML text inside handlers and project methods. Staged edits reject ambiguous targets without changing the tree; the existing catalog workflow now combines these features with the AS2 DOM regression. Filters, scoped default namespaces and full XML/value equality remain explicit follow-ups.
+
+- Independently verified the f4fcb71 XML delivery: exact embedded catalog bytes, AS2/AS3 tree copy/mutation/serialization, Unicode and namespace preservation across fifteen independently parsed trees, visible updates, adjacent diagnostics and Restart. Direct failure-only/delegated APIs remain needs_review; E4X syntax and operators are not inferred. One five-project browser batch preserves typed collections, Transform, text and earlier collections.
+
 - Added shared bounded Rust XML parsing, AS2 XML/XMLNode DOM and AS3 XML/XMLList data facades: portable loading, traversal, copied/moved trees, serialization and publication lifetime. XML settings and typed values cross handler/project boundaries. Namespaces survive roundtrip; unsupported E4X and declarations diagnose. AS3 int()/uint() conversions support common data-processing source with existing numeric coercions.
 
 - Independently verified the 6396fd0 typed collection delivery: class Vector/Dictionary models drive live inventory cards and JSON with preserved identity/listeners through reuse, bounded fixed/bounds/type refusals, strong key controls and Restart. One five-project browser batch preserves Transform, text, data and collection behavior. Weak GC, arbitrary mutation/reentry/order and native enumeration remain outside the evidence.

@@ -3,11 +3,11 @@
     {
       "id": "xml-catalog",
       "path": "examples/xml-catalog.nflash",
-      "title": "AS2 XML DOM and AS3 XML/XMLList catalog",
+      "title": "E4X selectors, editable XMLList targets and literals",
       "checks": [
-        "Both loaders show three catalog items and stock13, including decoded Film & frames. Both serialized trees retain the meta namespace.",
-        "Update both catalogs twice: AS3 copies the original and appends a fourth item (stock17, original still3); AS2 clones/moves/removes items (stock14 then13). The two models remain independent.",
-        "Malformed/DOCTYPE flags stay true; Restart restores three records/stock13 and the next update runs revision1 once."
+        "Both loaders show three catalog items and stock13, with namespace metadata and decoded entity text.",
+        "Update twice: AS3 edits attributes, creates a missing delivery node, replaces/deletes selected items and inserts a two-item literal fragment. Stock becomes15 then17; original stays3 items. AS2 DOM stock remains14 then13.",
+        "Literal order is ATB; escaped text stays text; child length and length() differ; ambiguous multi-parent edit is refused without changing the tree. Restart restores initial data and the next update runs revision1 once."
       ]
     },
     {

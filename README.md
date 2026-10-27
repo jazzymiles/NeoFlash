@@ -13,8 +13,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 281 | 1,902 | 109 |
-| AS3 | 43,740 | 15 | 417 | 43,076 | 232 |
+| AS2 | 2,307 | 15 | 301 | 1,881 | 110 |
+| AS3 | 43,740 | 15 | 425 | 43,074 | 226 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -127,7 +127,7 @@ Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two indep
 
 [typed-collections.nflash](examples/typed-collections.nflash) connects Vector models with Dictionary keys that retain linked-card identity. Process a batch to update stock, reuse a card and regenerate JSON through public model getters. An AS2 record loop runs alongside the AS3 workflow. Typed collections and enumeration have bounded partial support; XML/E4X and full historical coercion remain pending.
 
-[xml-catalog.nflash](examples/xml-catalog.nflash) loads a shared portable catalog through AS2 XML.load and AS3 URLLoader. It compares legacy DOM moves with XML/XMLList copies, traverses typed records and serializes both trees with namespaces intact. The shared Rust parser and bounded data APIs are distinct from unfinished E4X syntax.
+[xml-catalog.nflash](examples/xml-catalog.nflash) loads a shared portable catalog through AS2 XML.load and AS3 URLLoader. It compares legacy DOM moves with AS3 E4X selectors and editable XMLList targets, constructs XML/XMLList literals with escaped interpolation and serializes namespace-aware trees. Shared Rust parsing and bounded target/literal semantics are implemented; filters, scoped defaults and full E4X equality remain unfinished.
 
 Prepare these and representative existing examples as one browser batch using an already built exporter:
 

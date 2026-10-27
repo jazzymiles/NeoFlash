@@ -46,6 +46,8 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { public class A extends Date {} }",
         "package { public class A extends XML {} }",
         "package { public class A extends XMLList {} }",
+        "package { public class A extends Namespace {} }",
+        "package { public class A extends QName {} }",
         "package { public class A extends Vector {} }",
         "package { import flash.utils.Dictionary; public class A extends Dictionary {} }",
         "package { import flash.geom.Transform; public class A extends Transform {} }",
