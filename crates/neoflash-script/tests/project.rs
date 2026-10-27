@@ -83,6 +83,11 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { import flash.media.SoundChannel; public class A { public function A(){new SoundChannel();} } }",
         "package { import flash.text.TextFormat; public class A extends TextFormat {} }",
         "package { import flash.text.TextFormatAlign; public class A extends TextFormatAlign {} }",
+        "package { import flash.text.TextFieldType; public class A extends TextFieldType {} }",
+        "package { import flash.text.TextFieldType; public class A {public function A(){new TextFieldType();}} }",
+        "package { import flash.events.FocusEvent; public class A extends FocusEvent {} }",
+        "package { import flash.events.TextEvent; public class A extends TextEvent {} }",
+        "package { public class A {public function A(){var legacy=Selection;}} }",
         "package { import flash.text.TextFormatAlign; public class A { public function A(){new TextFormatAlign();} } }",
         "package { import flash.text.TextField; public class A { public function A(){new TextField(4);} } }",
         "package { import flash.display.BitmapData; public class A extends BitmapData {} }",
@@ -147,6 +152,12 @@ fn class_syntax_outside_profile_is_never_erased() {
         "class A extends MovieClipLoader {}",
         "class A {public function A(){new SharedObject();}}",
         "class A extends SharedObject {}",
+        "class A {public function A(){new Selection();}}",
+        "class A {public function A(){Selection();}}",
+        "class A extends Selection {}",
+        "import flash.text.TextFieldType; class A {}",
+        "import flash.events.FocusEvent; class A {}",
+        "import flash.events.TextEvent; class A {}",
         "import flash.net.SharedObject; class A {}",
         "import flash.net.ObjectEncoding; class A {}",
         "import flash.display.Loader; class A {}",
@@ -160,8 +171,28 @@ fn class_syntax_outside_profile_is_never_erased() {
             "{source}"
         );
     }
-    legacy.sources[0].source = "class A {public var images:MovieClipLoader; public var saved:SharedObject; public function A(){images=new MovieClipLoader();saved=SharedObject.getLocal(\"save\");} public function persist(value:Object):Boolean{saved.data.value=value;var size:Number=saved.getSize();return saved.flush();} public function erase():Void{saved.clear();} public function load(target:MovieClip):Boolean {images.addListener(this);return images.loadClip(\"image.png\",target);} public function progress(target:MovieClip):Object {return images.getProgress(target);} public function unload(target:MovieClip):Boolean {images.removeListener(this);return images.unloadClip(target);}}".into();
+    legacy.sources[0].source = "class A {public var images:MovieClipLoader; public var saved:SharedObject; public function A(){images=new MovieClipLoader();saved=SharedObject.getLocal(\"save\");} public function persist(value:Object):Boolean{saved.data.value=value;var size:Number=saved.getSize();return saved.flush();} public function erase():Void{saved.clear();} public function focus(target:TextField):Boolean {Selection.addListener(this);target.type=\"input\";target.maxChars=12;target.restrict=\"A-Z\";Selection.setSelection(1,3);var start:Number=Selection.getBeginIndex();var end:Number=Selection.getEndIndex();var caret:Number=Selection.getCaretIndex();var old:String=Selection.getFocus();target.setSelection(0,1);target.replaceSelectedText(\"A\");Selection.removeListener(this);return Selection.setFocus(target);} public function onSetFocus(old:Object,next:Object):Void{this.saved.data.focus=next!=null;} public function shadow(Selection:Object):String{return Selection.getFocus();} public function load(target:MovieClip):Boolean {images.addListener(this);return images.loadClip(\"image.png\",target);} public function progress(target:MovieClip):Object {return images.getProgress(target);} public function unload(target:MovieClip):Boolean {images.removeListener(this);return images.unloadClip(target);}}".into();
     assert!(neoflash_script::compile_project(&legacy).is_ok());
+    let custom_selection = project(&[
+        (
+            "Selection.as",
+            "package {public class Selection {public function Selection(){} public static function getFocus():String{return \"user\";}}}",
+        ),
+        (
+            "User.as",
+            "package {public class User {public function readFocus():String{var value:Selection=new Selection();return Selection.getFocus();}}}",
+        ),
+    ]);
+    let custom_result = neoflash_script::compile_project(&custom_selection);
+    assert!(custom_result.is_ok(), "{:?}", custom_result.err());
+    let mut custom_selection = custom_selection;
+    for source in &mut custom_selection.sources {
+        source.language = ScriptLanguage::ActionScript2;
+        source.source = source.source.replacen("package {", "", 1);
+        source.source.pop();
+    }
+    let custom_result = neoflash_script::compile_project(&custom_selection);
+    assert!(custom_result.is_ok(), "{:?}", custom_result.err());
     legacy.sources[0].source = "import flash.utils.ByteArray; class A {}".into();
     assert!(
         neoflash_script::compile_project(&legacy).is_err(),
@@ -328,7 +359,35 @@ fn linked_classes_are_resolved_before_publication() {
             import flash.net.SharedObjectFlushStatus;
             import flash.net.ObjectEncoding;
             import flash.utils.ByteArray;
+            import flash.text.TextField;
+            import flash.text.TextFieldType;
+            import flash.events.TextEvent;
+            import flash.events.FocusEvent;
             public class Model extends flash.display.MovieClip {
+                public var input:TextField;
+                public var lastInput:TextEvent;
+                public var lastFocus:FocusEvent;
+                public function setupInput():void {
+                    input=new TextField();input.type=TextFieldType.INPUT;
+                    input.selectable=true;input.displayAsPassword=false;
+                    input.maxChars=12;input.restrict="A-Za-z";
+                    input.setSelection(0,0);input.replaceSelectedText("Ada");
+                    input.addEventListener(TextEvent.TEXT_INPUT,onInput);
+                    input.addEventListener(FocusEvent.FOCUS_IN,onFocus);
+                    stage.focus=input;
+                }
+                public function onInput(event:TextEvent):TextEvent {
+                    lastInput=TextEvent(event);if (event.text=="!"){event.preventDefault();}
+                    var start:int=input.selectionBeginIndex;var end:int=input.selectionEndIndex;
+                    var caret:int=input.caretIndex;
+                    if (lastInput is TextEvent){return lastInput as TextEvent;}
+                    return new TextEvent(TextEvent.TEXT_INPUT,true,true,"test");
+                }
+                public function onFocus(event:FocusEvent):FocusEvent {
+                    lastFocus=FocusEvent(event);
+                    if (lastFocus is FocusEvent){return lastFocus as FocusEvent;}
+                    return new FocusEvent(FocusEvent.FOCUS_OUT,true,false,input);
+                }
                 public var saved:SharedObject;
                 public function persist(value:Object):Boolean {
                     SharedObject.defaultObjectEncoding=ObjectEncoding.AMF3;

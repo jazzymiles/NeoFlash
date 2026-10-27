@@ -393,6 +393,7 @@ impl<'a> Analysis<'a> {
             Expr::Name(name) if name=="Vector" && self.context.intrinsic_type(name,self.script.language==ScriptLanguage::ActionScript3) && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"Vector requires a resolved element type: Vector.<T>. Untyped native Vector class values are unsupported.")),
             Expr::TypeValue(_,offset) | Expr::NewVector(_,_,offset) if self.resolve(scope,"Vector").is_some() => return Err(self.error(*offset,"A shadowed Vector value cannot act as the native generic class; use an unshadowed type name.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript3 && name=="XMLNode" && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"Bare XMLNode belongs to the AS2 legacy DOM profile. AS3 XML/XMLList are supported; flash.xml legacy aliases are not integrated yet.")),
+            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript3 && name=="Selection" && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"Selection is the AS2 focus singleton. AS3 uses Stage.focus and TextField selection methods.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript3 && name=="MovieClipLoader" && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"MovieClipLoader is the AS2 loading API. AS3 uses flash.display.Loader and its contentLoaderInfo.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "RegExp" | "JSON" | "XMLList" | "Namespace" | "QName") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset, format!("{name} is an AS3 native family; AS2 has no native {name} in this profile. A declared user binding/class with that name is supported."))),
             Expr::TypeTest(_, _, name, offset) if self.resolve(scope,name.split('.').next().unwrap()).is_some() => return Err(self.error(*offset, "is/as requires a resolved type name; a shadowed value or dynamic class alias is outside this profile.")),
@@ -407,6 +408,7 @@ impl<'a> Analysis<'a> {
             Expr::NewBuiltin(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed native constructor requires arbitrary user-constructor semantics not supported here. Ordinary calls to the local binding remain supported.")),
             Expr::NewBuiltin(name, args, offset) if name == "LoadVars" && !args.is_empty() => return Err(self.error(*offset,"AS2 LoadVars construction takes no arguments in this profile.")),
             Expr::NewBuiltin(name, args, offset) if name == "MovieClipLoader" && !args.is_empty() => return Err(self.error(*offset,"AS2 MovieClipLoader construction takes no arguments. Pass a URL and target to loadClip().")),
+            Expr::NewBuiltin(name, _, offset) if name == "Selection" => return Err(self.error(*offset,"AS2 Selection is a shared focus singleton and cannot be constructed. Call Selection.setFocus or Selection.setSelection.")),
             Expr::NewBuiltin(name, _, offset) if name == "SharedObject" => return Err(self.error(*offset,"Local SharedObject instances are supplied by SharedObject.getLocal(name); direct construction is unsupported in this persistence profile.")),
             Expr::NewBuiltin(name, args, offset) if name == "Sound" && !args.is_empty() => return Err(self.error(*offset,"AS2 Sound construction takes no target argument in this profile; create Sound() and load a non-streaming resource.")),
             Expr::NewClass(name, _, offset) if name == "flash.media.SoundChannel" => return Err(self.error(*offset,"SoundChannel is returned by Sound.play and cannot be directly constructed in this profile.")),
@@ -417,7 +419,7 @@ impl<'a> Analysis<'a> {
             Expr::NewClass(name, _, offset) if name == "flash.events.EventPhase" => return Err(self.error(*offset,"EventPhase contains constants and is not constructible.")),
             Expr::NewClass(name, _, offset) if project::is_graphics_constants(name) => return Err(self.error(*offset,"Graphics enum classes supply constants and are not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.display.PixelSnapping" => return Err(self.error(*offset,"PixelSnapping contains constants and is not constructible.")),
-            Expr::NewClass(name, _, offset) if name == "flash.text.TextFormatAlign" => return Err(self.error(*offset,"TextFormatAlign contains alignment constants and is not constructible.")),
+            Expr::NewClass(name, _, offset) if matches!(name.as_str(),"flash.text.TextFormatAlign"|"flash.text.TextFieldType") => return Err(self.error(*offset,"TextFormatAlign and TextFieldType contain constants and are not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.text.TextField" && self.script.language == ScriptLanguage::ActionScript2 => return Err(self.error(*offset,"AS2 TextField creation uses MovieClip.createTextField with an append-only depth, not new TextField().")),
             Expr::NewClass(name, args, offset) if name == "flash.text.TextField" && !args.is_empty() => return Err(self.error(*offset,"TextField construction takes no arguments in the bounded display-text profile.")),
             Expr::NewClass(name, _, offset) if matches!(name.as_str(),"flash.net.URLRequestMethod"|"flash.net.URLLoaderDataFormat"|"flash.net.ObjectEncoding"|"flash.net.SharedObjectFlushStatus") => return Err(self.error(*offset,"Network/persistence method, encoding and status facades provide constants and cannot be constructed.")),
@@ -433,6 +435,9 @@ impl<'a> Analysis<'a> {
                 if self.script.language==ScriptLanguage::ActionScript2 && binding.is_none()
                     && matches!(callee.as_ref(),Expr::Name(name)if self.context.types.contains_key(name)&&!matches!(name.as_str(),"Array"|"String")&&!self.context.intrinsic_type(name,false)) {
                     return Err(self.error(*offset,"AS2 class casts and class-as-function calls are not implemented in this profile; construct with new or use the existing instance directly."));
+                }
+                if self.script.language==ScriptLanguage::ActionScript2 && binding.is_none() && matches!(callee.as_ref(),Expr::Name(name) if name=="Selection" && !self.context.types.contains_key(name)) {
+                    return Err(self.error(*offset,"AS2 Selection is a shared focus singleton, not a function. Call a Selection method instead."));
                 }
                 if binding.is_none() && matches!(callee.as_ref(),Expr::Name(name) if name == "JSON" && self.context.intrinsic_type(name,true)) {
                     return Err(self.error(*offset,"JSON supplies static parse/stringify functions and cannot be called as a function."));
@@ -455,7 +460,7 @@ impl<'a> Analysis<'a> {
                     Expr::Member(_, _) => true,
                     _ => false,
                 };
-                let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"|"loadClip"|"unloadClip"|"getProgress"|"getLocal"|"getSize"|"flush"|"clear"));
+                let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"|"loadClip"|"unloadClip"|"getProgress"|"getLocal"|"getSize"|"flush"|"clear"|"setFocus"|"getFocus"|"getBeginIndex"|"getEndIndex"|"getCaretIndex"|"setSelection"));
                 let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_api||matches!(callee.as_ref(),Expr::Name(name)if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)));
                 // AS2 permits a later frame or a parent script to install a
                 // function on this timeline. The host checks the actual value

@@ -3,7 +3,7 @@
  * https://airsdk.dev/reference/actionscript/3.0/flash/text/TextField.html
  * https://airsdk.dev/reference/actionscript/3.0/flash/text/TextFormat.html
  * TextFormat null slots mean "leave unchanged". Current text and insertion
- * defaults stay separate. HTML, input/IME, selection, embedded fonts and mixed
+ * defaults stay separate. HTML, embedded fonts and mixed
  * character-format runs are deliberately outside this profile.
  */
 (function(global){
@@ -36,6 +36,8 @@
   Object.defineProperty(TextFormat,Symbol.hasInstance,{value:TextFormat.__nfIs});
   class TextFormatAlign {constructor(){throw new TypeError('TextFormatAlign supplies alignment constants.');}}
   Object.assign(TextFormatAlign,{LEFT:'left',CENTER:'center',RIGHT:'right',JUSTIFY:'justify'});Object.freeze(TextFormatAlign);
+  class TextFieldType {constructor(){throw new TypeError('TextFieldType supplies INPUT and DYNAMIC constants.');}}
+  Object.assign(TextFieldType,{INPUT:'input',DYNAMIC:'dynamic'});Object.freeze(TextFieldType);
   function formatPatch(value){
     const record=formats.get(value);if(!record)throw new TypeError('Expected TextFormat from this runtime.');
     return Object.fromEntries(Object.entries(record).filter(([,item])=>item!==null));
@@ -49,12 +51,12 @@
   }
   const publicText=value=>value.replace(/\n/g,'\r');
   const UNHANDLED=Symbol('unhandled text member');
-  function create({player,measureText}={}){
+  function create({player,measureText,onUpdate=()=>{}}={}){
     if(!player||typeof measureText!=='function')throw new TypeError('TextField requires the shared Player and font measurement service.');
     let disposed=false,cacheBytes=0;const cache=new Map(),maxCacheBytes=8*1024*1024;
     const active=()=>{if(disposed)throw new Error('This text service has been disposed.');};
     function info(ref){active();return JSON.parse(player.object_text_info(ref));}
-    function update(ref,patch){active();if(!player.object_text_update(ref,JSON.stringify(patch)))throw new Error('TextField update requires a live text object.');}
+    function update(ref,patch){active();if(!player.object_text_update(ref,JSON.stringify(patch)))throw new Error('TextField update requires a live text object.');onUpdate(ref);}
     function layout(field){
       active();const key=JSON.stringify(field),existing=cache.get(key);
       if(existing){cache.delete(key);cache.set(key,existing);return existing.value;}
@@ -73,9 +75,11 @@
     }
     function line(field,index){const result=layout(field);if(!Number.isInteger(index)||index<0||index>=result.lines.length)throw new RangeError('TextField line index is outside the current layout.');return result.lines[index];}
     function get(ref,name){
-      const known=['text','textColor','length','numLines','textWidth','textHeight','multiline','wordWrap','defaultTextFormat'];
+      const known=['text','textColor','length','numLines','textWidth','textHeight','multiline','wordWrap','defaultTextFormat','type','selectable','displayAsPassword','password','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex'];
       if(!known.includes(name))return UNHANDLED;
       const field=info(ref);
+      const inputNames={type:'field_type',selectable:'selectable',displayAsPassword:'display_as_password',password:'display_as_password',maxChars:'max_chars',restrict:'restrict',selectionBeginIndex:'selection_begin',selectionEndIndex:'selection_end',caretIndex:'caret'};
+      if(Object.hasOwn(inputNames,name))return field[inputNames[name]]??({type:'dynamic',selectable:true,displayAsPassword:false,password:false,maxChars:0,restrict:null,selectionBeginIndex:0,selectionEndIndex:0,caretIndex:0}[name]);
       if(name==='text')return publicText(field.text);
       if(name==='textColor')return field.format.color;
       if(name==='length')return field.text.length;
@@ -86,6 +90,11 @@
       return name==='numLines'?result.lines.length:name==='textWidth'?result.text_width:result.text_height;
     }
     function set(ref,name,value){
+      if(name==='type'){if(!['input','dynamic'].includes(value))throw new TypeError('TextField.type requires input or dynamic.');update(ref,{field_type:value});return true;}
+      if(['selectable','displayAsPassword','password'].includes(name)){if(typeof value!=='boolean')throw new TypeError(`TextField.${name} requires a Boolean.`);update(ref,{[name==='selectable'?'selectable':'display_as_password']:value});return true;}
+      if(name==='maxChars'){if(!Number.isInteger(value)||value<0||value>1048576)throw new RangeError('TextField.maxChars requires an integer from 0 through 1048576.');update(ref,{max_chars:value});return true;}
+      if(name==='restrict'){if(value!==null&&typeof value!=='string')throw new TypeError('TextField.restrict requires String or null.');update(ref,{restrict:{value}});return true;}
+      if(['selectionBeginIndex','selectionEndIndex','caretIndex'].includes(name))throw new TypeError(`TextField.${name} is read-only; use setSelection.`);
       if(name==='text'){update(ref,{text:string(value)});return true;}
       if(name==='textColor'){if(value===null||value===undefined)throw new TypeError('TextField.textColor requires an RGB integer.');update(ref,{format:{color:formatValue('color',value)}});return true;}
       if(name==='multiline'||name==='wordWrap'){if(typeof value!=='boolean')throw new TypeError(`TextField.${name} requires a Boolean.`);update(ref,{[name==='wordWrap'?'word_wrap':name]:value});return true;}
@@ -101,6 +110,8 @@
       return false;
     }
     function methods(ref){return {
+      setSelection:(begin,end)=>{if(!Number.isSafeInteger(begin)||!Number.isSafeInteger(end))throw new TypeError('setSelection requires integer UTF-16 indices.');update(ref,{selection:{begin,end}});},
+      replaceSelectedText:value=>update(ref,{replace_selected:string(value)}),
       appendText:value=>update(ref,{append:string(value)}),
       replaceText:(begin,end,value)=>{
         const field=info(ref);if(!Number.isInteger(begin)||!Number.isInteger(end)||begin<0||end<begin||end>field.text.length)throw new RangeError('replaceText requires an ordered UTF-16 range within the current text.');
@@ -146,8 +157,8 @@
     function hit(field,x,y){const box=bounds(field);return !!box&&box.right>box.left&&box.bottom>box.top&&field.alpha>0&&x>=box.left&&y>=box.top&&x<=box.right&&y<=box.bottom;}
     function reset(){active();cache.clear();cacheBytes=0;}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({TextFormat,TextFormatAlign,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
+    return Object.freeze({TextFormat,TextFormatAlign,TextFieldType,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
   }
-  const api={create,TextFormat,TextFormatAlign,formatPatch,formatCopy,cssFont};
+  const api={create,TextFormat,TextFormatAlign,TextFieldType,formatPatch,formatCopy,cssFont};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashText=api;
 })(globalThis);

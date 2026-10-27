@@ -398,7 +398,7 @@
       if(textProperties.has(name)||unsupportedText.has(name)) {
         const node=descriptor(target);
         if(node.owner==='text') {
-          if(unsupportedText.has(name))throw new TypeError(`TextField.${name} is not implemented in the plain-text profile. Rich formatting, input, selection and wrapping are pending.`);
+          if(unsupportedText.has(name))throw new TypeError(`TextField.${name} is not implemented in the plain-text profile. This TextField API is outside the current uniform text profile.`);
           const kind=node.kind,text=textValue(kind.text),lines=text.split('\r');
           if(name==='text')return text;
           if(name==='textColor')return kind.color[0]*65536+kind.color[1]*256+kind.color[2];
@@ -452,7 +452,7 @@
       if(textProperties.has(name)||unsupportedText.has(name)) {
         const node=descriptor(target);
         if(node.owner==='text') {
-          if(unsupportedText.has(name))throw new TypeError(`TextField.${name} is not implemented in the plain-text profile. Rich formatting, input, selection and wrapping are pending.`);
+          if(unsupportedText.has(name))throw new TypeError(`TextField.${name} is not implemented in the plain-text profile. This TextField API is outside the current uniform text profile.`);
           if(name==='text'){writeText(target,value);return true;}
           if(name==='textColor'){
             if(!Number.isInteger(value)||value<0||value>0xffffff)throw new RangeError('textColor currently requires an RGB integer from 0 through 0xffffff.');

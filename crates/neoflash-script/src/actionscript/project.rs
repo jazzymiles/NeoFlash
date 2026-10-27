@@ -27,6 +27,7 @@ const BUILTINS: &[&str] = &[
     "flash.text.TextField",
     "flash.text.TextFormat",
     "flash.text.TextFormatAlign",
+    "flash.text.TextFieldType",
     "flash.media.Sound",
     "flash.media.SoundChannel",
     "flash.media.SoundTransform",
@@ -56,6 +57,8 @@ const BUILTINS: &[&str] = &[
     "flash.events.Event",
     "flash.events.MouseEvent",
     "flash.events.KeyboardEvent",
+    "flash.events.FocusEvent",
+    "flash.events.TextEvent",
     "flash.events.EventPhase",
 ];
 const BUILTIN_FUNCTIONS: &[&str] = &["flash.utils.getTimer"];
@@ -178,6 +181,8 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "dispose"
                 | "appendText"
                 | "replaceText"
+                | "replaceSelectedText"
+                | "setSelection"
                 | "getLineText"
                 | "getLineLength"
                 | "getLineOffset"
@@ -630,7 +635,7 @@ fn parse_class(
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "TextField and TextFormat native subclass initialization is outside this profile; construct the native facade and use composition. TextFormatAlign supplies constants only.",
+            "TextField and TextFormat native subclass initialization is outside this profile; construct the native facade and use composition. TextFormatAlign and TextFieldType supply constants only.",
         ));
     }
     if base
@@ -656,6 +661,16 @@ fn parse_class(
             &header.script,
             0,
             "Network/persistence request, loader, value and event subclasses are outside this profile; use the supported native facade through composition. Constant classes cannot be native bases.",
+        ));
+    }
+    if matches!(
+        base.as_deref(),
+        Some("flash.events.FocusEvent" | "flash.events.TextEvent")
+    ) {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "FocusEvent and TextEvent native subclass initialization is outside this profile; construct the event facade and use typed listeners through composition.",
         ));
     }
     let as2 = header.script.language == ScriptLanguage::ActionScript2;

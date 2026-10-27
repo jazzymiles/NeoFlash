@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "text-form",
+      "path": "examples/text-form.nflash",
+      "title": "Text input, focus, selection and saved forms",
+      "checks": [
+        "Edit both fields through native browser controls; digits are filtered from the name and the # insertion is cancelled from the message.",
+        "Replace selected name and use AS2 select message; selection/caret and both event adapters share the committed text.",
+        "Save profile, reload or Restart, confirm both saved values; clear only the named profile."
+      ]
+    },
+    {
       "id": "saved-game",
       "path": "examples/saved-game.nflash",
       "title": "SharedObject persistence and AMF object graphs",

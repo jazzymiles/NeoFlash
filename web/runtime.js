@@ -172,7 +172,7 @@
     const graphMode=typeof player.runtime_snapshot_json==='function';
     const references = new WeakMap();
     const attachedClasses = new Map();
-    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, audioHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, program = null;
+    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, audioHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, program = null;
     let timerRenderGeneration=0;
     let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
@@ -198,7 +198,7 @@
     }
     function netFailure(error) {
       const cause=unwrapScriptThrow(error),failure=new Error(`Resource callback: ${describeThrown(cause)}`,{cause});
-      if(typeof fail==='function')fail(failure);else {storageHost?.reset();loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();throw failure;}
+      if(typeof fail==='function')fail(failure);else {textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();throw failure;}
     }
     function audioFailure(error){
       const cause=unwrapScriptThrow(error),failure=new Error(`Audio callback: ${describeThrown(cause)}`,{cause});
@@ -215,7 +215,7 @@
     function initializeFamily() {
       if (!global.NeoFlashDisplay || typeof player.display_nodes_json !== 'function') return;
       if(global.NeoFlashBitmap)bitmapHost=global.NeoFlashBitmap.create({player,geometry:global.NeoFlashGeom});
-      if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.font=global.NeoFlashText.cssFont(format);return context.measureText(text).width;}});
+      if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,onUpdate:ref=>textInputHost?.sync(ref),measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.font=global.NeoFlashText.cssFont(format);return context.measureText(text).width;}});
       display=global.NeoFlashDisplay.create({player,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getLoader:()=>loaderHost,referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
         measureText:(line,kind)=>{if(typeof context==='undefined')throw new Error('Text bounds require the Canvas font measurement service.');context.font=font(kind);return context.measureText(line).width;},
         pathBounds:(commands,matrix)=>global.NeoFlashAccessibility.pathBounds(commands,matrix)});
@@ -227,6 +227,7 @@
         stageHost=global.NeoFlashStage.create({events:eventHub,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,
           frameRate:runtimeFrameRate,getFrameRate:()=>runtimeFrameRate,setFrameRate:value=>{runtimeFrameRate=value;},alive:target=>alive(target)&&(target===stageHost?.stage||display.descriptor(target).on_stage!==false),localPoint:local,
           canvas:typeof canvas==='undefined'?null:canvas,keyboardTarget:typeof viewport==='undefined'?null:viewport,
+          onFocusChanged:(next,previous)=>textInputHost?.focusChanged(next,previous),ownsTextInput:node=>textInputHost?.owns(node),canFocus:value=>textInputHost?textInputHost.canFocus(value):true,
           hitTest:event=>{const hit=hitAt(event);return hit?interactiveTarget(hit):null;},
           coordinates:event=>{if(typeof canvas==='undefined')return null;const r=canvas.getBoundingClientRect();return[(event.clientX-r.left)*project.width/r.width,(event.clientY-r.top)*project.height/r.height];},
           isInputEnabled:()=>typeof failed==='undefined'||(!failed&&!preview.panMode&&!preview.suppressClick),
@@ -239,6 +240,12 @@
             onVisibility:visible=>{legacyCursorVisible=visible;updateCursor();},onError:inputFailure});
           legacyGlobals=Object.freeze({Key:legacyHost.Key,Mouse:legacyHost.Mouse,Stage:legacyHost.Stage});
         }
+      }
+      if(global.NeoFlashTextInput&&textHost&&stageHost&&typeof player.object_text_input==='function'){
+        textInputHost=global.NeoFlashTextInput.create({player,text:textHost,display,events:global.NeoFlashEvents,hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,
+          canvas:typeof canvas==='undefined'?null:canvas,surface:typeof document==='undefined'?null:document.getElementById('stage-surface'),document:typeof document==='undefined'?null:document,project:typeof project==='undefined'?null:project,
+          onError:inputFailure,afterInput:afterTimerEvent,onClick:(target,event)=>{stageHost.handlePointer('click',event,target);if(display.alive(target)){player.object_click(references.get(target).key);dispatchScripts(target);if(typeof context!=='undefined')render();}}});
+        legacyGlobals=Object.freeze({...legacyGlobals,Selection:textInputHost.Selection});
       }
       if(global.NeoFlashTimers&&global.NeoFlashEvents)timerHost=global.NeoFlashTimers.create({events:global.NeoFlashEvents,
         onError:timerFailure,afterEvent:afterTimerEvent,requestRender:requestTimerRender});
@@ -277,11 +284,11 @@
       builtins.__nfAs2Method=as2.method;builtins.__nfAs2Value=as2.value;
       builtins.__nfDisplay=display;builtins.__nfLegacy=legacyGlobals;
       if(xmlHost){builtins.__nfXML=xmlHost;builtins.XML=xmlHost.XML;builtins.XMLList=xmlHost.XMLList;}
-      if(global.NeoFlashEvents)for(const name of ['Event','MouseEvent','KeyboardEvent','EventDispatcher','EventPhase'])builtins['flash.events.'+name]=global.NeoFlashEvents[name];
+      if(global.NeoFlashEvents)for(const name of ['Event','MouseEvent','KeyboardEvent','FocusEvent','TextEvent','EventDispatcher','EventPhase'])builtins['flash.events.'+name]=global.NeoFlashEvents[name];
       if(global.NeoFlashStage)builtins['flash.display.Stage']=global.NeoFlashStage.Stage;
       if(timerHost){builtins['flash.utils.Timer']=timerHost.Timer;builtins['flash.events.TimerEvent']=timerHost.TimerEvent;builtins['flash.utils.getTimer']=timerHost.getTimer;}
       if(bitmapHost){builtins['flash.display.BitmapData']=bitmapHost.BitmapData;builtins['flash.display.PixelSnapping']=bitmapHost.PixelSnapping;}
-      if(textHost){builtins['flash.text.TextFormat']=textHost.TextFormat;builtins['flash.text.TextFormatAlign']=textHost.TextFormatAlign;}
+      if(textHost){builtins['flash.text.TextFormat']=textHost.TextFormat;builtins['flash.text.TextFormatAlign']=textHost.TextFormatAlign;builtins['flash.text.TextFieldType']=textHost.TextFieldType;}
       if(storageHost)for(const name of ['SharedObject','SharedObjectFlushStatus','ObjectEncoding'])builtins['flash.net.'+name]=storageHost[name];
       if(loaderHost)for(const name of ['Loader','LoaderInfo'])builtins['flash.display.'+name]=loaderHost[name];
       if(audioHost)for(const name of ['Sound','SoundChannel','SoundTransform'])builtins['flash.media.'+name]=audioHost[name];
@@ -296,14 +303,14 @@
       };
     }
     function resetProject() {
-      storageHost?.reset();loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
+      textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
       proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();lastTrace = '';
       player.reset();
       initializeProgram();
       dispatchScripts();
     }
     function disposeFamily() {
-      storageHost?.dispose();loaderHost?.dispose();xmlHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
+      textInputHost?.dispose();storageHost?.dispose();loaderHost?.dispose();xmlHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
       legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
     function prepareLinked(receiver,allocatedByProgram) {
@@ -559,6 +566,7 @@
     }
     function paintItem(context,item) {
         const kind = item.kind;
+        if(kind.type==='text_field'&&textInputHost?.hidden(item.owner_ref))return;
         context.save();
         try {
         context.transform(...bitmapMatrix(item));
@@ -593,6 +601,7 @@
     function render() {
       const snapshot=graphMode?JSON.parse(player.runtime_snapshot_json()):null;
       scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
+      if(snapshot)textInputHost?.update(snapshot);
       context.setTransform(canvas.width / project.width, 0, 0, canvas.height / project.height, 0, 0);
       context.clearRect(0, 0, project.width, project.height);
       context.fillStyle = color(project.background);
@@ -695,7 +704,7 @@
     panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
     global.addEventListener('pagehide', event => { storageHost?.flushAll();if(!event.persisted){gradients.clear();clippings.clear();disposeFamily();} });
     new ResizeObserver(() => { resize(); render(); }).observe(viewport);
-    stopAsyncOnFailure=()=>{gradients.clear();clippings.clear();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
+    stopAsyncOnFailure=()=>{gradients.clear();clippings.clear();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
     initializeFamily();
     canvas.tabIndex=-1;
     stageHost?.attach();

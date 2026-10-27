@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added the scripted HTML5 text-input family: shared Rust editing/selection transactions, native browser fields, user-only restrict/maxChars, password masking, TextFieldType, TextEvent/FocusEvent and AS2 Selection/callbacks. One saved form connects the two dialects, focus, editing and publication lifetime.
+
+- Independently checked eddcc30 SharedObject/AMF: real reload/Restart/path isolation/clear and supported graph values pass in a separate catch(*) control. The original five-case batch retains one runtime error: P1 AMF-TYPED-CATCH-001 records malformed readObject throwing a raw string that bypasses catch(Error). Full typed recovery, codec interoperability and native storage are not inferred.
+
 - Independently verified the 039afe6 image-loading delivery: embedded PNG/HTTP JPEG, loadBytes snapshots, canonical LoaderInfo metadata/order, retained pixels through replacement/unload/re-adoption, real Loader/AS2 input and two pending HTTP responses suppressed after close→Restart and Restart, with one shared browser regression. Pending close alone, progress events, general reentry/GC and native authoring remain unverified.
 
 - Independently verified the 05d5d43 clipping delivery: vector masks/even-odd holes, copied integral AS2/AS3 scroll rectangles, real positive/excluded pointer hits, linked-instance continuity and Restart, with adjacent self-mask/fractional-scroll diagnostics and one shared browser regression. Parent right-edge intersection, source retirement, clipping budgets and full accessibility remain unverified.

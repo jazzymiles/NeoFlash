@@ -23,6 +23,7 @@ const BYTE_ARRAY: &str = include_str!("../../../web/byte-array.js");
 const NET: &str = include_str!("../../../web/net.js");
 const BITMAP: &str = include_str!("../../../web/bitmap.js");
 const TEXT: &str = include_str!("../../../web/text.js");
+const TEXT_INPUT: &str = include_str!("../../../web/text-input.js");
 const AUDIO_FORMATS: &str = include_str!("../../../web/audio-formats.js");
 const AUDIO: &str = include_str!("../../../web/audio.js");
 const XML: &str = include_str!("../../../web/xml.js");
@@ -263,6 +264,7 @@ pub fn export_project(
         ("net.js", NET),
         ("bitmap.js", BITMAP),
         ("text.js", TEXT),
+        ("text-input.js", TEXT_INPUT),
         ("audio-formats.js", AUDIO_FORMATS),
         ("audio.js", AUDIO),
         ("xml.js", XML),
@@ -348,6 +350,7 @@ fn html_document(title: &str) -> String {
   <script defer src="net.js"></script>
   <script defer src="bitmap.js"></script>
   <script defer src="text.js"></script>
+  <script defer src="text-input.js"></script>
   <script defer src="audio-formats.js"></script>
   <script defer src="audio.js"></script>
   <script defer src="xml.js"></script>
@@ -418,6 +421,9 @@ mod tests {
         assert!(html.find("src=\"net.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         assert!(html.find("src=\"bitmap.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         assert!(html.find("src=\"text.js\"").unwrap() < html.find("src=\"display.js\"").unwrap());
+        assert!(
+            html.find("src=\"text-input.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap()
+        );
         assert!(
             html.find("src=\"audio-formats.js\"").unwrap() < html.find("src=\"audio.js\"").unwrap()
         );

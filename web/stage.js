@@ -19,13 +19,13 @@
   };
   function create(options) {
     if (!eventsAPI || !options?.events) throw new Error('Stage requires the NeoFlash event hub.');
-    const { Event, MouseEvent, KeyboardEvent, setStagePoint } = eventsAPI;
+    const { Event, MouseEvent, KeyboardEvent, FocusEvent, setStagePoint } = eventsAPI;
     const hub = options.events;
     const alive = options.alive || (() => true);
     let width = size(options.width, 'stageWidth'), height = size(options.height, 'stageHeight');
     let frameRate = rate(options.frameRate ?? 24), mouseX = 0, mouseY = 0, focus = null;
     const initial = { width, height, frameRate };
-    let attached = false, over = null;
+    let attached = false, over = null,focusVersion=0,focusDepth=0,nativeFocus=false;
     const cleanups = [];
     const stage = new Stage(stageToken);
     Object.defineProperties(stage, {
@@ -33,12 +33,8 @@
       frameRate: { enumerable: true, get: () => options.getFrameRate ? options.getFrameRate() : frameRate,
         set(value) { const next = rate(value); if (options.setFrameRate) options.setFrameRate(next); frameRate = next; } },
       mouseX: { enumerable: true, get: () => mouseX }, mouseY: { enumerable: true, get: () => mouseY },
-      focus: { enumerable: true, get() { if (focus && !alive(focus)) focus = null; return focus; },
-        set(value) {
-          if (value !== null && !alive(value)) throw new Error('Stage.focus requires an active display object or null.');
-          if (value !== null && (typeof value !== 'object' && typeof value !== 'function')) throw new TypeError('Stage.focus requires a display object or null.');
-          focus = value; if (value !== null) options.canvas?.focus?.({ preventScroll: true });
-        } },
+      focus: { enumerable: true, get() { if (focus && !alive(focus)) changeFocus(null); return focus; },
+        set(value) {changeFocus(value);} },
       stage: { enumerable: true, get: () => stage }, parent: { enumerable: true, get: () => null },
       root: { enumerable: true, get: () => stage },
       toString: { value: () => '[NeoFlash Stage]' },
@@ -47,6 +43,31 @@
     // Stage is a sealed native surface; unsupported scale/fullscreen properties must
     // not appear to work merely because JavaScript accepts arbitrary new fields.
     Object.freeze(stage);
+    function changeFocus(value,reason='programmatic',domEvent={}) {
+      if(value!==null&&(typeof value!=='object'&&typeof value!=='function'))throw new TypeError('Stage.focus requires a display object or null.');
+      if(value!==null&&!alive(value))throw new Error('Stage.focus requires an active display object or null.');
+      if(value!==null&&options.canFocus&&!options.canFocus(value))throw new Error('This display object is not currently focusable.');
+      if(value===focus)return true;
+      if(focusDepth>=64)throw new RangeError('Recursive focus changes exceeded 64 transitions.');
+      focusDepth++;
+      try{
+        const previous=focus;
+        if((reason==='mouse'||reason==='key')&&previous&&alive(previous)){
+          const event=new FocusEvent(reason==='mouse'?FocusEvent.MOUSE_FOCUS_CHANGE:FocusEvent.KEY_FOCUS_CHANGE,true,true,value,domEvent.shiftKey,reason==='key'?9:0);
+          if(!hub.dispatch(previous,event)){domEvent.preventDefault?.();return false;}
+          if(focus!==previous)return false;
+        }
+        focus=value;nativeFocus=false;const version=++focusVersion;
+        if(previous&&alive(previous))hub.dispatch(previous,new FocusEvent(FocusEvent.FOCUS_OUT,true,false,value));
+        if(version!==focusVersion)return true;
+        const handled=options.onFocusChanged?.(value,previous)===true;
+        if(version!==focusVersion)return true;
+        nativeFocus=handled;
+        if(value&&!handled)options.canvas?.focus?.({preventScroll:true});
+        if(value&&alive(value))hub.dispatch(value,new FocusEvent(FocusEvent.FOCUS_IN,true,false,previous));
+        return true;
+      }finally{focusDepth--;}
+    }
     function size(value, name) {
       value = Number(value);
       if (!Number.isFinite(value) || value <= 0) throw new TypeError(`${name} must be positive and finite.`);
@@ -93,8 +114,11 @@
       updatePoint(domEvent);
       const target = targetAt(domEvent, explicitTarget);
       if (type === MouseEvent.MOUSE_DOWN && (domEvent.button === undefined || domEvent.button === 0)) {
-        focus = target === stage ? null : target;
-        options.canvas?.focus?.({ preventScroll: true });
+        const changed=changeFocus(target===stage?null:target,'mouse',domEvent);
+        // A Canvas pointerdown can create and focus a native editor. Prevent
+        // its later compatibility mousedown from focusing Canvas again. Native
+        // editor pointer events retain their own caret/selection default.
+        if(changed&&nativeFocus&&domEvent.target===options.canvas)domEvent.preventDefault?.();
       }
       if (type === MouseEvent.MOUSE_MOVE && target !== over) {
         if (over && alive(over)) deliver(over, mouse(MouseEvent.MOUSE_OUT, over, domEvent, target), domEvent);
@@ -110,7 +134,7 @@
     function handleKey(type, domEvent = {}) {
       if (!enabled() || domEvent.isComposing) return true;
       const nativeTarget = domEvent.target;
-      if (nativeTarget && nativeTarget !== options.canvas &&
+      if (nativeTarget && nativeTarget !== options.canvas && !options.ownsTextInput?.(nativeTarget) &&
         (nativeTarget.isContentEditable || /^(?:INPUT|TEXTAREA|SELECT)$/.test(nativeTarget.tagName || ''))) return true;
       if (type === 'keydown') type = KeyboardEvent.KEY_DOWN;
       if (type === 'keyup') type = KeyboardEvent.KEY_UP;
@@ -162,15 +186,15 @@
         const dimensions = options.getSize(); resize(dimensions[0], dimensions[1]);
       });
     }
-    function dispose() { for (const cleanup of cleanups.splice(0)) cleanup(); attached = false; hub.release(stage); focus = null; over = null; }
+    function dispose() { for (const cleanup of cleanups.splice(0)) cleanup(); attached = false; hub.release(stage); focus = null; nativeFocus=false; over = null; }
     function reset() {
-      focus = null; over = null; mouseX = 0; mouseY = 0;
+      focus = null; nativeFocus=false; focusVersion++; over = null; mouseX = 0; mouseY = 0;
       width = initial.width; height = initial.height;
       if (options.setFrameRate) options.setFrameRate(initial.frameRate);
       frameRate = initial.frameRate;
       hub.release(stage);
     }
-    return Object.freeze({ stage, handlePointer, handleKey, resize, attach, dispose, reset,
+    return Object.freeze({ stage, handlePointer, handleKey, changeFocus, resize, attach, dispose, reset,
       tick(targets) { hub.broadcast(Event.ENTER_FRAME, [stage, ...targets]); },
     });
   }

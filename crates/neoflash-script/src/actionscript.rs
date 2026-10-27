@@ -1328,7 +1328,10 @@ impl<'a> Frontend<'a> {
                     && matches!(name.as_str(), "LoadVars" | "TextFormat" | "Sound"))
                 || (self.script.language == ScriptLanguage::ActionScript2
                     && class.is_none()
-                    && matches!(name.as_str(), "MovieClipLoader" | "SharedObject"));
+                    && matches!(
+                        name.as_str(),
+                        "MovieClipLoader" | "SharedObject" | "Selection"
+                    ));
             if !builtin
                 && vector_element(&name).is_none()
                 && class.is_none()
@@ -1479,6 +1482,8 @@ impl<'a> Frontend<'a> {
                         "trace"
                             | "appendText"
                             | "replaceText"
+                            | "replaceSelectedText"
+                            | "setSelection"
                             | "getLineText"
                             | "getLineLength"
                             | "getLineOffset"
@@ -1866,7 +1871,7 @@ impl Emitter<'_> {
             && (matches!(
                 name,
                 "Key" | "Mouse" | "Stage" | "LoadVars" | "TextFormat" | "Sound"
-            ) || (matches!(name, "MovieClipLoader" | "SharedObject")
+            ) || (matches!(name, "MovieClipLoader" | "SharedObject" | "Selection")
                 && !self.analysis.context.types.contains_key(name)))
         {
             return format!("__nfLegacy.{name}");

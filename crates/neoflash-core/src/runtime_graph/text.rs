@@ -17,8 +17,11 @@ impl RuntimeGraph {
         state: TextFieldState,
     ) -> Result<(), TextError> {
         state.validate()?;
-        let old = self.text_states.get(reference).map_or(0, |s| s.text.len());
-        let total = self.text_bytes - old + state.text.len();
+        let old = self
+            .text_states
+            .get(reference)
+            .map_or(0, TextFieldState::storage_bytes);
+        let total = self.text_bytes - old + state.storage_bytes();
         if total > MAX_RUNTIME_TEXT_BYTES {
             return Err(TextError(
                 "runtime text overrides exceed the 16 MiB UTF-8 budget".into(),
@@ -31,7 +34,7 @@ impl RuntimeGraph {
     pub(super) fn retire_text(&mut self, references: &BTreeSet<ObjectRef>) {
         for reference in references {
             if let Some(state) = self.text_states.remove(reference) {
-                self.text_bytes -= state.text.len();
+                self.text_bytes -= state.storage_bytes();
             }
         }
     }
@@ -71,6 +74,27 @@ impl Player {
         state.apply(patch)?;
         self.graph.store_text(reference, state)?;
         Ok(true)
+    }
+    pub fn object_text_input(
+        &mut self,
+        project: &Project,
+        reference: &ObjectRef,
+        edit: &TextInputEdit,
+    ) -> Result<TextFieldState, TextError> {
+        let mut state = self
+            .runtime_snapshot(project)
+            .objects
+            .into_iter()
+            .find(|node| {
+                &node.object_ref == reference && node.on_stage && node.display.effective_visible
+            })
+            .and_then(|node| node.text)
+            .ok_or_else(|| {
+                TextError("user editing requires an attached visible TextField".into())
+            })?;
+        state.apply_input(edit)?;
+        self.graph.store_text(reference, state.clone())?;
+        Ok(state)
     }
     pub fn object_set_text(
         &mut self,

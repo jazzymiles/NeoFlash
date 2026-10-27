@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "0dc08f2bfe21da237c5c04abfe3f69234d98b40b0461a12e882fe2dac68924a4",
+  "catalogSha256": "7280a8b73f2ed74974a5d1cbdf87602342af08c26df4065508434baa130b10cc",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -83,8 +83,8 @@
       }
     ],
     "inputHashes": {
-      "implementation-audit.json": "5768c9d86ec33284497a57bb211c651ad71e63fa968000bc0ddeba3111ea648d",
-      "implementation-evidence.json": "d416b92ae0d0ee748a82e45d7a4bc483f9b6e556382eea31432d4881388b8053",
+      "implementation-audit.json": "616ad59d8060ea43aaa2e604002891dd97e2c2f82efb34f5bebc0f65a1fbd99c",
+      "implementation-evidence.json": "362c98d8c544b9ee5fad1f434ef4cbfb04fa198f033d51ca97db578867395fcf",
       "as2.json": "160442a3ef962733440d4b187096b816398d5c4bc7fed87209e20bc157bf3791",
       "as2-components.json": "891666b00f6caf7c4bfc250187ab33cc19880715cb69468d8e0370a43a9aac82",
       "as2-components-supplement.json": "f7677e2c3a3e0f8baf899bdb4511de7bb14965bac4956b9de78a22be64eaa802",
@@ -473,29 +473,41 @@
         "originalFlashComparison": "documented_only",
         "decision": "accepted_bounded_png_jpeg_loading_and_owned_display_lifecycle",
         "currentSourceVerified": false
+      },
+      {
+        "id": "STORAGE-AMF-HTML5-20261027T0728Z",
+        "recordedHead": "eddcc302aace56dd2b20a784fda8f540cd797608",
+        "sourceCapturedAt": "2026-10-27T07:34:15.988397+00:00",
+        "verifiedAt": "2026-10-27T07:44:38.685413+00:00",
+        "sourceManifestSha256": "2858043e75bdbfdb5ecb9afe9301d356b0d288c55f067ff0098b7873f4a7524b",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified; no other engine tested.",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_partial_local_persistence_and_amf_graphs_with_typed_error_gap",
+        "currentSourceVerified": false
       }
     ]
   },
   "summary": {
     "total": {
       "implemented_subset": 30,
-      "partial": 795,
-      "missing": 44892,
+      "partial": 812,
+      "missing": 44875,
       "needs_review": 330,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
         "implemented_subset": 15,
-        "partial": 313,
-        "missing": 1869,
+        "partial": 318,
+        "missing": 1864,
         "needs_review": 110,
         "total": 2307
       },
       "AS3": {
         "implemented_subset": 15,
-        "partial": 482,
-        "missing": 43023,
+        "partial": 494,
+        "missing": 43011,
         "needs_review": 220,
         "total": 43740
       }
@@ -538,8 +550,8 @@
       },
       "runtime": {
         "implemented_subset": 2,
-        "partial": 395,
-        "missing": 5757,
+        "partial": 412,
+        "missing": 5740,
         "needs_review": 4,
         "total": 6158
       }
@@ -583,8 +595,8 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 146,
-          "missing": 758,
+          "partial": 151,
+          "missing": 753,
           "needs_review": 3,
           "total": 908
         }
@@ -627,8 +639,8 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 249,
-          "missing": 4999,
+          "partial": 261,
+          "missing": 4987,
           "needs_review": 1,
           "total": 5250
         }
@@ -10476,6 +10488,622 @@
           "status": "partial",
           "evidenceKind": "independent_browser_bounded_profile",
           "scopeNote": "Using POST in the authored URLRequest generates a server-observed POST with the expected form body and200 echo response. Other method constants and unsupported verbs are not accepted."
+        }
+      ]
+    },
+    {
+      "id": "STORAGE-AMF-HTML5-20261027T0728Z",
+      "title": "Independent HTML5 acceptance: STORAGE-AMF-HTML5-20261027T0728Z",
+      "reason": "accepted partial local persistence and amf graphs with typed error gap",
+      "limitations": "No original Flash; documented_only and only IAB. No general AMF interoperability, typed/class aliases/externalizable/XML/Vector/Dictionary/native/display serialization, AMF0 ByteArray support, full graph bounds/quotas or AMF3 trait grammar accepted. AS3 typed catch failure remains open; native-write refusal preserves observed fields only, not general bytewise atomicity. No actual browser storage denial/quota, minDiskSpace reservation, remote SharedObject, .sol files or permission dialogs accepted. No defaultObjectEncoding setter, SharedObject objectEncoding setter, explicit localPath, HTTPS secure behavior, cross-origin/tab synchronization, pagehide durability, stale facade or unflushed-change lifetime accepted. AS2rgb/resource overlay/Native SourcesD-008/defaults/Number/owner-aware gaps not rechecked. Unsaved native document untouched. Later TextField forms development inherits no passes from eddcc30. Tabs51/52 closed and server8768 stopped. Same source tree remained unchanged by independent verification; test fixture/artifact files are ignored target outputs.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/Cargo.toml",
+          "sha256": "748c4a1fb26b503b86b1b57cb3aa277691c7011dd504b8aaf5891a0a6999144a"
+        },
+        {
+          "path": "crates/neoflash-core/src/amf.rs",
+          "sha256": "b9dccbdebe417a5254f5ac68780897e926d8234be98608cb96593282c415e27d"
+        },
+        {
+          "path": "crates/neoflash-core/src/clipboard.rs",
+          "sha256": "45ca958aa45830f8c10ffa45c629c9f625895b90f01c041343853e8140f28c60"
+        },
+        {
+          "path": "crates/neoflash-core/src/demo.rs",
+          "sha256": "0a714dc68bc8bea957b3352f17665d0e690ab77eb41a6cd2478fd4571301a591"
+        },
+        {
+          "path": "crates/neoflash-core/src/evaluate.rs",
+          "sha256": "f55ef83dfab9285910d00f0b99f22025ed6e58d811c3980d5a393c9e3ae262ef"
+        },
+        {
+          "path": "crates/neoflash-core/src/geometry.rs",
+          "sha256": "94b9531d20975840a8a9c998832f090fee17cfa66c5dbe78c12a30b0a527b2f8"
+        },
+        {
+          "path": "crates/neoflash-core/src/history.rs",
+          "sha256": "662c5cd0855fa1cccccac432fb374a7f86db680ed476559c92fbe324fff88441"
+        },
+        {
+          "path": "crates/neoflash-core/src/lib.rs",
+          "sha256": "fc98c79c7b021abee0cf438d8205b94f972fbf2e4d411da346044623b8ce1274"
+        },
+        {
+          "path": "crates/neoflash-core/src/model.rs",
+          "sha256": "aec122d2c3ed1a2276efbeefdd7e3a0af3fd12313a095467ddc830aab569126a"
+        },
+        {
+          "path": "crates/neoflash-core/src/pixels.rs",
+          "sha256": "bec6d070404cd56ca881ea25a4b0a40dd62c67c15b3c6812ae745bf57e753fff"
+        },
+        {
+          "path": "crates/neoflash-core/src/resource_image.rs",
+          "sha256": "9b3fe39fa4e9ec92396c01d38800fb0fdd4610d33fe42382bc99c58045b9dda5"
+        },
+        {
+          "path": "crates/neoflash-core/src/resources.rs",
+          "sha256": "51964faf7747aa135a001f9939cd304edad394e3e05c12bec14ab51569a2924a"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime.rs",
+          "sha256": "06d38b9632e55f2489afc657003d2c710233f619129fb9054f4b4af92c29028b"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph.rs",
+          "sha256": "22b3ae29bd10d57fa98bc5c30e446388a268ccb8dbb6a91e1a2cb1c6fbcf18c7"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/bitmap.rs",
+          "sha256": "35b6bb35e31d742131a12c87bae681eb849e634630330024fecf1f2f55f41426"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/clipping.rs",
+          "sha256": "605aa7d131f7696bcace3f588724a8531cad83a14dfac929c3cecb67fd3be226"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/linked.rs",
+          "sha256": "c6f29c54b89c8113264d343db530139c8faf85d61b0473ef60e58b5cc9575d79"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/loader.rs",
+          "sha256": "521d140e11d49214d8535b6aa0f5b41e7deba20004c04a5eeeeb6e651748f10d"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/text.rs",
+          "sha256": "59f192b419d0d7505c2bbc2c3b4721023a9b1a714f65a7bc200f03706311af60"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/transform.rs",
+          "sha256": "58acbec3e79f3cf2953196f1649386f0e8fe69606744d2c23f27cb4f8b17c45a"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graphics.rs",
+          "sha256": "d635425dfcd00d838f8083d8e758ce69f7aaa7f7cfe17fea7e5f77de196129b6"
+        },
+        {
+          "path": "crates/neoflash-core/src/text.rs",
+          "sha256": "572824f401708d594da1633fb0526f4f9e0edaf52f8a1675ca35edb686143914"
+        },
+        {
+          "path": "crates/neoflash-core/src/validation.rs",
+          "sha256": "2f403522cec6921b434292ea6feb4546d331dd8c9318935dd0e47752ae58fc65"
+        },
+        {
+          "path": "crates/neoflash-core/src/xml.rs",
+          "sha256": "3dd8637ddd6d28bcf8f9fef0b9180c660fcdcac4e650fa26c003028f87d46ed7"
+        },
+        {
+          "path": "crates/neoflash-editor/Cargo.toml",
+          "sha256": "8549dc2d0d3b59abd1336bb322e2ca39e4198372b5f5cdf3ace861521e8741d9"
+        },
+        {
+          "path": "crates/neoflash-editor/src/accessibility.rs",
+          "sha256": "7b02f21d880283cdf480a6c0579f732abf19fbe317917e4e18faf9b11d069369"
+        },
+        {
+          "path": "crates/neoflash-editor/src/app.rs",
+          "sha256": "dd371a8302b2e539bfd36b8c46fd96959268a02ee5b647230cd6efe60b7f8749"
+        },
+        {
+          "path": "crates/neoflash-editor/src/bitmaps.rs",
+          "sha256": "ec7d1385f4e8e74fb32ab7d23d484dbecff848d1951d6f4f0acceff7b98ac32d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard.rs",
+          "sha256": "e3ffc6db4a9567d2de9194bfbc8a4715e3ddb0b206dc593002cce2ec9eb169fe"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard_tests.rs",
+          "sha256": "cd47a143e3954f0b664aa57df66d31175977a269f000a088ab7d136b854704ae"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached.rs",
+          "sha256": "4857ae64827f7818f7f159fff43b3e14a6ff784bcd0148d161a25e7765e59b3d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached_tests.rs",
+          "sha256": "e66b38262cd5cf6d0a1f64887b19ba86950233cc6fd77c16a977bcba16f14ceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/fonts.rs",
+          "sha256": "59e6bf607f4a074add517fe5fa1e29a09b65b8a51331ac6d5467e98e6064b988"
+        },
+        {
+          "path": "crates/neoflash-editor/src/main.rs",
+          "sha256": "a28169289b6e566c56f4d4c862a234724bf1d0d1fb1e476f34598f81dd2521ea"
+        },
+        {
+          "path": "crates/neoflash-editor/src/native_screens.rs",
+          "sha256": "b3eb6e6612dfd09c9ddfb206b82c3039343730bcf616c380cbee383b92664440"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panel_tests.rs",
+          "sha256": "1f30578675e958423af68ba50fc07ca5cc466f91f5f0a7fee9a56f65ee98dd11"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panels.rs",
+          "sha256": "3e773a37870cc6703474689b72dc09f541c8c4579ef6cb022a0b4543f9281c75"
+        },
+        {
+          "path": "crates/neoflash-editor/src/resources.rs",
+          "sha256": "8c1aad47de4850fd10a110d299970ddad9911e025597f42f9761db6ed123b4d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection.rs",
+          "sha256": "0c1ea7f8306eb81328d80672436993f0c4d270891d6c50ee81d6ef0243626859"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection_tests.rs",
+          "sha256": "5f0dd0cfcf2243aef8e82d4e7fbaba0f0fcae365abf86e5535b01ae112b8e080"
+        },
+        {
+          "path": "crates/neoflash-editor/src/sources.rs",
+          "sha256": "a41612c805421a92f4a49af70475dc7822d605d2060bc335ce1704a2b95a3ec9"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage.rs",
+          "sha256": "b0230a81f243ad51befdb9d23526f1aa295e05c5740af9e2121826a745504336"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_primitives.rs",
+          "sha256": "fe940d6123cb492a4c6a6a9e135b51da023fe4c47193a6c3cdc185bd679cfceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_selection.rs",
+          "sha256": "e7ca9975a795b79e376ad096bc440bc469b17247f66b166c801756e8bcaeed13"
+        },
+        {
+          "path": "crates/neoflash-editor/src/tests.rs",
+          "sha256": "a4b96abeb579c8d59014b974e97d883d8ff9802dfb5baca770340c60405c73d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/text_boxes.rs",
+          "sha256": "026d5cd1f800e39d70fa9a9e07d69d74363ddbc157c17ce35af8c2668cd4dcde"
+        },
+        {
+          "path": "crates/neoflash-editor/src/theme.rs",
+          "sha256": "98c946389cff79af8d415b3bd8a282633d097989e60d8643f2f8125f7f8c4936"
+        },
+        {
+          "path": "crates/neoflash-editor/src/timeline_paint.rs",
+          "sha256": "87a87535956dcfaa686e6222bb56f1953328b00be858a0b522094097759848d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_geometry.rs",
+          "sha256": "584f5b1d3d7cc50906d5fe647812678d97333fd8df4a7d31264e0b9f245c971f"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_gesture_tests.rs",
+          "sha256": "490e7e0df25c8ad6a7793109076100ea63c54b11d9469542f583b0cf4daf6ed6"
+        },
+        {
+          "path": "crates/neoflash-editor/src/ui_icons.rs",
+          "sha256": "532a69689f893cb6ad5bf82f4106b6472315fa1cea8af335b2d459ac0eaed74e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector.rs",
+          "sha256": "0d3ae90b25ab48e3228149b0b96920b8f1367e86a609f8d2c10176653ae35f1c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector_gesture_tests.rs",
+          "sha256": "6f54dd33ea9edf03f1c08383e932cffcc47a26cb2a54e2dfe0d8fed07e84d77e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace.rs",
+          "sha256": "e5adb69dad73eba07bc70ebed9d7907d837290df1bb80cae44f4fcd64d9f3b45"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace_editor_tests.rs",
+          "sha256": "6d26ab3e6be19b91b25fc13f27b9580b9810a8efbcb3892198de060216eb07af"
+        },
+        {
+          "path": "crates/neoflash-export/Cargo.toml",
+          "sha256": "577ab7bd07bb5614f4a0ef2e408b553befaad996024c65916121a52266cd0954"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "edcb4e36b3b9642b34ecbb53fd2d9c63c6cf9d6d09c6e5b649c7349f711ee96a"
+        },
+        {
+          "path": "crates/neoflash-export/src/main.rs",
+          "sha256": "a174e11c87e970fc4ff37cb5966c525dd5435c744715b6ce93b0052c56bf89d8"
+        },
+        {
+          "path": "crates/neoflash-import/Cargo.toml",
+          "sha256": "ae07834a20cc84f4472c253088f5ce17127b137952daad3f066f34eca6ea96cc"
+        },
+        {
+          "path": "crates/neoflash-import/examples/contour_fixture.rs",
+          "sha256": "037f00320374630c556f0e45087b279071260e8de090fac6c81d059c362f3a59"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_binary_corpus.rs",
+          "sha256": "3ea8b650bcd5ced084b3c266f4f5865e2af96b43b3d3075588c6ae1414dea4d1"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_contour_candidates.rs",
+          "sha256": "9e6912139440480d7dee72ac4c6643c3690408f0ea19618df8f4d1276b20fe5e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy.rs",
+          "sha256": "9dfdb5573c5e1f63121cc4e7bc623bf151e55124ba47da8e688de153f65ccafa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents.rs",
+          "sha256": "adde25d4fa8736d8d47acbf215e78b054b9d31345fb80caef65009f2677cbffa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents/payload.rs",
+          "sha256": "b0c146ec3f5c56525f7e7c4e7b6a4bb28590e4711445b811766801caf685fedd"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours.rs",
+          "sha256": "f434f77c72359b53b18b42b137763d4d607b38b1f010a407b92f2575e7f7799e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours/certificate.rs",
+          "sha256": "fb4abe54a5984e47a05b1848e92f15adf61c4a35825edf7872e9103f8950caae"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/geometry.rs",
+          "sha256": "15797f76b2ed8a9b165b9f184ab8cf2d9439eefe702dcdc68e019c7ad9a191bf"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/mfc.rs",
+          "sha256": "2b79189ee7105947f7a18732860630e3f677ef82e55b2e91fcbde17959812021"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/timeline.rs",
+          "sha256": "7d5f4e1c0b44f6cc4e39628ed8f3724a99b81957394a0d8d07923ffd89f41f3a"
+        },
+        {
+          "path": "crates/neoflash-import/src/lib.rs",
+          "sha256": "3c54d4afecd01fde3e8f5db2bd9b42b0b0c5371be70d90ccc525027e2de53b8b"
+        },
+        {
+          "path": "crates/neoflash-import/src/main.rs",
+          "sha256": "2710f27ef30f4e62afb44537e56da44844aed04d4e8a864ccbda6edd75d4c2cc"
+        },
+        {
+          "path": "crates/neoflash-import/src/source.rs",
+          "sha256": "25662f5fd70d4e2cdafaf59518301dc8875fcf2f2e0636fd05e440823be5e9de"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl.rs",
+          "sha256": "17654ef592571a342b70eece359bb55e94a3281ac42baf8163dca72011706744"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/publish.rs",
+          "sha256": "0a631fa1a3c6b9c186eb76aef5115775b72b86e0d88462f3ea5028ee28b14c89"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/shape.rs",
+          "sha256": "2303fb011b22b32d56fccfe0505653af76057983da39540098b84be37abce1a5"
+        },
+        {
+          "path": "crates/neoflash-script/Cargo.toml",
+          "sha256": "73a29eb8d234c351f4fc2c8312f7924b2a365dddbd4b69ca86d6825b29c6b668"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_batch.rs",
+          "sha256": "c428fa1a84b3649229d9b8a6b33b3fa08ac274dd07679ca61de666b9bc069436"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_project.rs",
+          "sha256": "e7d780759bb4e62704d56c55e0d8e76c2ed9f5ae4a35f82e286aaea98a7c0ac6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "a4b6a17189f211f526c5ad20595fc73b622655320177631110a0f1dcd8125567"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/collections.js",
+          "sha256": "63d55193c51b297e35970684a20cf31d8608956aa1f87210af778f67c0ab8cd0"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/completion.rs",
+          "sha256": "cbc6f6492a8d998193e5c4e1166c17b7df02211ae15f77d9f96c249ece6f7dea"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/containers.js",
+          "sha256": "4549548acc6b1be7c05edc7ef6aeedf7c7e5b3fb24599980240624c557fb17ad"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/control_tests.rs",
+          "sha256": "4536b47803d97d87584e8a84b14aa5f279f412ce15fe98def9f6f31f7c8d8365"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/dates.js",
+          "sha256": "d8e821a7e50e822b6af1a16e3d5462a25bba8f345dd1dec5490fe0f573ae5024"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/dictionary.js",
+          "sha256": "f218db23553d32593ed4bced084bb466c0644ff3719702ce9391ddfb613e3034"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/exceptions.js",
+          "sha256": "534534a37d9d0c48b1898847615e0581b20661341d24ded64ed355785e8e366e"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/intrinsics.js",
+          "sha256": "65528ea334627dc829097e59627647382ffe716b39acb77e15c8bcbef68ebdb4"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/json.js",
+          "sha256": "f1d574087cb0c3174d63965bd35653d1add7da0b4462ae9950e37b39ae1b79c6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "a2c771cf494bd893e457d6c308dd37ccac563f801cfda545e60a3c7698745dc5"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "4620fa62b8a559451f05dc81ac9fc11b6eca3d71194adc5c810d86b31c348493"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/regexp.js",
+          "sha256": "2c0ed0066bd2894a6f78afce18ea718271d38d8b169fd728fee676b04dee9b07"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "d2a057f1bc5ea092c61850e3ee46a43ed75988d55335d1e767e335876e138015"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/strings.js",
+          "sha256": "11e60ba1f8e3204cab0b44a57089f70eb1fb022d94f55cc63300cf96e9a296e8"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/vectors.js",
+          "sha256": "b0eda4b41827889d9e676f4161b8c7bdb3cccd7724bebf42f84fa0502b7c93d1"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/xml_literals.rs",
+          "sha256": "53886e2a69ea84abf24c97ab91cc8e6ad2463e5bd8ac4ad8b534ff28a025bac3"
+        },
+        {
+          "path": "crates/neoflash-script/src/lib.rs",
+          "sha256": "3b7e634f008786775f3e8dd40dca84868b92e8af3e96f633ef28de5aa4464ec3"
+        },
+        {
+          "path": "crates/neoflash-web/Cargo.toml",
+          "sha256": "7658ff86ac02627a03ea66fe5c7c288333ff7c4d13e456b444e3b01fb0ea23f5"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "c1a4797369c75548c48e3ea3a05089b4b4655d14762f24ba90ee6f349d392ab1"
+        },
+        {
+          "path": "web/accessibility.js",
+          "sha256": "a98177ddfcd9595c5d2904b3647310510b0a92287ec4e07a742039b7558bb250"
+        },
+        {
+          "path": "web/amf.js",
+          "sha256": "fa53f85214cbcda4fb9081e784513d2a963a636beb47cca86b160b5d4297ccd3"
+        },
+        {
+          "path": "web/audio-formats.js",
+          "sha256": "91d325e5508967d057b697cedc37090058b09f1f34a71c603a1f6a11bb9d3443"
+        },
+        {
+          "path": "web/audio.js",
+          "sha256": "0fdcec0a321ca69419f825a9512cfb57c92fb6a3c671f83fad70b59b64e0c63c"
+        },
+        {
+          "path": "web/bitmap.js",
+          "sha256": "2ff3af2ff0f2b7abac7c2d9411f6847eacc415f403bfea0981e25976e922fb13"
+        },
+        {
+          "path": "web/byte-array.js",
+          "sha256": "e02132de21ee20887da05be939b426a50f1a06ed94cbcbd7c46620e21fd54310"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "eb15845d13ba9389d43c1d54ccf2e861dd6908ddca1cb4700476b44a880b9ad6"
+        },
+        {
+          "path": "web/events.js",
+          "sha256": "cc7cda9ae2d1a3e00f457d216b84d947f26ed61a9a9fce98cefee8102dd2caa6"
+        },
+        {
+          "path": "web/geom.js",
+          "sha256": "2aa4ec042d7ea8fa8a8b0f8519e23eca1ea722960f4bb43496ac814ddd1de2b6"
+        },
+        {
+          "path": "web/legacy-input.js",
+          "sha256": "14ac0086abbbb5b1de591ea5ae35fafdce9f65f101b6e942871c62dc9c7b4c35"
+        },
+        {
+          "path": "web/loader.js",
+          "sha256": "ac5ed0cc57722c79f918c9e0968542d3b0412e855908fa7805c3c9b0ee10ee76"
+        },
+        {
+          "path": "web/net.js",
+          "sha256": "bf38c80dd41b36c1d9317495cea9a992ffca283bcd814cd355926c547b8f258f"
+        },
+        {
+          "path": "web/path.js",
+          "sha256": "c80ae03439b58963ed6e35abef4d7fb99033224aa57b6ba486f4cf1d54de1243"
+        },
+        {
+          "path": "web/preview.js",
+          "sha256": "1278996d0f1c0a7efe974919a8c496bbefebd5a0b5707926de03a708f4ca51fa"
+        },
+        {
+          "path": "web/progress/app.js",
+          "sha256": "b5f78ad52e27e498e0020ae33f59e4e545ed2d83c4f4abe8f9c3bd8fbc098780"
+        },
+        {
+          "path": "web/progress/history.html",
+          "sha256": "612e7564f63569bc8ee5497a91c14666c813653b6b348837506dd91cd0ba43e2"
+        },
+        {
+          "path": "web/progress/index.html",
+          "sha256": "5bcbd13e811e7a0ce201d7460ea6e3aaa60c73c2f00073d06c5baf9b01b527ef"
+        },
+        {
+          "path": "web/progress/style.css",
+          "sha256": "078133fc916b8e2714e0a178c67bffadb99c11799c3af0250a4d3a911cb9d235"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "f34a92b5f3ad20817507bebb662cb4c374d700d56ad505592fb2fb0137a69f14"
+        },
+        {
+          "path": "web/stage.js",
+          "sha256": "22a028eb5580e04276a6fb63e042f8094fa5d77ba00d91b6629017d52f981dd4"
+        },
+        {
+          "path": "web/storage.js",
+          "sha256": "5aac0405a81c8a88fdfd80d3da3d46b79d09acab027fd49c49d94f6778f04fbb"
+        },
+        {
+          "path": "web/text.js",
+          "sha256": "e876ae0d6ca8b4eca2c6b65417d488c99e801125c7ce0869397b110b2ac9a716"
+        },
+        {
+          "path": "web/timers.js",
+          "sha256": "d42569c79bcda28ffd1b3712facb73e45e78e3b7dc22a1f194527781c9cdb9b1"
+        },
+        {
+          "path": "web/xml.js",
+          "sha256": "936a72a3f85060a5f87e90615f4022cd202ded740d1504d128dd996d6799a3d2"
+        }
+      ],
+      "verification": {
+        "id": "STORAGE-AMF-HTML5-20261027T0728Z",
+        "recordedHead": "eddcc302aace56dd2b20a784fda8f540cd797608",
+        "sourceCapturedAt": "2026-10-27T07:34:15.988397+00:00",
+        "verifiedAt": "2026-10-27T07:44:38.685413+00:00",
+        "sourceManifestSha256": "2858043e75bdbfdb5ecb9afe9301d356b0d288c55f067ff0098b7873f4a7524b",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified; no other engine tested.",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_partial_local_persistence_and_amf_graphs_with_typed_error_gap",
+        "currentSourceVerified": false
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#getLocal()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Same-name facade identity within this publication session, initially empty named local store, explicit saves restored after Reload and Restart, and isolation from an identical publication under another URL pathname were observed. Returning to the original path restored score 50. Optional localPath, secure, cross-origin, concurrent-tab and quota profiles were not exercised."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/SharedObject.html#data",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Authored score 25/50, shared hero aliases, root self-cycle, UTC Date, inventory, undefined/NaN/Infinity/negative-zero values and nested ByteArray badge survived explicit flush and re-opening. Browser traces show LEVEL-1/LEVEL-2 from the reopened badge. This is a bounded ordinary-record graph, not arbitrary native/class serialization."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#flush()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Synchronous explicit flush returned flushed and persisted two observed ordinary-record states across Reload/Restart. Adding an unsupported native SharedObject value produced a catchable TypeError; after removal encoded size and score were unchanged and saved content could reopen. This is a codec refusal observation, not storage-quota, permission, pending-dialog or full persistence atomicity acceptance."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#clear()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Clearing score 50 reset the visible saved state; the new data object differed from a retained prior object whose score remained 50. Reopening showed an empty store. The observed AS3 data-object replacement is distinct from the AS2 in-place clear profile."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/SharedObject.html#objectEncoding",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Getter returned default AMF3 value 3 on the observed AS3 store before and after reopening. No SharedObject objectEncoding setter, migration or static defaultObjectEncoding profile was exercised."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/SharedObject.html#size",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The observed saved record reported size 179 for both score states; the getter returned the same value after an unsupported native value was removed following refused flush. This is NeoFlash encoded-AMF byte count observation, not an independent Flash .sol overhead or quota-size oracle."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeObject()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Produced the observed AMF3 and AMF0 anonymous graph bytes with shared aliases, self-cycle, undefined/NaN/Infinity/negative-zero, Date and ordinal/named array content. An independent Adobe-format Python reader validates both emitted streams; trailing writeUTF data remains separate. Unsupported display/native serialization gave TypeError with length and position unchanged; no byte-for-byte failure atomicity or full AMF profile is claimed."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readObject()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Read one value from the observed AMF3/AMF0 graph streams, preserving tested values/references and leaving tail3/tail0 available; independent wire parsing consumes 144/176 bytes before the 7-byte tails. Known failure: truncated AMF [10] escapes catch(error:Error) as a raw string and aborts that source constructor. A catch(error:*) control receives the string with position/length/firstByte 0/1/10; typed Error/EOFError conformance remains unmet."
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/ByteArray.html#objectEncoding",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Assigning ObjectEncoding.AMF3 and AMF0 selected distinct corresponding wire formats for this coherent graph, independently decoded using Adobe byte-layout rules. Invalid values, defaults and encoding transitions on existing content were not exercised."
+        },
+        {
+          "catalogId": "AS3:constant:flash/net/ObjectEncoding.html#AMF3",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Used as ByteArray.objectEncoding selector; emitted 151-byte packet contains an independently decoded 144-byte AMF3 graph followed by tail3. This validates the observed selector and graph profile, not every AMF3 value kind."
+        },
+        {
+          "catalogId": "AS3:constant:flash/net/ObjectEncoding.html#AMF0",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Used as ByteArray.objectEncoding selector; emitted 183-byte packet contains an independently decoded 176-byte AMF0 graph followed by tail0. This validates the observed selector and graph profile, not every AMF0 value kind."
+        },
+        {
+          "catalogId": "AS3:constant:flash/net/SharedObjectFlushStatus.html#FLUSHED",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Both observed successful explicit AS3 flush results compared equal to SharedObjectFlushStatus.FLUSHED and logged flushed. PENDING and asynchronous permission outcomes were not exercised."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#getLocal()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Same-name AS2 facade identity, empty initial store, explicit save/reopen and separate publication-path isolation were observed alongside AS3. Optional localPath, secure and remote/shared connection profiles were not exercised."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#data",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "AS2 score 25/50, shared Legacy hero aliases, root self-cycle, UTC Date, inventory and undefined member survived explicit save/reopen; displayed values matched the traces. Sparse-property absence, class instances and all AS2 serialization coercions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#flush()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Two explicit AS2 flush calls returned true and the corresponding score/record states survived Reload/Restart. This accepts the local successful-save route only, not quota failure, pending permission or remote SharedObject behavior."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#getSize()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Reported 148 for the observed AS2 saved record in both score states. This is the runtime encoded payload measurement, not independently established Flash .sol overhead or general size accounting."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#clear()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Clear emptied the existing data object in place: retained reference equality stayed true and its score became undefined; the view and a subsequent reopen showed an empty store. Other live-alias and cross-tab profiles were not exercised."
         }
       ]
     },

@@ -48,8 +48,9 @@ pub use runtime_graphics::{
     MAX_GRAPHICS_OPS,
 };
 pub use text::{
-    MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextError, TextFieldState, TextFormat, TextFormatPatch,
-    TextLayout, TextLine, TextPatch, TextReplacement, layout_text,
+    MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextError, TextFieldState, TextFieldType, TextFormat,
+    TextFormatPatch, TextInputEdit, TextLayout, TextLine, TextPatch, TextReplacement,
+    TextRestrictPatch, TextSelection, layout_text,
 };
 pub use validation::{ProjectError, ValidationIssue, validate};
 pub use xml::{

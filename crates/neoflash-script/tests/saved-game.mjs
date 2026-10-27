@@ -19,6 +19,8 @@ export async function verifySavedGame(root,cargo){
     const click=id=>{player.click(JSON.stringify([id]));host.dispatchScripts([id]);};
     let scene=open();assert.equal(scene.score(),0);assert.equal(scene.restores,true);assert.equal(scene.save.objectEncoding,3);
     assert.equal(host.program().is(scene.save,'flash.net.SharedObject'),true);
+    assert.equal(scene.malformedPacketRecovered,true,'AS3 catch(Error) recovers a native AMF failure without changing position, length or bytes');
+    assert.equal(scene.malformedError.cause,'AMF at byte 1: truncated AMF value','native diagnostic is retained as Error.cause');
     for(const value of [scene.round,scene.oldRound]){
       assert.equal(value.left,value.right);assert.equal(value.self,value);assert.ok(Object.hasOwn(value,'unset'));assert.equal(value.unset,undefined);
       assert.ok(Number.isNaN(value.nan));assert.equal(value.infinity,Infinity);assert.ok(Object.is(value.negativeZero,-0));

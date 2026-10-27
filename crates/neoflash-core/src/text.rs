@@ -3,7 +3,7 @@
 //! alignment and line positions. This is not Flash's original text shaper.
 use crate::ElementKind;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 pub const MAX_TEXT_BYTES: usize = 1_048_576;
 const MAX_PARTS: usize = 16_384;
 const MAX_GLYPHS: usize = 65_536;
@@ -123,6 +123,35 @@ impl TextBoxSize {
         Ok(())
     }
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextFieldType {
+    #[default]
+    Dynamic,
+    Input,
+}
+fn selectable_default() -> bool {
+    true
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextSelection {
+    pub begin: i64,
+    pub end: i64,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextRestrictPatch {
+    pub value: Option<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextInputEdit {
+    pub expected_revision: String,
+    pub begin: u32,
+    pub end: u32,
+    pub text: String,
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TextFieldState {
@@ -135,6 +164,22 @@ pub struct TextFieldState {
     pub word_wrap: bool,
     pub alpha: u8,
     pub revision: String,
+    #[serde(default)]
+    pub field_type: TextFieldType,
+    #[serde(default = "selectable_default")]
+    pub selectable: bool,
+    #[serde(default)]
+    pub display_as_password: bool,
+    #[serde(default)]
+    pub max_chars: u32,
+    #[serde(default)]
+    pub restrict: Option<String>,
+    #[serde(default)]
+    pub selection_begin: u32,
+    #[serde(default)]
+    pub selection_end: u32,
+    #[serde(default)]
+    pub caret: u32,
 }
 impl Default for TextFieldState {
     fn default() -> Self {
@@ -150,6 +195,14 @@ impl Default for TextFieldState {
             word_wrap: false,
             alpha: 255,
             revision: "1".into(),
+            field_type: TextFieldType::Dynamic,
+            selectable: true,
+            display_as_password: false,
+            max_chars: 0,
+            restrict: None,
+            selection_begin: 0,
+            selection_end: 0,
+            caret: 0,
         }
     }
 }
@@ -182,6 +235,7 @@ impl TextFieldState {
                     word_wrap: false,
                     alpha: color[3],
                     revision: "1".into(),
+                    ..Self::default()
                 })
             }
             ElementKind::TextBox {
@@ -203,14 +257,31 @@ impl TextFieldState {
                 word_wrap: *word_wrap,
                 alpha: 255,
                 revision: "1".into(),
+                ..Self::default()
             }),
             _ => None,
         }
+    }
+    pub(crate) fn storage_bytes(&self) -> usize {
+        self.text.len() + self.restrict.as_ref().map_or(0, String::len)
     }
     pub fn validate(&self) -> Result<(), TextError> {
         if self.text.len() > MAX_TEXT_BYTES {
             return Err(error("text exceeds 1048576 UTF-8 bytes"));
         }
+        if self.max_chars > MAX_TEXT_BYTES as u32 {
+            return Err(error("maxChars must be in 0..=1048576 UTF-16 units"));
+        }
+        if let Some(pattern) = &self.restrict {
+            Restriction::compile(pattern)?;
+        }
+        if self.selection_begin > self.selection_end
+            || (self.caret != self.selection_begin && self.caret != self.selection_end)
+        {
+            return Err(error("invalid selection endpoints/caret"));
+        }
+        utf16_byte(&self.text, self.selection_begin)?;
+        utf16_byte(&self.text, self.selection_end)?;
         self.format.validate()?;
         self.default_format.validate()?;
         if let Some(size) = self.box_size {
@@ -225,13 +296,35 @@ impl TextFieldState {
         if usize::from(patch.text.is_some())
             + usize::from(patch.append.is_some())
             + usize::from(patch.replace.is_some())
+            + usize::from(patch.replace_selected.is_some())
             > 1
         {
             return Err(error(
                 "a text update must contain at most one replacement or append operation",
             ));
         }
+        let selected_replacement = patch.replace_selected.as_ref().map(|text| TextReplacement {
+            begin: self.selection_begin,
+            end: self.selection_end,
+            text: text.clone(),
+        });
         let mut next = self.clone();
+        if let Some(value) = patch.field_type {
+            next.field_type = value;
+        }
+        if let Some(value) = patch.selectable {
+            next.selectable = value;
+        }
+        if let Some(value) = patch.display_as_password {
+            next.display_as_password = value;
+        }
+        if let Some(value) = patch.max_chars {
+            next.max_chars = value;
+        }
+        if let Some(value) = &patch.restrict {
+            next.restrict = value.value.clone();
+        }
+
         if let Some(format) = &patch.default_format {
             format.apply(&mut next.default_format)
         }
@@ -278,7 +371,7 @@ impl TextFieldState {
             }
             next.text.push_str(&normalize_text(text));
         }
-        if let Some(replacement) = &patch.replace {
+        if let Some(replacement) = patch.replace.as_ref().or(selected_replacement.as_ref()) {
             let start = utf16_byte(&next.text, replacement.begin)?;
             let end = utf16_byte(&next.text, replacement.end)?;
             if start > end {
@@ -302,6 +395,28 @@ impl TextFieldState {
         if let Some(format) = &patch.format {
             format.apply(&mut next.format)
         }
+        if patch.text.is_some() {
+            next.selection_begin = 0;
+            next.selection_end = 0;
+            next.caret = 0;
+        }
+        if let Some(replacement) = &selected_replacement {
+            let caret =
+                replacement.begin + normalize_text(&replacement.text).encode_utf16().count() as u32;
+            next.selection_begin = caret;
+            next.selection_end = caret;
+            next.caret = caret;
+        }
+        next.selection_begin = clamp_utf16(&next.text, i64::from(next.selection_begin));
+        next.selection_end = clamp_utf16(&next.text, i64::from(next.selection_end));
+        next.caret = clamp_utf16(&next.text, i64::from(next.caret));
+        if let Some(selection) = patch.selection {
+            let begin = clamp_utf16(&next.text, selection.begin);
+            let end = clamp_utf16(&next.text, selection.end);
+            next.selection_begin = begin.min(end);
+            next.selection_end = begin.max(end);
+            next.caret = end;
+        }
         next.validate()?;
         if next != *self {
             next.revision = self
@@ -315,6 +430,68 @@ impl TextFieldState {
         }
         Ok(())
     }
+    /// Commit a user replacement against the exact revision observed by the
+    /// DOM composition transaction. Programmatic mutations use apply instead.
+    pub fn apply_input(&mut self, edit: &TextInputEdit) -> Result<(), TextError> {
+        if self.field_type != TextFieldType::Input {
+            return Err(error("user editing requires an input TextField"));
+        }
+        if edit.expected_revision != self.revision {
+            return Err(error(
+                "stale text input revision; refresh the editor before committing",
+            ));
+        }
+        if edit.text.len() > MAX_TEXT_BYTES {
+            return Err(error("input insertion exceeds 1048576 UTF-8 bytes"));
+        }
+        utf16_byte(&self.text, edit.begin)?;
+        utf16_byte(&self.text, edit.end)?;
+        if edit.begin > edit.end {
+            return Err(error("input replacement range must be ordered"));
+        }
+        let restriction = self
+            .restrict
+            .as_deref()
+            .map(Restriction::compile)
+            .transpose()?;
+        let retained = self.text.encode_utf16().count() - (edit.end - edit.begin) as usize;
+        let capacity = if self.max_chars == 0 {
+            MAX_TEXT_BYTES
+        } else {
+            (self.max_chars as usize).saturating_sub(retained)
+        };
+        let mut inserted = String::new();
+        let mut units = 0;
+        for ch in normalize_text(&edit.text).chars() {
+            if (!self.multiline && ch == '\n')
+                || restriction.as_ref().is_some_and(|rule| !rule.allows(ch))
+            {
+                continue;
+            }
+            if units + ch.len_utf16() > capacity {
+                break;
+            }
+            inserted.push(ch);
+            units += ch.len_utf16();
+        }
+        // Rejected typing must not erase an existing selection.
+        if !edit.text.is_empty() && inserted.is_empty() {
+            return Ok(());
+        }
+        let caret = i64::from(edit.begin) + units as i64;
+        self.apply(&TextPatch {
+            replace: Some(TextReplacement {
+                begin: edit.begin,
+                end: edit.end,
+                text: inserted,
+            }),
+            selection: Some(TextSelection {
+                begin: caret,
+                end: caret,
+            }),
+            ..TextPatch::default()
+        })
+    }
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -322,6 +499,13 @@ pub struct TextPatch {
     pub text: Option<String>,
     pub append: Option<String>,
     pub replace: Option<TextReplacement>,
+    pub replace_selected: Option<String>,
+    pub selection: Option<TextSelection>,
+    pub field_type: Option<TextFieldType>,
+    pub selectable: Option<bool>,
+    pub display_as_password: Option<bool>,
+    pub max_chars: Option<u32>,
+    pub restrict: Option<TextRestrictPatch>,
     pub width: Option<f64>,
     pub height: Option<f64>,
     pub multiline: Option<bool>,
@@ -335,6 +519,116 @@ pub struct TextReplacement {
     pub begin: u32,
     pub end: u32,
     pub text: String,
+}
+fn clamp_utf16(text: &str, index: i64) -> u32 {
+    let wanted = index.max(0) as u64;
+    let mut units = 0u32;
+    for ch in text.chars() {
+        let next = units + ch.len_utf16() as u32;
+        if u64::from(next) > wanted {
+            return units;
+        }
+        units = next;
+    }
+    units
+}
+/// Compiled change points keep membership O(log ranges), including long pasted
+/// text. The common restrict grammar is exact Unicode ranges/toggles/escapes;
+/// automatic legacy case substitution and malformed ranges are not guessed.
+struct Restriction {
+    points: BTreeMap<u32, bool>,
+}
+impl Restriction {
+    fn compile(pattern: &str) -> Result<Self, TextError> {
+        if pattern.len() > 4096 {
+            return Err(error("restrict exceeds 4096 UTF-8 bytes"));
+        }
+        #[derive(Clone, Copy)]
+        enum Token {
+            Char(char),
+            Toggle,
+            Dash,
+        }
+        let mut tokens = vec![];
+        let mut chars = pattern.chars();
+        while let Some(ch) = chars.next() {
+            tokens.push(match ch {
+                '\\' => match chars.next() {
+                    Some(value @ ('\\' | '^' | '-')) => Token::Char(value),
+                    _ => {
+                        return Err(error(
+                            "restrict accepts only escaped backslash, caret or hyphen",
+                        ));
+                    }
+                },
+                '^' => Token::Toggle,
+                '-' => Token::Dash,
+                value => Token::Char(value),
+            });
+        }
+        let mut result = Self {
+            points: BTreeMap::from([
+                (0, matches!(tokens.first(), Some(Token::Toggle))),
+                (0x110000, false),
+            ]),
+        };
+        let mut include = true;
+        let mut i = 0;
+        let mut rules = 0;
+        while i < tokens.len() {
+            let start = match tokens[i] {
+                Token::Toggle => {
+                    include = !include;
+                    i += 1;
+                    continue;
+                }
+                Token::Dash => '-',
+                Token::Char(ch) => ch,
+            };
+            let mut end = start;
+            if let (Some(Token::Dash), Some(Token::Char(last))) =
+                (tokens.get(i + 1), tokens.get(i + 2))
+            {
+                end = *last;
+                i += 2;
+            }
+            if start > end {
+                return Err(error("restrict range endpoints must be ordered"));
+            }
+            rules += 1;
+            if rules > 512 {
+                return Err(error("restrict exceeds 512 ranges/characters"));
+            }
+            let start = start as u32;
+            let end = end as u32 + 1;
+            let after = *result
+                .points
+                .range(..=end)
+                .next_back()
+                .expect("initial point")
+                .1;
+            let keys: Vec<_> = result
+                .points
+                .range(start..end)
+                .map(|(key, _)| *key)
+                .collect();
+            for key in keys {
+                result.points.remove(&key);
+            }
+            result.points.insert(start, include);
+            result.points.insert(end, after);
+            i += 1;
+        }
+        Ok(result)
+    }
+    fn allows(&self, ch: char) -> bool {
+        *self
+            .points
+            .range(..=ch as u32)
+            .next_back()
+            .expect("initial point")
+            .1
+    }
 }
 fn utf16_byte(text: &str, index: u32) -> Result<usize, TextError> {
     let mut units = 0u32;
@@ -382,7 +676,24 @@ fn parts(field: &TextFieldState) -> Result<Vec<Part>, TextError> {
     let mut start = 0;
     let mut offset = 0;
     let mut space = false;
-    for ch in field.text.chars() {
+    let displayed;
+    let display_source = if field.display_as_password {
+        displayed = field
+            .text
+            .chars()
+            .map(|ch| {
+                if ch == '\n' {
+                    "\n".into()
+                } else {
+                    "*".repeat(ch.len_utf16())
+                }
+            })
+            .collect::<String>();
+        displayed.as_str()
+    } else {
+        field.text.as_str()
+    };
+    for ch in display_source.chars() {
         let newline = ch == '\n';
         let nextspace = ch.is_whitespace();
         if !text.is_empty() && (newline || space != nextspace) {

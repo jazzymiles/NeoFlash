@@ -87,6 +87,19 @@
   }
   Object.assign(KeyboardEvent, { KEY_DOWN: 'keyDown', KEY_UP: 'keyUp' });
 
+  class FocusEvent extends Event {
+    constructor(type,bubbles=true,cancelable=false,relatedObject=null,shiftKey=false,keyCode=0,direction='none') {
+      super(type,bubbles,cancelable);this.relatedObject=relatedObject;this.shiftKey=Boolean(shiftKey);this.keyCode=Number(keyCode)>>>0;this.direction=String(direction);this.isRelatedObjectInaccessible=false;state(this).kind='focus';
+    }
+    clone(){return new FocusEvent(this.type,this.bubbles,this.cancelable,this.relatedObject,this.shiftKey,this.keyCode,this.direction);}
+  }
+  Object.assign(FocusEvent,{FOCUS_IN:'focusIn',FOCUS_OUT:'focusOut',KEY_FOCUS_CHANGE:'keyFocusChange',MOUSE_FOCUS_CHANGE:'mouseFocusChange'});
+  class TextEvent extends Event {
+    constructor(type,bubbles=false,cancelable=false,text=''){super(type,bubbles,cancelable);this.text=String(text);state(this).kind='text';}
+    clone(){return new TextEvent(this.type,this.bubbles,this.cancelable,this.text);}
+  }
+  Object.assign(TextEvent,{TEXT_INPUT:'textInput',LINK:'link'});
+
   // Host-only coordinate initializer. Dispatch does not expose mutable event target fields.
   function setStagePoint(event, x, y) {
     if (state(event).kind !== 'mouse') throw new TypeError('Stage coordinates require MouseEvent.');
@@ -258,7 +271,7 @@
     // Display proxies already carry the host's lifetime-aware hub. Never replace it.
     if (!dispatchers.has(receiver)) Object.assign(receiver, standalone.methods(receiver));
   };
-  for (const [Constructor, kind] of [[Event, 'event'], [MouseEvent, 'mouse'], [KeyboardEvent, 'keyboard']]) {
+  for (const [Constructor, kind] of [[Event, 'event'], [MouseEvent, 'mouse'], [KeyboardEvent, 'keyboard'], [FocusEvent,'focus'], [TextEvent,'text']]) {
     Constructor.__nfIs = value => states.has(value) && (kind === 'event' || state(value).kind === kind);
     Constructor.__nfInitialize = (receiver, args = []) => {
       const initialized = new Constructor(...args);
@@ -266,7 +279,7 @@
       Object.assign(receiver, initialized);
     };
   }
-  const api = Object.freeze({ Event, MouseEvent, KeyboardEvent, EventPhase, EventDispatcher, create, setStagePoint });
+  const api = Object.freeze({ Event, MouseEvent, KeyboardEvent, FocusEvent, TextEvent, EventPhase, EventDispatcher, create, setStagePoint });
   global.NeoFlashEvents = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -3,7 +3,7 @@ use neoflash_core::{
     ColorTransform, DisplayMutation, DynamicKind, GraphicsOp, ObjectRef, PixelRef, PixelSnapping,
     PlaybackCommand, Player, Project, RuntimeScriptDispatch, ScriptDispatch, ScrollRect,
 };
-use neoflash_core::{TextError, TextFieldState, TextPatch, layout_text};
+use neoflash_core::{TextError, TextFieldState, TextInputEdit, TextPatch, layout_text};
 use wasm_bindgen::prelude::*;
 
 /// Pure, bounded XML fragment parsing. No Player borrow or host callback occurs.
@@ -333,6 +333,19 @@ impl WebPlayer {
         self.player
             .object_text_update(&self.project, &object_ref(target)?, &patch)
             .map_err(display_error)
+    }
+    pub fn object_text_input(&mut self, target: &str, edit_json: &str) -> Result<String, JsValue> {
+        if edit_json.len() > 8 * 1024 * 1024 {
+            return Err(JsValue::from_str("Text input transaction exceeds 8 MiB"));
+        }
+        let edit: TextInputEdit = serde_json::from_str(edit_json).map_err(display_error)?;
+        serde_json::to_string(
+            &self
+                .player
+                .object_text_input(&self.project, &object_ref(target)?, &edit)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
     }
     pub fn text_layout_json(
         &self,

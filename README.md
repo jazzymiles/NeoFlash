@@ -13,8 +13,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 313 | 1,869 | 110 |
-| AS3 | 43,740 | 15 | 482 | 43,023 | 220 |
+| AS2 | 2,307 | 15 | 318 | 1,864 | 110 |
+| AS3 | 43,740 | 15 | 494 | 43,011 | 220 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -64,7 +64,7 @@ The local bundle is ad-hoc signed, not a notarized distribution release. Apple S
 7. **⌘Enter / Test Movie** exports and opens a browser preview with scripts. **File → Publish HTML5** writes a self-contained folder. The editor's Enter playback is a side-effect-free authoring preview.
 8. Save a `.nflash` project with **⌘S**. Source files are versioned JSON and round-trip through validation.
 
-**Text (T)** creates a text box with a separate width and height, word wrap and multiline content. Properties edits its installed font, bold/italic style, size, color, leading and alignment. Resizing the box reflows the text; scaling the object transforms it. Older unboxed text keeps its appearance and can be converted with **Use text box**. AS3 TextField/TextFormat and AS2 createTextField use the shared Rust layout in HTML5. Browser fonts still depend on the visitor’s installed fonts or fallback; embedding, rich formatting and text input remain planned.
+**Text (T)** creates a text box with a separate width and height, word wrap and multiline content. Properties edits its installed font, bold/italic style, size, color, leading and alignment. Resizing the box reflows the text; scaling the object transforms it. Older unboxed text keeps its appearance and can be converted with **Use text box**. AS3 TextField/TextFormat and AS2 createTextField use the shared Rust layout in HTML5. Browser fonts still depend on the visitor’s installed fonts or fallback; embedding and mixed formatting remain planned. HTML5 input, focus and selection have the separate scripted text-form profile.
 
 For vector drawing, choose **Pen (P)**: click for corners, drag for Bézier handles, click the first anchor to close, or press Enter to finish an open path. Escape cancels the draft. **Pencil (Y)** records a freehand line and simplifies redundant samples. **Subselection (A)** edits anchors and control handles; moving an anchor carries adjacent handles. Fill, stroke and nonzero/even–odd rules are editable in Properties. Compound contours, curve bounds, transformed strokes and paths inside nested symbols share the HTML5 geometry model. General shape morphing, brush pressure, native gradient/mask tools remain pending.
 
@@ -111,7 +111,7 @@ Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two indep
 
 [as2-project-input.nflash](examples/as2-project-input.nflash) combines inherited AS2 MovieClips, independent instance counters, shared class state and Key/Mouse/Stage listeners. Left/Right activate the cards, Space resets them, and H/S hide or show the stage cursor. AS2 root document linkage is a NeoFlash extension.
 
-[collections-text.nflash](examples/collections-text.nflash) processes the same leaderboard in AS2 and AS3: parse rows, update records, sort with Flash array flags and display the result in authored text fields. The shared Array/String profile also works in project classes. Plain text mutation, color, line queries and Canvas-based measurements are available; dynamic wrapping and uniform formatting have their own text-layout profile; rich text, editable input and embedded fonts remain separate work.
+[collections-text.nflash](examples/collections-text.nflash) processes the same leaderboard in AS2 and AS3: parse rows, update records, sort with Flash array flags and display the result in authored text fields. The shared Array/String profile also works in project classes. Plain text mutation, color, line queries and Canvas-based measurements are available; dynamic wrapping and uniform formatting have their own text-layout profile; rich text and embedded fonts remain separate work; editable input has the text-form profile.
 
 [geometry-timer.nflash](examples/geometry-timer.nflash) combines Point/Rectangle/Matrix with Timer events: four ticks move an authored marker, query typed bounds and update text. The timer service owns its callbacks for the publication session and clears them on Restart. Geometry uses a finite 2D profile; browser timer throttling still applies.
 
@@ -126,6 +126,8 @@ Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two indep
 [loader-gallery.nflash](examples/loader-gallery.nflash) combines AS3 Loader/LoaderInfo, ByteArray image loading and AS2 MovieClipLoader replacement. Cycle swaps, unloads and restores the gallery. PNG/JPEG use the shared Rust decoder; SWF/GIF loading and complete legacy loading semantics remain planned.
 
 [resource-loading.nflash](examples/resource-loading.nflash) loads embedded text, repeated form fields and a 50-byte binary packet through AS3 URLLoader and AS2 LoadVars, handles an absent file and cancels a load. When served over HTTP, **Load HTTP notes** reads the published README and displays the response status/size. Restart repeats the portable pipeline.
+
+[text-form.nflash](examples/text-form.nflash) combines native browser text entry, UTF-16 selection, user-only input filters/length limits, AS3 events, AS2 Selection and a saved profile. Input controls follow stage transforms and vector clips; browser text shaping and the active DOM control’s foreground layering remain explicit limitations.
 
 [saved-game.nflash](examples/saved-game.nflash) saves scores through AS3/AS2 SharedObject and round-trips cyclic object graphs through ByteArray AMF0/AMF3. Save, reload or Restart, then clear only the example’s named saves. Browser persistence requires an HTTP(S) origin with storage enabled.
 

@@ -78,10 +78,19 @@
       }
       return resolve(graph.root);
     }
-    function encode(value,encoding=3){const source=JSON.stringify(graph(value));if(source.length>64*1024*1024)throw new RangeError('AMF graph envelope exceeds 64 MiB.');return options.encode(format(encoding),source);}
+    // wasm-bindgen exposes Rust codec diagnostics as strings. Only this native
+    // call boundary converts them to Error; graph accessors/authored exceptions
+    // stay outside it, and existing Error identities/subtypes remain intact.
+    function codecCall(call){
+      try{return call();}catch(error){
+        if(error instanceof Error||Object.prototype.toString.call(error)==='[object Error]')throw error;
+        throw new Error(typeof error==='string'?error:'Rust AMF codec failed.',{cause:error});
+      }
+    }
+    function encode(value,encoding=3){const source=JSON.stringify(graph(value));if(source.length>64*1024*1024)throw new RangeError('AMF graph envelope exceeds 64 MiB.');const mode=format(encoding);return codecCall(()=>options.encode(mode,source));}
     function decode(bytes,encoding=3,requirements={}){
       if(!ArrayBuffer.isView(bytes)||bytes.BYTES_PER_ELEMENT!==1||bytes.byteLength>MAX_BYTES)throw new RangeError('AMF decode requires a byte view no larger than 16 MiB.');
-      const result=JSON.parse(options.decode(format(encoding),bytes));if(!Number.isInteger(result.consumed)||result.consumed<1||result.consumed>bytes.byteLength)throw new TypeError('AMF codec returned an invalid consumed length.');
+      const mode=format(encoding),result=JSON.parse(codecCall(()=>options.decode(mode,bytes)));if(!Number.isInteger(result.consumed)||result.consumed<1||result.consumed>bytes.byteLength)throw new TypeError('AMF codec returned an invalid consumed length.');
       if(requirements.complete&&result.consumed!==bytes.byteLength)throw new TypeError('Saved AMF payload contains trailing data.');
       if(requirements.record&&(result.graph?.root?.type!=='ref'||result.graph.nodes?.[result.graph.root.value]?.type!=='object'))throw new TypeError('Saved SharedObject root must be an ordinary data record.');
       return {value:materialize(result.graph),consumed:result.consumed};

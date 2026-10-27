@@ -9,6 +9,7 @@ fn measure(strings: &[String], _: &TextFormat) -> Result<Vec<f64>, TextError> {
 #[test]
 fn uniform_fields_share_layout_but_keep_runtime_formats_and_placement_lifetimes_independent() {
     let mut project = Project::blank();
+    input_transaction_workflow(&project);
     let legacy = Element {
         id: "heading".into(),
         name: "heading".into(),
@@ -335,5 +336,272 @@ fn uniform_fields_share_layout_but_keep_runtime_formats_and_placement_lifetimes_
             .object_text_info(&project, &player.object_ref(&["box".into()]).unwrap())
             .unwrap(),
         field
+    );
+}
+
+fn input_transaction_workflow(project: &Project) {
+    let defaults = TextFieldState::default();
+    let mut old = serde_json::to_value(&defaults).unwrap();
+    for key in [
+        "field_type",
+        "selectable",
+        "display_as_password",
+        "max_chars",
+        "restrict",
+        "selection_begin",
+        "selection_end",
+        "caret",
+    ] {
+        old.as_object_mut().unwrap().remove(key);
+    }
+    assert_eq!(
+        serde_json::from_value::<TextFieldState>(old).unwrap(),
+        defaults
+    );
+
+    let mut player = Player::new(project);
+    let root = player.object_ref(&[]).unwrap();
+    let input = player.create_display(DynamicKind::TextField).unwrap();
+    player
+        .object_text_update(
+            project,
+            &input,
+            &TextPatch {
+                field_type: Some(TextFieldType::Input),
+                ..TextPatch::default()
+            },
+        )
+        .unwrap();
+    player
+        .display_mutate(
+            project,
+            DisplayMutation::Add {
+                parent: root.clone(),
+                child: input.clone(),
+                index: None,
+            },
+        )
+        .unwrap();
+    assert!(
+        player.runtime_snapshot(project).draws.iter().any(|draw| {
+            draw.owner_ref == input
+                && matches!(&draw.item.kind,
+            RuntimeDrawKind::TextField { field } if field.text.is_empty()
+                && field.field_type == TextFieldType::Input)
+        }),
+        "an empty input keeps its box in the shared draw/hit graph"
+    );
+
+    player
+        .object_text_update(
+            project,
+            &input,
+            &TextPatch {
+                text: Some("A😀B".into()),
+                selection: Some(TextSelection { begin: 99, end: 2 }),
+                restrict: Some(TextRestrictPatch {
+                    value: Some("A-Z^Q".into()),
+                }),
+                max_chars: Some(3),
+                ..TextPatch::default()
+            },
+        )
+        .unwrap();
+    let selected = player.object_text_info(project, &input).unwrap();
+    assert_eq!(
+        (
+            selected.selection_begin,
+            selected.selection_end,
+            selected.caret
+        ),
+        (1, 4, 1)
+    );
+    let split = TextInputEdit {
+        expected_revision: selected.revision.clone(),
+        begin: 2,
+        end: 3,
+        text: "X".into(),
+    };
+    assert!(player.object_text_input(project, &input, &split).is_err());
+    assert_eq!(player.object_text_info(project, &input).unwrap(), selected);
+    player
+        .object_text_update(
+            project,
+            &input,
+            &TextPatch {
+                replace_selected: Some("q😀".into()),
+                ..TextPatch::default()
+            },
+        )
+        .unwrap();
+    let programmed = player.object_text_info(project, &input).unwrap();
+    assert_eq!(
+        programmed.text, "Aq😀",
+        "programmatic replacement bypasses input filters"
+    );
+    assert_eq!(
+        (
+            programmed.selection_begin,
+            programmed.selection_end,
+            programmed.caret
+        ),
+        (4, 4, 4)
+    );
+    assert!(
+        player
+            .object_text_input(
+                project,
+                &input,
+                &TextInputEdit {
+                    expected_revision: selected.revision,
+                    begin: 0,
+                    end: 0,
+                    text: "X".into(),
+                }
+            )
+            .is_err(),
+        "a script edit invalidates an in-flight DOM input transaction"
+    );
+
+    let committed = player
+        .object_text_input(
+            project,
+            &input,
+            &TextInputEdit {
+                expected_revision: programmed.revision,
+                begin: 0,
+                end: 4,
+                text: "QbA\r\nBCZ".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(committed.text, "ABC");
+    assert_eq!(committed.caret, 3);
+    let rejected = player
+        .object_text_input(
+            project,
+            &input,
+            &TextInputEdit {
+                expected_revision: committed.revision.clone(),
+                begin: 0,
+                end: 3,
+                text: "qQ".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        rejected, committed,
+        "filtered typing does not erase the selection"
+    );
+    let deleted = player
+        .object_text_input(
+            project,
+            &input,
+            &TextInputEdit {
+                expected_revision: committed.revision,
+                begin: 1,
+                end: 3,
+                text: String::new(),
+            },
+        )
+        .unwrap();
+    assert_eq!(deleted.text, "A");
+
+    player
+        .object_text_update(
+            project,
+            &input,
+            &TextPatch {
+                text: Some(String::new()),
+                restrict: Some(TextRestrictPatch { value: None }),
+                ..TextPatch::default()
+            },
+        )
+        .unwrap();
+    let empty = player.object_text_info(project, &input).unwrap();
+    let unicode = player
+        .object_text_input(
+            project,
+            &input,
+            &TextInputEdit {
+                expected_revision: empty.revision,
+                begin: 0,
+                end: 0,
+                text: "😀A😀".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!((unicode.text.as_str(), unicode.caret), ("😀A", 3));
+    player
+        .object_text_update(
+            project,
+            &input,
+            &TextPatch {
+                text: Some("😀A\nB".into()),
+                display_as_password: Some(true),
+                multiline: Some(true),
+                ..TextPatch::default()
+            },
+        )
+        .unwrap();
+    let password = player.object_text_info(project, &input).unwrap();
+    let masked = layout_text(&password, |strings, format| {
+        assert!(
+            strings.iter().all(|text| text.chars().all(|ch| ch == '*')),
+            "host measurement never receives clear password content"
+        );
+        measure(strings, format)
+    })
+    .unwrap();
+    assert_eq!(password.text, "😀A\nB");
+    assert_eq!(
+        (
+            masked.lines[0].text.as_str(),
+            masked.lines[0].start,
+            masked.lines[0].end
+        ),
+        ("***", 0, 4)
+    );
+    assert_eq!(
+        (
+            masked.lines[1].text.as_str(),
+            masked.lines[1].start,
+            masked.lines[1].end
+        ),
+        ("*", 4, 5)
+    );
+
+    let edit = TextInputEdit {
+        expected_revision: password.revision.clone(),
+        begin: 0,
+        end: 0,
+        text: "X".into(),
+    };
+    assert!(player.object_set_visible(&input, false));
+    assert!(player.object_text_input(project, &input, &edit).is_err());
+    assert!(player.object_set_visible(&input, true));
+    player
+        .display_mutate(
+            project,
+            DisplayMutation::Remove {
+                parent: root,
+                child: input.clone(),
+            },
+        )
+        .unwrap();
+    assert!(player.object_text_input(project, &input, &edit).is_err());
+    player
+        .object_text_update(
+            project,
+            &input,
+            &TextPatch {
+                replace_selected: Some("detached".into()),
+                ..TextPatch::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        player.object_text_info(project, &input).unwrap().text,
+        "detached😀A\nB"
     );
 }

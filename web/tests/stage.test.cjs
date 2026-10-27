@@ -72,6 +72,13 @@ test('installed pointer listeners use stage/local coordinates, focus, bubbling, 
   assert.deepEqual(clicks, [child], 'click does not inherit the pointer tracking primary-contact filter');
   controller.handlePointer('pointerdown', { isPrimary: false, pointerType: 'touch' }, child);
   assert.equal(input.length, 2, 'secondary pointer tracking remains ignored');
+  const native = setup({onFocusChanged:()=>true});native.controller.attach();
+  assert.equal(native.canvas.send('pointerdown',{button:0}).defaultPrevented,true,'Canvas focus default must not steal focus from a newly opened native editor');
+  assert.equal(native.canvas.focusCalls,undefined);
+  const editor = new Surface();editor.addEventListener('pointerdown',event=>native.controller.handlePointer('pointerdown',event,native.child));
+  assert.equal(editor.send('pointerdown',{button:0}).defaultPrevented,false,'native editor retains browser caret and selection behavior');
+  native.controller.dispose();
+
 });
 
 test('keyboard routes to current focus, bubbles to Stage, preserves modifiers and supports native key-code fallback', () => {
