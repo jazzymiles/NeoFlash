@@ -216,6 +216,44 @@ pub struct ProjectProgram {
     names: BTreeSet<String>,
     languages: BTreeMap<String, ScriptLanguage>,
     interfaces: BTreeSet<String>,
+    public_types: BTreeSet<String>,
+    as2_private: BTreeMap<String, BTreeSet<String>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Access {
+    Public,
+    Private,
+    Protected,
+    Internal,
+}
+impl Access {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Public => "public",
+            Self::Private => "private",
+            Self::Protected => "protected",
+            Self::Internal => "internal",
+        }
+    }
+    fn inherited(self, owner: &str, package: &str, as2: bool) -> bool {
+        as2 || match self {
+            Self::Public | Self::Protected => true,
+            Self::Private => false,
+            Self::Internal => type_package(owner) == package,
+        }
+    }
+}
+fn type_package(name: &str) -> &str {
+    name.rsplit_once('.').map_or("", |(package, _)| package)
+}
+#[derive(Clone)]
+struct MemberRecord {
+    name: String,
+    ty: Option<String>,
+    access: Access,
+    owner: String,
+    is_static: bool,
 }
 
 struct Header {
@@ -230,6 +268,9 @@ struct Header {
     tokens: TokenCursor,
     body: usize,
     packaged: bool,
+    public: bool,
+    dynamic: bool,
+    final_: bool,
 }
 struct Field {
     name: String,
@@ -237,12 +278,14 @@ struct Field {
     value: Option<Expr>,
     constant: bool,
     is_static: bool,
+    access: Access,
 }
 struct Method {
     function: Function,
     is_static: bool,
     override_: bool,
-    is_public: bool,
+    access: Access,
+    final_: bool,
     kind: MethodKind,
 }
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -264,6 +307,8 @@ fn visible_names(
     names: &BTreeSet<String>,
     languages: &BTreeMap<String, ScriptLanguage>,
     language: ScriptLanguage,
+    public_types: &BTreeSet<String>,
+    package: &str,
 ) -> BTreeSet<String> {
     names
         .iter()
@@ -277,7 +322,12 @@ fn visible_names(
                             && name.as_str() != "flash.filters.BitmapFilterQuality")
                         || *name == "flash.display.BitmapData"
                 },
-                |owner| *owner == language,
+                |owner| {
+                    *owner == language
+                        && (language == ScriptLanguage::ActionScript2
+                            || public_types.contains(*name)
+                            || type_package(name) == package)
+                },
             )
         })
         .cloned()
@@ -320,7 +370,16 @@ fn qualified(p: &mut Frontend<'_>) -> Result<String, Diagnostic> {
 fn imports(p: &mut Frontend<'_>) -> Result<Vec<String>, Diagnostic> {
     let mut imports = vec![];
     while p.eat("import") {
-        imports.push(qualified(p)?);
+        let mut name = p.ident()?;
+        while p.eat(".") {
+            name.push('.');
+            if p.eat("*") {
+                name.push('*');
+                break;
+            }
+            name.push_str(&p.ident()?);
+        }
+        imports.push(name);
         p.expect(";")?;
     }
     Ok(imports)
@@ -366,16 +425,41 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
         String::new()
     };
     let imports = imports(&mut p)?;
-    p.eat("public");
-    if as2 {
-        p.eat("dynamic");
-    }
-    if p.is("final") || p.is("dynamic") || p.is("internal") {
-        return Err(p.error(
-            "Class modifiers final/dynamic/internal are outside the first public-class profile.",
-        ));
+    let mut public = as2;
+    let mut access_seen = false;
+    let mut dynamic = false;
+    let mut final_ = false;
+    loop {
+        if p.is("public") || p.is("internal") {
+            let value = p.eat("public");
+            if !value {
+                p.expect("internal")?;
+            }
+            if access_seen || (as2 && !value) {
+                return Err(p.error("Duplicate or unsupported class access modifier."));
+            }
+            access_seen = true;
+            public = value;
+        } else if p.eat("dynamic") {
+            if dynamic {
+                return Err(p.error("Duplicate dynamic modifier."));
+            }
+            dynamic = true;
+        } else if p.eat("final") {
+            if as2 || final_ {
+                return Err(
+                    p.error("The final class modifier requires AS3 and cannot be repeated.")
+                );
+            }
+            final_ = true;
+        } else {
+            break;
+        }
     }
     let is_interface = p.eat("interface");
+    if is_interface && (dynamic || final_) {
+        return Err(p.error("Interfaces cannot be dynamic or final."));
+    }
     if is_interface && as2 {
         return Err(p.error(
             "Project interfaces currently require AS3; AS2 interface semantics remain unsupported.",
@@ -444,6 +528,9 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
         tokens,
         body,
         packaged,
+        public,
+        dynamic,
+        final_,
     })
 }
 fn context(
@@ -488,24 +575,71 @@ fn context(
             }
         }
     }
-    for name in imports {
-        if !names.contains(name) {
+    // Exact imports resolve first; wildcard imports cover one package level only.
+    // A conflicting wildcard short name is rejected deterministically, even if unused.
+    for import in imports.iter().filter(|name| !name.ends_with(".*")) {
+        if !names.contains(import) {
             return Err(format!(
-                "Unresolved import '{name}'. Add its source unit or use a supported built-in type."
+                "Unresolved or inaccessible import '{import}'. Add an accessible source unit or supported built-in type."
             ));
         }
-        let short = name.rsplit('.').next().unwrap();
+        let short = import.rsplit('.').next().unwrap();
         if c.types
             .get(short)
             .or_else(|| c.functions.get(short))
-            .is_some_and(|old| old != name)
+            .is_some_and(|old| old != import)
         {
             return Err(format!("Ambiguous imported name '{short}'."));
         }
-        if BUILTIN_FUNCTIONS.contains(&name.as_str()) {
-            c.functions.insert(short.into(), name.clone());
+        if BUILTIN_FUNCTIONS.contains(&import.as_str()) {
+            c.functions.insert(short.into(), import.clone());
         } else {
-            c.types.insert(short.into(), name.clone());
+            c.types.insert(short.into(), import.clone());
+        }
+    }
+    let explicit: BTreeSet<_> = imports
+        .iter()
+        .filter(|name| !name.ends_with(".*"))
+        .map(|name| name.rsplit('.').next().unwrap())
+        .collect();
+    let mut wildcard_names = BTreeMap::<String, String>::new();
+    for import in imports.iter().filter(|name| name.ends_with(".*")) {
+        let package = &import[..import.len() - 2];
+        let selected: Vec<_> = names
+            .iter()
+            .filter(|name| type_package(name) == package)
+            .collect();
+        if selected.is_empty() {
+            return Err(format!(
+                "Wildcard import '{import}' has no accessible immediate-package declarations."
+            ));
+        }
+        for name in selected {
+            let short = name.rsplit('.').next().unwrap();
+            if explicit.contains(short) {
+                continue;
+            }
+            if wildcard_names.get(short).is_some_and(|old| old != name) {
+                return Err(format!(
+                    "Ambiguous wildcard imported name '{short}'. Use an exact import or qualified name."
+                ));
+            }
+            wildcard_names.insert(short.into(), name.clone());
+        }
+    }
+    for (short, name) in wildcard_names {
+        // Same-package declarations take precedence over wildcard imports.
+        if c.types
+            .get(&short)
+            .or_else(|| c.functions.get(&short))
+            .is_some_and(|old| type_package(old) == package)
+        {
+            continue;
+        }
+        if BUILTIN_FUNCTIONS.contains(&name.as_str()) {
+            c.functions.insert(short, name);
+        } else {
+            c.types.insert(short, name);
         }
     }
     // Source classes/imports win over these top-level native names. In
@@ -717,35 +851,56 @@ fn parse_class(
         }
         let mut is_static = false;
         let mut override_ = false;
-        let mut is_public = false;
+        let mut final_ = false;
+        let mut access = if as2 || header.is_interface {
+            Access::Public
+        } else {
+            Access::Internal
+        };
+        let mut access_seen = false;
         if header.is_interface
             && matches!(
                 p.token_text().as_str(),
-                "public" | "static" | "override" | "private" | "protected" | "internal"
+                "public" | "static" | "override" | "private" | "protected" | "internal" | "final"
             )
         {
             return Err(p.error(
-                "Interface method signatures cannot have access, static or override modifiers.",
+                "Interface signatures cannot have access, static, final or override modifiers.",
             ));
         }
         loop {
-            if p.eat("public") {
-                is_public = true;
+            let next_access = match p.token_text().as_str() {
+                "public" => Some(Access::Public),
+                "private" => Some(Access::Private),
+                "protected" => Some(Access::Protected),
+                "internal" => Some(Access::Internal),
+                _ => None,
+            };
+            if let Some(next) = next_access {
+                if access_seen || (as2 && matches!(next, Access::Protected | Access::Internal)) {
+                    return Err(p.error("Duplicate or unsupported member access modifier."));
+                }
+                p.pos += 1;
+                access = next;
+                access_seen = true;
             } else if p.eat("static") {
+                if is_static {
+                    return Err(p.error("Duplicate static modifier."));
+                }
                 is_static = true;
             } else if p.eat("override") {
-                if as2 {
-                    return Err(
-                        p.error("AS2 overrides methods by name without the AS3 override keyword.")
-                    );
+                if as2 || override_ {
+                    return Err(p.error("AS3 override cannot be repeated; AS2 overrides by name without the keyword."));
                 }
                 override_ = true;
+            } else if p.eat("final") {
+                if as2 || final_ {
+                    return Err(p.error("AS3 final cannot be repeated and is not an AS2 modifier."));
+                }
+                final_ = true;
             } else {
                 break;
             }
-        }
-        if p.is("private") || p.is("protected") || p.is("internal") {
-            return Err(p.error("This class profile supports public members; private/protected/internal access control is not yet implemented."));
         }
         if p.is("var") || p.is("const") {
             if header.is_interface {
@@ -762,8 +917,8 @@ fn parse_class(
             if !constant {
                 p.expect("var")?;
             }
-            if override_ {
-                return Err(p.error("Fields cannot use override."));
+            if override_ || final_ {
+                return Err(p.error("Fields cannot use override or final."));
             }
             let Stmt::Var(vars) = p.variables()? else {
                 unreachable!()
@@ -793,6 +948,7 @@ fn parse_class(
                     value,
                     constant,
                     is_static,
+                    access,
                 });
             }
         } else if p.is("function") {
@@ -806,10 +962,17 @@ fn parse_class(
             if header.is_interface && name == header.name.rsplit('.').next().unwrap() {
                 return Err(p.error("Interfaces cannot declare constructors."));
             }
-            if kind != MethodKind::Method && !header.is_interface && !is_public {
-                return Err(p.error(
-                    "This accessor profile requires explicit public get/set declarations.",
-                ));
+            if name == header.name.rsplit('.').next().unwrap() && kind == MethodKind::Method {
+                if access_seen && access != Access::Public {
+                    return Err(p.error("Constructors must be public."));
+                }
+                if final_ {
+                    return Err(p.error("Constructors cannot be final."));
+                }
+                access = Access::Public;
+            }
+            if final_ && is_static {
+                return Err(p.error("Static methods cannot use final in this profile."));
             }
             if kind == MethodKind::Get
                 && (!f.params.is_empty()
@@ -853,11 +1016,12 @@ fn parse_class(
                 function: f,
                 is_static,
                 override_,
-                is_public,
+                access,
+                final_,
                 kind,
             });
         } else {
-            return Err(p.error("Expected a supported public field, method or get/set accessor; namespaces remain unsupported."));
+            return Err(p.error("Expected a supported field, method or get/set accessor; custom namespaces remain unsupported."));
         }
     }
     p.expect("}")?;
@@ -893,7 +1057,9 @@ struct Signature {
 #[derive(Clone)]
 struct MethodContract {
     signature: Signature,
-    is_public: bool,
+    access: Access,
+    owner: String,
+    final_: bool,
 }
 fn method_contract(class: &Class, method: &Method) -> MethodContract {
     let canonical = |ty: Option<&str>| class.context.canonical_type(ty.unwrap_or("*"));
@@ -914,7 +1080,9 @@ fn method_contract(class: &Class, method: &Method) -> MethodContract {
             rest: method.function.rest.is_some(),
             returns: canonical(method.function.returns.as_deref()),
         },
-        is_public: class.header.is_interface || method.is_public,
+        access: method.access,
+        owner: class.header.name.clone(),
+        final_: method.final_,
     }
 }
 fn check_accessor_pairs(
@@ -925,13 +1093,14 @@ fn check_accessor_pairs(
     for ((name, kind), getter) in contracts {
         if *kind == MethodKind::Get
             && let Some(setter) = contracts.get(&(name.clone(), MethodKind::Set))
-            && getter.signature.returns != setter.signature.params[0]
+            && (getter.signature.returns != setter.signature.params[0]
+                || getter.access != setter.access)
         {
             errors.push(Diagnostic::at(
                 &class.header.script,
                 0,
                 format!(
-                    "{}: getter and setter '{name}' must use the same property type",
+                    "{}: getter and setter '{name}' must use the same property type and access namespace",
                     class.header.path
                 ),
             ));
@@ -1137,6 +1306,11 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         .iter()
         .map(|h| (h.name.clone(), h.script.language))
         .collect();
+    let public_types: BTreeSet<_> = headers
+        .iter()
+        .filter(|h| h.public)
+        .map(|h| h.name.clone())
+        .collect();
     let interfaces: BTreeSet<_> = headers
         .iter()
         .filter(|h| h.is_interface)
@@ -1145,7 +1319,13 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
     let mut classes = BTreeMap::new();
     for h in headers {
         let path = h.path.clone();
-        let visible = visible_names(&names, &languages, h.script.language);
+        let visible = visible_names(
+            &names,
+            &languages,
+            h.script.language,
+            &public_types,
+            &h.package,
+        );
         match parse_class(h, &visible, &interfaces) {
             Ok(c) => {
                 classes.insert(c.header.name.clone(), c);
@@ -1180,15 +1360,92 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             )]);
         }
     }
-    // Resolve inherited declarations before compiling method bodies.
-    let mut resolved = BTreeMap::<String, BTreeMap<String, Option<String>>>::new();
-    let mut static_members = BTreeMap::<String, BTreeMap<String, String>>::new();
+    // Retain ancestor traits with their declaring owner; a foreign-package
+    // intermediate subclass must not erase an ancestor's internal namespace.
+    let final_classes: BTreeSet<_> = classes
+        .values()
+        .filter(|c| c.header.final_)
+        .map(|c| c.header.name.clone())
+        .collect();
+    let mut ancestors = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut private_owners = BTreeMap::<String, Vec<(String, String)>>::new();
+    for name in &order {
+        let c = &classes[name];
+        let mut chain = c
+            .base
+            .as_ref()
+            .and_then(|b| ancestors.get(b))
+            .cloned()
+            .unwrap_or_default();
+        chain.insert(name.clone());
+        ancestors.insert(name.clone(), chain);
+        let mut private = c
+            .base
+            .as_ref()
+            .and_then(|b| private_owners.get(b))
+            .cloned()
+            .unwrap_or_default();
+        if c.header.script.language == ScriptLanguage::ActionScript2 {
+            private.extend(
+                c.fields
+                    .iter()
+                    .filter(|f| f.access == Access::Private)
+                    .map(|f| (f.name.clone(), name.clone())),
+            );
+            private.extend(
+                c.methods
+                    .iter()
+                    .filter(|m| m.access == Access::Private)
+                    .map(|m| (m.function.name.clone().unwrap(), name.clone())),
+            );
+        }
+        private_owners.insert(name.clone(), private);
+    }
+    let as2_private: BTreeMap<_, _> = private_owners
+        .iter()
+        .filter(|(_, members)| !members.is_empty())
+        .map(|(name, members)| {
+            (
+                name.clone(),
+                members.iter().map(|(name, _)| name.clone()).collect(),
+            )
+        })
+        .collect();
+    let mut resolved = BTreeMap::<String, Vec<MemberRecord>>::new();
+    let mut class_contracts =
+        BTreeMap::<String, Vec<((String, MethodKind), MethodContract)>>::new();
     let mut native_bases = BTreeMap::<String, String>::new();
     let mut contracts = BTreeMap::<String, BTreeMap<(String, MethodKind), MethodContract>>::new();
     let mut interface_closures = BTreeMap::<String, BTreeSet<String>>::new();
     let mut registrations = String::new();
     for name in &order {
         let c = classes.get_mut(name).unwrap();
+        let as2 = c.header.script.language == ScriptLanguage::ActionScript2;
+        c.context.as2_private = private_owners
+            .iter()
+            .filter_map(|(receiver, members)| {
+                let inaccessible: BTreeSet<_> = members
+                    .iter()
+                    .filter(|(_, owner)| !ancestors[name].contains(owner))
+                    .map(|(member, _)| member.clone())
+                    .collect();
+                (!inaccessible.is_empty()).then(|| (receiver.clone(), inaccessible))
+            })
+            .collect();
+        if c.base
+            .as_ref()
+            .is_some_and(|base| final_classes.contains(base))
+        {
+            errors.push(Diagnostic::at(
+                &c.header.script,
+                0,
+                format!(
+                    "{}: cannot extend final class '{}'",
+                    c.header.path,
+                    c.base.as_ref().unwrap()
+                ),
+            ));
+        }
         if c.header.is_interface {
             let mut inherited = BTreeMap::new();
             let mut closure = BTreeSet::from([name.clone()]);
@@ -1235,12 +1492,17 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             registrations.push_str(&format!("__nfProgram.defineInterface({name:?});\n"));
             continue;
         }
-        let mut contract = c
+        let inherited_history = c
             .base
             .as_ref()
-            .and_then(|base| contracts.get(base))
+            .and_then(|base| class_contracts.get(base))
             .cloned()
             .unwrap_or_default();
+        let mut contract: BTreeMap<_, _> = inherited_history
+            .iter()
+            .filter(|(_, m)| m.access.inherited(&m.owner, &c.header.package, as2))
+            .cloned()
+            .collect();
         let inherited_contract = contract.clone();
         let native_base = c
             .base
@@ -1265,25 +1527,44 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                 }
             }
         }
-        let mut members = c
+        let mut member_history = c
             .base
             .as_ref()
-            .and_then(|b| resolved.get(b))
+            .and_then(|base| resolved.get(base))
             .cloned()
             .unwrap_or_default();
+        let inherited_records: BTreeMap<_, _> = member_history
+            .iter()
+            .filter(|m| m.access.inherited(&m.owner, &c.header.package, as2))
+            .map(|m| (m.name.clone(), m.clone()))
+            .collect();
+        let mut members: BTreeMap<_, _> = inherited_records
+            .iter()
+            .map(|(name, m)| (name.clone(), m.ty.clone()))
+            .collect();
         let inherited_members = members.clone();
         for f in &c.fields {
-            if members.contains_key(&f.name) {
+            if inherited_records
+                .get(&f.name)
+                .is_some_and(|m| !m.is_static && !f.is_static)
+            {
                 errors.push(Diagnostic::at(
                     &c.header.script,
                     0,
                     format!(
-                        "{}: field '{}' redeclares an inherited member",
+                        "{}: field '{}' redeclares an accessible inherited member",
                         c.header.path, f.name
                     ),
                 ));
             }
             members.insert(f.name.clone(), f.ty.clone());
+            member_history.push(MemberRecord {
+                name: f.name.clone(),
+                ty: f.ty.clone(),
+                access: f.access,
+                owner: name.clone(),
+                is_static: f.is_static,
+            });
         }
         let short = c.header.name.rsplit('.').next().unwrap();
         for m in &c.methods {
@@ -1313,9 +1594,10 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                     if let Some(base) = inherited {
                         if !m.override_
                             || base.signature != own_contract.signature
-                            || base.is_public != own_contract.is_public
+                            || base.access != own_contract.access
+                            || base.final_
                         {
-                            errors.push(Diagnostic::at(&c.header.script, m.function.offset, format!("{}: inherited member '{n}' requires override and an identical public signature", c.header.path)));
+                            errors.push(Diagnostic::at(&c.header.script, m.function.offset, format!("{}: inherited member '{n}' requires a non-final base, override and an identical access/signature", c.header.path)));
                         }
                     } else if !m.is_static
                         && (same_name
@@ -1337,6 +1619,17 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                 }
                 // Accessor invocation owns coercion. A second emitter coercion
                 // on a bare property would repeat observable conversions.
+                member_history.push(MemberRecord {
+                    name: n.clone(),
+                    ty: if m.kind == MethodKind::Method {
+                        Some("Function".into())
+                    } else {
+                        None
+                    },
+                    access: m.access,
+                    owner: name.clone(),
+                    is_static: m.is_static,
+                });
                 members.insert(
                     n.clone(),
                     if m.kind == MethodKind::Method {
@@ -1378,7 +1671,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             implemented.extend(interface_closures[interface].iter().cloned());
             for (key, expected) in &contracts[interface] {
                 if !contract.get(key).is_some_and(|actual| {
-                    actual.is_public && actual.signature == expected.signature
+                    actual.access == Access::Public && actual.signature == expected.signature
                 }) {
                     errors.push(Diagnostic::at(&c.header.script, 0, format!("{}: interface '{interface}' requires public member '{}' with the matching method/accessor signature", c.header.path, key.0)));
                 }
@@ -1386,22 +1679,33 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         }
         c.interfaces = implemented.into_iter().collect();
         contracts.insert(name.clone(), contract);
-        let mut statics = c
-            .base
-            .as_ref()
-            .and_then(|base| static_members.get(base))
-            .cloned()
-            .unwrap_or_default();
-        for field in c.fields.iter().filter(|f| f.is_static) {
-            statics.insert(field.name.clone(), name.clone());
-        }
-        for method in c.methods.iter().filter(|m| m.is_static) {
-            statics.insert(method.function.name.clone().unwrap(), name.clone());
-        }
-        c.context.static_members = statics.clone();
-        static_members.insert(name.clone(), statics);
-        c.context.members = members.clone();
-        resolved.insert(name.clone(), members);
+        let mut history = inherited_history;
+        history.extend(
+            c.methods
+                .iter()
+                .filter(|m| {
+                    !m.is_static
+                        && (m.function.name.as_deref() != Some(short)
+                            || m.kind != MethodKind::Method)
+                })
+                .map(|m| {
+                    (
+                        (m.function.name.clone().unwrap(), m.kind),
+                        method_contract(c, m),
+                    )
+                }),
+        );
+        class_contracts.insert(name.clone(), history);
+        c.context.static_members = member_history
+            .iter()
+            .filter(|m| {
+                m.is_static
+                    && (m.owner == *name || m.access.inherited(&m.owner, &c.header.package, as2))
+            })
+            .map(|m| (m.name.clone(), m.owner.clone()))
+            .collect();
+        c.context.members = members;
+        resolved.insert(name.clone(), member_history);
         match emit_class(c) {
             Ok(code) => registrations.push_str(&code),
             Err(e) => errors.push(prefix(e, &c.header.path)),
@@ -1462,6 +1766,8 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         names,
         languages,
         interfaces,
+        public_types,
+        as2_private,
     })
 }
 
@@ -1478,14 +1784,21 @@ pub fn compile_with_program(
     let tokens = TokenCursor::default();
     let mut p = frontend(script, tokens, CompileContext::default());
     let imported = imports(&mut p).map_err(|e| vec![e])?;
-    let c = context(
-        &visible_names(&program.names, &program.languages, script.language),
+    let mut c = context(
+        &visible_names(
+            &program.names,
+            &program.languages,
+            script.language,
+            &program.public_types,
+            "",
+        ),
         "",
         &imported,
         script.language,
         &program.interfaces,
     )
     .map_err(|m| vec![Diagnostic::at(script, 0, m)])?;
+    c.as2_private = program.as2_private.clone();
     // Keep original byte positions/line numbers when removing import statements.
     let end = p.token().offset;
     let mut replaced = script.clone();
@@ -1501,7 +1814,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
     let as3 = c.header.script.language == ScriptLanguage::ActionScript3;
     let mut fields = vec![];
     let mut methods = vec![];
-    let mut accessors = BTreeMap::<(String, bool), (Option<String>, Option<String>)>::new();
+    let mut accessors = BTreeMap::<(String, bool, Access), (Option<String>, Option<String>)>::new();
     let mut constructor = "null".to_owned();
     let short = c.header.name.rsplit('.').next().unwrap();
     let initializers: Vec<_> = c
@@ -1529,7 +1842,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
                 )
             })
             .unwrap_or_else(|| "null".into());
-        fields.push(format!("{{name:{:?},static:{},constant:{},defaultValue:{},coerce:function(value){{return {coerce};}},init:{initial}}}",f.name,f.is_static,f.constant,emitter.default_value(f.ty.as_deref())));
+        fields.push(format!("{{name:{:?},static:{},access:{:?},constant:{},defaultValue:{},coerce:function(value){{return {coerce};}},init:{initial}}}",f.name,f.is_static,f.access.name(),f.constant,emitter.default_value(f.ty.as_deref())));
     }
     for method in &c.methods {
         let f = &method.function;
@@ -1587,12 +1900,14 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
             constructor = function;
         } else if method.kind == MethodKind::Method {
             methods.push(format!(
-                "{{name:{name:?},static:{},fn:{function}}}",
-                method.is_static
+                "{{name:{name:?},static:{},access:{:?},final:{},fn:{function}}}",
+                method.is_static,
+                method.access.name(),
+                method.final_
             ));
         } else {
             let pair = accessors
-                .entry((name.clone(), method.is_static))
+                .entry((name.clone(), method.is_static, method.access))
                 .or_default();
             if method.kind == MethodKind::Get {
                 pair.0 = Some(function);
@@ -1603,16 +1918,17 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
     }
     let accessors = accessors
         .into_iter()
-        .map(|((name, is_static), (get, set))| {
+        .map(|((name, is_static, access), (get, set))| {
             format!(
-                "{{name:{name:?},static:{is_static},get:{},set:{}}}",
+                "{{name:{name:?},static:{is_static},access:{:?},get:{},set:{}}}",
+                access.name(),
                 get.unwrap_or_else(|| "null".into()),
                 set.unwrap_or_else(|| "null".into())
             )
         })
         .collect::<Vec<_>>();
     Ok(format!(
-        "__nfProgram.define({:?},{},[{}],[{}],{},{:?},[{}],{:?});\n",
+        "__nfProgram.define({:?},{},[{}],[{}],{},{:?},[{}],{:?},{{dynamic:{},final:{},package:{:?}}});\n",
         c.header.name,
         c.base
             .as_ref()
@@ -1623,6 +1939,9 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         constructor,
         if as3 { "as3" } else { "as2" },
         accessors.join(","),
-        c.interfaces
+        c.interfaces,
+        c.header.dynamic,
+        c.header.final_,
+        c.header.package
     ))
 }

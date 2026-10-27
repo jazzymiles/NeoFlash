@@ -1,6 +1,8 @@
 # Backlog
 
-Independent 11a59df acceptance (`FUNCTIONS-HTML5-20261027T0914Z`) confirms the corrected command workflow: optional/rest/supplied arguments, tested bound and ordinary receivers, arity refusals and Restart. An initial added arguments.length trace changed the probe's allow-extra contract; that altered result is preserved, with only the family re-exported after removing the trace. See [the independent record](VERIFICATION.md#independent-function-verification-of-11a59df). Later BitmapData filter/color/transfer/PNG work has separate evidence and inherits no function pass.
+Independent 6f4f66a acceptance (`IMAGE-PIPELINE-HTML5-20261027T0943Z`) confirms the initial full source/tint oracle, captured/roundtrip/loaded PNG equality, bulk cursor/word checks and partial setPixels EOF behavior. Later UI phases and Restart are retained as screenshot/AX evidence; missing later logs do not establish repeated full-pixel or whole-run zero-error results. See [the independent record](VERIFICATION.md#independent-image-pipeline-verification-of-6f4f66a). The current class/package family has separate delivery evidence and inherits no image-pipeline pass.
+
+Independent 11a59df acceptance (`FUNCTIONS-HTML5-20261027T0914Z`) confirms the corrected command workflow: optional/rest/supplied arguments, tested bound and ordinary receivers, arity refusals and Restart. An initial added arguments.length trace changed the probe's allow-extra contract; that altered result is preserved, with only the family re-exported after removing the trace. See [the independent record](VERIFICATION.md#independent-function-verification-of-11a59df). The later 6f4f66a image pipeline has its own bounded record; it does not inherit the function pass.
 
 Independent 5395375 acceptance (`FILTERS-HTML5-20261027T0844Z`) confirms representative Blur/Glow/DropShadow/ColorMatrix effects over whole vector/text/bitmap cards, copied settings, unchanged shared pixels, bounded source/halo input and clear/restore/Restart. Filtered native editing, mask/scroll composition, HiDPI/cache limits and exact Flash kernels remain unverified. See [the independent record](VERIFICATION.md#independent-filter-verification-of-5395375). The later 11a59df Function family has its own independent record; it does not inherit the filter pass.
 
@@ -190,3 +192,7 @@ A combined function/command workflow covers optional/rest AS3 source parameters,
 ## BitmapData image pipeline
 
 Bulk pixels, color transforms, shared filter kernels, current subtree capture and PNG-to-Loader form one integrated family. Remaining work includes drawWithQuality/non-normal blends, external mask dependencies, alpha-mask copies, other encoders and native authoring. Keep arithmetic, controlled Canvas adapter and real browser evidence distinct; use the existing grouped tests and one pipeline example.
+
+## Source class and package follow-ups
+
+The coordinated source package adds lexical AS3 access, final/dynamic classes, package collaboration and wildcard imports, with separate AS2 private rules. Native overrides, user namespaces, generalized compile-time typing, VM reflection/prototype parity and full initialization-order conformance remain open. Keep acceptance grouped around the component workflow and its public serialization; do not multiply per-modifier browser cycles.

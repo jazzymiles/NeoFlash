@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Independently checked frozen 6f4f66a image processing (`IMAGE-PIPELINE-HTML5-20261027T0943Z`): full initial source/tint and PNG round-trip pixel evidence, bulk transfer/cursors and the documented partial-write EOF path. Subsequent palette/Restart phases retain screenshots/AX only where logs were unavailable; no repeated full-byte or complete-run zero-error claim is made.
+
+- Added a coordinated source-class/package family: AS3 lexical access, separate private slots, protected dispatch, package-internal collaboration, final/dynamic declarations and wildcard imports. AS2 retains its distinct private/inheritance behavior. One component workflow connects these rules to public serialization, dynamic metadata and Restart.
+
 - Independently checked frozen 11a59df Functions (`FUNCTIONS-HTML5-20261027T0914Z`): corrected real commands, optional/rest/supplied arguments, bound versus ordinary receivers, arity refusals and Restart. An arguments.length instrumentation change altered the original probe contract; only that family was corrected/re-exported, with original evidence retained. No complete VM invocation or reflection claim follows.
 
 - Added a shared BitmapData image pipeline: bulk ARGB/ByteArray transfer, colorTransform, applyFilter/generateFilterRect, PNG encoding and read-only source-subtree draw through the same scene painter. Rust retains pixel ownership, partial setPixels EOF follows consumed complete words, and one palette workflow connects PNG to Loader and Restart.

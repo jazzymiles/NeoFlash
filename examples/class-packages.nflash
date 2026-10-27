@@ -1,0 +1,836 @@
+{
+  "format_version": 2,
+  "name": "Source class and package workflow",
+  "width": 1040,
+  "height": 720,
+  "fps": 24,
+  "background": [
+    17,
+    24,
+    39,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Component workspace",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 30,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / SOURCE CLASSES / AS2 + AS3",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        158,
+                        180,
+                        205,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 64,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Components with their own state.",
+                      "font_family": "Arial",
+                      "font_size": 34,
+                      "color": [
+                        236,
+                        242,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 111,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "One workflow: inheritance, package collaboration, public JSON and dynamic metadata.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        158,
+                        180,
+                        205,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "model-panel",
+                    "name": "model-panel",
+                    "transform": {
+                      "x": 48,
+                      "y": 160,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 472,
+                      "height": 285,
+                      "fill": [
+                        25,
+                        36,
+                        55,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "state-panel",
+                    "name": "state-panel",
+                    "transform": {
+                      "x": 544,
+                      "y": 160,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 448,
+                      "height": 285,
+                      "fill": [
+                        25,
+                        36,
+                        55,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "model-heading",
+                    "name": "model-heading",
+                    "transform": {
+                      "x": 72,
+                      "y": 183,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 / ENCAPSULATED MODELS",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        102,
+                        221,
+                        182,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "model-values",
+                    "name": "model-values",
+                    "transform": {
+                      "x": 72,
+                      "y": 225,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Preparing\u2026",
+                      "font_family": "Arial",
+                      "font_size": 29,
+                      "color": [
+                        236,
+                        242,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "model-detail",
+                    "name": "model-detail",
+                    "transform": {
+                      "x": 72,
+                      "y": 276,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        158,
+                        180,
+                        205,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "model-json",
+                    "name": "model-json",
+                    "transform": {
+                      "x": 72,
+                      "y": 322,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        139,
+                        191,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "model-guard",
+                    "name": "model-guard",
+                    "transform": {
+                      "x": 72,
+                      "y": 390,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        158,
+                        180,
+                        205,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "state-heading",
+                    "name": "state-heading",
+                    "transform": {
+                      "x": 568,
+                      "y": 183,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 / DYNAMIC METADATA",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        139,
+                        191,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "state-values",
+                    "name": "state-values",
+                    "transform": {
+                      "x": 568,
+                      "y": 225,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Preparing\u2026",
+                      "font_family": "Arial",
+                      "font_size": 29,
+                      "color": [
+                        236,
+                        242,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "state-detail",
+                    "name": "state-detail",
+                    "transform": {
+                      "x": 568,
+                      "y": 276,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        158,
+                        180,
+                        205,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "state-json",
+                    "name": "state-json",
+                    "transform": {
+                      "x": 568,
+                      "y": 322,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "",
+                      "width": 400,
+                      "height": 94,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 9158655,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-bg",
+                    "name": "legacy-bg",
+                    "transform": {
+                      "x": 48,
+                      "y": 466,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 944,
+                      "height": 70,
+                      "fill": [
+                        25,
+                        36,
+                        55,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "classic",
+                    "name": "classic",
+                    "transform": {
+                      "x": 48,
+                      "y": 466,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "legacy-view",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 563,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        158,
+                        180,
+                        205,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "advance",
+                    "name": "advance",
+                    "transform": {
+                      "x": 48,
+                      "y": 620,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "advance-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.advanceModels();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.classic.advanceLegacy();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Advance both models",
+                      "description": "Update the component models and their visible state.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "tag",
+                    "name": "tag",
+                    "transform": {
+                      "x": 384,
+                      "y": 620,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "tag-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.toggleTag();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Toggle metadata tag",
+                      "description": "Update the component models and their visible state.",
+                      "role": "button",
+                      "tab_order": 1,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "legacy-view",
+      "name": "Legacy component",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "legacy-view-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "legacy-values",
+                    "name": "legacy-values",
+                    "transform": {
+                      "x": 24,
+                      "y": 20,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Preparing legacy\u2026",
+                      "font_family": "Arial",
+                      "font_size": 21,
+                      "color": [
+                        236,
+                        242,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import legacy.*;\nstop();\nvar counter:Counter=new Counter();\nfunction advanceLegacy():Void {counter.advance(); refreshLegacy();}\nfunction refreshLegacy():Void {this[\"legacy-values\"].text=\"AS2 private in subclass: \"+counter.read();}\nrefreshLegacy();"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "advance-symbol",
+      "name": "Advance both models",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "advance-symbol-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "advance-face",
+                    "name": "advance-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 48,
+                      "fill": [
+                        102,
+                        221,
+                        182,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "advance-label",
+                    "name": "advance-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 13,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Advance both models",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        17,
+                        24,
+                        39,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "tag-symbol",
+      "name": "Toggle metadata tag",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "tag-symbol-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "tag-face",
+                    "name": "tag-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 48,
+                      "fill": [
+                        139,
+                        191,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "tag-label",
+                    "name": "tag-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 13,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Toggle metadata tag",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        17,
+                        24,
+                        39,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "model-BaseCounter",
+      "path": "model/BaseCounter.as",
+      "language": "action_script3",
+      "source": "package model {\n    public class BaseCounter {\n        private var value:int=10;\n        protected var factor:int=1;\n        internal var revision:int=0;\n        public function BaseCounter() {}\n        public final function advance(amount:int=1):int {\n            value+=delta(amount); revision++; return value;\n        }\n        protected function delta(amount:int):int { return amount*factor; }\n        private function readValue():int { return value; }\n        public function get total():int { return readValue(); }\n    }\n}\n"
+    },
+    {
+      "id": "model-BoostCounter",
+      "path": "model/BoostCounter.as",
+      "language": "action_script3",
+      "source": "package model {\n    public final class BoostCounter extends BaseCounter {\n        private var value:int=100;\n        public function BoostCounter() { super(); }\n        protected override function delta(amount:int):int { return super.delta(amount)*2; }\n        public function run(amount:int):int { value+=amount; return advance(amount); }\n        public function get local():int { return value; }\n    }\n}\n"
+    },
+    {
+      "id": "model-PackageLedger",
+      "path": "model/PackageLedger.as",
+      "language": "action_script3",
+      "source": "package model {\n    class PackageLedger {\n        public static function describe(counter:BaseCounter):String { return counter.revision+\" revisions\"; }\n    }\n}\n"
+    },
+    {
+      "id": "model-Board",
+      "path": "model/Board.as",
+      "language": "action_script3",
+      "source": "package model {\n    public class Board {\n        public var counter:BoostCounter;\n        public function Board() { counter=new BoostCounter(); }\n        public function step():int { return counter.run(2); }\n        public function get caption():String { return PackageLedger.describe(counter); }\n    }\n}\n"
+    },
+    {
+      "id": "data-Record",
+      "path": "data/Record.as",
+      "language": "action_script3",
+      "source": "package data {\n    public dynamic class Record {\n        public var label:String=\"session\";\n        private var secret:String=\"hidden\";\n        public function Record() {}\n        public function get safe():String { return label; }\n    }\n}\n"
+    },
+    {
+      "id": "data-FixedRecord",
+      "path": "data/FixedRecord.as",
+      "language": "action_script3",
+      "source": "package data {\n    public class FixedRecord extends Record {\n        public function FixedRecord() { super(); }\n    }\n}\n"
+    },
+    {
+      "id": "app-Main",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n    import flash.display.*;\n    import model.*;\n    import data.*;\n    public class Main extends MovieClip {\n        private var board:Board;\n        public var state:Record;\n        public var fixed:FixedRecord;\n        public var steps:int=0;\n        public var modelTotal:int=0;\n        public var modelLocal:int=0;\n        public var summary:String;\n        public var serialized:String;\n        public var metadataKeys:String;\n        public var sealedBlocked:Boolean=false;\n        public var privateBlocked:Boolean=false;\n        public var tagged:Boolean=false;\n        public function Main() {\n            super(); stop();\n            this[\"advance\"][\"advance-label\"].selectable=false;\n            this[\"tag\"][\"tag-label\"].selectable=false;\n            board=new Board(); state=new Record(); fixed=new FixedRecord();\n            state[\"note\"]=\"ready\";\n            try { fixed[\"note\"]=\"refused\"; } catch(error:Error) { sealedBlocked=true; }\n            try { var hidden:* =board.counter[\"value\"]; } catch(error:Error) { privateBlocked=true; }\n            refresh(); trace(\"packages ready\",modelTotal,modelLocal,sealedBlocked,privateBlocked);\n        }\n        public function advanceModels():void {\n            board.step(); steps++; state[\"note\"]=\"step \"+steps;\n            refresh(); trace(\"packages advance\",steps,modelTotal,modelLocal);\n        }\n        public function toggleTag():void {\n            tagged=!tagged;\n            if(tagged) state[\"theme\"]=\"mint\"; else delete state[\"theme\"];\n            refresh(); trace(\"packages tag\",tagged,metadataKeys);\n        }\n        private function refresh():void {\n            modelTotal=board.counter.total; modelLocal=board.counter.local;\n            summary=board.caption; serialized=JSON.stringify(board.counter);\n            var keys:Array=[];\n            for(var key:String in state) keys.push(key);\n            keys.sort(); metadataKeys=keys.join(\", \");\n            this[\"model-values\"].text=modelTotal+\" base / \"+modelLocal+\" derived\";\n            this[\"model-detail\"].text=\"Protected dispatch \u00d72 / \"+summary;\n            this[\"model-json\"].text=serialized;\n            this[\"model-guard\"].text=\"Private hidden: \"+privateBlocked+\" / sealed child: \"+sealedBlocked;\n            this[\"state-values\"].text=state[\"note\"];\n            this[\"state-detail\"].text=\"Dynamic keys: \"+metadataKeys;\n            this[\"state-json\"].text=JSON.stringify(state);\n            this[\"footer\"].text=\"Commands \"+steps+\" / tag \"+tagged+\" / Restart creates fresh models\";\n        }\n    }\n}\n"
+    },
+    {
+      "id": "legacy-BaseCounter",
+      "path": "legacy/BaseCounter.as",
+      "language": "action_script2",
+      "source": "class legacy.BaseCounter {\n    private var value:Number=20;\n    public function BaseCounter() {}\n    public function read():Number { return value; }\n}\n"
+    },
+    {
+      "id": "legacy-Counter",
+      "path": "legacy/Counter.as",
+      "language": "action_script2",
+      "source": "import legacy.*;\nclass legacy.Counter extends BaseCounter {\n    public function Counter() { super(); }\n    public function advance():Number { value+=3; return value; }\n}\n"
+    }
+  ]
+}

@@ -26,6 +26,7 @@ import { verifyTextForm } from './text-form.mjs';
 import { verifyFilterGallery } from './filter-gallery.mjs';
 import { verifyFunctionWorkflow } from './function-workflow.mjs';
 import { verifyImagePipeline } from './image-pipeline.mjs';
+import { verifyClassPackages } from './class-packages.mjs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
@@ -48,7 +49,7 @@ const project={format_version:2,name:'Original program fixture',width:320,height
     {id:'user-vector',path:'legacy/Vector.as',language:'action_script2',source:'class legacy.Vector {public function Vector(){} public function size():Number{return 3;}}'},
     {id:'user-dictionary',path:'legacy/Dictionary.as',language:'action_script2',source:'class legacy.Dictionary {public function Dictionary(){} public function count():Number{return 4;}}'},
     source('data-base','model/DataBase.as','package model { public class DataBase { public var value:int=2; public static var reads:int=0; public function DataBase(){} public function get doubled():int { DataBase.reads++; return value*2; } public function set writeOnly(next:int):void {value=next;} } }'),
-    source('data-record','model/DataRecord.as','package model { public class DataRecord extends DataBase { public var when:Date; public var pattern:RegExp; public function DataRecord(){super();} public function accept(date:Date,regex:RegExp):Boolean {when=date;pattern=regex;return date is Date && regex is RegExp;} public function serialize():String {return JSON.stringify(this,function(key:String,value:*):* {if(key=="pattern")return value.source;return value;});} } }'),
+    source('data-record','model/DataRecord.as','package model { public dynamic class DataRecord extends DataBase { public var when:Date; public var pattern:RegExp; public function DataRecord(){super();} public function accept(date:Date,regex:RegExp):Boolean {when=date;pattern=regex;return date is Date && regex is RegExp;} public function serialize():String {return JSON.stringify(this,function(key:String,value:*):* {if(key=="pattern")return value.source;return value;});} } }'),
     {id:'user-json',path:'legacy/JSON.as',language:'action_script2',source:'class legacy.JSON {public function JSON(){} public function parse(value:String):String{return "user:"+value;}}'},
     {id:'user-regex',path:'legacy/RegExp.as',language:'action_script2',source:'class legacy.RegExp {public function RegExp(){} public function test(value:String):Boolean{return value=="user";}}'},
     {id:'user-date',path:'legacy/Date.as',language:'action_script2',source:'class legacy.Date {public function Date(){} public function getTime():Number{return 17;}}'},
@@ -184,4 +185,5 @@ await verifyTextForm(root,cargo);
 await verifyFilterGallery(root,cargo);
 await verifyFunctionWorkflow(root,cargo);
 await verifyImagePipeline(root,cargo);
+await verifyClassPackages(root,cargo);
 console.log('Project program: imports, inheritance/super, typed fields, constructors, static/const, stable methods, independent instances and actual EventDispatcher passed.');

@@ -42,7 +42,7 @@ fn module_resolution_fails_with_original_source_path() {
 #[test]
 fn class_syntax_outside_profile_is_never_erased() {
     for source in [
-        "package { public class A {private var secret:int;} }",
+        "package { public class A {public private var secret:int;} }",
         "package { public class A extends Date {} }",
         "package { public class A extends XML {} }",
         "package { public class A extends XMLList {} }",
@@ -63,7 +63,7 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { public class A { public function get value(arg:int):int{return arg;} } }",
         "package { public class A { public function set value(arg:int):int{return arg;} } }",
         "package { public class A { public function get value():int{return 1;} public function set value(arg:Number):void{} } }",
-        "package { public class A { function get value():int{return 1;} } }",
+        "package { public class A { private function get value():int{return 1;} public function set value(next:int):void{} } }",
         "package { public interface A { public function value():int; } }",
         "package { public interface A { function value():int{return 1;} } }",
         "package { public interface A { function A(); } }",
@@ -375,6 +375,148 @@ fn class_syntax_outside_profile_is_never_erased() {
                 .all(|e| e.message.contains(".as:"))
         );
     }
+    // One package/component contract: namespace-separated private fields,
+    // protected dispatch, package-private collaborators and deliberate imports.
+    let packages = project(&[
+        (
+            "model/Base.as",
+            "package model {public class Base {private var value:int=10; protected var factor:int=2; internal var revision:int=0; public function Base(){} protected function delta():int{return factor;} public final function advance():int{value+=delta();revision++;return value;} public function get total():int{return value;}}}",
+        ),
+        (
+            "model/Derived.as",
+            "package model {public final class Derived extends Base {private var value:int=100; public function Derived(){super();} protected override function delta():int{return super.delta()*2;} public function get local():int{return value;} public function ledger():int{return Ledger.read(this);}}}",
+        ),
+        (
+            "model/Ledger.as",
+            "package model {class Ledger {internal static function read(value:Base):int{return value.revision;}}}",
+        ),
+        (
+            "data/Record.as",
+            "package data {public dynamic class Record {public var title:String; private var secret:int=9; public function get summary():String{return title;}}}",
+        ),
+        (
+            "data/Fixed.as",
+            "package data {public class Fixed extends Record {public function Fixed(){super();}}}",
+        ),
+        (
+            "Main.as",
+            "package {import model.*;import data.*;public class Main {private var counter:Derived;public function Main(){counter=new Derived();}public function run():int{var record:Record=new Record();record.extra=1;return counter.advance()+counter.local()+counter.ledger();}}}",
+        ),
+    ]);
+    let result = neoflash_script::compile_project(&packages);
+    assert!(result.is_ok(), "{:?}", result.err());
+    for sources in [
+        vec![
+            ("Base.as", "package {public final class Base {}}"),
+            (
+                "Derived.as",
+                "package {public class Derived extends Base {}}",
+            ),
+        ],
+        vec![
+            (
+                "Base.as",
+                "package {public class Base {public final function run():int{return 1;}}}",
+            ),
+            (
+                "Derived.as",
+                "package {public class Derived extends Base {public override function run():int{return 2;}}}",
+            ),
+        ],
+        vec![
+            (
+                "Base.as",
+                "package {public class Base {protected function run():int{return 1;}}}",
+            ),
+            (
+                "Derived.as",
+                "package {public class Derived extends Base {public override function run():int{return 2;}}}",
+            ),
+        ],
+        vec![
+            ("model/Hidden.as", "package model {class Hidden {}}"),
+            (
+                "Main.as",
+                "package {import model.Hidden;public class Main {}}",
+            ),
+        ],
+        vec![
+            (
+                "model/Hidden.as",
+                "package model {internal class Hidden {}}",
+            ),
+            (
+                "Main.as",
+                "package {public class Main {public var hidden:model.Hidden;}}",
+            ),
+        ],
+        vec![
+            (
+                "model/deep/Hidden.as",
+                "package model.deep {public class Hidden {}}",
+            ),
+            (
+                "Main.as",
+                "package {import model.*;public class Main {public var value:Hidden;}}",
+            ),
+        ],
+        vec![
+            ("a/Entry.as", "package a {public class Entry {}}"),
+            ("b/Entry.as", "package b {public class Entry {}}"),
+            (
+                "Main.as",
+                "package {import a.*;import b.*;public class Main {}}",
+            ),
+        ],
+    ] {
+        let result = neoflash_script::compile_project(&project(&sources));
+        assert!(
+            result.is_err(),
+            "unexpected class/package acceptance: {sources:?}"
+        );
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .iter()
+                .all(|error| error.message.contains(".as:"))
+        );
+    }
+    let exact_wins = project(&[
+        ("a/Entry.as", "package a {public class Entry {}}"),
+        ("b/Entry.as", "package b {public class Entry {}}"),
+        (
+            "Main.as",
+            "package {import a.*;import b.*;import a.Entry;public class Main {public var value:Entry;}}",
+        ),
+    ]);
+    assert!(neoflash_script::compile_project(&exact_wins).is_ok());
+    let mut legacy_private = project(&[
+        (
+            "legacy/Base.as",
+            "class legacy.Base {private var value:Number=3;private function add():Number{return value+1;}public function Base(){}}",
+        ),
+        (
+            "legacy/Child.as",
+            "class legacy.Child extends legacy.Base {public function read():Number{return value+add();}}",
+        ),
+    ]);
+    for source in &mut legacy_private.sources {
+        source.language = ScriptLanguage::ActionScript2;
+    }
+    let legacy_program = neoflash_script::compile_project(&legacy_private)
+        .expect("AS2 subclasses inherit private access");
+    let mut outside = neoflash_core::Script {
+        language: ScriptLanguage::ActionScript2,
+        source: "import legacy.Child;var value:Child=new Child();result=value.value;".into(),
+    };
+    assert!(neoflash_script::compile_with_program(&outside, &legacy_program).is_err());
+    outside.source =
+        "import legacy.Child;var value:Child=new Child();result=value[\"value\"];".into();
+    assert!(
+        neoflash_script::compile_with_program(&outside, &legacy_program).is_ok(),
+        "AS2 indexed access remains a runtime public escape"
+    );
     let optional_contracts = project(&[
         (
             "I.as",

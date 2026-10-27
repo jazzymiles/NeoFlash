@@ -19,6 +19,7 @@ struct CompileContext {
     interfaces: std::collections::BTreeSet<String>,
     members: std::collections::BTreeMap<String, Option<String>>,
     static_members: std::collections::BTreeMap<String, String>,
+    as2_private: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
     static_method: bool,
     class_name: Option<String>,
     method_id: Option<usize>,
@@ -2000,6 +2001,48 @@ impl Emitter<'_> {
             )
         }
     }
+    /// Lexical access travels with emitted code, never with an ambient runtime
+    /// current-class stack. Computed/indexed access deliberately omits it.
+    fn caller_argument(&self) -> String {
+        self.analysis
+            .context
+            .class_name
+            .as_ref()
+            .map_or_else(String::new, |name| format!(", {name:?}"))
+    }
+    fn bare_member_receiver(&self, name: &str) -> Option<String> {
+        self.analysis.context.class_name.as_ref()?;
+        if self
+            .analysis
+            .resolve(self.scope, name)
+            .is_some_and(|(id, b)| id == 0 && b.kind == scope::BindingKind::Field)
+        {
+            return Some(
+                self.analysis
+                    .context
+                    .static_members
+                    .get(name)
+                    .map(|owner| format!("__nfProgram.type({owner:?})"))
+                    .unwrap_or_else(|| {
+                        if self.scope == 0 {
+                            "this".into()
+                        } else {
+                            "__nfFrame".into()
+                        }
+                    }),
+            );
+        }
+        // Unqualified dynamic/native members also need the sealed-object gate.
+        // Locals, built-in globals and type names retain their existing binding.
+        let raw = self.name(name);
+        if raw == format!("this.{name}") {
+            Some("this".into())
+        } else if raw == format!("__nfFrame.{name}") {
+            Some("__nfFrame".into())
+        } else {
+            None
+        }
+    }
     fn default_value(&self, ty: Option<&str>) -> &'static str {
         if !self.as3 {
             return "undefined";
@@ -2123,10 +2166,18 @@ impl Emitter<'_> {
     }
     fn reference(&self, expr: &Expr) -> Option<String> {
         match expr {
+            Expr::Name(name) => self.bare_member_receiver(name).map(|receiver| {
+                format!(
+                    "__nfContainerRef({receiver}, {name:?}, {}{})",
+                    self.as3,
+                    self.caller_argument()
+                )
+            }),
             Expr::Member(base, name) => Some(format!(
-                "__nfContainerRef({}, {name:?}, {})",
+                "__nfContainerRef({}, {name:?}, {}{})",
                 self.expression(base),
-                self.as3
+                self.as3,
+                self.caller_argument()
             )),
             Expr::XmlSelect {
                 base,
@@ -2244,7 +2295,16 @@ impl Emitter<'_> {
                     if self.scope == 0 { "this" } else { "__nfFrame" }
                 )
             }
-            Expr::Name(name) => self.name(name),
+            Expr::Name(name) => self.bare_member_receiver(name).map_or_else(
+                || self.name(name),
+                |receiver| {
+                    format!(
+                        "__nfFamilyPropertyValue({receiver}, {name:?}, {}{})",
+                        self.as3,
+                        self.caller_argument()
+                    )
+                },
+            ),
             Expr::Function(f) => format!("({})", self.function(f)),
             Expr::NewError(name, args, _) => format!(
                 "__nfMakeError({name:?}, {}, [{}])",
@@ -2301,9 +2361,10 @@ impl Emitter<'_> {
             ),
             Expr::Member(base, name) => {
                 format!(
-                    "__nfFamilyPropertyValue({}, {name:?}, {})",
+                    "__nfFamilyPropertyValue({}, {name:?}, {}{})",
                     self.expression(base),
-                    self.as3
+                    self.as3,
+                    self.caller_argument()
                 )
             }
             Expr::Index(base, index) => {
@@ -2402,6 +2463,26 @@ impl Emitter<'_> {
                     && self.as3
                     && self.typed(name)
                 {
+                    if let Some(reference) = self.reference(left) {
+                        if op == "=" {
+                            return format!("({reference}).set({})", self.coerce(name, value));
+                        }
+                        let operator = &op[..op.len() - 1];
+                        let next = if matches!(op.as_str(), "&&=" | "||=") {
+                            format!(
+                                "__nfOld {operator} __nfRef.set({})",
+                                self.coerce(name, value)
+                            )
+                        } else {
+                            format!(
+                                "__nfRef.set({})",
+                                self.coerce(name, self.binary(operator, "__nfOld".into(), value))
+                            )
+                        };
+                        return format!(
+                            "((__nfRef)=>{{const __nfOld=__nfRef.get();return {next};}})({reference})"
+                        );
+                    }
                     if op == "&&=" || op == "||=" {
                         return format!(
                             "({target} {} ({target} = {}))",
@@ -2452,6 +2533,18 @@ impl Emitter<'_> {
                 }
             }
             Expr::Update(op, value, prefix) => {
+                if let Expr::Name(name) = value.as_ref()
+                    && self.as3
+                    && self.typed(name)
+                    && let Some(reference) = self.reference(value)
+                {
+                    let sign = if op == "++" { "+" } else { "-" };
+                    let next = self.coerce(name, format!("(__nfOld {sign} 1)"));
+                    return format!(
+                        "((__nfRef)=>{{const __nfOld=__nfNumber(__nfRef.get()),__nfNext={next};__nfRef.set(__nfNext);return {};}})({reference})",
+                        if *prefix { "__nfNext" } else { "__nfOld" }
+                    );
+                }
                 if let Some(reference) = self.reference(value) {
                     let sign = if op == "++" { "+" } else { "-" };
                     return format!(
@@ -2575,6 +2668,20 @@ impl Emitter<'_> {
                         );
                     }
                 }
+                if let Expr::Name(name) = callee.as_ref()
+                    && self.as3
+                    && let Some(receiver) = self.bare_member_receiver(name)
+                {
+                    return format!(
+                        "__nfContainerMethod({receiver}, {name:?}, {}{})({})",
+                        self.as3,
+                        self.caller_argument(),
+                        args.iter()
+                            .map(|a| self.expression(a))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
                 let member = match callee.as_ref() {
                     Expr::Member(base, name) => Some((base.as_ref(), name.clone())),
                     Expr::Index(base, index) => {
@@ -2585,6 +2692,22 @@ impl Emitter<'_> {
                 if let Some((base, name)) = &member
                     && matches!(name.as_str(), "call" | "apply")
                 {
+                    if self.analysis.context.class_name.is_some() {
+                        let caller = if matches!(callee.as_ref(), Expr::Member(_, _)) {
+                            self.caller_argument()
+                        } else {
+                            String::new()
+                        };
+                        return format!(
+                            "__nfContainerMethod({}, {name:?}, {}{caller})({})",
+                            self.expression(base),
+                            self.as3,
+                            args.iter()
+                                .map(|a| self.expression(a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
                     return format!(
                         "__nfFunctionMethod({}, {name:?}, {})({})",
                         self.expression(base),
@@ -2599,9 +2722,14 @@ impl Emitter<'_> {
                     && is_family_method(name)
                 {
                     return format!(
-                        "__nfMemberMethod({}, {name:?}, {})({})",
+                        "__nfMemberMethod({}, {name:?}, {}{})({})",
                         self.expression(base),
                         self.as3,
+                        if matches!(callee.as_ref(), Expr::Member(_, _)) {
+                            self.caller_argument()
+                        } else {
+                            String::new()
+                        },
                         args.iter()
                             .map(|arg| self.expression(arg))
                             .collect::<Vec<_>>()
@@ -2661,8 +2789,9 @@ impl Emitter<'_> {
                             && let Expr::Member(base, name) = callee.as_ref()
                         {
                             format!(
-                                "__nfContainerMethod({}, {name:?}, true)",
-                                self.expression(base)
+                                "__nfContainerMethod({}, {name:?}, true{})",
+                                self.expression(base),
+                                self.caller_argument()
                             )
                         } else if self.as3
                             && let Some((base, name)) = &member
@@ -2959,11 +3088,11 @@ function __nfFamilyValue(value, as3) {
     value = __nfDateMethodValue(value);
     return as3 ? __nfMethodValue(value) : value;
 }
-function __nfFamilyPropertyValue(receiver, key, as3) {
-    return __nfFamilyValue(__nfContainerRef(receiver,key,as3).get(), as3);
+function __nfFamilyPropertyValue(receiver, key, as3, caller) {
+    return __nfFamilyValue(__nfContainerRef(receiver,key,as3,caller).get(), as3);
 }
-function __nfMemberMethod(receiver, key, as3) {
-    return __nfContainerMethod(receiver,key,as3);
+function __nfMemberMethod(receiver, key, as3, caller) {
+    return __nfContainerMethod(receiver,key,as3,caller);
 }
 "#,
     ]

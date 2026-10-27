@@ -1,7 +1,7 @@
 // Per-publication class registry. No ambient language switch or global patches.
 const __nfProgram = (() => {
     const definitions = new Map(), interfaces = new Map(), identities = new WeakMap(), fieldStates = new WeakMap();
-    const accessorStates = new WeakMap();
+    const accessorStates = new WeakMap(), slots = new WeakMap(), classFacades = new WeakMap();
     const elementDescriptors = new Map();
     const initialized = new WeakMap(), superMethods = new WeakMap(), failed = new WeakMap();
     const builtins = { Object, Array: __nfArrayClass(true), Date: __nfDateClass(true), RegExp: __nfRegExpClass(true), JSON: __nfJSON, XML:__nfXML?.XML, XMLList:__nfXML?.XMLList, Namespace:__nfXML?.Namespace, QName:__nfXML?.QName, 'flash.utils.Dictionary':__nfDictionaryClass(true), ...__nfBuiltins };
@@ -38,35 +38,84 @@ const __nfProgram = (() => {
         if(!elementDescriptors.has(name))elementDescriptors.set(name,Object.freeze({token:type(name),name,defaultValue:null,coerce:value=>cast(name,value)}));
         return elementDescriptors.get(name);
     }
-    function fixedProperties(value) {
-        const name=identities.get(value);
-        if(!name||definitions.get(name)?.dialect==='as2')return null;
-        const fixed=new Set();
-        for(const definition of chain(name))for(const member of [...definition.fields,...definition.methods,...definition.accessors])if(!member.static)fixed.add(member.name);
-        return fixed;
+    function classDefinition(value) {
+        const name=identities.get(value)||classFacades.get(value);
+        const definition=definitions.get(name);
+        return definition?.dialect==='as3'?definition:null;
     }
-    function hasFixedProperty(value,key) {return fixedProperties(value)?.has(key)??false;}
+    function slotMap(receiver) {let map=slots.get(receiver);if(!map)slots.set(receiver,map=new Map());return map;}
+    function eligible(member,caller) {
+        if(member.access==='public')return true;
+        const context=definitions.get(caller);if(!context)return false;
+        if(member.access==='private')return member.owner===caller;
+        if(member.access==='internal')return definitions.get(member.owner).package===context.package;
+        return chain(caller).some(definition=>definition.name===member.owner);
+    }
+    function resolveSlot(receiver,name,caller) {
+        const map=slots.get(receiver);if(!map)return null;
+        // A lexical declaration resolves its own namespace before any unrelated
+        // same-spelled trait. Virtual overrides share that namespace slot.
+        if(caller)for(const definition of chain(caller).reverse()){
+            for(const member of [...definition.fields,...definition.methods,...definition.accessors]){
+                if(member.name===name&&eligible(member,caller)&&map.has(member.slot))return map.get(member.slot);
+            }
+        }
+        const matches=[...map.values()].filter(slot=>slot.member.name===name&&eligible(slot.member,caller));
+        if(matches.length>1)throw new ReferenceError(`Ambiguous project property ${name}; qualify the declaration or use a public accessor.`);
+        return matches[0]||null;
+    }
+    function publicSlot(receiver,name){return [...(slots.get(receiver)?.values()||[])].find(slot=>slot.member.name===name&&slot.member.access==='public')||null;}
+    function dynamicAllowed(value){const definition=classDefinition(value);return !definition||(!classFacades.has(value)&&definition.dynamic);}
+    function assertDynamicWrite(value,name){
+        if(!dynamicAllowed(value))throw new ReferenceError(`Cannot create property ${name} on sealed class ${classDefinition(value).name}; declare it or mark the class dynamic.`);
+    }
+    function ref(receiver,name,caller) {
+        if(!classDefinition(receiver))return null;
+        const slot=resolveSlot(receiver,name,caller);
+        if(slot)return {get:slot.get,set(value){slot.set(value);return value;},delete:()=>false,has:()=>true};
+        // Only public/native descriptors are installed on the actual receiver.
+        // Nonpublic traits never leak through raw indexing, JSON or host callbacks.
+        const object=Object(receiver);
+        return {
+            get(){if(Reflect.has(object,name)||dynamicAllowed(receiver))return receiver[name];throw new ReferenceError(`Property ${name} is unavailable on sealed class ${classDefinition(receiver).name}.`);},
+            set(value){
+                if(!dynamicAllowed(receiver)){
+                    let descriptor,owner=object;
+                    while(owner&&!(descriptor=Object.getOwnPropertyDescriptor(owner,name)))owner=Object.getPrototypeOf(owner);
+                    const inheritedSetter=descriptor?.set;
+                    const native=typeof __nfBuiltins.__nfHasNativeProperty==='function'&&__nfBuiltins.__nfHasNativeProperty(receiver,name);
+                    if(!Object.hasOwn(object,name)&&!inheritedSetter&&!native)assertDynamicWrite(receiver,name);
+                }
+                if(!Reflect.set(object,name,value,receiver))throw new TypeError(`Cannot write property ${name}.`);return value;
+            },
+            delete(){return dynamicAllowed(receiver)?Reflect.deleteProperty(object,name):false;},
+            has(){return Reflect.has(object,name);},
+        };
+    }
+    function hasFixedProperty(value,key) {return Boolean(publicSlot(value,key));}
     function enumerationKeys(value) {
         if(!identities.has(value))return null;
-        const fixed=fixedProperties(value),keys=[];
-        for(const key in value)if(!fixed?.has(key)){
+        const keys=[];
+        for(const key in value)if(!hasFixedProperty(value,key)){
             if(keys.length>=1000000)throw new TypeError('Project enumeration exceeds 1000000 entries.');
             keys.push(key);
         }
         return keys;
     }
     function jsonKeys(value) {
-        const name = identities.get(value);
-        if (!name) return null;
-        const keys = new Set();
-        for (const definition of chain(name)) {
-            for (const field of definition.fields) if (!field.static) keys.add(field.name);
-            // A setter-only override preserves the inherited getter. This
-            // metadata lookup must not execute the getter while listing keys.
-            for (const accessor of definition.accessors) if (!accessor.static && accessor.get) keys.add(accessor.name);
+        const name=identities.get(value);if(!name)return null;
+        const keys=new Set();
+        if(definitions.get(name).dialect==='as2'){
+            for(const definition of chain(name))for(const field of definition.fields)if(!field.static)keys.add(field.name);
+        }else for(const slot of slots.get(value)?.values()||[]){
+            if(slot.member.access==='public'&&(slot.kind==='field'||slot.kind==='accessor'&&slot.readable))keys.add(slot.member.name);
         }
-        for (const key of Object.keys(value)) keys.add(key);
+        for(const key of Object.keys(value))keys.add(key);
         return [...keys];
+    }
+    function installSlot(receiver,member,kind,get,set,readable=true) {
+        slotMap(receiver).set(member.slot,{member,kind,get,set,readable});
+        if(member.access==='public')Object.defineProperty(receiver,member.name,{configurable:true,enumerable:kind==='field',get,set});
     }
     function installFields(receiver, definition, isStatic) {
         if (definition.dialect === 'as2') {
@@ -79,16 +128,12 @@ const __nfProgram = (() => {
         let states = fieldStates.get(receiver);
         if (!states) fieldStates.set(receiver, states = new Map());
         for (const field of definition.fields.filter(field => field.static === isStatic)) {
-            if (states.has(field.name)) throw new Error(`Duplicate inherited field ${field.name}.`);
+            if (states.has(field.slot)) throw new Error(`Duplicate inherited field ${field.name}.`);
             const state = { value: field.defaultValue, field };
-            states.set(field.name, state);
-            Object.defineProperty(receiver, field.name, {
-                configurable: true, enumerable: true,
-                get() { return state.value; },
-                set(value) {
+            states.set(field.slot, state);
+            installSlot(receiver,field,'field',()=>state.value,value=>{
                     if (field.constant) throw new TypeError(`AS3 const ${field.name} is read-only.`);
                     state.value = field.coerce(value);
-                },
             });
         }
     }
@@ -96,13 +141,16 @@ const __nfProgram = (() => {
         const definition = definitions.get(name);
         if (definition.dialect === 'as2') return; // Scalar defaults live on the shared prototype.
         for (const field of definition.fields.filter(field => field.static === isStatic)) {
-            if (field.init) fieldStates.get(receiver).get(field.name).value = field.coerce(field.init.call(receiver));
+            if (field.init) fieldStates.get(receiver).get(field.slot).value = field.coerce(field.init.call(receiver));
         }
     }
     function installMethods(receiver, definition, isStatic) {
         for (const method of definition.methods.filter(method => method.static === isStatic)) {
-            Object.defineProperty(receiver, method.name, { configurable: true, enumerable: false,
-                writable: definition.dialect === 'as2', value: definition.dialect === 'as2' ? method.fn : __nfBindFunction(method.fn,receiver) });
+            if(definition.dialect==='as2')Object.defineProperty(receiver,method.name,{configurable:true,enumerable:false,writable:true,value:method.fn});
+            else {
+                const value=__nfBindFunction(method.fn,receiver);
+                installSlot(receiver,method,'method',()=>value,()=>{throw new TypeError(`AS3 method ${method.name} is read-only.`);});
+            }
         }
     }
     function accessorDescriptor(name, pair, receiver) {
@@ -114,10 +162,11 @@ const __nfProgram = (() => {
         let slots = accessorStates.get(receiver);
         if (!slots) accessorStates.set(receiver, slots = new Map());
         for (const accessor of definition.accessors.filter(accessor => accessor.static === isStatic)) {
-            const inherited = slots.get(accessor.name);
+            const inherited = slots.get(accessor.slot);
             const pair = { get: accessor.get || inherited?.get, set: accessor.set || inherited?.set };
-            slots.set(accessor.name, pair);
-            Object.defineProperty(receiver, accessor.name, accessorDescriptor(accessor.name, pair, receiver));
+            slots.set(accessor.slot, pair);
+            const descriptor=accessorDescriptor(accessor.name,pair,receiver);
+            installSlot(receiver,accessor,'accessor',descriptor.get,descriptor.set,Boolean(pair.get));
         }
     }
     function invokeConstructor(name, receiver, args) {
@@ -144,22 +193,24 @@ const __nfProgram = (() => {
         let cache = superMethods.get(receiver);
         if (!cache) superMethods.set(receiver, cache = new Map());
         if (cache.has(name)) return cache.get(name);
-        const view = Object.create(null);
-        const accessors = new Map();
+        const view = Object.create(null), accessors = new Map();
         let base = definitions.get(name).base;
         while (definitions.has(base)) {
             const definition = definitions.get(base);
-            for (const method of definition.methods.filter(method => !method.static)) {
-                if (!Object.hasOwn(view, method.name)) view[method.name] = __nfBindFunction(method.fn,receiver);
+            for(const field of definition.fields.filter(field=>!field.static&&eligible(field,name))){
+                if(!Object.hasOwn(view,field.name)){const slot=slots.get(receiver)?.get(field.slot);if(slot)Object.defineProperty(view,field.name,{get:slot.get,set:slot.set});}
             }
-            for (const accessor of definition.accessors.filter(accessor => !accessor.static)) {
+            for (const method of definition.methods.filter(method => !method.static&&eligible(method,name))) {
+                if (!Object.hasOwn(view, method.name)) Object.defineProperty(view,method.name,{value:__nfBindFunction(method.fn,receiver)});
+            }
+            for (const accessor of definition.accessors.filter(accessor => !accessor.static&&eligible(accessor,name))) {
                 const pair = accessors.get(accessor.name) || {};
                 pair.get ||= accessor.get; pair.set ||= accessor.set;
                 accessors.set(accessor.name, pair);
             }
             base = definition.base;
         }
-        for (const [key,pair] of accessors) Object.defineProperty(view,key,accessorDescriptor(key,pair,receiver));
+        for (const [key,pair] of accessors) if(!Object.hasOwn(view,key))Object.defineProperty(view,key,accessorDescriptor(key,pair,receiver));
         if (base) {
             const prototype = type(base).prototype;
             if (prototype) for (const key of Object.getOwnPropertyNames(prototype)) {
@@ -187,6 +238,7 @@ const __nfProgram = (() => {
                 for (const definition of chain(name)) installAccessors(receiver, definition, false);
             }
             invokeConstructor(name, receiver, args);
+            if(definitions.get(name).dialect==='as3'&&!definitions.get(name).dynamic&&!__nfBuiltins.__nfIsNativeDisplay?.(receiver))Object.preventExtensions(receiver);
         } catch (error) {
             failed.set(receiver, error);
             throw error;
@@ -222,13 +274,28 @@ const __nfProgram = (() => {
         Object.defineProperty(facade, Symbol.hasInstance, { value: value => is(value,name) });
         interfaces.set(name,facade);
     }
-    function define(name, base, fields, methods, ctor, dialect = 'as3', accessors = [], implemented = []) {
+    function define(name, base, fields, methods, ctor, dialect = 'as3', accessors = [], implemented = [], options = {}) {
         const facade = function(...args) {
             if (dialect === 'as2' && !new.target) throw new TypeError('AS2 class-as-function casts are not supported; use new or the existing instance.');
             return construct(name, args);
         };
         Object.defineProperty(facade, Symbol.hasInstance, { value: value => is(value, name) });
-        const definition = { name, base, fields, methods, ctor, facade, dialect, accessors, interfaces:implemented };
+        const packageName=options.package??name.slice(0,Math.max(0,name.lastIndexOf('.')));
+        if(dialect==='as3'&&definitions.get(base)?.final)throw new TypeError(`Cannot extend final class ${base}.`);
+        function member(value){
+            const access=dialect==='as2'?'public':value.access||'public';
+            let namespace=access==='private'?name:access==='internal'?packageName:'';
+            if(access==='protected'){
+                const inherited=chain(base).flatMap(definition=>[...definition.fields,...definition.methods,...definition.accessors]).find(item=>item.name===value.name&&item.static===value.static&&item.access==='protected');
+                namespace=inherited?.namespace||name;
+            }
+            const slot=JSON.stringify([Boolean(value.static),access,namespace,value.name]);
+            if(dialect==='as3'&&chain(base).some(definition=>[...definition.methods,...definition.accessors].some(item=>item.slot===slot&&item.final)))throw new TypeError(`Cannot override final member ${value.name}.`);
+            return {...value,access,owner:name,namespace,slot};
+        }
+        fields=fields.map(member);methods=methods.map(member);accessors=accessors.map(member);
+        const definition = { name, base, fields, methods, ctor, facade, dialect, accessors, interfaces:implemented,package:packageName,dynamic:Boolean(options.dynamic),final:Boolean(options.final) };
+        classFacades.set(facade,name);
         definitions.set(name, definition);
         if (dialect === 'as2') {
             const parent = base ? type(base) : Object;
@@ -249,7 +316,8 @@ const __nfProgram = (() => {
             installAccessors(definition.facade, definition, true);
         }
         for (const definition of definitions.values()) initializeFields(definition.name, definition.facade, true);
+        for(const definition of definitions.values())if(definition.dialect==='as3')Object.preventExtensions(definition.facade);
     }
-    return Object.freeze({ type, is, cast, define, defineInterface, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty,
+    return Object.freeze({ type, is, cast, define, defineInterface, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, ref, assertDynamicWrite,
         dialect:name=>definitions.get(name)?.dialect });
 })();

@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "class-packages",
+      "path": "examples/class-packages.nflash",
+      "title": "Class access, package collaboration and dynamic component state",
+      "checks": [
+        "Advance updates distinct base/derived private values through protected virtual dispatch, package-internal revision reporting and AS2 inherited private state.",
+        "Toggle adds/removes dynamic metadata; public JSON excludes hidden state and the sealed child refuses an extra property.",
+        "Restart creates fresh models, and the next real button click advances each dialect exactly once."
+      ]
+    },
+    {
       "id": "image-pipeline",
       "path": "examples/image-pipeline.nflash",
       "title": "Bitmap processing, source capture and PNG round-trip",

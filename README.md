@@ -13,8 +13,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 333 | 1,850 | 109 |
-| AS3 | 43,740 | 15 | 529 | 42,978 | 218 |
+| AS2 | 2,307 | 15 | 339 | 1,844 | 109 |
+| AS3 | 43,740 | 15 | 539 | 42,968 | 218 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -76,7 +76,7 @@ For object editing, **Selection (V)** moves objects; Shift-click toggles objects
 
 **Window** switches Light/Dark, hides or restores panels, and detaches Tools, Timeline or Actions into separate macOS windows. **Dock** returns a panel; **Restore Workspace** restores the default layout. Appearance and layout preferences do not change your project. See [workspace controls](docs/WORKSPACE.md).
 
-**Actions → Project files** stores reusable source code inside the project. Add or import source files, set the document class or a nested symbol's class, and use **Check project** for compiler feedback. Project programs support bounded public AS3 classes with typed fields, bound methods, getters/setters and project interfaces, and AS2 classes with erased annotations and shared prototypes. Both support exact imports and inheritance; unsupported constructs report diagnostics. Set an **Export identifier** on a MovieClip symbol to enable AS3 class construction from its library timeline or AS2 `attachMovie`. Projects with source files use document version 2. Older projects remain readable, and linked-symbol clipboard transfers preserve source files.
+**Actions → Project files** stores reusable source code inside the project. Add or import source files, set the document class or a nested symbol's class, and use **Check project** for compiler feedback. Project programs support bounded AS3 classes with typed fields, bound methods, getters/setters, interfaces and public/private/protected/internal access. Final and dynamic declarations, exact/wildcard imports and same-package collaboration share the project linker. AS2 keeps erased annotations, shared prototypes and its distinct compile-time private profile; unsupported constructs report diagnostics. Set an **Export identifier** on a MovieClip symbol to enable AS3 class construction from its library timeline or AS2 `attachMovie`. Projects with source files use document version 2. Older projects remain readable, and linked-symbol clipboard transfers preserve source files.
 
 **Library → Resource files** imports text, data and media bytes into the project. Use the displayed project path in scripts, edit its content type/path, or remove it with Undo. Resource documents use version 3 so older editors refuse them safely; versions 1 and 2 remain readable. Embedded files travel with HTML5 publication and work offline. AS3 URLLoader/URLVariables and AS2 LoadVars also support bounded browser HTTP(S) data requests. Select a PNG/JPEG resource and choose **Place image** to add it to the stage; Properties controls smoothing. AS3 Bitmap/BitmapData and AS2 BitmapData/attachBitmap share bounded Rust pixel buffers in HTML5. AS3 Sound/SoundChannel/SoundTransform and AS2 Sound provide complete-file MP3/WAV loading, playback, repeats, volume/pan and completion callbacks in HTML5. A browser gesture enables playback; streaming, timeline audio, video and font embedding remain planned.
 
@@ -129,7 +129,9 @@ Open [keyboard-controls.nflash](examples/keyboard-controls.nflash) for two indep
 
 [resource-loading.nflash](examples/resource-loading.nflash) loads embedded text, repeated form fields and a 50-byte binary packet through AS3 URLLoader and AS2 LoadVars, handles an absent file and cancels a load. When served over HTTP, **Load HTTP notes** reads the published README and displays the response status/size. Restart repeats the portable pipeline.
 
-[image-pipeline.nflash](examples/image-pipeline.nflash) combines independent color/filter edits, nested source capture, bulk ARGB bytes and PNG encoding loaded back into the scene. Palette changes repeat the pipeline while the original pixels stay unchanged; Restart creates fresh owners.
+[image-pipeline.nflash](examples/image-pipeline.nflash) combines independent color/filter edits, nested source capture, bulk ARGB bytes and PNG encoding loaded back into the scene. Palette changes repeat the pipeline while the original pixels stay unchanged; Restart creates fresh owners. Independent `IMAGE-PIPELINE-HTML5-20261027T0943Z` verifies complete initial source/tint pixels and captured/roundtrip/loaded RGBA, plus the observed partial-write EOF contract. Later palette/Restart phases have screenshot/AX evidence; complete later console/PNG traces were unavailable. See [the verification record](docs/VERIFICATION.md).
+
+[class-packages.nflash](examples/class-packages.nflash) connects separate private state in base/derived models, protected virtual dispatch, internal package collaborators and public JSON. A dynamic metadata model accepts extra keys while its sealed subclass refuses them; the AS2 component retains inherited private access.
 
 [function-workflow.nflash](examples/function-workflow.nflash) connects reusable AS3 commands with optional/rest parameters and bound callbacks, alongside AS2 dynamic receivers and arguments. The two dialects update independent visible models; Restart recreates their state. Independent `FUNCTIONS-HTML5-20261027T0914Z` confirms the corrected command workflow, omitted/undefined argument distinction, tested call/apply receivers, arity refusals and fresh Restart state. Its original instrumentation-altered probe remains separate; see [the verification record](docs/VERIFICATION.md).
 

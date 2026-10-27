@@ -401,6 +401,8 @@
       builtins.__nfTrace=trace;
       builtins.__nfAs2Method=as2.method;builtins.__nfAs2Value=as2.value;
       builtins.__nfDisplay=display;builtins.__nfLegacy=legacyGlobals;
+      builtins.__nfHasNativeProperty=(receiver,name)=>Boolean(references.get(receiver)?.nativeHas(name));
+      builtins.__nfIsNativeDisplay=receiver=>references.has(receiver);
       if(xmlHost){builtins.__nfXML=xmlHost;builtins.XML=xmlHost.XML;builtins.XMLList=xmlHost.XMLList;}
       if(global.NeoFlashEvents)for(const name of ['Event','MouseEvent','KeyboardEvent','FocusEvent','TextEvent','EventDispatcher','EventPhase'])builtins['flash.events.'+name]=global.NeoFlashEvents[name];
       if(global.NeoFlashStage)builtins['flash.display.Stage']=global.NeoFlashStage.Stage;
@@ -584,7 +586,23 @@
         if (frame === null) return; // An unknown AS2 label changes neither frame nor play state.
         if (!call('control',command,frame)) throw new Error(`Cannot control timeline at ${key}.`);
       }
+      function nativeHas(name){
+        if(typeof name!=='string')return name===Symbol.toStringTag;
+        if(['toString','toJSON','root','_root','parent','_parent','currentFrame','_currentframe','totalFrames','_totalframes','visible','_visible'].includes(name)||Object.hasOwn(methods,name)||Object.hasOwn(propertyMap,name))return true;
+        return Boolean(display&&display.get(proxy,name)!==display.UNHANDLED);
+      }
       const proxy = new Proxy(target, {
+        has(_target,name){
+          if(nativeHas(name)||Reflect.has(target,name)||Object.hasOwn(custom,name))return true;
+          if(typeof name!=='string')return false;
+          if(objectRef)return display.children(proxy).some(node=>node.name===name);
+          return JSON.parse(player.child_path(key,name))!==null;
+        },
+        deleteProperty(_target,name){
+          if(nativeHas(name)||program?.hasFixedProperty?.(proxy,name))return false;
+          if(Object.hasOwn(custom,name))return delete custom[name];
+          return Reflect.deleteProperty(target,name);
+        },
         get(_target, name) {
           if (name === Symbol.toStringTag) return 'NeoFlashDisplayObject';
           if (name === 'toString') return () => `[NeoFlash ${key}]`;
@@ -632,11 +650,11 @@
           } else if (['currentFrame', 'totalFrames', '_currentframe', '_totalframes', '_root', '_parent', 'root', 'parent'].includes(name)) {
             throw new Error(`${name} is read-only.`);
           } else if(Object.hasOwn(target,name)||(!Object.hasOwn(custom,name)&&Reflect.has(target,name)))return Reflect.set(target,name,value,proxy);
-          else custom[name] = value;
+          else {program?.assertDynamicWrite?.(proxy,name);custom[name] = value;}
           return true;
         },
       });
-      references.set(proxy,{path:path?[...path]:null,objectRef,key,lifetime});
+      references.set(proxy,{path:path?[...path]:null,objectRef,key,lifetime,nativeHas});
       if(display)Object.assign(methods,display.methods(proxy));
       if(eventHub)Object.assign(methods,eventHub.methods(proxy));
       as2.register(methods.gotoAndPlay, proxy, 'gotoAndPlay', value => goto('goto_and_play', value, true));

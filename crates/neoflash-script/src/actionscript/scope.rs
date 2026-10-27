@@ -379,6 +379,38 @@ impl<'a> Analysis<'a> {
             scope = parent;
         }
     }
+    fn known_receiver_type(&self, scope: usize, receiver: &Expr) -> Option<String> {
+        fn qualified(receiver: &Expr) -> Option<String> {
+            match receiver {
+                Expr::Name(name) => Some(name.clone()),
+                Expr::Member(base, name) => Some(format!("{}.{name}", qualified(base)?)),
+                _ => None,
+            }
+        }
+        if let Some(name) = qualified(receiver)
+            && self
+                .resolve(scope, name.split('.').next().unwrap())
+                .is_none()
+            && let Some(canonical) = self.context.types.get(&name)
+        {
+            return Some(canonical.clone());
+        }
+        match receiver {
+            Expr::Name(name) if name == "this" => self.context.class_name.clone(),
+            Expr::Name(name) => self
+                .resolve(scope, name)
+                .and_then(|(_, binding)| binding.ty.as_deref())
+                .map(|ty| self.context.canonical_type(ty))
+                .or_else(|| {
+                    self.resolve(scope, name)
+                        .is_none()
+                        .then(|| self.context.types.get(name).cloned())
+                        .flatten()
+                }),
+            Expr::NewClass(name, _, _) => Some(name.clone()),
+            _ => None,
+        }
+    }
     fn expression(&mut self, scope: usize, expr: &Expr) -> Result<(), Diagnostic> {
         self.expression_context(scope, expr, false)
     }
@@ -417,6 +449,17 @@ impl<'a> Analysis<'a> {
                 return Err(self.error(self.scopes[&scope].offset, "AS2 goto method values and aliases need receiver semantics not supported yet. Call gotoAndPlay/gotoAndStop directly on the target timeline."));
             }
         }
+        if self.script.language == ScriptLanguage::ActionScript2
+            && let Expr::Member(receiver, name) = expr
+            && let Some(owner) = self.known_receiver_type(scope, receiver)
+            && self
+                .context
+                .as2_private
+                .get(&owner)
+                .is_some_and(|members| members.contains(name))
+        {
+            return Err(self.error(self.scopes[&scope].offset,format!("AS2 private member '{owner}.{name}' is unavailable from this lexical class. AS2 access checking is compile-time only; indexed/untyped runtime access retains the legacy profile.")));
+        }
         match expr {
             Expr::Name(name) if !direct_callee && self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3) && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"Native int/uint values are currently supported through direct conversion calls; class values and constructor aliases are outside this profile.")),
             Expr::Delete(target,offset) if !matches!(target.as_ref(),Expr::Member(_,_)|Expr::Index(_,_)|Expr::XmlSelect{descendant:false,..}) => return Err(self.error(*offset,"delete requires a property or indexed element.")),
@@ -433,6 +476,7 @@ impl<'a> Analysis<'a> {
             Expr::Name(name) if self.script.language==ScriptLanguage::ActionScript2 && name=="AsBroadcaster" && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"AS2 AsBroadcaster is not implemented yet; Key/Mouse/Stage support listener objects directly.")),
             Expr::Name(name) if self.context.static_method && self.resolve(scope,name).is_some_and(|(id,b)|id==0&&b.kind==BindingKind::Field) && !self.context.static_members.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"A static method cannot access an instance member without an explicit object receiver.")),
             Expr::Name(name) if self.context.static_method && name=="super" => return Err(self.error(self.scopes[&scope].offset,"Static methods cannot use instance super access.")),
+            Expr::Name(name) if self.script.language==ScriptLanguage::ActionScript3 && name=="super" && (self.context.class_name.is_none() || !direct_callee) => return Err(self.error(self.scopes[&scope].offset,"AS3 super is not a standalone value; use super(...) or super.member inside a project class.")),
             Expr::Member(base,_) if self.script.language==ScriptLanguage::ActionScript2 && matches!(base.as_ref(),Expr::Name(n)if n=="super") && !direct_callee => return Err(self.error(self.scopes[&scope].offset,"AS2 super property values and method extraction are outside this profile; call super.method(...) directly.")),
             Expr::Name(name) if is_error_type(name) && self.resolve(scope, name).is_none() => return Err(self.error(self.scopes[&scope].offset, "Core Error class values and constructor aliases are not supported; use an explicit new Error-family constructor.")),
             Expr::NewError(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Error constructor cannot be resolved as a core type; arbitrary constructor calls are unsupported.")),
@@ -517,6 +561,12 @@ impl<'a> Analysis<'a> {
             for argument in arguments {
                 self.expression(scope, argument)?;
             }
+        } else if let Expr::Member(base, _) = expr
+            && matches!(base.as_ref(), Expr::Name(name) if name == "super")
+        {
+            // A direct dot receiver is a language construct, not extraction of
+            // the synthetic super view. Every other child visit stays a value.
+            self.expression_context(scope, base, true)?;
         } else {
             for child in children(expr) {
                 self.expression(scope, child)?;

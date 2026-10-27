@@ -198,7 +198,7 @@
                     },
                     "kind": {
                       "type": "text_box",
-                      "text": "Loading typed data\u2026",
+                      "text": "Loading typed data…",
                       "width": 414,
                       "height": 390,
                       "word_wrap": true,
@@ -228,7 +228,7 @@
                     },
                     "kind": {
                       "type": "text",
-                      "text": "Loading\u2026",
+                      "text": "Loading…",
                       "font_family": "Arial",
                       "font_size": 16,
                       "color": [
@@ -360,7 +360,7 @@
             "frame": 0,
             "script": {
               "language": "action_script2",
-              "source": "var legacyStock:Object={ink:4,paper:6,film:3}; var legacyTotal:Number=0; for(var stockKey:String in legacyStock) {legacyTotal+=legacyStock[stockKey];} legacyReadout.text=\"AS2 for\u2026in: named stock values / quantity \"+legacyTotal;"
+              "source": "var legacyStock:Object={ink:4,paper:6,film:3}; var legacyTotal:Number=0; for(var stockKey:String in legacyStock) {legacyTotal+=legacyStock[stockKey];} legacyReadout.text=\"AS2 for…in: named stock values / quantity \"+legacyTotal;"
             }
           }
         ]
@@ -623,7 +623,7 @@
       "id": "source-main",
       "path": "app/Main.as",
       "language": "action_script3",
-      "source": "package app {\n import flash.display.MovieClip;\n import flash.utils.Dictionary;\n public class Main extends MovieClip {\n  public var items:Vector.<Item>;\n  public var cards:Vector.<InventoryCard>;\n  public var byCard:Dictionary;\n  public var batch:int=0;\n  public var total:int=0;\n  public var keyCount:int=0;\n  public var released:Boolean=false;\n  public var report:String;\n  public function Main() {\n   super(); stop();\n   items=new Vector.<Item>(); cards=new Vector.<InventoryCard>(); byCard=new Dictionary();\n   var records:Array=JSON.parse(\"[{\\\"sku\\\":\\\"INK\\\",\\\"label\\\":\\\"Ink cartridges\\\",\\\"quantity\\\":4},{\\\"sku\\\":\\\"PAPER\\\",\\\"label\\\":\\\"Print paper\\\",\\\"quantity\\\":6},{\\\"sku\\\":\\\"FILM\\\",\\\"label\\\":\\\"Animation film\\\",\\\"quantity\\\":3}]\");\n   for each(var record:Object in records) {\n    var item:Item=new Item(record.sku,record.label,record.quantity);\n    var card:InventoryCard=new InventoryCard();\n    items.push(item); cards.push(card); byCard[card]=item; addChild(card);\n   }\n   refresh();\n  }\n  public function processBatch():void {\n   batch++;\n   for each(var item:Item in items) item.quantity++;\n   var recycled:InventoryCard=cards.shift();\n   var shipped:Item=items.shift();\n   delete byCard[recycled]; released=!(recycled in byCard);\n   removeChild(recycled);\n   var incoming:Item=new Item(\"RESTOCK-\"+batch,\"Incoming batch \"+batch,batch+4);\n   items.push(incoming); cards.push(recycled); byCard[recycled]=incoming; addChild(recycled);\n   refresh();\n  }\n  public function refresh():void {\n   total=0; keyCount=0;\n   for each(var item:Item in items) total+=item.quantity;\n   for(var key:Object in byCard) {\n    var card:InventoryCard=InventoryCard(key);\n    card.bind(Item(byCard[key])); keyCount++;\n   }\n   for(var i:int=0;i<cards.length;i++) {cards[i].x=52;cards[i].y=190+i*110;}\n   report=JSON.stringify(items,null,2);\n   reportText.text=report;\n   summary.text=\"Batch \"+batch+\" / \"+items.length+\" typed models / \"+keyCount+\" identity keys / quantity \"+total;\n   detail.text=\"Key removed before reusing its card: \"+released+\" | linked cards constructed: \"+InventoryCard.created;\n   trace(\"typed inventory\",batch,items.length,keyCount,total,released,InventoryCard.created);\n  }\n }\n}"
+      "source": "package app {\n import flash.display.MovieClip;\n import flash.utils.Dictionary;\n public dynamic class Main extends MovieClip {\n  public var items:Vector.<Item>;\n  public var cards:Vector.<InventoryCard>;\n  public var byCard:Dictionary;\n  public var batch:int=0;\n  public var total:int=0;\n  public var keyCount:int=0;\n  public var released:Boolean=false;\n  public var report:String;\n  public function Main() {\n   super(); stop();\n   items=new Vector.<Item>(); cards=new Vector.<InventoryCard>(); byCard=new Dictionary();\n   var records:Array=JSON.parse(\"[{\\\"sku\\\":\\\"INK\\\",\\\"label\\\":\\\"Ink cartridges\\\",\\\"quantity\\\":4},{\\\"sku\\\":\\\"PAPER\\\",\\\"label\\\":\\\"Print paper\\\",\\\"quantity\\\":6},{\\\"sku\\\":\\\"FILM\\\",\\\"label\\\":\\\"Animation film\\\",\\\"quantity\\\":3}]\");\n   for each(var record:Object in records) {\n    var item:Item=new Item(record.sku,record.label,record.quantity);\n    var card:InventoryCard=new InventoryCard();\n    items.push(item); cards.push(card); byCard[card]=item; addChild(card);\n   }\n   refresh();\n  }\n  public function processBatch():void {\n   batch++;\n   for each(var item:Item in items) item.quantity++;\n   var recycled:InventoryCard=cards.shift();\n   var shipped:Item=items.shift();\n   delete byCard[recycled]; released=!(recycled in byCard);\n   removeChild(recycled);\n   var incoming:Item=new Item(\"RESTOCK-\"+batch,\"Incoming batch \"+batch,batch+4);\n   items.push(incoming); cards.push(recycled); byCard[recycled]=incoming; addChild(recycled);\n   refresh();\n  }\n  public function refresh():void {\n   total=0; keyCount=0;\n   for each(var item:Item in items) total+=item.quantity;\n   for(var key:Object in byCard) {\n    var card:InventoryCard=InventoryCard(key);\n    card.bind(Item(byCard[key])); keyCount++;\n   }\n   for(var i:int=0;i<cards.length;i++) {cards[i].x=52;cards[i].y=190+i*110;}\n   report=JSON.stringify(items,null,2);\n   reportText.text=report;\n   summary.text=\"Batch \"+batch+\" / \"+items.length+\" typed models / \"+keyCount+\" identity keys / quantity \"+total;\n   detail.text=\"Key removed before reusing its card: \"+released+\" | linked cards constructed: \"+InventoryCard.created;\n   trace(\"typed inventory\",batch,items.length,keyCount,total,released,InventoryCard.created);\n  }\n }\n}"
     },
     {
       "id": "source-item",

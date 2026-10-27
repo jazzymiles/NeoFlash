@@ -9,7 +9,7 @@ function __nfContainerKey(key){
     const name=__nfString(key);if(name.length>__nfContainerLimit)throw new __nfTypeError('Property key exceeds 1000000 UTF-16 units.');return name;
 }
 function __nfContainerProgram(){return typeof __nfProgram!=='undefined'?__nfProgram:null;}
-function __nfContainerRef(receiver,key,as3){
+function __nfContainerRef(receiver,key,as3,caller){
     if(receiver==null)throw new __nfTypeError('Cannot access a property on null or undefined.');
     if(typeof __nfXML!=='undefined'&&__nfXML?.is(receiver))return __nfXML.ref(receiver,key,as3);
     if(__nfDictionaryIs(receiver)){if(!as3)throw new __nfTypeError('Dictionary access requires AS3.');return __nfDictionaryRef(receiver,key);}
@@ -20,13 +20,14 @@ function __nfContainerRef(receiver,key,as3){
     // has run. Compound updates can therefore convert an object key twice.
     return {
         get(){
-            const name=__nfContainerKey(key),value=receiver[name];
+            const name=__nfContainerKey(key),scoped=program?.ref?.(receiver,name,caller),value=scoped?scoped.get():receiver[name];
             // AVM1 exposes an absent native scrollRect as undefined; AS3 and
             // the public JS facade use null. Never rewrite ordinary user fields.
             return !as3&&name==='scrollRect'&&value===null&&typeof __nfDisplay!=='undefined'&&__nfDisplay?.alive(receiver)?undefined:value;
         },
         set(value){
             const name=__nfContainerKey(key);
+            const scoped=program?.ref?.(receiver,name,caller);if(scoped)return scoped.set(value);
             if(__nfArrayIsArray(receiver)){
                 if(name==='length')__nfArrayBound(value);
                 else if(/^(?:0|[1-9]\d*)$/.test(name)&&Number(name)<4294967295&&Number(name)>=__nfArrayLimit)throw new __nfTypeError('Array index exceeds the 1000000-element profile.');
@@ -34,11 +35,11 @@ function __nfContainerRef(receiver,key,as3){
             if((typeof receiver!=='object'&&typeof receiver!=='function')||!Reflect.set(object,name,value,receiver))throw new __nfTypeError('Cannot write this property.');
             return value;
         },
-        delete(){const name=__nfContainerKey(key);return program?.hasFixedProperty?.(receiver,name)?false:Reflect.deleteProperty(object,name);},
-        has(){const name=__nfContainerKey(key);return program?.hasFixedProperty?.(receiver,name)||Reflect.has(object,name);},
+        delete(){const name=__nfContainerKey(key),scoped=program?.ref?.(receiver,name,caller);return scoped?scoped.delete():Reflect.deleteProperty(object,name);},
+        has(){const name=__nfContainerKey(key),scoped=program?.ref?.(receiver,name,caller);return scoped?scoped.has():Reflect.has(object,name);},
     };
 }
-function __nfContainerMethod(receiver,key,as3){
+function __nfContainerMethod(receiver,key,as3,caller){
     if(typeof __nfXML!=='undefined'&&__nfXML?.is(receiver))return __nfXML.method(receiver,key,as3);
     if(__nfDictionaryIs(receiver)||(typeof __nfVectorIs==='function'&&__nfVectorIs(receiver))){
         const method=__nfContainerRef(receiver,key,as3).get();
@@ -49,7 +50,8 @@ function __nfContainerMethod(receiver,key,as3){
     if(typeof receiver==='string')return __nfStringMethod(receiver,key,as3);
     if(__nfDateIs(receiver))return __nfDateMethod(receiver,key,as3);
     if(as3&&key==='toFixed')return __nfFixedMethod(receiver);
-    const method=__nfContainerRef(receiver,key,as3).get();
+    const method=__nfContainerRef(receiver,key,as3,caller).get();
+    if(key==='call'||key==='apply')return __nfFunctionMethod(receiver,key,as3,method);
     return (...args)=>__nfApply(method,receiver,args);
 }
 function __nfEnumerate(receiver,values,as3){

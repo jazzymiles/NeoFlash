@@ -224,7 +224,7 @@
                     },
                     "kind": {
                       "type": "text_box",
-                      "text": "Loading the original planning data\u2026",
+                      "text": "Loading the original planning data…",
                       "width": 528,
                       "height": 150,
                       "format": {
@@ -284,7 +284,7 @@
                     },
                     "kind": {
                       "type": "text_box",
-                      "text": "Preparing UTC clock\u2026",
+                      "text": "Preparing UTC clock…",
                       "width": 248,
                       "height": 150,
                       "format": {
@@ -407,7 +407,7 @@
                     },
                     "kind": {
                       "type": "text_box",
-                      "text": "Waiting for data\u2026",
+                      "text": "Waiting for data…",
                       "width": 864,
                       "height": 85,
                       "format": {
@@ -565,7 +565,7 @@
       "id": "main-source",
       "path": "app/Main.as",
       "language": "action_script3",
-      "source": "package app {\n    import flash.display.MovieClip;\n    import flash.net.URLLoader;\n    import flash.net.URLRequest;\n    import flash.events.Event;\n    import flash.events.IOErrorEvent;\n    import app.Report;\n    public class Main extends MovieClip {\n        public var loader:URLLoader;\n        public var rows:Array;\n        public var ready:Boolean=false;\n        public var shift:int=0;\n        public var totalHours:int=0;\n        public var report:Report;\n        public var serialized:String;\n        public var codePattern:RegExp;\n        public var lastDate:Date;\n        public function Main() {\n            stop();\n            codePattern = new RegExp(\"^([a-z]+)-(\\\\d+)$\", \"i\");\n            loader = new URLLoader();\n            loader.addEventListener(Event.COMPLETE, loaded);\n            loader.addEventListener(IOErrorEvent.IO_ERROR, failed);\n            loader.load(new URLRequest(\"data/planning.json\"));\n        }\n        public function revive(key:String,value:*):* {\n            if (key == \"hours\") { return Number(value); }\n            return value;\n        }\n        public function loaded(event:Event):void {\n            rows = JSON.parse(loader.data,revive).items;\n            ready = true;\n            renderReport();\n        }\n        public function failed(event:IOErrorEvent):void { dataStatus.text = \"Data could not be loaded: \" + event.text; }\n        public function advance():void { if (ready) { shift++; renderReport(); } }\n        public function renderReport():void {\n            var output:String=\"\";\n            totalHours=0;\n            for (var i:int=0;i<rows.length;i++) {\n                var row:Object=rows[i];\n                var match:Object=codePattern.exec(row.code);\n                var pieces:Array=row.date.split(\"-\");\n                var due:Date=new Date(Date.UTC(Number(pieces[0]),Number(pieces[1])-1,Number(pieces[2]),9,30,0,0));\n                due.setUTCDate(due.getUTCDate()+shift);\n                lastDate=due;\n                var title:String=row.title.replace(new RegExp(\"\\\\s+\",\"g\"),\" \");\n                if (i>0) { output += \"\\n\"; }\n                output += match[1].toUpperCase() + \" #\" + match[2] + \" / \" + due.fullYearUTC + \"-\" + (due.monthUTC+1) + \"-\" + due.dateUTC + \"\\n\" + title + \" / \" + row.hours + \" h\";\n                totalHours += row.hours;\n            }\n            dataStatus.text=output;\n            report=new Report(rows.length,totalHours);\n            serialized=JSON.stringify(report);\n            var roundtrip:Object=JSON.parse(serialized);\n            reportStatus.text=serialized;\n            this.legacyAdvance(shift);\n            status.text=\"Day +\" + shift + \" / \" + roundtrip.summary + \" / JSON roundtrip passed\";\n            trace(\"data pipeline\",shift,roundtrip.count,roundtrip.hours,roundtrip.summary);\n        }\n    }\n}\n"
+      "source": "package app {\n    import flash.display.MovieClip;\n    import flash.net.URLLoader;\n    import flash.net.URLRequest;\n    import flash.events.Event;\n    import flash.events.IOErrorEvent;\n    import app.Report;\n    public dynamic class Main extends MovieClip {\n        public var loader:URLLoader;\n        public var rows:Array;\n        public var ready:Boolean=false;\n        public var shift:int=0;\n        public var totalHours:int=0;\n        public var report:Report;\n        public var serialized:String;\n        public var codePattern:RegExp;\n        public var lastDate:Date;\n        public function Main() {\n            stop();\n            codePattern = new RegExp(\"^([a-z]+)-(\\\\d+)$\", \"i\");\n            loader = new URLLoader();\n            loader.addEventListener(Event.COMPLETE, loaded);\n            loader.addEventListener(IOErrorEvent.IO_ERROR, failed);\n            loader.load(new URLRequest(\"data/planning.json\"));\n        }\n        public function revive(key:String,value:*):* {\n            if (key == \"hours\") { return Number(value); }\n            return value;\n        }\n        public function loaded(event:Event):void {\n            rows = JSON.parse(loader.data,revive).items;\n            ready = true;\n            renderReport();\n        }\n        public function failed(event:IOErrorEvent):void { dataStatus.text = \"Data could not be loaded: \" + event.text; }\n        public function advance():void { if (ready) { shift++; renderReport(); } }\n        public function renderReport():void {\n            var output:String=\"\";\n            totalHours=0;\n            for (var i:int=0;i<rows.length;i++) {\n                var row:Object=rows[i];\n                var match:Object=codePattern.exec(row.code);\n                var pieces:Array=row.date.split(\"-\");\n                var due:Date=new Date(Date.UTC(Number(pieces[0]),Number(pieces[1])-1,Number(pieces[2]),9,30,0,0));\n                due.setUTCDate(due.getUTCDate()+shift);\n                lastDate=due;\n                var title:String=row.title.replace(new RegExp(\"\\\\s+\",\"g\"),\" \");\n                if (i>0) { output += \"\\n\"; }\n                output += match[1].toUpperCase() + \" #\" + match[2] + \" / \" + due.fullYearUTC + \"-\" + (due.monthUTC+1) + \"-\" + due.dateUTC + \"\\n\" + title + \" / \" + row.hours + \" h\";\n                totalHours += row.hours;\n            }\n            dataStatus.text=output;\n            report=new Report(rows.length,totalHours);\n            serialized=JSON.stringify(report);\n            var roundtrip:Object=JSON.parse(serialized);\n            reportStatus.text=serialized;\n            this.legacyAdvance(shift);\n            status.text=\"Day +\" + shift + \" / \" + roundtrip.summary + \" / JSON roundtrip passed\";\n            trace(\"data pipeline\",shift,roundtrip.count,roundtrip.hours,roundtrip.summary);\n        }\n    }\n}\n"
     },
     {
       "id": "report-source",
