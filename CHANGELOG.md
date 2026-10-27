@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Independently checked c10e19e text forms (`FORMS-HTML5-20261027T0811Z`): real typing/paste, bounded restrict/maxChars, focus/AS2 Selection, cancelled input, saved reload/Restart and active-edit reset. The malformed-AMF catch(Error) regression now catches generic Error and continues; EOFError/full Flash fidelity is not claimed. The initial four-ready/one-preparation-failure batch and targeted corrected export remain separate.
+
+- Added ordered display-object filters across AS2/AS3: Blur, Glow, DropShadow and ColorMatrix, copied filter values, shared Rust RGBA processing and nested subtree rendering with deferred owner clipping. One gallery combines styles, shared bitmap sources, legacy input, clear/restore and Restart.
+
 - Added the scripted HTML5 text-input family: shared Rust editing/selection transactions, native browser fields, user-only restrict/maxChars, password masking, TextFieldType, TextEvent/FocusEvent and AS2 Selection/callbacks. One saved form connects the two dialects, focus, editing and publication lifetime.
 
 - Independently checked eddcc30 SharedObject/AMF: real reload/Restart/path isolation/clear and supported graph values pass in a separate catch(*) control. The original five-case batch retains one runtime error: P1 AMF-TYPED-CATCH-001 records malformed readObject throwing a raw string that bypasses catch(Error). Full typed recovery, codec interoperability and native storage are not inferred.

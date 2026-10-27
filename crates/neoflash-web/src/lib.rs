@@ -65,6 +65,12 @@ fn color_transform(value: &str) -> Result<ColorTransform, JsValue> {
     }
     serde_json::from_str(value).map_err(display_error)
 }
+fn filter_specs(value: &str) -> Result<Vec<neoflash_core::FilterSpec>, JsValue> {
+    if value.len() > 65536 {
+        return Err(JsValue::from_str("Filter specifications exceed 64 KiB"));
+    }
+    serde_json::from_str(value).map_err(display_error)
+}
 fn command(name: &str, frame: u32) -> Result<PlaybackCommand, JsValue> {
     match name {
         "play" => Ok(PlaybackCommand::Play),
@@ -654,6 +660,36 @@ impl WebPlayer {
                 .map_err(display_error)?,
         )
         .map_err(display_error)
+    }
+    pub fn object_filters(&self, target: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .object_filters(&object_ref(target)?)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn object_set_filters(&mut self, target: &str, filters: &str) -> Result<(), JsValue> {
+        self.player
+            .object_set_filters(&object_ref(target)?, &filter_specs(filters)?)
+            .map_err(display_error)
+    }
+    pub fn filter_padding(&self, filters: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &neoflash_core::filter_padding(&filter_specs(filters)?).map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn filter_rgba(
+        &self,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        filters: &str,
+    ) -> Result<Vec<u8>, JsValue> {
+        neoflash_core::filter_rgba(width, height, rgba, &filter_specs(filters)?)
+            .map_err(display_error)
     }
     pub fn object_set_scroll_rect(&mut self, target: &str, rect: &str) -> Result<(), JsValue> {
         if rect.len() > 4096 {

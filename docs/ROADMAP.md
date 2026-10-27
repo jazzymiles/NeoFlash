@@ -82,3 +82,5 @@ Runtime image loading now connects Loader/LoaderInfo and MovieClipLoader to the 
 Local saved state now connects AS3/AS2 SharedObject to a shared Rust AMF0/AMF3 value codec and ByteArray object records. The saved-game workflow combines persistence and graph identity. Native .sol files, typed/externalizable values, remote synchronization and full original-player conformance remain subsequent work; see ADR 0025.
 
 Scripted HTML5 forms now have a bounded text-input family: shared committed text/selection, native browser editing, AS3 events, AS2 Selection and local saved state. Native input-field authoring controls, mixed text runs, portable fonts, full IME/locale conformance and responsive DOM authoring remain separate work. See ADR 0026 and its own delivery evidence.
+
+Runtime effects now have a shared Rust filter family and whole-subtree HTML5 raster pipeline: Blur, Glow, DropShadow and ColorMatrix with ordered/nested groups and copied values. Native effect authoring, BitmapData.applyFilter, remaining filter classes, cacheAsBitmap compatibility and exact rasterization remain separate work; see ADR 0027.

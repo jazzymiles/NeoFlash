@@ -172,7 +172,7 @@
     const graphMode=typeof player.runtime_snapshot_json==='function';
     const references = new WeakMap();
     const attachedClasses = new Map();
-    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, audioHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, program = null;
+    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, program = null;
     let timerRenderGeneration=0;
     let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
@@ -212,11 +212,20 @@
       button.setAttribute('aria-pressed',String(state.muted));
       label.textContent=state.state==='awaiting_gesture'?`Audio waiting for a gesture · ${state.pending} pending`:state.error?`Audio: ${state.error}`:state.state==='loading'?`Loading audio · ${state.loading}`:state.muted?'Audio muted':state.active?`Audio playing · ${state.active}`:'Audio ready';
     }
+    function assertUnfilteredEditing(target,addingTo=null){
+      if(!target||target===stageHost?.stage||!display?.alive(target))return;
+      const nodes=display.nodes(),node=display.descriptor(target,nodes);if(node.owner!=='text'||(node.text?.field_type!=='input'&&node.text?.selectable===false))return;
+      const addedKey=addingTo?references.get(addingTo)?.key:null,byRef=new Map(nodes.map(node=>[JSON.stringify(node.object_ref),node]));
+      for(let current=node;current;current=byRef.get(JSON.stringify(current.parent_ref))){
+        if(current.filters?.length||JSON.stringify(current.object_ref)===addedKey)throw new TypeError('Native TextField editing inside a filtered subtree is not supported. Clear its ancestor filters or move focus before editing.');
+      }
+    }
     function initializeFamily() {
       if (!global.NeoFlashDisplay || typeof player.display_nodes_json !== 'function') return;
       if(global.NeoFlashBitmap)bitmapHost=global.NeoFlashBitmap.create({player,geometry:global.NeoFlashGeom});
+      if(global.NeoFlashFilters&&typeof player.filter_rgba==='function')filterHost=global.NeoFlashFilters.create({player});
       if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,onUpdate:ref=>textInputHost?.sync(ref),measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.font=global.NeoFlashText.cssFont(format);return context.measureText(text).width;}});
-      display=global.NeoFlashDisplay.create({player,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getLoader:()=>loaderHost,referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
+      display=global.NeoFlashDisplay.create({player,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getLoader:()=>loaderHost,getFilters:()=>filterHost,beforeFilters:(target,specs)=>{if(specs.length)assertUnfilteredEditing(stageHost?.stage.focus,target);},referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
         measureText:(line,kind)=>{if(typeof context==='undefined')throw new Error('Text bounds require the Canvas font measurement service.');context.font=font(kind);return context.measureText(line).width;},
         pathBounds:(commands,matrix)=>global.NeoFlashAccessibility.pathBounds(commands,matrix)});
       if(global.NeoFlashEvents&&global.NeoFlashStage) {
@@ -227,7 +236,7 @@
         stageHost=global.NeoFlashStage.create({events:eventHub,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,
           frameRate:runtimeFrameRate,getFrameRate:()=>runtimeFrameRate,setFrameRate:value=>{runtimeFrameRate=value;},alive:target=>alive(target)&&(target===stageHost?.stage||display.descriptor(target).on_stage!==false),localPoint:local,
           canvas:typeof canvas==='undefined'?null:canvas,keyboardTarget:typeof viewport==='undefined'?null:viewport,
-          onFocusChanged:(next,previous)=>textInputHost?.focusChanged(next,previous),ownsTextInput:node=>textInputHost?.owns(node),canFocus:value=>textInputHost?textInputHost.canFocus(value):true,
+          onFocusChanged:(next,previous)=>textInputHost?.focusChanged(next,previous),ownsTextInput:node=>textInputHost?.owns(node),canFocus:value=>{if(textInputHost&&!textInputHost.canFocus(value))return false;assertUnfilteredEditing(value);return true;},
           hitTest:event=>{const hit=hitAt(event);return hit?interactiveTarget(hit):null;},
           coordinates:event=>{if(typeof canvas==='undefined')return null;const r=canvas.getBoundingClientRect();return[(event.clientX-r.left)*project.width/r.width,(event.clientY-r.top)*project.height/r.height];},
           isInputEnabled:()=>typeof failed==='undefined'||(!failed&&!preview.panMode&&!preview.suppressClick),
@@ -289,6 +298,7 @@
       if(timerHost){builtins['flash.utils.Timer']=timerHost.Timer;builtins['flash.events.TimerEvent']=timerHost.TimerEvent;builtins['flash.utils.getTimer']=timerHost.getTimer;}
       if(bitmapHost){builtins['flash.display.BitmapData']=bitmapHost.BitmapData;builtins['flash.display.PixelSnapping']=bitmapHost.PixelSnapping;}
       if(textHost){builtins['flash.text.TextFormat']=textHost.TextFormat;builtins['flash.text.TextFormatAlign']=textHost.TextFormatAlign;builtins['flash.text.TextFieldType']=textHost.TextFieldType;}
+      if(filterHost)for(const name of ['BitmapFilter','BlurFilter','GlowFilter','DropShadowFilter','ColorMatrixFilter','BitmapFilterQuality'])builtins['flash.filters.'+name]=filterHost[name];
       if(storageHost)for(const name of ['SharedObject','SharedObjectFlushStatus','ObjectEncoding'])builtins['flash.net.'+name]=storageHost[name];
       if(loaderHost)for(const name of ['Loader','LoaderInfo'])builtins['flash.display.'+name]=loaderHost[name];
       if(audioHost)for(const name of ['Sound','SoundChannel','SoundTransform'])builtins['flash.media.'+name]=audioHost[name];
@@ -303,6 +313,7 @@
       };
     }
     function resetProject() {
+      filterHost?.renderer.clear();
       textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
       proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();lastTrace = '';
       player.reset();
@@ -310,6 +321,7 @@
       dispatchScripts();
     }
     function disposeFamily() {
+      filterHost?.renderer.clear();
       textInputHost?.dispose();storageHost?.dispose();loaderHost?.dispose();xmlHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
       legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
@@ -598,9 +610,33 @@
         } else throw new Error(`Unsupported display primitive: ${kind.type}`);
         } finally { context.restore(); }
     }
+    function paintBounds(item,geometry=false) {
+      let kind=item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind;
+      if(geometry){
+        const opaque=rgba=>[...(rgba||[0,0,0,0]).slice(0,3),255];
+        if(['rectangle','ellipse','path','gradient_path'].includes(kind.type))kind={...kind,type:kind.type==='gradient_path'?'path':kind.type,fill:opaque(kind.fill),stroke:opaque(kind.stroke)};
+        else if(kind.type==='bitmap_pixels')kind={...kind,alpha_bounds:{left:0,top:0,right:kind.width,bottom:kind.height}};
+        else if(kind.type==='text_field')kind={...kind,field:{...kind.field,alpha:255},text_bounds:kind.field.box?{left:0,top:0,right:kind.field.box.width,bottom:kind.field.box.height}:textHost.bounds({...kind.field,alpha:255},true)};
+        else if(kind.type==='text')kind={...kind,color:opaque(kind.color)};
+      }
+      let bounded=global.NeoFlashAccessibility.itemBounds({...item,alpha:geometry?1:item.alpha,kind,transform:bitmapMatrix(item)},(line,textKind)=>{context.font=font(textKind);return context.measureText(line).width;});
+      // Scratch bounds also include actual glyph overhang; layout advance
+      // widths alone could crop italic text before applying the real mask.
+      if((kind.type==='text_field'&&kind.field.alpha>0)||(kind.type==='text'&&kind.color[3]>0)){
+        const field=kind.type==='text_field'?kind.field:null,lines=field?textHost.layout(field).lines:kind.text.split('\n').map((text,index)=>({text,x:0,y:index*kind.font_size*1.2})),m=bitmapMatrix(item);
+        context.save();try{context.font=field?global.NeoFlashText.cssFont(field.format):font(kind);context.textAlign='left';context.textBaseline='top';
+          for(const line of lines){if(!line.text.trim())continue;const metric=context.measureText(line.text),values=[metric.actualBoundingBoxLeft,metric.actualBoundingBoxRight,metric.actualBoundingBoxAscent,metric.actualBoundingBoxDescent];if(!values.every(Number.isFinite))continue;
+            let left=line.x-values[0],right=line.x+values[1],top=line.y-values[2],bottom=line.y+values[3];if(field?.box){left=Math.max(0,left);top=Math.max(0,top);right=Math.min(field.box.width,right);bottom=Math.min(field.box.height,bottom);}if(right<=left||bottom<=top)continue;
+            for(const[x,y]of [[left,top],[right,top],[right,bottom],[left,bottom]]){const px=m[0]*x+m[2]*y+m[4],py=m[1]*x+m[3]*y+m[5];bounded=bounded?{left:Math.min(bounded.left,px),top:Math.min(bounded.top,py),right:Math.max(bounded.right,px),bottom:Math.max(bounded.bottom,py)}:{left:px,top:py,right:px,bottom:py};}
+          }
+        }finally{context.restore();}
+      }
+      return bounded;
+    }
     function render() {
       const snapshot=graphMode?JSON.parse(player.runtime_snapshot_json()):null;
       scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
+      assertUnfilteredEditing(stageHost?.stage.focus);
       if(snapshot)textInputHost?.update(snapshot);
       context.setTransform(canvas.width / project.width, 0, 0, canvas.height / project.height, 0, 0);
       context.clearRect(0, 0, project.width, project.height);
@@ -611,24 +647,32 @@
       const clips=global.NeoFlashPaths.clipTable(snapshot?.clips||[]),objects=snapshot?new Map(snapshot.objects.map(node=>[JSON.stringify(node.object_ref),node])):null;
       const semanticOwners=new Set((snapshot?.semantics||[]).map(node=>JSON.stringify(node.owner_ref))),needsCoverage=new Map(),clippedBounds=new Map();
       const semanticCoverage=item=>{const key=JSON.stringify(item.owner_ref);if(needsCoverage.has(key))return needsCoverage.get(key);let needed=false;for(let node=objects?.get(key);node;node=objects.get(JSON.stringify(node.parent_ref)))if(semanticOwners.has(JSON.stringify(node.object_ref))){needed=true;break;}needsCoverage.set(key,needed);return needed;};
-      for (const item of scene) {
-        if(item.clip_ids?.length){
-          const kind=item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind;
-          let bounded=global.NeoFlashAccessibility.itemBounds({...item,kind,transform:bitmapMatrix(item)},(line,textKind)=>{context.font=font(textKind);return context.measureText(line).width;});
-          // Scratch bounds also include actual glyph overhang; layout advance
-          // widths alone could crop italic text before applying the real mask.
-          if((kind.type==='text_field'&&kind.field.alpha>0)||(kind.type==='text'&&kind.color[3]>0)){
-            const field=kind.type==='text_field'?kind.field:null,lines=field?textHost.layout(field).lines:kind.text.split('\n').map((text,index)=>({text,x:0,y:index*kind.font_size*1.2})),m=bitmapMatrix(item);
-            context.save();try{context.font=field?global.NeoFlashText.cssFont(field.format):font(kind);context.textAlign='left';context.textBaseline='top';
-              for(const line of lines){if(!line.text.trim())continue;const metric=context.measureText(line.text),values=[metric.actualBoundingBoxLeft,metric.actualBoundingBoxRight,metric.actualBoundingBoxAscent,metric.actualBoundingBoxDescent];if(!values.every(Number.isFinite))continue;
-                let left=line.x-values[0],right=line.x+values[1],top=line.y-values[2],bottom=line.y+values[3];if(field?.box){left=Math.max(0,left);top=Math.max(0,top);right=Math.min(field.box.width,right);bottom=Math.min(field.box.height,bottom);}if(right<=left||bottom<=top)continue;
-                for(const[x,y]of [[left,top],[right,top],[right,bottom],[left,bottom]]){const px=m[0]*x+m[2]*y+m[4],py=m[1]*x+m[3]*y+m[5];bounded=bounded?{left:Math.min(bounded.left,px),top:Math.min(bounded.top,py),right:Math.max(bounded.right,px),bottom:Math.max(bounded.bottom,py)}:{left:px,top:py,right:px,bottom:py};}
-              }
-            }finally{context.restore();}
-          }
-          const visible=clippings.draw(context,item,clips,paths,target=>paintItem(target,item),{bounds:bounded,readBounds:semanticCoverage(item)});
-          clippedBounds.set(item,visible||null);
-        }else paintItem(context,item);
+      const paintBoundsCache=new Map(),geometryBoundsCache=new Map();
+      const bounded=(item,geometry=false)=>{const cache=geometry?geometryBoundsCache:paintBoundsCache;if(!cache.has(item))cache.set(item,paintBounds(item,geometry));return cache.get(item);};
+      const paintLeaf=(target,item,deferred=[])=>{
+        const clip_ids=(item.clip_ids||[]).filter(id=>!deferred.includes(id));
+        if(!clip_ids.length){paintItem(target,item);return;}
+        const readBounds=!item.filter_id&&semanticCoverage(item);
+        const visible=clippings.draw(target,{...item,clip_ids},clips,paths,canvas=>paintItem(canvas,item),{bounds:bounded(item),readBounds});
+        if(readBounds)clippedBounds.set(item,visible||null);
+      };
+      const composite=(target,surface,bounds,clip_ids)=>{
+        const draw=canvas=>canvas.drawImage(surface,bounds.left,bounds.top);
+        if(clip_ids.length)clippings.draw(target,{clip_ids},clips,paths,draw,{bounds});else draw(target);
+      };
+      if(snapshot?.filter_groups?.length){
+        if(!filterHost)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
+        filterHost.renderer.draw(context,snapshot,{bounds:item=>bounded(item,true),paint:paintLeaf,composite});
+        // Filter effects are not new interaction geometry. Read the original
+        // fully clipped source only for semantic ancestors, even on cache hits.
+        for(const item of scene)if(item.filter_id&&item.clip_ids?.length&&semanticCoverage(item)){
+          const area=bounded(item),visible=area&&{left:Math.max(0,area.left),top:Math.max(0,area.top),right:Math.min(project.width,area.right),bottom:Math.min(project.height,area.bottom)};
+          const result=filterHost.renderer.coverage(visible,target=>clippings.draw(target,item,clips,paths,canvas=>paintItem(canvas,item),{bounds:visible,readBounds:true}));
+          clippedBounds.set(item,result||null);
+        }
+      }else{
+        filterHost?.renderer.clear();
+        for(const item of scene)paintLeaf(context,item);
       }
       const semanticScene=snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,...(clippedBounds.has(item)?{clipped_bounds:clippedBounds.get(item)}:{}),transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};}):scene;
       const targetCount = semanticLayer.update(snapshot?snapshot.semantics:JSON.parse(player.accessibility_json()), semanticScene, project, preview.view.scale, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
@@ -704,7 +748,7 @@
     panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
     global.addEventListener('pagehide', event => { storageHost?.flushAll();if(!event.persisted){gradients.clear();clippings.clear();disposeFamily();} });
     new ResizeObserver(() => { resize(); render(); }).observe(viewport);
-    stopAsyncOnFailure=()=>{gradients.clear();clippings.clear();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
+    stopAsyncOnFailure=()=>{gradients.clear();clippings.clear();filterHost?.renderer.clear();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
     initializeFamily();
     canvas.tabIndex=-1;
     stageHost?.attach();

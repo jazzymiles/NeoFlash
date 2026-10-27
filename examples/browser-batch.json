@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "filter-gallery",
+      "path": "examples/filter-gallery.nflash",
+      "title": "Subtree filters, copied values and legacy rendering",
+      "checks": [
+        "Four whole-card filters affect overlapping vectors, captions and shared bitmap views; the shadow card contains a nested color filter.",
+        "Cycle switches to alternate styles and rotation, clears all effects, then restores them. The same four cards, bitmap source and click callbacks survive.",
+        "AS2 legacy strip uses the same ordered filters and remains interactive. Restart restores phase zero with fresh counts."
+      ]
+    },
+    {
       "id": "text-form",
       "path": "examples/text-form.nflash",
       "title": "Text input, focus, selection and saved forms",

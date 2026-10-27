@@ -31,6 +31,12 @@ const BUILTINS: &[&str] = &[
     "flash.media.Sound",
     "flash.media.SoundChannel",
     "flash.media.SoundTransform",
+    "flash.filters.BitmapFilter",
+    "flash.filters.BitmapFilterQuality",
+    "flash.filters.BlurFilter",
+    "flash.filters.GlowFilter",
+    "flash.filters.DropShadowFilter",
+    "flash.filters.ColorMatrixFilter",
     "flash.geom.Point",
     "flash.geom.Rectangle",
     "flash.geom.Matrix",
@@ -258,6 +264,8 @@ fn visible_names(
                     language == ScriptLanguage::ActionScript3
                         || matches!(name.as_str(), "Object" | "Array")
                         || name.starts_with("flash.geom.")
+                        || (name.starts_with("flash.filters.")
+                            && name.as_str() != "flash.filters.BitmapFilterQuality")
                         || *name == "flash.display.BitmapData"
                 },
                 |owner| *owner == language,
@@ -626,6 +634,16 @@ fn parse_class(
             &header.script,
             0,
             "Loader and LoaderInfo native subclass initialization is outside this profile; construct Loader() and use its contentLoaderInfo through composition.",
+        ));
+    }
+    if base
+        .as_ref()
+        .is_some_and(|base| base.starts_with("flash.filters."))
+    {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "Native filter subclasses are outside this profile; construct a supported concrete filter and use BitmapFilter-typed values through composition.",
         ));
     }
     if base
@@ -1037,6 +1055,7 @@ fn native_member(base: &str, name: &str) -> bool {
                     | "graphics"
                     | "transform"
                     | "mask"
+                    | "filters"
                     | "scrollRect"
                     | "loaderInfo"
                     | "stage"

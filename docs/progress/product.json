@@ -202,15 +202,22 @@
       "category": "editor",
       "title": "Gradients, masks and effects",
       "status": "partial",
-      "scope": "Gradient and bitmap fills, masks, filters and their authoring operations.",
-      "limitations": "Scripted HTML5 Graphics now supports bounded linear/radial gradients and vector display masks. Native gradient/mask tools, bitmap fills, alpha masks and filters remain pending; runtime support does not complete authoring operations.",
+      "scope": "Gradient and bitmap fills, masks, filters and their authoring operations. Scripted HTML5 filters add copied Blur/Glow/DropShadow/ColorMatrix values, shared bounded Rust RGBA kernels and ordered whole-subtree groups, including nested effects and deferred owner mask/scroll clipping.",
+      "limitations": "Scripted HTML5 Graphics now supports bounded linear/radial gradients and vector display masks. Native gradient/mask tools, bitmap fills, alpha masks and filters remain pending; runtime support does not complete authoring operations. This runtime-only filter profile has its own gallery evidence; native filter authoring, remaining classes, BitmapData.applyFilter, cacheAsBitmap, exact Flash kernels/coercions and high-density raster fidelity remain pending. Active native DOM editing under a filtered ancestor is an explicit composition boundary. Original geometry supplies input and semantics; effect halos do not extend them.",
       "evidence": [
         "docs/BACKLOG.md",
         "docs/ROADMAP.md",
         "docs/decisions/0022-runtime-gradient-graphics.md",
         "docs/decisions/0023-runtime-masks-and-scroll-rectangles.md",
         "examples/dynamic-display.nflash",
-        "examples/clipped-scene.nflash"
+        "examples/clipped-scene.nflash",
+        "crates/neoflash-core/src/filters.rs",
+        "crates/neoflash-core/src/runtime_graph/filters.rs",
+        "crates/neoflash-core/tests/filters.rs",
+        "web/filters.js",
+        "examples/filter-gallery.nflash",
+        "crates/neoflash-script/tests/filter-gallery.mjs",
+        "docs/decisions/0027-runtime-display-filters.md"
       ]
     },
     {

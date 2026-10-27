@@ -70,6 +70,7 @@ impl RuntimeGraph {
         self.affines.retain(|id, _| !retired.contains(id));
         self.color_transforms.retain(|id, _| !retired.contains(id));
         self.retire_text(retired);
+        self.retire_filters(retired);
         self.retire_clipping(retired);
         self.events
             .retain(|event| !retired.contains(&event.target_ref));

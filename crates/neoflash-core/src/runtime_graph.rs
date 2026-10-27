@@ -7,6 +7,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 mod bitmap;
 mod clipping;
 pub use clipping::{ClipComponent, RuntimeClip, ScrollRect};
+mod filters;
+pub use filters::RuntimeFilterGroup;
 mod linked;
 mod loader;
 pub use loader::LoaderMutation;
@@ -95,6 +97,7 @@ pub struct RuntimeObject {
     pub mask_ref: Option<ObjectRef>,
     pub scroll_rect: Option<ScrollRect>,
     pub clip_ids: Vec<String>,
+    pub filters: Vec<FilterSpec>,
     pub color_transform: ColorTransform,
     pub concatenated_color_transform: ColorTransform,
 }
@@ -142,6 +145,8 @@ pub struct RuntimeDrawItem {
     pub item: DrawItem<RuntimeDrawKind>,
     pub owner_ref: ObjectRef,
     pub clip_ids: Vec<String>,
+    /// Innermost filtered subtree. Parent links live once in filter_groups.
+    pub filter_id: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeAccessibleNode {
@@ -163,6 +168,7 @@ pub struct RuntimeSnapshot {
     pub draws: Vec<RuntimeDrawItem>,
     pub semantics: Vec<RuntimeAccessibleNode>,
     pub clips: Vec<RuntimeClip>,
+    pub filter_groups: Vec<RuntimeFilterGroup>,
 }
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq)]
@@ -211,6 +217,7 @@ pub(crate) struct RuntimeGraph {
     text_bytes: usize,
     affines: HashMap<ObjectRef, transform::AffineState>,
     color_transforms: HashMap<ObjectRef, ColorTransform>,
+    filters: BTreeMap<ObjectRef, Vec<FilterSpec>>,
     loaders: BTreeMap<ObjectRef, loader::LoaderState>,
     masks: BTreeMap<ObjectRef, ObjectRef>,
     scroll_rects: BTreeMap<ObjectRef, ScrollRect>,
@@ -243,6 +250,7 @@ impl RuntimeGraph {
         self.text_bytes = 0;
         self.affines.clear();
         self.color_transforms.clear();
+        self.filters.clear();
         self.loaders.clear();
         self.masks.clear();
         self.scroll_rects.clear();
@@ -318,6 +326,7 @@ impl RuntimeGraph {
         self.bitmap_states
             .retain(|reference, _| !retired.contains(reference));
         self.retire_text(&retired);
+        self.retire_filters(&retired);
         self.retire_clipping(&retired);
         self.affines
             .retain(|reference, _| !retired.contains(reference));
@@ -670,6 +679,7 @@ impl Player {
                             item,
                             owner_ref: reference.clone(),
                             clip_ids: vec![],
+                            filter_id: None,
                         });
                     }
                 }
@@ -677,6 +687,7 @@ impl Player {
                     result.draws.push(RuntimeDrawItem {
                         owner_ref: reference.clone(),
                         clip_ids: vec![],
+                        filter_id: None,
                         item: DrawItem {
                             element_id: items.get(&reference).map_or_else(
                                 || format!("runtime-{}-text", reference.id),
@@ -701,6 +712,7 @@ impl Player {
                     result.draws.push(RuntimeDrawItem {
                         owner_ref: reference.clone(),
                         clip_ids: vec![],
+                        filter_id: None,
                         item: DrawItem {
                             element_id: items.get(&reference).map_or_else(
                                 || format!("runtime-{}-bitmap", reference.id),
@@ -738,6 +750,7 @@ impl Player {
                     result.draws.push(RuntimeDrawItem {
                         owner_ref: reference.clone(),
                         clip_ids: vec![],
+                        filter_id: None,
                         item: DrawItem {
                             element_id: format!("runtime-{}-{index}", reference.id),
                             name: display.name.clone(),
@@ -780,11 +793,18 @@ impl Player {
                 scroll_rect,
                 mask_ref: self.graph.masks.get(&reference).cloned(),
                 clip_ids: vec![],
+                filters: self
+                    .graph
+                    .filters
+                    .get(&reference)
+                    .cloned()
+                    .unwrap_or_default(),
                 color_transform,
                 concatenated_color_transform,
             });
         }
         self.graph.apply_clipping(&mut result);
+        self.graph.apply_filters(&mut result);
         // Eligibility follows final descendant paint alpha. A signed parent
         // transform may hide 0..255 itself while a child's unclamped transform
         // produces a visible concatenation, so never prune whole subtrees early.

@@ -46,7 +46,10 @@
     function changeFocus(value,reason='programmatic',domEvent={}) {
       if(value!==null&&(typeof value!=='object'&&typeof value!=='function'))throw new TypeError('Stage.focus requires a display object or null.');
       if(value!==null&&!alive(value))throw new Error('Stage.focus requires an active display object or null.');
-      if(value!==null&&options.canFocus&&!options.canFocus(value))throw new Error('This display object is not currently focusable.');
+      if(value!==null&&options.canFocus&&!options.canFocus(value)){
+        if(reason==='mouse')value=null;
+        else throw new Error('This display object is not currently focusable.');
+      }
       if(value===focus)return true;
       if(focusDepth>=64)throw new RangeError('Recursive focus changes exceeded 64 transitions.');
       focusDepth++;

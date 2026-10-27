@@ -3,6 +3,7 @@ mod amf;
 mod clipboard;
 mod demo;
 mod evaluate;
+mod filters;
 mod geometry;
 mod history;
 pub mod model;
@@ -20,6 +21,10 @@ pub use clipboard::{
     CLIPBOARD_PREFIX, ClipboardError, ClipboardPayload, MAX_CLIPBOARD_BYTES, PasteResult,
 };
 pub use evaluate::{DrawItem, affine_multiply, easing, evaluate, sample_layer, transform_matrix};
+pub use filters::{
+    FilterError, FilterPadding, FilterSpec, MAX_FILTER_PIXELS, MAX_OBJECT_FILTERS, filter_padding,
+    filter_rgba, validate_filters,
+};
 pub use geometry::{
     FlattenOptions, FlattenedContour, GeometryError, MAX_PATH_COMMANDS, PathBounds, flatten_path,
     hit_test_path, path_bounds, paths_have_same_topology, validate_path_commands,
@@ -40,8 +45,8 @@ pub use runtime::{
 pub use runtime_graph::{
     ClipComponent, ColorTransform, DisplayError, DisplayEvent, DisplayMutation, DynamicKind,
     LoaderMutation, MAX_DYNAMIC_OBJECTS, MutationResult, ObjectRef, RuntimeAccessibleNode,
-    RuntimeClip, RuntimeDrawItem, RuntimeDrawKind, RuntimeObject, RuntimeScriptDispatch,
-    RuntimeSnapshot, ScrollRect,
+    RuntimeClip, RuntimeDrawItem, RuntimeDrawKind, RuntimeFilterGroup, RuntimeObject,
+    RuntimeScriptDispatch, RuntimeSnapshot, ScrollRect,
 };
 pub use runtime_graphics::{
     GradientKind, GradientPaint, GradientSpec, GradientStop, GraphicsOp, MAX_GRAPHICS_COMMANDS,

@@ -57,7 +57,7 @@
   const unsupportedText=new Set(['htmlText','styleSheet','type','selectable','autoSize','embedFonts','displayAsPassword','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','background','backgroundColor','border','borderColor','antiAliasType','gridFitType','sharpness','thickness','condenseWhite','getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineMetrics','getParagraphLength','getFirstCharInParagraph','setSelection','replaceSelectedText']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null}) {
+  function create({player,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getFilters=()=>null,beforeFilters=()=>{}}) {
     const legacy = new Map();
     const graph=typeof player.runtime_snapshot_json==='function';
     const refKey=ref=>JSON.stringify(ref);
@@ -376,6 +376,10 @@
       return result;
     }
     function get(target,name) {
+      if(name==='filters'){
+        descriptor(target);const host=getFilters();if(!host)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
+        return host.fromSpecs(JSON.parse(player.object_filters(referenceOf(target).key)));
+      }
       if(name==='loaderInfo'){descriptor(target);return getLoader()?.infoForDisplay(target)||null;}
       if(['content','contentLoaderInfo'].includes(name)&&descriptor(target).owner==='loader')return getLoader().get(target,name);
       if(name==='transform')return transform(target);
@@ -419,6 +423,11 @@
       return UNHANDLED;
     }
     function set(target,name,value) {
+      if(name==='filters'){
+        descriptor(target);const host=getFilters();if(!host)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
+        const specs=host.toSpecs(value);beforeFilters(target,specs);
+        player.object_set_filters(referenceOf(target).key,JSON.stringify(specs));return true;
+      }
       if(name==='loaderInfo'||(['content','contentLoaderInfo'].includes(name)&&descriptor(target).owner==='loader'))throw new TypeError(`Display ${name} is read-only.`);
       if(name==='transform')throw new TypeError('Replacing DisplayObject.transform is not supported; set transform.matrix or transform.colorTransform.');
       if(name==='mask'){

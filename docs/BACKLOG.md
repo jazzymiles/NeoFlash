@@ -174,3 +174,7 @@ The delivered batch connects local AS3/AS2 saved state, AMF0/AMF3 object graphs 
 ## Scripted forms and shared error boundaries
 
 The input family connects Rust text/selection to native browser fields, Stage focus, AS3 TextEvent/FocusEvent and AS2 Selection/callbacks. The combined text-form delivery has its own evidence. Follow-ups: mixed runs/HTML, native input authoring, embedded fonts, full IME/locale/grapheme behavior, initial keyboard traversal and foreground Canvas occlusion of active DOM editing. General AS2 string target resolution remains pending. AMF-TYPED-CATCH-001 has a targeted native-error boundary correction in this delivery; the historical independent failure remains recorded, with new recovery proof separately identified.
+
+## Runtime display-filter follow-ups
+
+Blur, Glow, DropShadow and ColorMatrix now share copied state, bounded Rust pixel kernels and nested whole-subtree rendering. Follow-ups: native authoring controls, remaining filter families and BitmapData.applyFilter, high-density raster quality, filtered DOM text-input composition, full cacheAsBitmap/bounds/coercion semantics and original-player differential. The filter gallery has separate evidence; prior gradients/clipping/bitmap checks do not certify new effects.

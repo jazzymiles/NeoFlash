@@ -115,6 +115,14 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { import flash.display.MovieClip; public class A extends MovieClip {public function beginGradientFill():void{}} }",
         "package { import flash.display.Sprite; public class A extends Sprite {public var mask:Object;} }",
         "package { import flash.display.MovieClip; public class A extends MovieClip {public var loaderInfo:Object;} }",
+        "package { import flash.display.MovieClip; public class A extends MovieClip {public var filters:Array;} }",
+        "package { import flash.filters.BitmapFilter; public class A extends BitmapFilter {} }",
+        "package { import flash.filters.BitmapFilterQuality; public class A {public function A(){new BitmapFilterQuality();}} }",
+        "package { import flash.filters.BlurFilter; public class A extends BlurFilter {} }",
+        "package { import flash.filters.GlowFilter; public class A extends GlowFilter {} }",
+        "package { import flash.filters.DropShadowFilter; public class A extends DropShadowFilter {} }",
+        "package { import flash.filters.ColorMatrixFilter; public class A extends ColorMatrixFilter {} }",
+        "package { import flash.filters.BitmapFilter; public class A {public function A(){new BitmapFilter();}} }",
         "package { import flash.display.Shape; public class A extends Shape {public function get scrollRect():Object{return null;}} }",
         "package { import flash.display.MovieClip; public class A extends MovieClip {public function setMask(value:Object):void{}} }",
         "package { import flash.utils.Endian; public class A {public function A(){new Endian();}} }",
@@ -155,6 +163,11 @@ fn class_syntax_outside_profile_is_never_erased() {
         "class A {public function A(){new Selection();}}",
         "class A {public function A(){Selection();}}",
         "class A extends Selection {}",
+        "import flash.filters.BitmapFilter; class A extends BitmapFilter {}",
+        "import flash.filters.BitmapFilterQuality; class A {}",
+        "import flash.filters.BlurFilter; class A extends BlurFilter {}",
+        "import flash.filters.BitmapFilter; class A {public function A(){new BitmapFilter();}}",
+        "class A extends MovieClip {public var filters:Array;}",
         "import flash.text.TextFieldType; class A {}",
         "import flash.events.FocusEvent; class A {}",
         "import flash.events.TextEvent; class A {}",
@@ -193,6 +206,14 @@ fn class_syntax_outside_profile_is_never_erased() {
     }
     let custom_result = neoflash_script::compile_project(&custom_selection);
     assert!(custom_result.is_ok(), "{:?}", custom_result.err());
+    legacy.sources[0].source = r#"import flash.filters.BitmapFilter; import flash.filters.BlurFilter; import flash.filters.GlowFilter; import flash.filters.DropShadowFilter; import flash.filters.ColorMatrixFilter;
+        class A {public function apply(target:MovieClip):BitmapFilter {
+            var blur:BlurFilter=new BlurFilter(4,6,1);var glow:GlowFilter=new GlowFilter(0x336699,.5,4,4,2);
+            var shadow:DropShadowFilter=new DropShadowFilter(3,45,0,.5);var matrix:ColorMatrixFilter=new ColorMatrixFilter();
+            var base:BitmapFilter=blur.clone();target.filters=[base,glow,shadow,matrix];var copy:Array=target.filters;
+            copy[0].blurX=8;target.filters=copy;target.filters=null;return base;
+        }}"#.into();
+    assert!(neoflash_script::compile_project(&legacy).is_ok());
     legacy.sources[0].source = "import flash.utils.ByteArray; class A {}".into();
     assert!(
         neoflash_script::compile_project(&legacy).is_err(),
@@ -363,7 +384,23 @@ fn linked_classes_are_resolved_before_publication() {
             import flash.text.TextFieldType;
             import flash.events.TextEvent;
             import flash.events.FocusEvent;
+            import flash.filters.BitmapFilter;
+            import flash.filters.BitmapFilterQuality;
+            import flash.filters.BlurFilter;
+            import flash.filters.GlowFilter;
+            import flash.filters.DropShadowFilter;
+            import flash.filters.ColorMatrixFilter;
             public class Model extends flash.display.MovieClip {
+                public var savedFilter:BitmapFilter;
+                public function applyFilters():BitmapFilter {
+                    var blur:BlurFilter=new BlurFilter(4,6,BitmapFilterQuality.LOW);var glow:GlowFilter=new GlowFilter(0x336699,.5,4,4,2);
+                    var shadow:DropShadowFilter=new DropShadowFilter(3,45,0,.5);var matrix:ColorMatrixFilter=new ColorMatrixFilter();
+                    var values:Array=matrix.matrix;values[4]=16;matrix.matrix=values;
+                    savedFilter=BitmapFilter(blur.clone());filters=[savedFilter,glow,shadow,matrix];
+                    var copy:Array=filters;copy[0].blurX=8;filters=copy;filters=null;
+                    if (savedFilter is BlurFilter){return savedFilter as BlurFilter;}
+                    return null;
+                }
                 public var input:TextField;
                 public var lastInput:TextEvent;
                 public var lastFocus:FocusEvent;

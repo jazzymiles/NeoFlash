@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "7280a8b73f2ed74974a5d1cbdf87602342af08c26df4065508434baa130b10cc",
+  "catalogSha256": "d873e1bed967c15c6367bd78a7b9f1cf610f26d24ba9863a2b4e985b2891bf5c",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -83,8 +83,8 @@
       }
     ],
     "inputHashes": {
-      "implementation-audit.json": "616ad59d8060ea43aaa2e604002891dd97e2c2f82efb34f5bebc0f65a1fbd99c",
-      "implementation-evidence.json": "362c98d8c544b9ee5fad1f434ef4cbfb04fa198f033d51ca97db578867395fcf",
+      "implementation-audit.json": "25bd4bab8cffa2e6da7e065514cec9e99dc69c827f1c9152e965a67392fdd70b",
+      "implementation-evidence.json": "5dd7f58d8e52ad32e32d15cff620095805dffb9cf141f0fb7a2e0c172f27a6eb",
       "as2.json": "160442a3ef962733440d4b187096b816398d5c4bc7fed87209e20bc157bf3791",
       "as2-components.json": "891666b00f6caf7c4bfc250187ab33cc19880715cb69468d8e0370a43a9aac82",
       "as2-components-supplement.json": "f7677e2c3a3e0f8baf899bdb4511de7bb14965bac4956b9de78a22be64eaa802",
@@ -485,29 +485,41 @@
         "originalFlashComparison": "documented_only",
         "decision": "accepted_partial_local_persistence_and_amf_graphs_with_typed_error_gap",
         "currentSourceVerified": false
+      },
+      {
+        "id": "FORMS-HTML5-20261027T0811Z",
+        "recordedHead": "c10e19efa1325db98c335a5901748f10c45dbba4",
+        "sourceCapturedAt": "2026-10-27T08:12:38.671433+00:00",
+        "verifiedAt": "2026-10-27T08:28:53.980912+00:00",
+        "sourceManifestSha256": "7df96b7ec56fb6132ef23876ea29ba228a4d18d67f140f094fad89560083e03b",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified; no other engine tested.",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_partial_forms_and_bounded_typed_amf_recovery",
+        "currentSourceVerified": false
       }
     ]
   },
   "summary": {
     "total": {
       "implemented_subset": 30,
-      "partial": 812,
-      "missing": 44875,
+      "partial": 842,
+      "missing": 44845,
       "needs_review": 330,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
         "implemented_subset": 15,
-        "partial": 318,
-        "missing": 1864,
+        "partial": 327,
+        "missing": 1855,
         "needs_review": 110,
         "total": 2307
       },
       "AS3": {
         "implemented_subset": 15,
-        "partial": 494,
-        "missing": 43011,
+        "partial": 515,
+        "missing": 42990,
         "needs_review": 220,
         "total": 43740
       }
@@ -550,8 +562,8 @@
       },
       "runtime": {
         "implemented_subset": 2,
-        "partial": 412,
-        "missing": 5740,
+        "partial": 442,
+        "missing": 5710,
         "needs_review": 4,
         "total": 6158
       }
@@ -595,8 +607,8 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 151,
-          "missing": 753,
+          "partial": 160,
+          "missing": 744,
           "needs_review": 3,
           "total": 908
         }
@@ -639,8 +651,8 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 261,
-          "missing": 4987,
+          "partial": 282,
+          "missing": 4966,
           "needs_review": 1,
           "total": 5250
         }
@@ -6805,6 +6817,722 @@
           "status": "partial",
           "evidenceKind": "source_review_with_reported_project_runtime_test",
           "scopeNote": "Source review and the main thread reported project-execute scenario cover project inheritance/override, initialized const fields and construction of ordinary project objects. No independent browser assertion for these specific branches. Native display-list construction remains rejected."
+        }
+      ]
+    },
+    {
+      "id": "FORMS-HTML5-20261027T0811Z",
+      "title": "Independent HTML5 acceptance: FORMS-HTML5-20261027T0811Z",
+      "reason": "accepted partial forms and bounded typed amf recovery",
+      "limitations": "No original Flash runtime or other browser engine. No real IME composition, complete grapheme/surrogate/caret matrix, password/selectable API acceptance, rich/HTML text, embedded font or historical metrics parity. No general transformed/clipped/occluded native-editor overlays, reentrant focus/listener ownership or all selection ranges. AS2 Selection direct live object only; string paths/levels and full Tab/button navigation remain unaccepted. No broad Error is/as type tests: extra Error is probe rejected during fixture preparation. No EOFError/errorID, broad malformed AMF corpus, storage quotas/denial or atomicity. AS2 rgb, handler defaults, AS2 Number, owner-aware diagnostics, resource overlay, Native Sources/D-008 remain open/unverified.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/Cargo.toml",
+          "sha256": "748c4a1fb26b503b86b1b57cb3aa277691c7011dd504b8aaf5891a0a6999144a"
+        },
+        {
+          "path": "crates/neoflash-core/src/amf.rs",
+          "sha256": "b9dccbdebe417a5254f5ac68780897e926d8234be98608cb96593282c415e27d"
+        },
+        {
+          "path": "crates/neoflash-core/src/clipboard.rs",
+          "sha256": "45ca958aa45830f8c10ffa45c629c9f625895b90f01c041343853e8140f28c60"
+        },
+        {
+          "path": "crates/neoflash-core/src/demo.rs",
+          "sha256": "0a714dc68bc8bea957b3352f17665d0e690ab77eb41a6cd2478fd4571301a591"
+        },
+        {
+          "path": "crates/neoflash-core/src/evaluate.rs",
+          "sha256": "f55ef83dfab9285910d00f0b99f22025ed6e58d811c3980d5a393c9e3ae262ef"
+        },
+        {
+          "path": "crates/neoflash-core/src/geometry.rs",
+          "sha256": "94b9531d20975840a8a9c998832f090fee17cfa66c5dbe78c12a30b0a527b2f8"
+        },
+        {
+          "path": "crates/neoflash-core/src/history.rs",
+          "sha256": "662c5cd0855fa1cccccac432fb374a7f86db680ed476559c92fbe324fff88441"
+        },
+        {
+          "path": "crates/neoflash-core/src/lib.rs",
+          "sha256": "05deb528bd4f7762571fff9e740190ea43e3ef6882c9dd9fd97adff1b6cd3f90"
+        },
+        {
+          "path": "crates/neoflash-core/src/model.rs",
+          "sha256": "aec122d2c3ed1a2276efbeefdd7e3a0af3fd12313a095467ddc830aab569126a"
+        },
+        {
+          "path": "crates/neoflash-core/src/pixels.rs",
+          "sha256": "bec6d070404cd56ca881ea25a4b0a40dd62c67c15b3c6812ae745bf57e753fff"
+        },
+        {
+          "path": "crates/neoflash-core/src/resource_image.rs",
+          "sha256": "9b3fe39fa4e9ec92396c01d38800fb0fdd4610d33fe42382bc99c58045b9dda5"
+        },
+        {
+          "path": "crates/neoflash-core/src/resources.rs",
+          "sha256": "51964faf7747aa135a001f9939cd304edad394e3e05c12bec14ab51569a2924a"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime.rs",
+          "sha256": "06d38b9632e55f2489afc657003d2c710233f619129fb9054f4b4af92c29028b"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph.rs",
+          "sha256": "22b3ae29bd10d57fa98bc5c30e446388a268ccb8dbb6a91e1a2cb1c6fbcf18c7"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/bitmap.rs",
+          "sha256": "35b6bb35e31d742131a12c87bae681eb849e634630330024fecf1f2f55f41426"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/clipping.rs",
+          "sha256": "605aa7d131f7696bcace3f588724a8531cad83a14dfac929c3cecb67fd3be226"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/linked.rs",
+          "sha256": "c6f29c54b89c8113264d343db530139c8faf85d61b0473ef60e58b5cc9575d79"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/loader.rs",
+          "sha256": "521d140e11d49214d8535b6aa0f5b41e7deba20004c04a5eeeeb6e651748f10d"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/text.rs",
+          "sha256": "b7f43acd26e1a1db47d248d7b4b47de62c9f7bde5707b674f0921bb50b60d215"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/transform.rs",
+          "sha256": "58acbec3e79f3cf2953196f1649386f0e8fe69606744d2c23f27cb4f8b17c45a"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graphics.rs",
+          "sha256": "d635425dfcd00d838f8083d8e758ce69f7aaa7f7cfe17fea7e5f77de196129b6"
+        },
+        {
+          "path": "crates/neoflash-core/src/text.rs",
+          "sha256": "118e1aea57041cc8f9668f1736f27485c4be665891aa67d2e416bee88d08d5a3"
+        },
+        {
+          "path": "crates/neoflash-core/src/validation.rs",
+          "sha256": "2f403522cec6921b434292ea6feb4546d331dd8c9318935dd0e47752ae58fc65"
+        },
+        {
+          "path": "crates/neoflash-core/src/xml.rs",
+          "sha256": "3dd8637ddd6d28bcf8f9fef0b9180c660fcdcac4e650fa26c003028f87d46ed7"
+        },
+        {
+          "path": "crates/neoflash-editor/Cargo.toml",
+          "sha256": "8549dc2d0d3b59abd1336bb322e2ca39e4198372b5f5cdf3ace861521e8741d9"
+        },
+        {
+          "path": "crates/neoflash-editor/src/accessibility.rs",
+          "sha256": "7b02f21d880283cdf480a6c0579f732abf19fbe317917e4e18faf9b11d069369"
+        },
+        {
+          "path": "crates/neoflash-editor/src/app.rs",
+          "sha256": "dd371a8302b2e539bfd36b8c46fd96959268a02ee5b647230cd6efe60b7f8749"
+        },
+        {
+          "path": "crates/neoflash-editor/src/bitmaps.rs",
+          "sha256": "ec7d1385f4e8e74fb32ab7d23d484dbecff848d1951d6f4f0acceff7b98ac32d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard.rs",
+          "sha256": "e3ffc6db4a9567d2de9194bfbc8a4715e3ddb0b206dc593002cce2ec9eb169fe"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard_tests.rs",
+          "sha256": "cd47a143e3954f0b664aa57df66d31175977a269f000a088ab7d136b854704ae"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached.rs",
+          "sha256": "4857ae64827f7818f7f159fff43b3e14a6ff784bcd0148d161a25e7765e59b3d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached_tests.rs",
+          "sha256": "e66b38262cd5cf6d0a1f64887b19ba86950233cc6fd77c16a977bcba16f14ceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/fonts.rs",
+          "sha256": "59e6bf607f4a074add517fe5fa1e29a09b65b8a51331ac6d5467e98e6064b988"
+        },
+        {
+          "path": "crates/neoflash-editor/src/main.rs",
+          "sha256": "a28169289b6e566c56f4d4c862a234724bf1d0d1fb1e476f34598f81dd2521ea"
+        },
+        {
+          "path": "crates/neoflash-editor/src/native_screens.rs",
+          "sha256": "b3eb6e6612dfd09c9ddfb206b82c3039343730bcf616c380cbee383b92664440"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panel_tests.rs",
+          "sha256": "1f30578675e958423af68ba50fc07ca5cc466f91f5f0a7fee9a56f65ee98dd11"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panels.rs",
+          "sha256": "3e773a37870cc6703474689b72dc09f541c8c4579ef6cb022a0b4543f9281c75"
+        },
+        {
+          "path": "crates/neoflash-editor/src/resources.rs",
+          "sha256": "8c1aad47de4850fd10a110d299970ddad9911e025597f42f9761db6ed123b4d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection.rs",
+          "sha256": "0c1ea7f8306eb81328d80672436993f0c4d270891d6c50ee81d6ef0243626859"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection_tests.rs",
+          "sha256": "5f0dd0cfcf2243aef8e82d4e7fbaba0f0fcae365abf86e5535b01ae112b8e080"
+        },
+        {
+          "path": "crates/neoflash-editor/src/sources.rs",
+          "sha256": "a41612c805421a92f4a49af70475dc7822d605d2060bc335ce1704a2b95a3ec9"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage.rs",
+          "sha256": "b0230a81f243ad51befdb9d23526f1aa295e05c5740af9e2121826a745504336"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_primitives.rs",
+          "sha256": "fe940d6123cb492a4c6a6a9e135b51da023fe4c47193a6c3cdc185bd679cfceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_selection.rs",
+          "sha256": "e7ca9975a795b79e376ad096bc440bc469b17247f66b166c801756e8bcaeed13"
+        },
+        {
+          "path": "crates/neoflash-editor/src/tests.rs",
+          "sha256": "a4b96abeb579c8d59014b974e97d883d8ff9802dfb5baca770340c60405c73d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/text_boxes.rs",
+          "sha256": "026d5cd1f800e39d70fa9a9e07d69d74363ddbc157c17ce35af8c2668cd4dcde"
+        },
+        {
+          "path": "crates/neoflash-editor/src/theme.rs",
+          "sha256": "98c946389cff79af8d415b3bd8a282633d097989e60d8643f2f8125f7f8c4936"
+        },
+        {
+          "path": "crates/neoflash-editor/src/timeline_paint.rs",
+          "sha256": "87a87535956dcfaa686e6222bb56f1953328b00be858a0b522094097759848d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_geometry.rs",
+          "sha256": "584f5b1d3d7cc50906d5fe647812678d97333fd8df4a7d31264e0b9f245c971f"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_gesture_tests.rs",
+          "sha256": "490e7e0df25c8ad6a7793109076100ea63c54b11d9469542f583b0cf4daf6ed6"
+        },
+        {
+          "path": "crates/neoflash-editor/src/ui_icons.rs",
+          "sha256": "532a69689f893cb6ad5bf82f4106b6472315fa1cea8af335b2d459ac0eaed74e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector.rs",
+          "sha256": "0d3ae90b25ab48e3228149b0b96920b8f1367e86a609f8d2c10176653ae35f1c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector_gesture_tests.rs",
+          "sha256": "6f54dd33ea9edf03f1c08383e932cffcc47a26cb2a54e2dfe0d8fed07e84d77e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace.rs",
+          "sha256": "e5adb69dad73eba07bc70ebed9d7907d837290df1bb80cae44f4fcd64d9f3b45"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace_editor_tests.rs",
+          "sha256": "6d26ab3e6be19b91b25fc13f27b9580b9810a8efbcb3892198de060216eb07af"
+        },
+        {
+          "path": "crates/neoflash-export/Cargo.toml",
+          "sha256": "577ab7bd07bb5614f4a0ef2e408b553befaad996024c65916121a52266cd0954"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "8484879f9db915152b8fd88fa8f561d0bd6a82ca8c3b8240d084815536cbf1ae"
+        },
+        {
+          "path": "crates/neoflash-export/src/main.rs",
+          "sha256": "a174e11c87e970fc4ff37cb5966c525dd5435c744715b6ce93b0052c56bf89d8"
+        },
+        {
+          "path": "crates/neoflash-import/Cargo.toml",
+          "sha256": "ae07834a20cc84f4472c253088f5ce17127b137952daad3f066f34eca6ea96cc"
+        },
+        {
+          "path": "crates/neoflash-import/examples/contour_fixture.rs",
+          "sha256": "037f00320374630c556f0e45087b279071260e8de090fac6c81d059c362f3a59"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_binary_corpus.rs",
+          "sha256": "3ea8b650bcd5ced084b3c266f4f5865e2af96b43b3d3075588c6ae1414dea4d1"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_contour_candidates.rs",
+          "sha256": "9e6912139440480d7dee72ac4c6643c3690408f0ea19618df8f4d1276b20fe5e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy.rs",
+          "sha256": "9dfdb5573c5e1f63121cc4e7bc623bf151e55124ba47da8e688de153f65ccafa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents.rs",
+          "sha256": "adde25d4fa8736d8d47acbf215e78b054b9d31345fb80caef65009f2677cbffa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents/payload.rs",
+          "sha256": "b0c146ec3f5c56525f7e7c4e7b6a4bb28590e4711445b811766801caf685fedd"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours.rs",
+          "sha256": "f434f77c72359b53b18b42b137763d4d607b38b1f010a407b92f2575e7f7799e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours/certificate.rs",
+          "sha256": "fb4abe54a5984e47a05b1848e92f15adf61c4a35825edf7872e9103f8950caae"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/geometry.rs",
+          "sha256": "15797f76b2ed8a9b165b9f184ab8cf2d9439eefe702dcdc68e019c7ad9a191bf"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/mfc.rs",
+          "sha256": "2b79189ee7105947f7a18732860630e3f677ef82e55b2e91fcbde17959812021"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/timeline.rs",
+          "sha256": "7d5f4e1c0b44f6cc4e39628ed8f3724a99b81957394a0d8d07923ffd89f41f3a"
+        },
+        {
+          "path": "crates/neoflash-import/src/lib.rs",
+          "sha256": "3c54d4afecd01fde3e8f5db2bd9b42b0b0c5371be70d90ccc525027e2de53b8b"
+        },
+        {
+          "path": "crates/neoflash-import/src/main.rs",
+          "sha256": "2710f27ef30f4e62afb44537e56da44844aed04d4e8a864ccbda6edd75d4c2cc"
+        },
+        {
+          "path": "crates/neoflash-import/src/source.rs",
+          "sha256": "25662f5fd70d4e2cdafaf59518301dc8875fcf2f2e0636fd05e440823be5e9de"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl.rs",
+          "sha256": "17654ef592571a342b70eece359bb55e94a3281ac42baf8163dca72011706744"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/publish.rs",
+          "sha256": "0a631fa1a3c6b9c186eb76aef5115775b72b86e0d88462f3ea5028ee28b14c89"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/shape.rs",
+          "sha256": "2303fb011b22b32d56fccfe0505653af76057983da39540098b84be37abce1a5"
+        },
+        {
+          "path": "crates/neoflash-script/Cargo.toml",
+          "sha256": "73a29eb8d234c351f4fc2c8312f7924b2a365dddbd4b69ca86d6825b29c6b668"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_batch.rs",
+          "sha256": "c428fa1a84b3649229d9b8a6b33b3fa08ac274dd07679ca61de666b9bc069436"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_project.rs",
+          "sha256": "e7d780759bb4e62704d56c55e0d8e76c2ed9f5ae4a35f82e286aaea98a7c0ac6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "b1b14cb6f078e2c8c763c6533524e28d228de71f4625776466ab85f975fc04a7"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/collections.js",
+          "sha256": "63d55193c51b297e35970684a20cf31d8608956aa1f87210af778f67c0ab8cd0"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/completion.rs",
+          "sha256": "cbc6f6492a8d998193e5c4e1166c17b7df02211ae15f77d9f96c249ece6f7dea"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/containers.js",
+          "sha256": "4549548acc6b1be7c05edc7ef6aeedf7c7e5b3fb24599980240624c557fb17ad"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/control_tests.rs",
+          "sha256": "4536b47803d97d87584e8a84b14aa5f279f412ce15fe98def9f6f31f7c8d8365"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/dates.js",
+          "sha256": "d8e821a7e50e822b6af1a16e3d5462a25bba8f345dd1dec5490fe0f573ae5024"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/dictionary.js",
+          "sha256": "f218db23553d32593ed4bced084bb466c0644ff3719702ce9391ddfb613e3034"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/exceptions.js",
+          "sha256": "534534a37d9d0c48b1898847615e0581b20661341d24ded64ed355785e8e366e"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/intrinsics.js",
+          "sha256": "65528ea334627dc829097e59627647382ffe716b39acb77e15c8bcbef68ebdb4"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/json.js",
+          "sha256": "f1d574087cb0c3174d63965bd35653d1add7da0b4462ae9950e37b39ae1b79c6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "a2c771cf494bd893e457d6c308dd37ccac563f801cfda545e60a3c7698745dc5"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "bd028f25cae831bbf1fc6942329bb8a81577552dd55de33381b69056f1c0b1d4"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/regexp.js",
+          "sha256": "2c0ed0066bd2894a6f78afce18ea718271d38d8b169fd728fee676b04dee9b07"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "0b5888cd18c1ed5556e86bb3f5714f652bc65664643afdcf4ec6040317fc868c"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/strings.js",
+          "sha256": "11e60ba1f8e3204cab0b44a57089f70eb1fb022d94f55cc63300cf96e9a296e8"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/vectors.js",
+          "sha256": "b0eda4b41827889d9e676f4161b8c7bdb3cccd7724bebf42f84fa0502b7c93d1"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/xml_literals.rs",
+          "sha256": "53886e2a69ea84abf24c97ab91cc8e6ad2463e5bd8ac4ad8b534ff28a025bac3"
+        },
+        {
+          "path": "crates/neoflash-script/src/lib.rs",
+          "sha256": "3b7e634f008786775f3e8dd40dca84868b92e8af3e96f633ef28de5aa4464ec3"
+        },
+        {
+          "path": "crates/neoflash-web/Cargo.toml",
+          "sha256": "7658ff86ac02627a03ea66fe5c7c288333ff7c4d13e456b444e3b01fb0ea23f5"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "d9e2fa3dc4ccf6326e6f8297c7e0c81d93e4ec0c475d97a186c6c4073f99338c"
+        },
+        {
+          "path": "web/accessibility.js",
+          "sha256": "a98177ddfcd9595c5d2904b3647310510b0a92287ec4e07a742039b7558bb250"
+        },
+        {
+          "path": "web/amf.js",
+          "sha256": "67749be93531e6f12f573ef41ee133c37c05de7367a9fd2623356e74ce0305ae"
+        },
+        {
+          "path": "web/audio-formats.js",
+          "sha256": "91d325e5508967d057b697cedc37090058b09f1f34a71c603a1f6a11bb9d3443"
+        },
+        {
+          "path": "web/audio.js",
+          "sha256": "0fdcec0a321ca69419f825a9512cfb57c92fb6a3c671f83fad70b59b64e0c63c"
+        },
+        {
+          "path": "web/bitmap.js",
+          "sha256": "2ff3af2ff0f2b7abac7c2d9411f6847eacc415f403bfea0981e25976e922fb13"
+        },
+        {
+          "path": "web/byte-array.js",
+          "sha256": "e02132de21ee20887da05be939b426a50f1a06ed94cbcbd7c46620e21fd54310"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "10fb0ff35cad29c353da7ae1df273f51b055643403bb9fc1bb7510759500c4aa"
+        },
+        {
+          "path": "web/events.js",
+          "sha256": "138fae7ce853928dd0595c53d8188d2477d2c738272f75e33092e6029dd0e73d"
+        },
+        {
+          "path": "web/geom.js",
+          "sha256": "2aa4ec042d7ea8fa8a8b0f8519e23eca1ea722960f4bb43496ac814ddd1de2b6"
+        },
+        {
+          "path": "web/legacy-input.js",
+          "sha256": "14ac0086abbbb5b1de591ea5ae35fafdce9f65f101b6e942871c62dc9c7b4c35"
+        },
+        {
+          "path": "web/loader.js",
+          "sha256": "ac5ed0cc57722c79f918c9e0968542d3b0412e855908fa7805c3c9b0ee10ee76"
+        },
+        {
+          "path": "web/net.js",
+          "sha256": "bf38c80dd41b36c1d9317495cea9a992ffca283bcd814cd355926c547b8f258f"
+        },
+        {
+          "path": "web/path.js",
+          "sha256": "c80ae03439b58963ed6e35abef4d7fb99033224aa57b6ba486f4cf1d54de1243"
+        },
+        {
+          "path": "web/preview.js",
+          "sha256": "1278996d0f1c0a7efe974919a8c496bbefebd5a0b5707926de03a708f4ca51fa"
+        },
+        {
+          "path": "web/progress/app.js",
+          "sha256": "b5f78ad52e27e498e0020ae33f59e4e545ed2d83c4f4abe8f9c3bd8fbc098780"
+        },
+        {
+          "path": "web/progress/history.html",
+          "sha256": "612e7564f63569bc8ee5497a91c14666c813653b6b348837506dd91cd0ba43e2"
+        },
+        {
+          "path": "web/progress/index.html",
+          "sha256": "5bcbd13e811e7a0ce201d7460ea6e3aaa60c73c2f00073d06c5baf9b01b527ef"
+        },
+        {
+          "path": "web/progress/style.css",
+          "sha256": "078133fc916b8e2714e0a178c67bffadb99c11799c3af0250a4d3a911cb9d235"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "eaa3936c91f28eafda585a624214b8ccd4c95e214e524f4e9bd3ddbdbd60a97b"
+        },
+        {
+          "path": "web/stage.js",
+          "sha256": "ee6fa382579544752a2312696e80af017dfd4303340fbae545c0e1347dec0175"
+        },
+        {
+          "path": "web/storage.js",
+          "sha256": "5aac0405a81c8a88fdfd80d3da3d46b79d09acab027fd49c49d94f6778f04fbb"
+        },
+        {
+          "path": "web/text-input.js",
+          "sha256": "e88f975d57f8de6b85812ed7c06dc8b680abfffcaaaf80ba86ccb1145718db0b"
+        },
+        {
+          "path": "web/text.js",
+          "sha256": "b15c20311a2567671cea7dd29ea4e1c4cd4e60431e065422a577a97e3103a8b0"
+        },
+        {
+          "path": "web/timers.js",
+          "sha256": "d42569c79bcda28ffd1b3712facb73e45e78e3b7dc22a1f194527781c9cdb9b1"
+        },
+        {
+          "path": "web/xml.js",
+          "sha256": "936a72a3f85060a5f87e90615f4022cd202ded740d1504d128dd996d6799a3d2"
+        }
+      ],
+      "verification": {
+        "id": "FORMS-HTML5-20261027T0811Z",
+        "recordedHead": "c10e19efa1325db98c335a5901748f10c45dbba4",
+        "sourceCapturedAt": "2026-10-27T08:12:38.671433+00:00",
+        "verifiedAt": "2026-10-27T08:28:53.980912+00:00",
+        "sourceManifestSha256": "7df96b7ec56fb6132ef23876ea29ba228a4d18d67f140f094fad89560083e03b",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified; no other engine tested.",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_partial_forms_and_bounded_typed_amf_recovery",
+        "currentSourceVerified": false
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#CHANGE",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Event.CHANGE listener observed committed native edits in both fields. Digit/emoji restriction rejection and cancelled # insertion did not produce changes; programmatic Studio7 replacement also left change counters unchanged. Fresh input after Restart produced one fresh change."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/FocusEvent.html#FOCUS_IN",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "FOCUS_IN listener observed real field focus from pointer/Tab and programmatic button routes, including fresh focus after Restart. The trace identifies nickField/noteField and stage.focus equals the target during observed callbacks."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/FocusEvent.html#FOCUS_OUT",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "FOCUS_OUT listener observed field-to-field, field-to-button and field-to-null transitions with corresponding old/new names. Full recursive/cancellable focus policies and all browser transitions are not established."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TextEvent.html#TEXT_INPUT",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "TEXT_INPUT listener received actual typed and pasted payloads before committed changes. The # payload was cancelled; digit/emoji payloads reached this listener but were subsequently filtered by restrict. No original-player IME event equivalence is claimed."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldType.html#INPUT",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Both created fields compared equal to INPUT and became editable through the real native single-line/multiline controls. DYNAMIC and switching existing types are not covered."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#replaceSelectedText()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Replacing nickname range [0,5) by Studio7 produced Studio7FGHIJKLMNOPQRSTUVWX, UTF-16 length 26, collapsed range/caret 7/7/7. The digit and length beyond maxChars=24 persisted while user counters stayed 18 inputs/15 changes. This is a programmatic replacement bypass of user filters, not arbitrary selection/formatting conformance."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#setSelection()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Programmatically selecting nickname [0,5) then replacing it changed exactly that prefix. Subsequent replacement collapsed selection/caret at 7. This covers the observed valid forward range, not reversed/out-of-bounds/surrogate-boundary policies."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#focus",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Setter moved focus to nickField for selection replacement; callback getter comparisons showed stage.focus===event.target for observed focus-ins. Native Tab and AS2 direct-object selection shared this owner. Full authored-button keyboard traversal and focus policies remain outside the accepted profile."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#target",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Text/focus callback target names and committed text identify the edited nickField or noteField. Native mutations then report the correct receiver text/length/selection. This does not establish all retargeting, bubbling or capture routes."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#caretIndex",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Getter observed UTF-16 caret positions during typing and paste, including 24 at the nickname limit, 23 after multiline emoji text, and 7 after programmatic replacement. Arbitrary grapheme/selection-direction conformance is not inferred."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#maxChars",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Nickname user insertion of 29 ASCII units became the first 24 permitted letters; programmatic Studio7 replacement and restored text retained length 26. Assigning -1 raised catchable RangeError and readback stayed 24 beside successful editing. Note maxChars=128 was configured but its limit was not reached; all coercions/bounds remain partial."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#restrict",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "The supplied A-Za-z/А-Яа-я/Ёё/space pattern admitted tested Latin and Cyrillic letters/spaces and rejected individual 7 and emoji insertions without changes. Programmatic replacement retained a digit. Exclusions/escapes, every supplied range endpoint and historical automatic case substitution were not tested."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#selectionBeginIndex",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Getter reported collapsed native-edit endpoints including 24 and 23, then 7 after programmatic nickname replacement. The accepted evidence is these valid forward selection/readback routes, not every boundary case."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#selectionEndIndex",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Getter reported collapsed native-edit endpoints including 24 and 23, then 7 after programmatic nickname replacement. The accepted evidence is these valid forward selection/readback routes, not every boundary case."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#type",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Setting both created fields to TextFieldType.INPUT led to actual editing with text reflected in committed Canvas views and persisted data; getter equality was true at startup/reopen. Dynamic-type conversion and invalid-type behavior were not exercised."
+        },
+        {
+          "catalogId": "as2:Selection.html#getBeginIndex()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "After Selection.setFocus(noteField) and setSelection(0,5), getter returned 0; real typing replaced that selected prefix. Only the observed live text-field route is accepted."
+        },
+        {
+          "catalogId": "as2:Selection.html#getEndIndex()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "After Selection.setFocus(noteField) and setSelection(0,5), getter returned 5; real typing replaced Line-space while retaining one, yielding Draftone. Only the observed valid forward range is accepted."
+        },
+        {
+          "catalogId": "as2:Selection.html#getFocus()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Returned the observed live note-field path _level0.Text input form.noteField after direct-object focus. This is a bounded path readback; historical path formatting, renamed/deep hierarchies and String-path setFocus are not established."
+        },
+        {
+          "catalogId": "as2:Selection.html#setFocus()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Passing the live noteField returned true, produced corresponding focus callbacks, and allowed selection then real typing. String paths explicitly remain outside this accepted direct-object profile; null and stale-object variants were not newly exercised."
+        },
+        {
+          "catalogId": "as2:Selection.html#setSelection()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Forward range 0..5 in the focused noteField was reported as begin/end/caret 0/5/5 and actual Draft typing replaced precisely that prefix. No reversed or malformed ranges are claimed."
+        },
+        {
+          "catalogId": "as2:TextField.html#event:onChanged",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Note-field onChanged followed each observed AS3 committed change and received the exact noteField object. Cancelled # and programmatic nickname replacement did not add callbacks. After Restart one fresh ! edit produced one AS2 callback; this does not establish every legacy edit route."
+        },
+        {
+          "catalogId": "as2:TextField.html#event:onKillFocus",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Note-field onKillFocus received observed next-focus names replace-button/save-button and null, with counters agreeing with the transitions. Detach/reentry/stale-object and every focus policy remain outside this profile."
+        },
+        {
+          "catalogId": "as2:TextField.html#event:onSetFocus",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Note-field onSetFocus received observed previous-focus names nickField/focus-button and null. Direct field transfer ordered AS3 focusOut, then AS2 onSetFocus, then AS3 focusIn in this host profile; no universal historical event-order claim."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:focusIn",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "TextFields received observed focusIn events through real pointer/Tab and programmatic focus routes; event.target matched stage.focus in callbacks. This accepts the TextField receiver profile, not all InteractiveObject subclasses."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:focusOut",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "TextFields received observed focusOut events on field/button/null transitions. Actual next-focus names were read through relatedObject; other InteractiveObject subclasses and all focus policies remain untested."
+        },
+        {
+          "catalogId": "AS3:event:flash/text/TextField.html#event:change",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual native user edits generated change after textInput, with updated text/UTF-16 length and selection. Rejected nickname characters, cancelled # and programmatic prefix replacement did not generate extra changes; Restart reset the callback state."
+        },
+        {
+          "catalogId": "AS3:event:flash/text/TextField.html#event:textInput",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual typing/paste generated textInput before committing the observed native edits. A # event was cancelled and its existing multiline content remained visible; later ordinary edits continued. Full IME, clipboard and historical input-event matrices are not inferred."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#preventDefault()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Calling preventDefault on the # TextEvent yielded isDefaultPrevented=true and suppressed the pending note insertion with no AS3/AS2 change. Ordinary input beside it still committed. This extends the existing partial method scope only for this cancellable textInput route."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/TextEvent.html#text",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Read actual typed Cyrillic/Latin, digit, emoji and pasted multiline payloads; the # text value drove cancellation. The precommit textInput payload used LF while public committed TextField.text used CR. Mutation of event.text and LINK events were not exercised."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#isDefaultPrevented()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Returned false for ordinary and later-filtered native textInput payloads and true after the # handler called preventDefault. The cancelled edit preserved text and user change count. Other event types/cancellation policies are not newly accepted."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/FocusEvent.html#relatedObject",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Read observed previous/next receiver names on focusIn/focusOut, including nickField, noteField, named buttons and null. This is a same-publication TextField focus profile, not cross-domain/inaccessible-object handling or generic focus-event constructor behavior."
+        },
+        {
+          "catalogId": "as2:Selection.html#getCaretIndex()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Getter returned 5 for the observed forward 0..5 note selection, beside begin/end 0/5 and the expected focus path. Actual Draft typing replaced that selected prefix. Unfocused/reverse/Unicode boundary cases were not tested."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readObject()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Existing bounded AMF0/AMF3 graph/tail scope is retained. On c10e19 the prior malformed [10] case now enters catch(error:Error), logs Error with unchanged position/length/byte 0/1/10, and the scene continues; it repeats on Restart. Valid graph/tail traces remain intact. AMF-TYPED-CATCH-001 is closed only for this generic Error route; EOFError identity/errorID, error-is-Error syntax and broader malformed-input handling are not established."
         }
       ]
     },
