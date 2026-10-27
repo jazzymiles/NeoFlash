@@ -154,8 +154,8 @@
       "category": "editor",
       "title": "Authored text",
       "status": "partial",
-      "scope": "Editable authored text with system font family, size and color. Published plain TextFields now support runtime text/color changes and bounded string editing/line queries without mutating authored content.",
-      "limitations": "Rich text, input/selection, wrapping and complete shaping/layout remain missing. Runtime metrics follow the existing Canvas profile; portable fonts are separate work. The combined plain TextField browser pipeline and Restart passed.",
+      "scope": "Editable authored TextBox with logical dimensions, multiline/wrapping, installed regular/bold/italic fonts, size/color/leading and left/center/right alignment. Old unboxed Text retains its appearance until explicit conversion. AS3 TextField/TextFormat and AS2 createTextField share Rust state and line layout, with separate current/insertion formats and bounded whole-field/string editing.",
+      "limitations": "Mixed character runs, HTML/CSS, input/selection/IME, auto-size, advanced paragraphs and full shaping/Flash metrics remain pending. Host font measurements may produce different line breaks and pixels; portable fonts are separate work. Native headless layout/clipping/Undo and in-app-browser reflow/alignment, independent fields and Restart passed. Native interactive editing remains pending; VERIFICATION.md preserves the exact scope separately from earlier plain-text evidence.",
       "evidence": [
         "crates/neoflash-core/src/model.rs",
         "crates/neoflash-editor/src/fonts.rs",
@@ -169,7 +169,14 @@
         "examples/collections-text.nflash",
         "docs/COMPATIBILITY.md",
         "docs/VERIFICATION.md",
-        "docs/progress/actionscript-audit.json"
+        "docs/progress/actionscript-audit.json",
+        "crates/neoflash-core/src/text.rs",
+        "crates/neoflash-core/src/runtime_graph/text.rs",
+        "crates/neoflash-editor/src/text_boxes.rs",
+        "web/text.js",
+        "examples/text-layout.nflash",
+        "crates/neoflash-script/tests/text-layout.mjs",
+        "docs/decisions/0015-text-fields-and-layout.md"
       ]
     },
     {
@@ -512,7 +519,7 @@
       "title": "Portable fonts and text layout",
       "status": "planned",
       "scope": "Font embedding/subsetting/outline export, font policies and predictable layout on a clean computer.",
-      "limitations": "Export currently references fonts by name and emits a warning; fallback can change text appearance.",
+      "limitations": "Export references fonts by name and emits a warning; fallback can change text appearance and wrapping. Shared Rust line calculation consumes each host font engine’s measurements, so it does not establish portable font metrics. Embedding/subsetting/outlines remain planned.",
       "evidence": [
         "crates/neoflash-export/src/lib.rs",
         "docs/ROADMAP.md",
@@ -525,7 +532,7 @@
       "title": "Image, audio and video assets",
       "status": "partial",
       "scope": "Library imports and stores portable resource files, including image/audio/video bytes, with metadata editing, Undo and self-contained HTML5 packaging. The shared data service loads embedded text, bytes and form variables and supports bounded HTTP(S) requests. PNG/JPEG resources can be placed on Stage with transforms and smoothing. Shared Rust BitmapData buffers support bounded pixel edits, fill/copy/clone/scroll and disposal; AS3 Bitmap and AS2 attachBitmap use the same display graph and publication lifetime.",
-      "limitations": "General Loader/image formats, bitmap fills, filters/draw/encoding, audio/video playback/synchronization and font embedding remain planned. Native resource/image panel acceptance and direct-file browser opening remain pending. The bitmap workflow passed combined export/WASM and in-app-browser observation of shared edits, independent source/clone, AS2 attachment and Restart. Full bitmap conformance is not established; exact evidence is in VERIFICATION.md. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified.",
+      "limitations": "General Loader/image formats, bitmap fills, filters/draw/encoding, audio/video playback/synchronization and font embedding remain planned. Native resource/image panel acceptance and direct-file browser opening remain pending. The bitmap workflow passed combined export/WASM and in-app-browser observation of shared edits, independent source/clone, AS2 attachment and Restart. Full bitmap conformance is not established; exact evidence is in VERIFICATION.md. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass.",
       "evidence": [
         "docs/ROADMAP.md",
         "docs/BACKLOG.md",
@@ -699,8 +706,8 @@
       "category": "platform",
       "title": "Independent project format",
       "status": "implemented",
-      "scope": "Versioned JSON stores stable symbols/placements/frames/scripts; version 2 adds logical project source units and document/symbol linkage with path, size and reference validation. Existing version-1 projects remain supported. Version 3 adds portable resource bytes, normalized logical paths/types, strict base64/size validation and shared immutable storage across native snapshots; versions 1 and 2 remain readable. Authored Bitmap elements reference portable PNG/JPEG resource IDs with validated intrinsic dimensions; mutable runtime pixels stay outside the document.",
-      "limitations": "Additional media consumers, embedded font layout and broader asset dependency authoring remain separate work. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified.",
+      "scope": "Versioned JSON stores stable symbols/placements/frames/scripts; version 2 adds logical project source units and document/symbol linkage with path, size and reference validation. Existing version-1 projects remain supported. Version 3 adds portable resource bytes, normalized logical paths/types, strict base64/size validation and shared immutable storage across native snapshots; versions 1 and 2 remain readable. Authored Bitmap elements reference portable PNG/JPEG resource IDs with validated intrinsic dimensions; mutable runtime pixels stay outside the document. TextBox stores explicit layout dimensions and uniform formatting; legacy Text remains readable without conversion, and runtime insertion defaults stay outside authored state.",
+      "limitations": "Additional media consumers, embedded font layout and broader asset dependency authoring remain separate work. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass.",
       "evidence": [
         "crates/neoflash-core/src/model.rs",
         "crates/neoflash-core/src/validation.rs",
@@ -712,7 +719,9 @@
         "docs/VERIFICATION.md",
         "crates/neoflash-core/src/resource_image.rs",
         "docs/decisions/0014-bitmap-pixels.md",
-        "docs/progress/actionscript-audit.json"
+        "docs/progress/actionscript-audit.json",
+        "crates/neoflash-core/src/text.rs",
+        "docs/decisions/0015-text-fields-and-layout.md"
       ]
     },
     {

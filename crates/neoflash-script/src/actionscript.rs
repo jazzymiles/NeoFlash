@@ -737,7 +737,7 @@ impl<'a> Frontend<'a> {
             name.as_str(),
             "Number" | "String" | "Boolean" | "Function" | "Array" | "Object"
         ) || (as3 && matches!(name.as_str(), "int" | "uint" | "*"))
-            || (!as3 && name == "LoadVars")
+            || (!as3 && matches!(name.as_str(), "LoadVars" | "TextFormat"))
             || (self.context.project && self.context.types.contains_key(&name))
             || (is_error_type(&name) && (as3 || name == "Error"))
             || (returns && name == if as3 { "void" } else { "Void" });
@@ -952,7 +952,8 @@ impl<'a> Frontend<'a> {
             }
             let class = self.context.types.get(&name).cloned();
             let builtin = matches!(name.as_str(), "Array" | "String")
-                || (self.script.language == ScriptLanguage::ActionScript2 && name == "LoadVars");
+                || (self.script.language == ScriptLanguage::ActionScript2
+                    && matches!(name.as_str(), "LoadVars" | "TextFormat"));
             if !builtin
                 && class.is_none()
                 && (!is_error_type(&name)
@@ -1089,7 +1090,18 @@ impl<'a> Frontend<'a> {
                     || is_family_method(name)
                     || matches!(
                         name.as_str(),
-                        "trace" | "appendText" | "replaceText" | "getLineText" | "getLineLength"
+                        "trace"
+                            | "appendText"
+                            | "replaceText"
+                            | "getLineText"
+                            | "getLineLength"
+                            | "getLineOffset"
+                            | "getLineIndexOfChar"
+                            | "getTextFormat"
+                            | "setTextFormat"
+                            | "getNewTextFormat"
+                            | "setNewTextFormat"
+                            | "createTextField"
                     )
             }
             Expr::Index(base, index) => literal_property_name(index)
@@ -1350,7 +1362,7 @@ impl Emitter<'_> {
         }
         if !self.as3
             && self.analysis.resolve(self.scope, name).is_none()
-            && matches!(name, "Key" | "Mouse" | "Stage" | "LoadVars")
+            && matches!(name, "Key" | "Mouse" | "Stage" | "LoadVars" | "TextFormat")
         {
             return format!("__nfLegacy.{name}");
         }
@@ -1531,13 +1543,17 @@ impl Emitter<'_> {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Expr::NewBuiltin(name, args, _) if name == "LoadVars" => format!(
-                "new __nfLegacy.LoadVars({})",
-                args.iter()
-                    .map(|arg| self.expression(arg))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+            Expr::NewBuiltin(name, args, _)
+                if matches!(name.as_str(), "LoadVars" | "TextFormat") =>
+            {
+                format!(
+                    "new __nfLegacy.{name}({})",
+                    args.iter()
+                        .map(|arg| self.expression(arg))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
             Expr::NewBuiltin(name, args, _) => format!(
                 "__nf{name}Create({}, [{}]{})",
                 self.as3,

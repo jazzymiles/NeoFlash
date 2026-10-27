@@ -18,6 +18,8 @@ const BUILTINS: &[&str] = &[
     "flash.display.PixelSnapping",
     "flash.display.Stage",
     "flash.text.TextField",
+    "flash.text.TextFormat",
+    "flash.text.TextFormatAlign",
     "flash.geom.Point",
     "flash.geom.Rectangle",
     "flash.geom.Matrix",
@@ -64,6 +66,7 @@ fn is_display_method(name: &str) -> bool {
             | "swapChildren"
             | "swapChildrenAt"
             | "createEmptyMovieClip"
+            | "createTextField"
             | "removeMovieClip"
             | "getNextHighestDepth"
             | "attachBitmap"
@@ -128,6 +131,16 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "copyPixels"
                 | "scroll"
                 | "dispose"
+                | "appendText"
+                | "replaceText"
+                | "getLineText"
+                | "getLineLength"
+                | "getLineOffset"
+                | "getLineIndexOfChar"
+                | "getTextFormat"
+                | "setTextFormat"
+                | "getNewTextFormat"
+                | "setNewTextFormat"
         )
 }
 
@@ -395,6 +408,8 @@ fn context(
             .insert("MovieClip".into(), "flash.display.MovieClip".into());
         c.types
             .insert("TextField".into(), "flash.text.TextField".into());
+        c.types
+            .insert("TextFormat".into(), "flash.text.TextFormat".into());
     }
     for name in ["Object", "Array"] {
         c.types.insert(name.into(), name.into());
@@ -504,6 +519,16 @@ fn parse_class(
             &header.script,
             0,
             "Bitmap and BitmapData native subclass initialization is outside this profile; construct the native facade and use composition. PixelSnapping provides constants and cannot be a base class.",
+        ));
+    }
+    if base
+        .as_ref()
+        .is_some_and(|base| base.starts_with("flash.text."))
+    {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "TextField and TextFormat native subclass initialization is outside this profile; construct the native facade and use composition. TextFormatAlign supplies constants only.",
         ));
     }
     if base.as_ref().is_some_and(|base| {

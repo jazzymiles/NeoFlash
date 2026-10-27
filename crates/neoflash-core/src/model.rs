@@ -260,6 +260,16 @@ pub enum ElementKind {
         stroke: Color,
         stroke_width: f64,
     },
+    TextBox {
+        text: String,
+        width: f64,
+        height: f64,
+        format: crate::TextFormat,
+        #[serde(default)]
+        word_wrap: bool,
+        #[serde(default)]
+        multiline: bool,
+    },
     Text {
         text: String,
         font_family: String,

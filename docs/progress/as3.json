@@ -384,7 +384,7 @@
       "title": "Display properties",
       "status": "partial",
       "scope": "Position, alpha, scale, bounded finite rotation readback, visibility, names, root/parent/stage, child traversal, transformed bounds and coordinates, and supported nonrotated width/height writes. Native Sprite/Shape/MovieClip and project subclasses allocate stable runtime objects; containers add/remove/reparent/reorder dynamic children in an ordered suffix after authored children. Explicitly exported MovieClip symbols provide independent scoped authored timelines, nested clocks/scripts and linked class state; new on the linked MovieClip class allocates its authored library timeline. Bitmap is a noncontainer display view over shared BitmapData with smoothing and pixel-snapping controls.",
-      "limitations": "General authored/dynamic display mixing, masks/filters, full text layout and all owner-specific native APIs remain incomplete. Rotated dimension setters and singular coordinate conversions diagnose. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent ed3c39b evidence covers only the specified typed geometry/Timer workflow; other members and full timing/coercion remain unverified. Authored children cannot be moved/removed; detached runtime objects remain allocated until Restart, with a 4,096-object bound. General Flash depth replacement and full linked construction order remain unsupported. The combined dynamic-display browser workflow and Restart passed. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. The linked-movieclips ordinary-export/real-WASM host scenario passes; representative interactions and Restart also passed in the shared in-app-browser batch; VERIFICATION.md distinguishes visible evidence from host-only checks. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. The bitmap-pixels family passes separate ordinary-export/real-WASM and in-app-browser checks for visible shared edits, source/clone independence, AS2 attachment and Restart. Native image-panel acceptance remains pending; full rasterization and coercion parity are not established.",
+      "limitations": "General authored/dynamic display mixing, masks/filters, full text layout and all owner-specific native APIs remain incomplete. Rotated dimension setters and singular coordinate conversions diagnose. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent ed3c39b evidence covers only the specified typed geometry/Timer workflow; other members and full timing/coercion remain unverified. Authored children cannot be moved/removed; detached runtime objects remain allocated until Restart, with a 4,096-object bound. General Flash depth replacement and full linked construction order remain unsupported. The combined dynamic-display browser workflow and Restart passed. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. The linked-movieclips ordinary-export/real-WASM host scenario passes; representative interactions and Restart also passed in the shared in-app-browser batch; VERIFICATION.md distinguishes visible evidence from host-only checks. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. The bitmap-pixels family passes separate ordinary-export/real-WASM and in-app-browser checks for visible shared edits, source/clone independence, AS2 attachment and Restart. Native image-panel acceptance remains pending; full rasterization and coercion parity are not established. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass.",
       "evidence": [
         "web/runtime.js",
         "crates/neoflash-core/tests/core.rs",
@@ -459,8 +459,8 @@
       "id": "as3-text-api",
       "title": "TextField and text APIs",
       "status": "partial",
-      "scope": "Existing authored Text elements now have live text/textColor, UTF-16 length, append/replace, line queries and partial Canvas text metrics through the shared runtime. Overrides leave authored content unchanged and clear with placement removal/replacement or Restart.",
-      "limitations": "Plain string values and RGB integers only; 1 MiB UTF-8 text and bounded UTF-16 replacement ranges preserving complete characters. No rich formatting/HTML, wrapping, input/selection, embedded fonts or dynamic TextField creation. Canvas width and 1.2×font-size line height are not full Flash layout. Shared helpers do not establish every historical AS2 method. The combined collection/text browser scenario passed; this does not establish every method.",
+      "scope": "Plain authored and runtime-created text fields share Rust text/layout state: AS3 TextField/TextFormat/TextFormatAlign constructors/imports and typed native identities. Independent logical boxes, multiline/wordWrap, left/center/right alignment, uniform font/size/color/bold/italic/leading, separate current/insertion defaults, text/append/replace and UTF-16 line queries/metrics.",
+      "limitations": "Whole-field formatting only; differing insertion defaults cannot append/partially replace nonempty text without mixed-run support. No HTML/CSS, input/selection/IME, embedded fonts, advanced paragraph formats, justified alignment or native text subclass initialization. Text is bounded to 1 MiB UTF-8 per field, 16 MiB runtime override storage and 16,384 layout segments/lines, with complete Unicode replacement ranges. Long-token wrapping uses Unicode scalar boundaries, not grapheme segmentation. Installed-font measurements and shared Rust wrapping do not establish Flash layout/coercion parity. The earlier collection/text browser scenario retains its bounded evidence; the new text-layout ordinary-export/real-WASM workflow passes creation, reflow, independent formats, drawing/clip consumption, atomic mixed-run refusal and Restart. The in-app-browser workflow visibly passed reflow/alignment, independent fields and Restart; native interactive editing remains pending.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",
@@ -473,7 +473,13 @@
         "web/tests/display-family.test.cjs",
         "examples/collections-text.nflash",
         "docs/VERIFICATION.md",
-        "docs/progress/actionscript-audit.json"
+        "docs/progress/actionscript-audit.json",
+        "web/text.js",
+        "crates/neoflash-script/src/actionscript/project.rs",
+        "crates/neoflash-script/tests/text-layout.mjs",
+        "examples/text-layout.nflash",
+        "crates/neoflash-core/src/text.rs",
+        "crates/neoflash-core/src/runtime_graph/text.rs"
       ]
     },
     {
@@ -481,7 +487,7 @@
       "title": "Audio, video and resource loading",
       "status": "partial",
       "scope": "Authored embedded PNG/JPEG image placements use shared Rust decoding. BitmapData supports construction, pixel reads/writes, fillRect/copyPixels, clone/scroll and disposal over the shared pixel arena. AS3 Bitmap views share/replace bitmapData and expose smoothing plus PixelSnapping auto/always/never constants.",
-      "limitations": "Audio/video, general Loader/image networking, BitmapData.loadBitmap linkage, draw/filter/shader/encode, bitmap fills, alpha masks, lock/unlock and native Bitmap/BitmapData subclasses remain unsupported. Pixel adapters require integer coordinates/uint colors; historical error/coercion/rasterization fidelity is not claimed. The combined bitmap-pixels ordinary-export/real-WASM scenario passes original PNG decoding, shared/independent buffers, both dialects, actual RGBA uploads, smoothing/snapping, disposal and Restart. The in-app-browser workflow visibly passed shared edits, source/clone independence, AS2 attachment and Restart; native image-panel interaction remains pending. Dimensions are bounded to 4096 per side, 256 buffer records per publication and 128 MiB live pixels; disposal releases bytes but keeps its record until Restart. Native PNG/JPEG placement is implemented with UI acceptance pending; other resource formats remain storage only.",
+      "limitations": "Audio/video, general Loader/image networking, BitmapData.loadBitmap linkage, draw/filter/shader/encode, bitmap fills, alpha masks, lock/unlock and native Bitmap/BitmapData subclasses remain unsupported. Pixel adapters require integer coordinates/uint colors; historical error/coercion/rasterization fidelity is not claimed. The combined bitmap-pixels ordinary-export/real-WASM scenario passes original PNG decoding, shared/independent buffers, both dialects, actual RGBA uploads, smoothing/snapping, disposal and Restart. The in-app-browser workflow visibly passed shared edits, source/clone independence, AS2 attachment and Restart; native image-panel interaction remains pending. Dimensions are bounded to 4096 per side, 256 buffer records per publication and 128 MiB live pixels; disposal releases bytes but keeps its record until Restart. Native PNG/JPEG placement is implemented with UI acceptance pending; other resource formats remain storage only. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass.",
       "evidence": [
         "docs/COMPATIBILITY.md",
         "docs/ROADMAP.md",
@@ -493,7 +499,9 @@
         "examples/bitmap-pixels.nflash",
         "crates/neoflash-core/src/pixels.rs",
         "crates/neoflash-core/src/resource_image.rs",
-        "crates/neoflash-core/src/runtime_graph/bitmap.rs"
+        "crates/neoflash-core/src/runtime_graph/bitmap.rs",
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {

@@ -11,6 +11,7 @@ mod resources;
 mod runtime;
 mod runtime_graph;
 mod runtime_graphics;
+mod text;
 mod validation;
 
 pub use clipboard::{
@@ -40,4 +41,8 @@ pub use runtime_graph::{
     RuntimeScriptDispatch, RuntimeSnapshot,
 };
 pub use runtime_graphics::{GraphicsOp, MAX_GRAPHICS_COMMANDS, MAX_GRAPHICS_OPS};
+pub use text::{
+    MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextError, TextFieldState, TextFormat, TextFormatPatch,
+    TextLayout, TextLine, TextPatch, TextReplacement, layout_text,
+};
 pub use validation::{ProjectError, ValidationIssue, validate};

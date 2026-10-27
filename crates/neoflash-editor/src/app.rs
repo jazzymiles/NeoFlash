@@ -285,7 +285,7 @@ impl Editor {
             let name = match &kind {
                 ElementKind::Rectangle { .. } => "rectangle",
                 ElementKind::Ellipse { .. } => "oval",
-                ElementKind::Text { .. } => "text",
+                ElementKind::Text { .. } | ElementKind::TextBox { .. } => "text",
                 ElementKind::Instance { .. } => "clip",
                 ElementKind::Path { .. } => "path",
                 ElementKind::Bitmap { .. } => "bitmap",
@@ -372,23 +372,23 @@ impl Editor {
         self.pan = Vec2::ZERO;
     }
     pub fn load_project_fonts(&mut self, ctx: &egui::Context) {
-        let families: Vec<String> = self
+        let families: Vec<(String, bool, bool)> = self
             .project
             .symbols
             .iter()
             .flat_map(|s| &s.timeline.layers)
             .flat_map(|l| &l.keyframes)
             .flat_map(|k| &k.elements)
-            .filter_map(|e| {
-                if let ElementKind::Text { font_family, .. } = &e.kind {
-                    Some(font_family.clone())
-                } else {
-                    None
+            .filter_map(|e| match &e.kind {
+                ElementKind::Text { font_family, .. } => Some((font_family.clone(), false, false)),
+                ElementKind::TextBox { format, .. } => {
+                    Some((format.font.clone(), format.bold, format.italic))
                 }
+                _ => None,
             })
             .collect();
-        for family in families {
-            if let Err(e) = self.fonts.load(ctx, &family) {
+        for (family, bold, italic) in families {
+            if let Err(e) = self.fonts.load_style(ctx, &family, bold, italic) {
                 self.message(e);
             }
         }

@@ -431,15 +431,26 @@ impl Walker<'_> {
                 let visible = patch.as_ref().and_then(|p| p.visible).unwrap_or(true);
                 if let Some(patch) = patch {
                     patch.apply(&mut e.transform);
-                    if let ElementKind::Text { text, color, .. } = &mut e.kind {
-                        if let Some(value) = patch.text {
-                            *text = value;
+                    match &mut e.kind {
+                        ElementKind::Text { text, color, .. } => {
+                            if let Some(value) = patch.text {
+                                *text = value;
+                            }
+                            if let Some(value) = patch.text_color {
+                                color[0] = (value >> 16) as u8;
+                                color[1] = (value >> 8) as u8;
+                                color[2] = value as u8;
+                            }
                         }
-                        if let Some(value) = patch.text_color {
-                            color[0] = (value >> 16) as u8;
-                            color[1] = (value >> 8) as u8;
-                            color[2] = value as u8;
+                        ElementKind::TextBox { text, format, .. } => {
+                            if let Some(value) = patch.text {
+                                *text = value;
+                            }
+                            if let Some(value) = patch.text_color {
+                                format.color = value;
+                            }
                         }
+                        _ => {}
                     }
                     if let Some(name) = patch.name {
                         e.name = name;

@@ -13,8 +13,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 228 | 1,947 | 117 |
-| AS3 | 43,740 | 15 | 329 | 43,146 | 250 |
+| AS2 | 2,307 | 15 | 237 | 1,938 | 117 |
+| AS3 | 43,740 | 15 | 344 | 43,130 | 251 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -63,6 +63,8 @@ The local bundle is ad-hoc signed, not a notarized distribution release. Apple S
 6. Open **Actions** with **F9**. Choose a frame or selected object and an event. JavaScript/TypeScript are the primary working languages; the AS2/AS3 subset is documented explicitly.
 7. **⌘Enter / Test Movie** exports and opens a browser preview with scripts. **File → Publish HTML5** writes a self-contained folder. The editor's Enter playback is a side-effect-free authoring preview.
 8. Save a `.nflash` project with **⌘S**. Source files are versioned JSON and round-trip through validation.
+
+**Text (T)** creates a text box with a separate width and height, word wrap and multiline content. Properties edits its installed font, bold/italic style, size, color, leading and alignment. Resizing the box reflows the text; scaling the object transforms it. Older unboxed text keeps its appearance and can be converted with **Use text box**. AS3 TextField/TextFormat and AS2 createTextField use the shared Rust layout in HTML5. Browser fonts still depend on the visitor’s installed fonts or fallback; embedding, rich formatting and text input remain planned.
 
 For vector drawing, choose **Pen (P)**: click for corners, drag for Bézier handles, click the first anchor to close, or press Enter to finish an open path. Escape cancels the draft. **Pencil (Y)** records a freehand line and simplifies redundant samples. **Subselection (A)** edits anchors and control handles; moving an anchor carries adjacent handles. Fill, stroke and nonzero/even–odd rules are editable in Properties. Compound contours, curve bounds, transformed strokes and paths inside nested symbols share the HTML5 geometry model. General shape morphing, brush pressure, gradients and masks remain pending.
 

@@ -231,7 +231,13 @@ impl Player {
                     Some(SymbolKind::MovieClip) => "movie_clip",
                     Some(SymbolKind::Graphic) => "graphic",
                     Some(SymbolKind::Button) => "button",
-                    None if matches!(node.kind, Some(ElementKind::Text { .. })) => "text",
+                    None if matches!(
+                        node.kind,
+                        Some(ElementKind::Text { .. } | ElementKind::TextBox { .. })
+                    ) =>
+                    {
+                        "text"
+                    }
                     None if matches!(node.kind, Some(ElementKind::Bitmap { .. })) => "bitmap",
                     None => "shape",
                 };
@@ -672,7 +678,24 @@ impl Player {
         if text.len() > 1_048_576 || !self.is_text(path) {
             return false;
         }
-        self.overrides.entry(path.to_vec()).or_default().text = Some(text.into());
+        if let Some(reference) = self.object_ref(path)
+            && let Some(kind) = self.previous.get(path).and_then(|node| node.kind.as_ref())
+            && self
+                .graph
+                .patch_path_text(
+                    &reference,
+                    kind,
+                    &TextPatch {
+                        text: Some(text.into()),
+                        ..TextPatch::default()
+                    },
+                )
+                .is_err()
+        {
+            return false;
+        }
+        self.overrides.entry(path.to_vec()).or_default().text =
+            Some(crate::text::normalize_text(text));
         true
     }
 
@@ -680,14 +703,36 @@ impl Player {
         if color > 0xff_ffff || !self.is_text(path) {
             return false;
         }
+        if let Some(reference) = self.object_ref(path)
+            && let Some(kind) = self.previous.get(path).and_then(|node| node.kind.as_ref())
+            && self
+                .graph
+                .patch_path_text(
+                    &reference,
+                    kind,
+                    &TextPatch {
+                        format: Some(TextFormatPatch {
+                            color: Some(color),
+                            ..TextFormatPatch::default()
+                        }),
+                        ..TextPatch::default()
+                    },
+                )
+                .is_err()
+        {
+            return false;
+        }
         self.overrides.entry(path.to_vec()).or_default().text_color = Some(color);
         true
     }
 
     fn is_text(&self, path: &[Id]) -> bool {
-        self.previous
-            .get(path)
-            .is_some_and(|node| matches!(node.kind, Some(ElementKind::Text { .. })))
+        self.previous.get(path).is_some_and(|node| {
+            matches!(
+                node.kind,
+                Some(ElementKind::Text { .. } | ElementKind::TextBox { .. })
+            )
+        })
     }
 
     pub fn property(&self, project: &Project, path: &[Id], property: &str) -> Option<f64> {

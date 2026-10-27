@@ -108,9 +108,10 @@ test('published AS2/AS3 fixture filters drawing, click targets and semantics whi
     context.wasmBytes = Buffer.from(bundle.wasm, 'base64');
     const wasm = await vm.runInContext('NeoFlashWasm({ module_or_path: wasmBytes }).then(() => NeoFlashWasm)', context);
     player = new wasm.WebPlayer(JSON.stringify(bundle.project));
+    const measureContext = { measureText: text => ({ width: Array.from(text).length * 8 }) };
     const { host, traceCalls } = createRuntimeHost(root, player, Array.from(bundle.scripts, item => ({
       script: { language: item.language, source: item.source }, code: item.code, location: item.location,
-    })));
+    })), { context: measureContext });
     const scene = () => JSON.parse(player.scene_json());
     const semantics = () => JSON.parse(player.accessibility_json());
     const activate = name => { player.click(JSON.stringify([name])); host.dispatchScripts([name]); };
@@ -155,10 +156,10 @@ test('published AS2/AS3 fixture filters drawing, click targets and semantics whi
     const matrixEnd = runtime.indexOf('    function render() {', matrixStart);
     assert.ok(start >= 0 && end > start && matrixStart >= 0 && matrixEnd > matrixStart);
     const { localPoint, hitShape } = require('../runtime.js');
-    const hitAt = new Function('player', 'canvas', 'project', 'localPoint', 'hitShape', 'context', 'global', 'paths', 'bitmapHost',
+    const hitAt = new Function('player', 'canvas', 'project', 'localPoint', 'hitShape', 'context', 'global', 'paths', 'bitmapHost', 'textHost',
       'let scene; const graphMode = true;\n' + runtime.slice(matrixStart, matrixEnd) + runtime.slice(start, end) + '\nreturn event => { const ref = hitAt(event); if (!ref) return null; return JSON.parse(player.runtime_snapshot_json()).objects.find(node => node.object_ref.id === ref.id && node.object_ref.generation === ref.generation).authored_path; };')(
       player, { width:800, height:480, getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 480 }) }, bundle.project,
-      localPoint, hitShape, { measureText: () => ({ width: 0 }) }, {}, {}, host.bitmap());
+      localPoint, hitShape, measureContext, {}, {}, host.bitmap(), host.text());
     modern.x = legacy.x;
     assert.deepEqual(hitAt({ clientX: 100, clientY: 145 }), ['modern', 'face']);
     activate('hide-as3');
@@ -179,7 +180,7 @@ test('published AS2/AS3 fixture filters drawing, click targets and semantics whi
     assert.ok(scene().length > 0);
     assert.equal(host.proxyFor(['legacy']), legacy, 'hide/show must not recreate host custom fields');
     player.reset(); host.dispatchScripts();
-    assert.throws(() => legacy.visible, /removed or replaced/);
+    assert.throws(() => legacy.visible, { name: 'ReferenceError', message: /removed.*replaced/ });
     assert.equal(host.proxyFor(['legacy']).visible, true);
     assert.equal(host.proxyFor(['legacy']).clicks, 0);
   } finally {

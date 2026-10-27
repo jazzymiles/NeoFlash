@@ -54,6 +54,11 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { public class A { public function A(value:int=0){} } }",
         "package { public class A implements Missing {} }",
         "package { import flash.display.Bitmap; public class A extends Bitmap {} }",
+        "package { import flash.text.TextField; public class A extends TextField {} }",
+        "package { import flash.text.TextFormat; public class A extends TextFormat {} }",
+        "package { import flash.text.TextFormatAlign; public class A extends TextFormatAlign {} }",
+        "package { import flash.text.TextFormatAlign; public class A { public function A(){new TextFormatAlign();} } }",
+        "package { import flash.text.TextField; public class A { public function A(){new TextField(4);} } }",
         "package { import flash.display.BitmapData; public class A extends BitmapData {} }",
         "package { import flash.display.PixelSnapping; public class A { public function A(){new PixelSnapping();} } }",
         "package { import flash.net.URLLoader; public class A extends URLLoader {} }",
@@ -90,6 +95,9 @@ fn class_syntax_outside_profile_is_never_erased() {
     for source in [
         "interface A {function value():Number;}",
         "class A {public function get value():Number{return 1;}}",
+        "class A extends TextField {}",
+        "class A extends TextFormat {}",
+        "class A {public function A(){new TextField();}}",
     ] {
         legacy.sources[0].source = source.into();
         assert!(

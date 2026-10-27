@@ -124,9 +124,10 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     assert.equal(title.textWidth, 48, 'deterministic Canvas measurement service');
     assert.ok(Math.abs(title.textHeight - 97.2) < 1e-9);
     const liveTitle = JSON.parse(player.scene_json()).find(item => item.name === 'title');
-    assert.equal(liveTitle.kind.text, 'Zoë:45\nAda:30\nBob:20');
-    assert.deepEqual(liveTitle.kind.color.slice(0, 3), [0x48, 0xd8, 0xb0]);
-    assert.notEqual(bundle.project.symbols[0].timeline.layers[0].keyframes[0].elements[0].kind.text, liveTitle.kind.text);
+    assert.equal(liveTitle.kind.type, 'text_field');
+    assert.equal(liveTitle.kind.field.text, 'Zoë:45\nAda:30\nBob:20');
+    assert.equal(liveTitle.kind.field.format.color, 0x48d8b0);
+    assert.notEqual(bundle.project.symbols[0].timeline.layers[0].keyframes[0].elements[0].kind.text, liveTitle.kind.field.text);
     title.text = 'A😀\nB'; assert.equal(title.length, 5);
     assert.throws(() => title.replaceText(1, 2, 'X'), /Unicode/);
     assert.equal(title.text, 'A😀\rB', 'rejected range must not corrupt text');

@@ -1,0 +1,470 @@
+{
+  "format_version": 3,
+  "name": "Text boxes and independent formats",
+  "width": 960,
+  "height": 660,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    34,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Text boxes and independent formats",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 48,
+                      "y": 36,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / TEXTFIELD + TEXTFORMAT + LAYOUT",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 48,
+                      "y": 76,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Text has a box, not just a scale.",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        238,
+                        247,
+                        255,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "instructions",
+                    "name": "instructions",
+                    "transform": {
+                      "x": 48,
+                      "y": 126,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Cycle the first card’s width and alignment. The second card keeps its own format and layout.",
+                      "width": 832,
+                      "height": 48,
+                      "format": {
+                        "font": "Arial",
+                        "size": 17,
+                        "color": 11718112,
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3,
+                        "align": "left"
+                      },
+                      "word_wrap": true,
+                      "multiline": true
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "primary-background",
+                    "name": "primary-background",
+                    "transform": {
+                      "x": 48,
+                      "y": 184,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 392,
+                      "height": 232,
+                      "fill": [
+                        23,
+                        35,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "fixed-background",
+                    "name": "fixed-background",
+                    "transform": {
+                      "x": 488,
+                      "y": 184,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 392,
+                      "height": 232,
+                      "fill": [
+                        23,
+                        35,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "primary-heading",
+                    "name": "primary-heading",
+                    "transform": {
+                      "x": 64,
+                      "y": 200,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 / REFLOWING CARD",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "fixed-heading",
+                    "name": "fixed-heading",
+                    "transform": {
+                      "x": 504,
+                      "y": 200,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 / INDEPENDENT CARD",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-background",
+                    "name": "legacy-background",
+                    "transform": {
+                      "x": 48,
+                      "y": 432,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 832,
+                      "height": 116,
+                      "fill": [
+                        23,
+                        35,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacy-heading",
+                    "name": "legacy-heading",
+                    "transform": {
+                      "x": 64,
+                      "y": 446,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 / APPEND-DEPTH TEXTFIELD",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 312,
+                      "y": 585,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Preparing live text…",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 48,
+                      "y": 624,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Plain system-font text • whole-field formatting • Restart restores every box and default",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        178,
+                        205,
+                        224,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "layout-button",
+                    "name": "layoutButton",
+                    "transform": {
+                      "x": 48,
+                      "y": 570,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "layout-control-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.cycleLayout();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "role": "button",
+                      "description": "Reflow the first text card through left, center and right alignment.",
+                      "name": "Cycle width and alignment"
+                    }
+                  }
+                ],
+                "label": "",
+                "tween": null
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "var legacyFormat:TextFormat = new TextFormat(\"Arial\", 18, 0x2ad4a5);\nlegacyFormat.leading = 4;\nlegacyFormat.align = \"left\";\nvar legacyCard:TextField = this.createTextField(\"legacyCard\", this.getNextHighestDepth(), 64, 474, 788, 64);\nlegacyCard.multiline = true;\nlegacyCard.wordWrap = true;\nlegacyCard.setNewTextFormat(legacyFormat);\nlegacyCard.text = \"AS2 creates this card at the next available depth. Its current and default formats are independent of the AS3 cards.\";\nlegacyCard.setTextFormat(legacyFormat);\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "layout-control-symbol",
+      "name": "Cycle text layout",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "layout-control-symbol-content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "layout-control-background",
+                    "name": "layout-control-background",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 240,
+                      "height": 38,
+                      "fill": [
+                        42,
+                        212,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        78,
+                        101,
+                        255
+                      ],
+                      "stroke_width": 1
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "layout-control-label",
+                    "name": "layout-control-label",
+                    "transform": {
+                      "x": 16,
+                      "y": 11,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Cycle width + alignment",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        16,
+                        22,
+                        34,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "label": "",
+                "tween": null
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n    import flash.display.MovieClip;\n    import flash.text.TextField;\n    import flash.text.TextFormat;\n    import flash.text.TextFormatAlign;\n\n    public class Main extends MovieClip {\n        public var primaryCard:TextField;\n        public var fixedCard:TextField;\n        public var phase:int = 0;\n\n        public function Main() {\n            stop();\n            var format:TextFormat = new TextFormat(\"Arial\", 20, 0xeef7ff);\n            format.leading = 6;\n            format.align = TextFormatAlign.LEFT;\n            primaryCard = new TextField();\n            primaryCard.name = \"primaryCard\";\n            primaryCard.x = 64;\n            primaryCard.y = 234;\n            primaryCard.width = 340;\n            primaryCard.height = 160;\n            primaryCard.multiline = true;\n            primaryCard.wordWrap = true;\n            primaryCard.defaultTextFormat = format;\n            primaryCard.text = \"Draft: text flows inside a logical box.\";\n            primaryCard.replaceText(0, 6, \"Ready:\");\n            primaryCard.appendText(\"\\nThe transform scale stays at one.\");\n            addChild(primaryCard);\n\n            fixedCard = new TextField();\n            fixedCard.name = \"fixedCard\";\n            fixedCard.x = 504;\n            fixedCard.y = 234;\n            fixedCard.width = 340;\n            fixedCard.height = 160;\n            fixedCard.multiline = true;\n            fixedCard.wordWrap = true;\n            fixedCard.defaultTextFormat = format;\n            fixedCard.text = \"This card keeps its width and content while its neighbor changes.\\nCurrent color, bold and italic differ from the insertion default.\";\n            var current:TextFormat = new TextFormat();\n            current.color = 0xa4d4f5;\n            current.italic = true;\n            current.bold = true;\n            fixedCard.setTextFormat(current);\n            addChild(fixedCard);\n            updateStatus();\n            trace(\"text layout ready\", primaryCard.width, fixedCard.width, phase);\n        }\n\n        public function cycleLayout():void {\n            phase = (phase + 1) % 3;\n            var width:Number = 340;\n            var alignment:String = TextFormatAlign.LEFT;\n            if (phase == 1) {\n                width = 220;\n                alignment = TextFormatAlign.CENTER;\n            } else if (phase == 2) {\n                width = 300;\n                alignment = TextFormatAlign.RIGHT;\n            }\n            primaryCard.width = width;\n            var current:TextFormat = primaryCard.getTextFormat();\n            current.align = alignment;\n            primaryCard.setTextFormat(current);\n            updateStatus();\n            trace(\"text layout\", phase, width, alignment, primaryCard.numLines);\n        }\n\n        public function updateStatus():void {\n            var current:TextFormat = primaryCard.getTextFormat();\n            status.text = \"Width \" + primaryCard.width + \" | \" + current.align + \" | \" + primaryCard.numLines + \" lines | scale \" + primaryCard.scaleX;\n        }\n    }\n}\n"
+    }
+  ]
+}

@@ -49,7 +49,8 @@ fn text_galley(
 pub(crate) fn local_bounds(item: &DrawItem, p: &egui::Painter) -> Rect {
     match &item.kind {
         ElementKind::Rectangle { width, height, .. }
-        | ElementKind::Ellipse { width, height, .. } => {
+        | ElementKind::Ellipse { width, height, .. }
+        | ElementKind::TextBox { width, height, .. } => {
             Rect::from_min_size(Pos2::ZERO, Vec2::new(*width as f32, *height as f32))
         }
         ElementKind::Bitmap { width, height, .. } => {
@@ -208,6 +209,46 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle) {
                         p.add(Shape::mesh(mesh));
                     }
                 }
+            }
+        }
+        ElementKind::TextBox {
+            width,
+            height,
+            format,
+            ..
+        } => {
+            let c = color(
+                [
+                    (format.color >> 16) as u8,
+                    (format.color >> 8) as u8,
+                    format.color as u8,
+                    255,
+                ],
+                alpha,
+                tint,
+            );
+            let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(*width as f32, *height as f32));
+            let points = [
+                rect.left_top(),
+                rect.right_top(),
+                rect.right_bottom(),
+                rect.left_bottom(),
+            ]
+            .map(screen);
+            if outlines {
+                p.add(Shape::closed_line(points.to_vec(), Stroke::new(1.0_f32, c)));
+            } else if let Err(error) = crate::text_boxes::paint(p, &item.kind, c, screen) {
+                p.add(Shape::closed_line(
+                    points.to_vec(),
+                    Stroke::new(1.0_f32, Color32::RED),
+                ));
+                p.text(
+                    points[0],
+                    egui::Align2::LEFT_TOP,
+                    format!("Text preview: {error}"),
+                    FontId::proportional(12.),
+                    Color32::RED,
+                );
             }
         }
         ElementKind::Bitmap { width, height, .. } => {
@@ -512,15 +553,31 @@ impl Editor {
                         "Helvetica"
                     };
                     let _ = self.fonts.load(ctx, font);
-                    self.add_element(
-                        ElementKind::Text {
+                    self.add_element_transformed(
+                        ElementKind::TextBox {
                             text: "Your text".into(),
-                            font_family: font.into(),
-                            font_size: 32.,
-                            color: self.fill,
+                            width: 240.,
+                            height: 100.,
+                            format: TextFormat {
+                                font: font.into(),
+                                size: 32.,
+                                color: u32::from_be_bytes([
+                                    0,
+                                    self.fill[0],
+                                    self.fill[1],
+                                    self.fill[2],
+                                ]),
+                                ..Default::default()
+                            },
+                            multiline: true,
+                            word_wrap: true,
                         },
-                        local.x as f64,
-                        local.y as f64,
+                        Transform {
+                            x: local.x as f64,
+                            y: local.y as f64,
+                            alpha: self.fill[3] as f64 / 255.,
+                            ..Default::default()
+                        },
                     );
                 }
                 self.vector_stage(ui, &content, origin, page, &response);

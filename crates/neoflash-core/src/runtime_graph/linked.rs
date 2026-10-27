@@ -212,6 +212,7 @@ impl Player {
         self.graph
             .bitmap_states
             .retain(|reference, _| !retired.contains(reference));
+        self.graph.retire_text(&retired);
         for (address, lifetime) in &placements {
             if !self.graph.linked_authored.contains_key(address) {
                 let reference = self.graph.allocate();

@@ -3,6 +3,7 @@ use neoflash_core::{
     DisplayMutation, DynamicKind, GraphicsOp, ObjectRef, PixelRef, PixelSnapping, PlaybackCommand,
     Player, Project, RuntimeScriptDispatch, ScriptDispatch,
 };
+use neoflash_core::{TextError, TextFieldState, TextPatch, layout_text};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -42,6 +43,40 @@ fn command(name: &str, frame: u32) -> Result<PlaybackCommand, JsValue> {
         "goto_and_stop" => Ok(PlaybackCommand::GotoAndStop(frame)),
         _ => Err(JsValue::from_str("Unknown timeline control command")),
     }
+}
+
+#[wasm_bindgen]
+pub fn text_layout_json(field_json: &str, measure: &js_sys::Function) -> Result<String, JsValue> {
+    if field_json.len() > 8 * 1024 * 1024 {
+        return Err(JsValue::from_str("Text layout input exceeds 8 MiB"));
+    }
+    let field: TextFieldState = serde_json::from_str(field_json).map_err(display_error)?;
+    let layout = layout_text(&field, |strings, format| {
+        let strings = serde_json::to_string(strings).map_err(|e| TextError(e.to_string()))?;
+        let format = serde_json::to_string(format).map_err(|e| TextError(e.to_string()))?;
+        let result = measure
+            .call2(
+                &JsValue::NULL,
+                &JsValue::from_str(&strings),
+                &JsValue::from_str(&format),
+            )
+            .map_err(|e| {
+                TextError(format!(
+                    "font measurement failed: {}",
+                    e.as_string()
+                        .unwrap_or_else(|| "host callback error".into())
+                ))
+            })?;
+        let json = result
+            .as_string()
+            .ok_or_else(|| TextError("font measurement must return JSON widths".into()))?;
+        if json.len() > 4 * 1024 * 1024 {
+            return Err(TextError("font measurement result exceeds 4 MiB".into()));
+        }
+        serde_json::from_str(&json).map_err(|e| TextError(format!("invalid font measurement: {e}")))
+    })
+    .map_err(display_error)?;
+    serde_json::to_string(&layout).map_err(display_error)
 }
 
 #[wasm_bindgen]
@@ -245,6 +280,31 @@ impl WebPlayer {
             .object_activate_accessible(&self.project, &object_ref(target)?))
     }
 
+    pub fn object_text_info(&self, target: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .object_text_info(&self.project, &object_ref(target)?)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn object_text_update(&mut self, target: &str, patch_json: &str) -> Result<bool, JsValue> {
+        if patch_json.len() > 8 * 1024 * 1024 {
+            return Err(JsValue::from_str("Text update exceeds 8 MiB"));
+        }
+        let patch: TextPatch = serde_json::from_str(patch_json).map_err(display_error)?;
+        self.player
+            .object_text_update(&self.project, &object_ref(target)?, &patch)
+            .map_err(display_error)
+    }
+    pub fn text_layout_json(
+        &self,
+        field_json: &str,
+        measure: &js_sys::Function,
+    ) -> Result<String, JsValue> {
+        text_layout_json(field_json, measure)
+    }
     pub fn bitmap_create(
         &mut self,
         width: u32,
@@ -421,6 +481,7 @@ impl WebPlayer {
             "sprite" => DynamicKind::Sprite,
             "shape" => DynamicKind::Shape,
             "bitmap" => DynamicKind::Bitmap,
+            "text_field" => DynamicKind::TextField,
             "movie_clip" => DynamicKind::MovieClip,
             _ => {
                 return Err(JsValue::from_str(
@@ -487,12 +548,14 @@ impl WebPlayer {
         Ok(self.player.object_set_name(&object_ref(target)?, name))
     }
     pub fn object_set_text(&mut self, target: &str, text: &str) -> Result<bool, JsValue> {
-        Ok(self.player.object_set_text(&object_ref(target)?, text))
+        Ok(self
+            .player
+            .object_set_text(&self.project, &object_ref(target)?, text))
     }
     pub fn object_set_text_color(&mut self, target: &str, color: u32) -> Result<bool, JsValue> {
         Ok(self
             .player
-            .object_set_text_color(&object_ref(target)?, color))
+            .object_set_text_color(&self.project, &object_ref(target)?, color))
     }
     pub fn object_control(
         &mut self,

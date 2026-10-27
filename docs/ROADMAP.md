@@ -1,5 +1,7 @@
 # Roadmap
 
+Independent `BITMAP-HTML5-20261027T0345Z` acceptance on `1bd0e3c` confirms bounded PNG/shared pixel edits, independent clone/copy/scroll, AS2 attachment, disposal and Restart. Only 24 positively observed declarations receive partial evidence; diagnostic-only AS3 BitmapData construction remains needs_review. JPEG, rasterization options and native image authoring are not inferred. See [the independent record](VERIFICATION.md#independent-bitmap-verification-of-1bd0e3c). Dynamic TextField/TextFormat is already in progress and needs its own batch evidence.
+
 Full Flash replacement is the product objective. The stages below are independently reviewable deliveries; completion of one does not imply feature parity.
 
 | Stage | Scope | Acceptance |
@@ -31,4 +33,6 @@ Independent 798e28b acceptance (`LINKED-INTERFACES-HTML5-20261027T0243Z`) now co
 
 The next visual family adds authored PNG/JPEG placements and a shared Rust BitmapData arena, connected to AS3 Bitmap and AS2 attachBitmap. The native preview and HTML5 renderer consume the same portable source resources, with bounded render caches. The combined pixel workflow receives its own verification record; native image-panel interaction remains pending. Dynamic text/layout, audio/video and responsive DOM authoring remain separate deliveries.
 
-Independent c39a29e acceptance (`RESOURCES-HTML5-20261027T0323Z`) confirms preserved embedded resources, visible AS2/AS3 data loading, same-origin GET/POST and suppression of two held responses after close/Restart. Exact members remain partial. Cross-origin CORS, direct-file opening and native resource import/Undo are not inferred. See [the independent record](VERIFICATION.md#independent-resource-and-loading-verification-of-c39a29e). Current Bitmap work needs its own evidence.
+Independent c39a29e acceptance (`RESOURCES-HTML5-20261027T0323Z`) confirms preserved embedded resources, visible AS2/AS3 data loading, same-origin GET/POST and suppression of two held responses after close/Restart. Exact members remain partial. Cross-origin CORS, direct-file opening and native resource import/Undo are not inferred. See [the independent record](VERIFICATION.md#independent-resource-and-loading-verification-of-c39a29e). Bitmap was subsequently checked in the separate 1bd0e3c record.
+
+The text family adds authored TextBox, runtime-created TextField, uniform TextFormat and shared Rust wrapping/alignment using native/Canvas font measurements. Width/height reflow and display scale remain separate. This advances authoring and AS2/AS3 support while keeping mixed runs, input/IME, font portability and DOM layouts on the roadmap. Evidence for its own batch is separate from earlier plain-text and bitmap acceptance.

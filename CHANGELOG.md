@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Independently verified bounded PNG/shared BitmapData workflows on 1bd0e3c: exact resource bytes and selected pixel oracle, shared versus independent images, AS2 attachment, disposal and Restart. One four-project browser batch preserved resource, linked-timeline and collection/text behavior; 24 exact declarations gain partial evidence, while positive AS3 BitmapData construction remains unverified.
+
+- Added a bounded dynamic TextField/TextFormat family: AS3 construction, AS2 append-depth creation, independent logical boxes and transforms, multiline wrapping, whole-field current/default formats, font styles and left/center/right alignment. Rust owns shared line layout while frontends measure installed fonts. One original text-layout project passes ordinary export and real-WASM execution with independent AS3/AS2 cards, shared layout/draw observations, atomic mixed-run refusal and Restart. The in-app-browser workflow visibly passed reflow/alignment, independent fields and Restart; native interactive editing remains pending. Rich mixed runs, HTML/input/IME, embedded fonts and Flash font-engine parity remain outside this profile.
+
 - Independently accepted bounded resource loading on c39a29e (RESOURCES-HTML5-20261027T0323Z): exact embedded bytes, real same-origin AS2/AS3 POST/GET and held-response suppression after close/Restart. Native and cross-origin observations remain separate.
 
 - Added authored PNG/JPEG image placements and shared Rust BitmapData storage, with AS3 Bitmap views, pixel reads/writes, fill/copy/clone/scroll/disposal, smoothing/snapping and bounded AS2 attachBitmap. Browser rendering uses revision-stamped copies of Rust pixels. The original bitmap-pixels project passes one ordinary-export/real-WASM scenario with an embedded pixel-art PNG, shared and independent views, both dialects, Canvas uploads, disposal and Restart. The same workflow passed in-app-browser observation; native image-panel acceptance remains pending. General Loader, filters, draw, bitmap fills and complete Flash rasterization/coercion remain outside this profile.

@@ -22,6 +22,7 @@ const TIMERS: &str = include_str!("../../../web/timers.js");
 const BYTE_ARRAY: &str = include_str!("../../../web/byte-array.js");
 const NET: &str = include_str!("../../../web/net.js");
 const BITMAP: &str = include_str!("../../../web/bitmap.js");
+const TEXT: &str = include_str!("../../../web/text.js");
 const DISPLAY: &str = include_str!("../../../web/display.js");
 const MARKER: &str = "neoflash-export.json";
 
@@ -73,8 +74,14 @@ pub fn export_warnings(project: &Project) -> Vec<String> {
         for layer in &symbol.timeline.layers {
             for key in &layer.keyframes {
                 for element in &key.elements {
-                    if let ElementKind::Text { font_family, .. } = &element.kind {
-                        fonts.insert(font_family.clone());
+                    match &element.kind {
+                        ElementKind::Text { font_family, .. } => {
+                            fonts.insert(font_family.clone());
+                        }
+                        ElementKind::TextBox { format, .. } => {
+                            fonts.insert(format.font.clone());
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -249,6 +256,7 @@ pub fn export_project(
         ("byte-array.js", BYTE_ARRAY),
         ("net.js", NET),
         ("bitmap.js", BITMAP),
+        ("text.js", TEXT),
         ("display.js", DISPLAY),
         ("bundle.js", bundle_js.as_str()),
         ("README.txt", readme.as_str()),
@@ -326,6 +334,7 @@ fn html_document(title: &str) -> String {
   <script defer src="byte-array.js"></script>
   <script defer src="net.js"></script>
   <script defer src="bitmap.js"></script>
+  <script defer src="text.js"></script>
   <script defer src="display.js"></script>
   <script defer src="runtime.js"></script>
 </head>
@@ -389,6 +398,7 @@ mod tests {
         assert!(html.find("src=\"path.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         assert!(html.find("src=\"net.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
         assert!(html.find("src=\"bitmap.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
+        assert!(html.find("src=\"text.js\"").unwrap() < html.find("src=\"display.js\"").unwrap());
         let bundle = fs::read_to_string(output.join("bundle.js")).unwrap();
         assert!(bundle.contains("PC9zY3JpcHQ+cG9ydGFibGUgZGF0YQ=="));
         assert!(

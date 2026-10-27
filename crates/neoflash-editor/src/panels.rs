@@ -1173,6 +1173,7 @@ impl Editor {
         if let Some(mut element) = self.selected_sampled() {
             let original = element.clone();
             let mut edit_symbol = None;
+            let mut convert_text = false;
             ui.add_enabled_ui(self.selected_editable(), |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.strong("Instance / object");
@@ -1264,7 +1265,11 @@ impl Editor {
                         if let Err(e) = self.fonts.load(ctx, font_family) {
                             ui.colored_label(UiPalette::current(ctx).error_text, e);
                         }
+                        if ui.button("Use text box").clicked() {
+                            convert_text = true;
+                        }
                     }
+                    kind @ ElementKind::TextBox { .. } => self.text_box_properties(ui, ctx, kind),
                     ElementKind::Bitmap {
                         resource_id,
                         width,
@@ -1356,7 +1361,49 @@ impl Editor {
                     }
                 }
             });
+            if convert_text
+                && let ElementKind::Text {
+                    text,
+                    font_family,
+                    font_size,
+                    color,
+                } = &element.kind
+            {
+                let named = crate::fonts::styled_family(font_family, false, false);
+                let family = if ctx.fonts(|fonts| fonts.families().contains(&named)) {
+                    named
+                } else {
+                    egui::FontFamily::Proportional
+                };
+                let galley = ui.painter().layout_no_wrap(
+                    text.clone(),
+                    egui::FontId::new(*font_size as f32, family),
+                    egui::Color32::WHITE,
+                );
+                let kind = ElementKind::TextBox {
+                    text: text.clone(),
+                    width: (galley.size().x as f64 + 4.).clamp(100., 1000000.),
+                    height: (galley.size().y as f64 + 4.).clamp(100., 1000000.),
+                    format: TextFormat {
+                        font: font_family.clone(),
+                        size: *font_size,
+                        color: u32::from_be_bytes([0, color[0], color[1], color[2]]),
+                        ..Default::default()
+                    },
+                    word_wrap: true,
+                    multiline: true,
+                };
+                element.transform.alpha *= color[3] as f64 / 255.;
+                element.kind = kind;
+            }
             if original != element {
+                if matches!(element.kind, ElementKind::TextBox { .. })
+                    && let Some(field) = TextFieldState::from_kind(&element.kind)
+                    && let Err(error) = field.validate()
+                {
+                    self.message(format!("Text box edit rejected: {error}"));
+                    return;
+                }
                 self.finish_edits();
                 self.select_single_id(original.id.clone());
                 self.transact(|s| {

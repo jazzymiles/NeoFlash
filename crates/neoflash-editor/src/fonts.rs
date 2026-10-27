@@ -1,11 +1,24 @@
 use eframe::egui::{self, FontData, FontDefinitions, FontFamily};
-use font_kit::{family_name::FamilyName, properties::Properties, source::SystemSource};
+use font_kit::{
+    family_name::FamilyName,
+    properties::{Properties, Style, Weight},
+    source::SystemSource,
+};
 use std::collections::HashSet;
 
 pub struct Fonts {
     pub families: Vec<String>,
     definitions: FontDefinitions,
-    loaded: HashSet<String>,
+    loaded: HashSet<(String, bool, bool)>,
+}
+
+pub(crate) fn styled_family(family: &str, bold: bool, italic: bool) -> FontFamily {
+    let name = if !bold && !italic {
+        family.to_owned()
+    } else {
+        format!("NeoFlash font: {family} [bold={bold}, italic={italic}]")
+    };
+    FontFamily::Name(name.into())
 }
 
 impl Fonts {
@@ -21,12 +34,28 @@ impl Fonts {
     }
 
     pub fn load(&mut self, ctx: &egui::Context, family: &str) -> Result<FontFamily, String> {
-        let named = FontFamily::Name(family.to_owned().into());
-        if self.loaded.contains(family) {
+        self.load_style(ctx, family, false, false)
+    }
+
+    pub fn load_style(
+        &mut self,
+        ctx: &egui::Context,
+        family: &str,
+        bold: bool,
+        italic: bool,
+    ) -> Result<FontFamily, String> {
+        let named = styled_family(family, bold, italic);
+        let key = (family.to_owned(), bold, italic);
+        if self.loaded.contains(&key) {
             return Ok(named);
         }
+        let properties = Properties {
+            weight: if bold { Weight::BOLD } else { Weight::NORMAL },
+            style: if italic { Style::Italic } else { Style::Normal },
+            ..Properties::new()
+        };
         let handle = SystemSource::new()
-            .select_best_match(&[FamilyName::Title(family.to_owned())], &Properties::new())
+            .select_best_match(&[FamilyName::Title(family.to_owned())], &properties)
             .map_err(|e| format!("Font '{family}' is unavailable: {e:?}"))?;
         let (mut bytes, mut font_index) = match &handle {
             font_kit::handle::Handle::Path { path, font_index } => {
@@ -52,10 +81,14 @@ impl Fonts {
             .map_err(|_|format!("Font '{family}' cannot be rendered by the current text backend; a fallback will be shown."))?;
         let mut data = FontData::from_owned(bytes);
         data.index = font_index;
+        let font_key = match &named {
+            FontFamily::Name(name) => name.to_string(),
+            _ => unreachable!(),
+        };
         self.definitions
             .font_data
-            .insert(family.to_owned(), data.into());
-        let mut fallback = vec![family.to_owned()];
+            .insert(font_key.clone(), data.into());
+        let mut fallback = vec![font_key];
         fallback.extend(
             self.definitions
                 .families
@@ -64,7 +97,7 @@ impl Fonts {
                 .unwrap_or_default(),
         );
         self.definitions.families.insert(named.clone(), fallback);
-        self.loaded.insert(family.to_owned());
+        self.loaded.insert(key);
         ctx.set_fonts(self.definitions.clone());
         Ok(named)
     }
@@ -80,6 +113,19 @@ mod tests {
         let ctx = egui::Context::default();
         if fonts.families.iter().any(|s| s == "Helvetica Neue") {
             fonts.load(&ctx, "Helvetica Neue").unwrap();
+            let bold = fonts
+                .load_style(&ctx, "Helvetica Neue", true, false)
+                .unwrap();
+            let italic = fonts
+                .load_style(&ctx, "Helvetica Neue", false, true)
+                .unwrap();
+            assert_ne!(bold, italic);
+            assert_eq!(
+                fonts
+                    .load_style(&ctx, "Helvetica Neue", true, false)
+                    .unwrap(),
+                bold
+            );
             let _ = ctx.run(egui::RawInput::default(), |_| {});
         }
     }

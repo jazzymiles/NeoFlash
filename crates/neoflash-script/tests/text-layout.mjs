@@ -1,0 +1,96 @@
+// One ordinary publication: dynamic AS3/AS2 fields, shared Rust layout and
+// independent uniform formats. Injected widths are deterministic, not font parity.
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { resolve } from 'node:path';
+import vm from 'node:vm';
+import { createRuntimeHost } from './host-integration.mjs';
+
+export async function verifyTextLayout(root,cargo) {
+  const directory=mkdtempSync(resolve(root,'target/text-layout-'));
+  let player,host;
+  try {
+    const exported=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/text-layout.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    assert.equal(exported.status,0,exported.error?.message||exported.stderr);
+    const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
+    vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);
+    const bundle=vm.runInContext('NeoFlashBundle',sandbox);
+    assert.equal(bundle.project.format_version,3);
+    assert.ok(bundle.warnings.some(message=>message.includes("Font 'Arial'")), 'system-font references remain explicit publish warnings');
+    vm.runInContext(readFileSync(resolve(directory,'neoflash_web.js'),'utf8'),sandbox);
+    sandbox.wasmBytes=Buffer.from(bundle.wasm,'base64');
+    const wasm=await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)',sandbox);
+    player=new wasm.WebPlayer(JSON.stringify(bundle.project));
+    ({host}=createRuntimeHost(root,player,Array.from(bundle.scripts,item=>({script:{language:item.language,source:item.source},code:item.code,location:item.location})),{bundle,context:{measureText:line=>({width:Array.from(line).length*10})}}));
+    host.dispatchScripts();
+    const rootObject=host.proxyFor([]),primary=rootObject.primaryCard,fixed=rootObject.fixedCard,legacy=rootObject.legacyCard;
+    const format=value=>{const f=value.getTextFormat();return {font:f.font,size:f.size,color:f.color,bold:f.bold,italic:f.italic,leading:f.leading,align:f.align};};
+    const drawFor=value=>JSON.parse(player.scene_json()).find(item=>JSON.stringify(item.owner_ref)===JSON.stringify(value.toJSON().object_ref)&&item.kind.type==='text_field');
+    const layout=value=>host.text().layout(drawFor(value).kind.field);
+    assert.equal(host.lastTrace(),'text layout ready 340 340 0');
+    assert.deepEqual(drawFor(rootObject.instructions).kind.field.box,{width:832,height:48},'the authored TextBox reaches the same layout state as dynamic fields');
+    assert.equal(host.program().is(primary,'flash.text.TextField'),true);
+    assert.equal(host.program().is(primary.getTextFormat(),'flash.text.TextFormat'),true);
+    assert.deepEqual([primary.width,primary.height,primary.scaleX,primary.scaleY],[340,160,1,1]);
+    assert.equal(primary.text.startsWith('Ready: text flows'),true);
+    assert.equal(primary.text.endsWith('\rThe transform scale stays at one.'),true,'replaceText and appendText preserve the public CR contract');
+    assert.equal(fixed.getTextFormat().color,0xa4d4f5);
+    assert.equal(fixed.defaultTextFormat.color,0xeef7ff,'current and insertion defaults remain separate');
+    assert.equal(fixed.getTextFormat().italic,true);assert.equal(fixed.defaultTextFormat.italic,false);
+    assert.equal(fixed.getTextFormat().bold,true);assert.equal(fixed.defaultTextFormat.bold,false);
+    const detached=primary.getTextFormat();detached.color=0xff0000;
+    assert.equal(primary.getTextFormat().color,0xeef7ff,'returned formats are copies until applied');
+    assert.equal(legacy.getNewTextFormat().font,'Arial');
+    assert.deepEqual([legacy.width,legacy.height,legacy.multiline,legacy.wordWrap],[788,64,true,true]);
+    assert.equal(legacy.getTextFormat().color,0x2ad4a5);
+    const initial=layout(primary),fixedBefore={text:fixed.text,format:format(fixed),layout:layout(fixed)},legacyBefore=legacy.text;
+    assert.equal(layout(primary),initial,'unchanged layout reuses the bounded host cache');
+    const drawn=[],clips=[];
+    const consumer={save(){},restore(){},beginPath(){},rect(...values){clips.push(values);},clip(){},fillText(text,x,y){drawn.push({text,x,y,font:this.font});}};
+    host.text().draw(consumer,drawFor(fixed).kind.field);
+    assert.deepEqual(clips,[[0,0,340,160]]);
+    assert.deepEqual(drawn.map(({text,x,y})=>({text,x,y})),fixedBefore.layout.lines.map(({text,x,y})=>({text,x,y})));
+    assert.ok(drawn.every(item=>item.font.includes('italic bold 20px')),'drawing consumes the field font style and shared line positions');
+    assert.equal(primary.numLines,initial.lines.length);
+    assert.equal(primary.textWidth,initial.text_width);assert.equal(primary.textHeight,initial.text_height);
+    assert.equal(primary.getLineOffset(0),0);
+    assert.equal(primary.getLineIndexOfChar(0),0);
+    assert.ok(primary.getLineText(0).startsWith('Ready:'));
+    assert.equal(primary.getLineLength(0),primary.getLineText(0).length);
+    player.click(JSON.stringify(['layout-button']));host.dispatchScripts(['layout-button']);
+    const centered=layout(primary);
+    assert.equal(rootObject.phase,1);assert.equal(primary.width,220);assert.equal(primary.scaleX,1);
+    assert.equal(primary.getTextFormat().align,'center');assert.equal(primary.defaultTextFormat.align,'left');
+    assert.ok(centered.lines.length>initial.lines.length,'width change reflows text instead of stretching glyphs');
+    assert.ok(centered.lines.some(line=>line.x>2),'centered lines use the logical field width');
+    assert.deepEqual({text:fixed.text,format:format(fixed),layout:layout(fixed)},fixedBefore);
+    assert.equal(legacy.text,legacyBefore);
+    const beforeFailedAppend=primary.text;
+    assert.throws(()=>primary.appendText(' unsupported mixed format'),/mixed|uniform/i);
+    assert.equal(primary.text,beforeFailedAppend,'mixed-run refusal is atomic');
+    player.click(JSON.stringify(['layout-button']));host.dispatchScripts(['layout-button']);
+    assert.equal(rootObject.phase,2);assert.equal(primary.width,300);assert.equal(primary.getTextFormat().align,'right');
+    assert.ok(layout(primary).lines.some(line=>line.x>2));
+    const beforePartial=format(primary);
+    assert.throws(()=>primary.setTextFormat(detached,0,1),/whole|partial|uniform/i);
+    assert.deepEqual(format(primary),beforePartial);
+    primary.text='Fresh text uses the default';
+    assert.equal(primary.getTextFormat().align,'left');assert.equal(primary.getTextFormat().color,0xeef7ff);
+    primary.width=180;primary.scaleX=1.5;
+    assert.equal(primary.width,270,'transform scaling remains separate from the 180-unit logical layout box');
+    assert.equal(drawFor(primary).kind.field.box.width,180);
+    const old=primary;
+    host.resetProject();
+    const fresh=host.proxyFor([]);
+    assert.equal(host.lastTrace(),'text layout ready 340 340 0');
+    assert.notEqual(fresh.primaryCard,old);assert.throws(()=>old.text,/removed|replaced|another player|stale|lifetime|previous/i);
+    assert.deepEqual([fresh.primaryCard.width,fresh.primaryCard.scaleX,fresh.phase],[340,1,0]);
+    assert.equal(fresh.primaryCard.getTextFormat().align,'left');assert.equal(fresh.fixedCard.getTextFormat().italic,true);
+    assert.equal(fresh.legacyCard.text,legacyBefore);
+    assert.throws(()=>{fresh.primaryCard.htmlText='<b>unsupported</b>';},/not implemented|unsupported|pending/i);
+  } finally {
+    host?.disposeFamily();player?.free();rmSync(directory,{recursive:true,force:true});
+  }
+  console.log('Text layout: AS3/AS2 creation, independent current/default formats, Rust reflow/line metrics, aligned boxes, atomic mixed-run rejection and Restart passed.');
+}

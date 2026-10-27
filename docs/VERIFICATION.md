@@ -1,5 +1,33 @@
 # Verification record
 
+## Text fields, uniform formats and shared layout
+
+All required delivery checks completed: formatting, workspace Clippy, 312 workspace Rust tests, four adapter checks, the public FLA corpus, WASM, 66 Node tests, 90 compiler behavior fixtures, combined project-family scenarios, five browser-batch checks and demo export. The core adds one text-family scenario (57→58); editor/Node/compiler counts stay unchanged. Existing native coverage now exercises installed regular/bold/italic font loading, cached line layout, width-driven reflow, clipping before rotation and Undo.
+
+The integrated check first stopped on a new Clippy preference for fixed-size mesh chunks; the editor correction passed targeted Clippy before shared tests continued. Three old Node harnesses then needed the new text_field draw payload and a shared font-measurement stub. Their focused files passed 4/4 and 6/6 with the original behavioral assertions retained. The unrun remainder executed once. No complete regression rerun followed these repairs. Source hashes explicitly record the lint and harness corrections.
+
+The original text-layout publication combines an authored TextBox with two AS3 fields and an AS2 createTextField card. The actual-export/WASM helper verifies independent current/default formats, atomic mixed-run refusal, shared Rust line ranges/reflow/alignment, Canvas draw/clip consumption, box versus transform ownership and Restart. Injected measurements establish the adapter contract, not original Flash rasterization or font-engine metrics.
+
+Browser batch `20261027T040420Z-7cb8b725` exported all 18 projects and observed 18 DOM-ready publications with zero runtime overlays and zero dashboard observation errors in the Codex in-app browser; engine/version was not separately identified. The authored instruction box and three runtime fields visibly rendered. Real coordinate clicks on the control label changed the first field from width340/left/two lines to width220/center/four lines, then width300/right/three lines. Its reported scale stayed one; the bold-italic sibling and teal AS2 card stayed unchanged. Restart restored width340/left/two lines, and the next click reported cycle one exactly once. The other 17 publications received startup observation only in this run.
+
+The standalone text log contained no errors and one expected font portability warning. The aggregate retains the known unlocated MutationObserver exception (FAMILY-HARNESS-001), separate from project runtime errors. Native interactive text editing, Sources/D-008, other engines, font portability and full Flash layout semantics remain pending. The user's unsaved native session was preserved.
+
+The optimized `dist/NeoFlash.app` built and passed strict code-sign verification. Executable SHA-256: `610a2d6f530f87b67be3012f4d73af075ca8ee6cb27342e0104c15cb38175e6c`; WASM: `e70dbd9aec6f4c1c391ab93d391c7f7aa5f44b36857dbb03bb6c5c889d4439ad`. All 286 recorded source hashes matched after verification and packaging. Local evidence is under `target/verification/text-build-evidence.json`, `text-integrated-check.log`, `text-shared-remainder.log`, the focused/remainder logs, `text-package.log` and `text-browser/`.
+
+## Independent bitmap verification of 1bd0e3c
+
+`BITMAP-HTML5-20261027T0345Z` accepts bounded PNG/shared pixel workflows on `1bd0e3c27d2111642bda1541ce30a7232387aeff`. All 279 frozen source hashes match; exporter `4c92b2e0…`, bindings `4ac9ea65…` and WASM `c2fdfeb3…` are pinned. One independent ordinary export batch (`20261027T034712Z-3a59096a`) contains an extended bitmap family and three shared regression projects. All four reached DOM ready with zero runtime overlays or observation errors.
+
+The 140-byte PNG is preserved exactly. An independent PNG decoder agrees with selected transparent/opaque browser samples. Actual clicks on the Paint label update both shared views orange then purple, leaving the original and independent clone unchanged. Copy/scroll samples and preserved RGB/alpha values match the recorded oracle. AS2 construction, fill/write and append-depth attachBitmap produce the expected visible 16×16 image.
+
+Disposing the clone removes only its pixels and a subsequent read reports an explicit Error; both shared views still paint. Restart restores fresh buffers and the next click reports Paint 1 exactly once. Invalid AS3 construction (0×1) reports a caught RangeError beside the working scene; positive direct AS3 construction was not called and remains needs_review.
+
+The one shared regression confirms embedded resource output and HTTP GET 200/868 characters, linked count 1/frame 12 preserved through detach/return, and both visible AS2/AS3 leaderboard results with AS3 total 95. The bitmap standalone log has no errors. The aggregate observer exception remains separate; the reused regression tab retains that same earlier timestamp, with no new standalone errors. No fixed resource-label hit target is claimed: that separate fixture is unchanged and only its uncovered rectangle was clicked.
+
+25 exact overrides add 24 partial declarations and one needs_review. The composite catalogue contains 30 implemented_subset / 581 partial / 45068 missing / 368 needs_review across 46,047 declarations, not a Flash compatibility percentage. Twelve independent records preserve earlier snapshots. Source fixtures, PNG oracle, 110 artifact hashes and browser screenshots/logs are retained under `target/html5-bitmap-independent-20261027T0345Z/` and the research evidence record.
+
+Only the Codex in-app browser was exercised; engine/version was not separately identified and original Flash was not run (`documented_only`). JPEG, smoothing/snapping behavior, alpha hits, buffer replacement, merge/clipping and full coercions are not inferred. General Loader, draw/filter/encode and bitmap fills remain outside the implemented profile. Native image/Library/Undo/clipboard and Sources/D-008 remain pending; the unsaved native session was preserved. Later TextField/TextFormat work inherits no pass.
+
 ## Bitmap resources and shared pixel buffers
 
 All required delivery checks completed: formatting and workspace Clippy, 311 workspace Rust tests, four adapter checks, public FLA corpus, WASM, 66 Node tests, 90 compiler behavior fixtures, combined project-family scenarios, five browser-batch preparation checks and demo export. The core adds one family scenario (56→57); editor/Node/compiler fixture counts stay unchanged. Native resource/workspace coverage now checks PNG texture reuse, separate smoothing samplers and placement Undo.

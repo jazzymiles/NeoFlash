@@ -128,6 +128,69 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
         image_editor.project, before,
         "Undo removes only the new placement"
     );
+
+    // The same authoring workflow covers styled layout, cache reuse and rotated clipping.
+    let (mut text_editor, text_ctx, page) = crate::tests::rectangle_stage();
+    let original = text_editor.project.clone();
+    let kind = neoflash_core::ElementKind::TextBox {
+        text: "A shared text layout wraps this paragraph inside a narrow field.".into(),
+        width: 80.,
+        height: 28.,
+        multiline: true,
+        word_wrap: true,
+        format: neoflash_core::TextFormat {
+            font: "Arial".into(),
+            size: 18.,
+            bold: true,
+            ..Default::default()
+        },
+    };
+    let transform = neoflash_core::Transform {
+        x: 120.,
+        y: 120.,
+        rotation: 27.,
+        ..Default::default()
+    };
+    text_editor.add_element_transformed(kind.clone(), transform);
+    text_editor.load_project_fonts(&text_ctx);
+    let output = crate::tests::stage_input_frame(&mut text_editor, &text_ctx, 0.1, vec![]);
+    let mut vertices = 0;
+    for shape in output.shapes {
+        if let egui::Shape::Mesh(mesh) = shape.shape {
+            for vertex in &mesh.vertices {
+                let world = (vertex.pos - page.min).to_pos2();
+                let local =
+                    crate::stage::inverse(neoflash_core::transform_matrix(transform), world)
+                        .unwrap();
+                assert!(
+                    (-0.02..=80.02).contains(&local.x) && (-0.02..=28.02).contains(&local.y),
+                    "text ink clips before rotation: {local:?}"
+                );
+                vertices += 1;
+            }
+        }
+    }
+    assert!(vertices > 0, "the field paints visible glyphs");
+    let _ = text_ctx.run(egui::RawInput::default(), |ctx| {
+        let painter = ctx.layer_painter(egui::LayerId::background());
+        let first = crate::text_boxes::layout(&painter, &kind).unwrap();
+        let second = crate::text_boxes::layout(&painter, &kind).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &second));
+        assert!(first.lines.len() > 1);
+        let mut wider = kind.clone();
+        if let neoflash_core::ElementKind::TextBox { width, .. } = &mut wider {
+            *width = 300.;
+        }
+        assert!(
+            crate::text_boxes::layout(&painter, &wider)
+                .unwrap()
+                .lines
+                .len()
+                < first.lines.len()
+        );
+    });
+    text_editor.undo();
+    assert_eq!(text_editor.project, original);
 }
 
 #[test]

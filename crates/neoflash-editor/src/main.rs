@@ -12,6 +12,7 @@ mod sources;
 mod stage;
 mod stage_primitives;
 mod stage_selection;
+mod text_boxes;
 mod theme;
 mod timeline_paint;
 mod transform_geometry;

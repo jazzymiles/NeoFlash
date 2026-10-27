@@ -43,8 +43,8 @@ test('imported primitives hold, disappear and return with labels and fill alpha 
     for (const [frame, x] of [[0,70],[23,70],[24,370],[47,370],[48,null],[59,null],[60,70],[71,70]]) {
       assert.equal(player.control('[]', 'goto_and_stop', frame), true);
       const items = scene(player);
-      assert.equal(items.filter(item => item.kind.type === 'text').length, 3);
-      const shapes = items.filter(item => item.kind.type !== 'text');
+      assert.equal(items.filter(item => item.kind.type === 'text_field').length, 3);
+      const shapes = items.filter(item => item.kind.type !== 'text_field');
       assert.equal(shapes.length, x === null ? 0 : 2, `Frame ${frame}`);
       if (x !== null) {
         const square = shapes.find(item => item.name === 'coralSquare');

@@ -438,6 +438,13 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                                 );
                             }
                         }
+                        ElementKind::TextBox { .. } => {
+                            if let Some(field) = TextFieldState::from_kind(&element.kind)
+                                && let Err(error) = field.validate()
+                            {
+                                add(format!("{ep}.kind"), error.to_string());
+                            }
+                        }
                         ElementKind::Text { font_size, .. } => {
                             if !font_size.is_finite() || *font_size <= 0. || *font_size > 10000. {
                                 add(

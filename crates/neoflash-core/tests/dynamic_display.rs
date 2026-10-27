@@ -333,7 +333,7 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
         paints
     );
     assert!(!player.object_set_property(&shape, "scale_x", 1e200));
-    assert!(!player.object_set_text(&shape, "unsupported"));
+    assert!(!player.object_set_text(&project, &shape, "unsupported"));
 
     player.control(&project, &[], PlaybackCommand::GotoAndStop(1));
     let scene = player.runtime_snapshot(&project);
@@ -541,7 +541,7 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
     let first_text = find(&player, &first, &["linked-text"]);
     let second_text = find(&player, &second, &["linked-text"]);
     assert_ne!(first_leaf, second_leaf);
-    assert!(player.object_set_text(&first_text, "First only"));
+    assert!(player.object_set_text(&project, &first_text, "First only"));
     assert!(
         matches!(object(&player.runtime_snapshot(&project),&second_text).display.kind,Some(ElementKind::Text{ref text,..}) if text=="Original")
     );

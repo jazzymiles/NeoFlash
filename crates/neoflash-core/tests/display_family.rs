@@ -31,8 +31,8 @@ fn active_graph_retains_hidden_geometry_names_identity_and_root_transforms() {
         .find(|item| item.instance_path == text_path)
         .unwrap();
     assert!(
-        matches!(rendered_text.kind, RuntimeDrawKind::Element(ElementKind::Text { ref text, color, .. })
-        if text == "Zoe:45\nAda:30" && color[..3] == [0x23, 0xaa, 0xbb])
+        matches!(rendered_text.kind, RuntimeDrawKind::TextField { ref field }
+        if field.text == "Zoe:45\nAda:30" && field.format.color == 0x23aabb)
     );
     assert_eq!(player.lifetime_id(&text_path), text_lifetime);
     assert!(original.iter().any(|node| node.kind.is_some()));

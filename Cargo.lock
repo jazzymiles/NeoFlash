@@ -2042,6 +2042,7 @@ dependencies = [
 name = "neoflash-web"
 version = "0.1.0"
 dependencies = [
+ "js-sys",
  "neoflash-core",
  "serde_json",
  "wasm-bindgen",

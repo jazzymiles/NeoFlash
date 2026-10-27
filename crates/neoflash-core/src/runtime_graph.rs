@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 mod bitmap;
 mod linked;
+mod text;
 
 pub const MAX_DYNAMIC_OBJECTS: usize = 4096;
 const MAX_GRAPH_DEPTH: usize = 64;
@@ -25,6 +26,7 @@ pub enum DynamicKind {
     Shape,
     MovieClip,
     Bitmap,
+    TextField,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -76,6 +78,7 @@ pub struct RuntimeObject {
     pub source_path: Option<Vec<Id>>,
     /// Own Graphics paints; these are not display children.
     pub graphics: Vec<ElementKind>,
+    pub text: Option<TextFieldState>,
     pub bitmap: Option<PixelDescriptor>,
     pub smoothing: bool,
     pub pixel_snapping: PixelSnapping,
@@ -85,6 +88,9 @@ pub struct RuntimeObject {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RuntimeDrawKind {
+    TextField {
+        field: TextFieldState,
+    },
     BitmapPixels {
         pixel_ref: PixelRef,
         width: u32,
@@ -98,7 +104,11 @@ pub enum RuntimeDrawKind {
 }
 impl PartialEq<ElementKind> for RuntimeDrawKind {
     fn eq(&self, other: &ElementKind) -> bool {
-        matches!(self, Self::Element(kind) if kind == other)
+        match self {
+            Self::Element(kind) => kind == other,
+            Self::TextField { field } => TextFieldState::from_kind(other).as_ref() == Some(field),
+            _ => false,
+        }
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -169,6 +179,8 @@ pub(crate) struct RuntimeGraph {
     resource_pixels: HashMap<Id, PixelRef>,
     bitmap_states: HashMap<ObjectRef, bitmap::BitmapState>,
     bitmap_error: Option<BitmapError>,
+    text_states: HashMap<ObjectRef, TextFieldState>,
+    text_bytes: usize,
     authored: BTreeMap<Vec<Id>, Authored>,
     paths: HashMap<ObjectRef, Vec<Id>>,
     prefix: HashMap<ObjectRef, Vec<ObjectRef>>,
@@ -194,6 +206,8 @@ impl RuntimeGraph {
         self.resource_pixels.clear();
         self.bitmap_states.clear();
         self.bitmap_error = None;
+        self.text_states.clear();
+        self.text_bytes = 0;
         self.authored.clear();
         self.paths.clear();
         self.prefix.clear();
@@ -264,6 +278,7 @@ impl RuntimeGraph {
             .retain(|reference, _| !retired.contains(reference));
         self.bitmap_states
             .retain(|reference, _| !retired.contains(reference));
+        self.retire_text(&retired);
         for (path, lifetime) in placements {
             if !self.authored.contains_key(path) {
                 let reference = self.allocate();
@@ -382,6 +397,11 @@ impl Player {
                 graphics: GraphicsState::default(),
             },
         );
+        if kind == DynamicKind::TextField {
+            self.graph
+                .text_states
+                .insert(reference.clone(), TextFieldState::default());
+        }
         Ok(reference)
     }
     pub fn drain_display_events(&mut self) -> Result<MutationResult, DisplayError> {
@@ -488,6 +508,7 @@ impl Player {
                         DynamicKind::Shape => "shape",
                         DynamicKind::MovieClip => "movie_clip",
                         DynamicKind::Bitmap => "bitmap",
+                        DynamicKind::TextField => "text",
                     };
                     let linked = linked_roots.get(&reference);
                     let movie = node.kind == DynamicKind::MovieClip;
@@ -516,6 +537,7 @@ impl Player {
                 } else {
                     continue;
                 };
+            let text = self.graph.text_state(&reference, display.kind.as_ref());
             let bitmap_state = self.graph.bitmap_state(&reference, display.kind.as_ref());
             let bitmap = bitmap_state
                 .pixel_ref
@@ -559,12 +581,38 @@ impl Player {
                     let mut item = source.clone().map_kind(RuntimeDrawKind::Element);
                     item.transform = display.world;
                     item.alpha = alpha;
-                    if !matches!(source.kind, ElementKind::Bitmap { .. }) {
+                    if !matches!(
+                        source.kind,
+                        ElementKind::Bitmap { .. }
+                            | ElementKind::Text { .. }
+                            | ElementKind::TextBox { .. }
+                    ) {
                         result.draws.push(RuntimeDrawItem {
                             item,
                             owner_ref: reference.clone(),
                         });
                     }
+                }
+                if let Some(field) = &text {
+                    result.draws.push(RuntimeDrawItem {
+                        owner_ref: reference.clone(),
+                        item: DrawItem {
+                            element_id: items.get(&reference).map_or_else(
+                                || format!("runtime-{}-text", reference.id),
+                                |item| item.element_id.clone(),
+                            ),
+                            name: display.name.clone(),
+                            instance_path: source_path.clone().unwrap_or_default(),
+                            layer_id: items
+                                .get(&reference)
+                                .map_or_else(String::new, |item| item.layer_id.clone()),
+                            transform: display.world,
+                            alpha,
+                            kind: RuntimeDrawKind::TextField {
+                                field: field.clone(),
+                            },
+                        },
+                    });
                 }
                 if let Some(pixel) = &bitmap
                     && !pixel.disposed
@@ -630,6 +678,7 @@ impl Player {
                 namespace_ref,
                 source_path,
                 graphics,
+                text,
                 bitmap,
                 smoothing: bitmap_state.smoothing,
                 pixel_snapping: bitmap_state.pixel_snapping,
@@ -865,8 +914,8 @@ impl Player {
         let object = self.graph.dynamic.get(reference).ok_or_else(|| {
             error("Graphics currently requires a live runtime-created Sprite, Shape or MovieClip")
         })?;
-        if object.kind == DynamicKind::Bitmap {
-            return Err(error("Bitmap does not own Graphics"));
+        if matches!(object.kind, DynamicKind::Bitmap | DynamicKind::TextField) {
+            return Err(error("Bitmap and TextField do not own Graphics"));
         }
         if operations.len() > MAX_GRAPHICS_OPS {
             return Err(error("Graphics batch exceeds 4096 operations"));
@@ -1021,36 +1070,6 @@ impl Player {
         };
         object.name = name.into();
         true
-    }
-    pub fn object_set_text(&mut self, reference: &ObjectRef, text: &str) -> bool {
-        if let Some(address) = self.graph.linked_paths.get(reference).cloned() {
-            return self
-                .graph
-                .namespaces
-                .get_mut(&address.namespace)
-                .expect("namespace")
-                .player
-                .set_text(&address.path, text);
-        }
-        let Some(path) = self.graph.paths.get(reference).cloned() else {
-            return false;
-        };
-        self.set_text(&path, text)
-    }
-    pub fn object_set_text_color(&mut self, reference: &ObjectRef, color: u32) -> bool {
-        if let Some(address) = self.graph.linked_paths.get(reference).cloned() {
-            return self
-                .graph
-                .namespaces
-                .get_mut(&address.namespace)
-                .expect("namespace")
-                .player
-                .set_text_color(&address.path, color);
-        }
-        let Some(path) = self.graph.paths.get(reference).cloned() else {
-            return false;
-        };
-        self.set_text_color(&path, color)
     }
     pub fn object_control(
         &mut self,

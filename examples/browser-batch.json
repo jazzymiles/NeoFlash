@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "text-layout",
+      "path": "examples/text-layout.nflash",
+      "title": "Text boxes, TextFormat and independent AS3/AS2 cards",
+      "checks": [
+        "The authored instruction TextBox and all three runtime text cards render; the second AS3 card is bold and italic while the AS2 card is teal.",
+        "Activate Cycle width + alignment twice: the first card narrows and centers, then widens and aligns right. Its scale stays one; the second AS3 card and AS2 card remain unchanged.",
+        "Restart restores initial width, left alignment, content and independent current/default formats with one control callback."
+      ]
+    },
+    {
       "id": "bitmap-pixels",
       "path": "examples/bitmap-pixels.nflash",
       "title": "Authored PNG, BitmapData and shared bitmap views",
