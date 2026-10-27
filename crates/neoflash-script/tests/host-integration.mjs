@@ -15,7 +15,7 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const end = runtime.indexOf('    function resize()', start);
   assert.ok(start >= 0 && end > start, 'host implementation boundaries changed');
   const scriptConsole = [], hostConsole = [], traceCalls = [];
-  const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value', '__nfProgram', '__nfDisplay', '__nfLegacy'];
+  const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value', '__nfProgram', '__nfDisplay', '__nfLegacy', '__nfXML'];
   const functions = new Map(compiledScripts.map(({ script, code, location }) => {
     const fn = new Function('console', `return function(${bindings.join(',')}) { "use strict"; return (function(){\n${code}\n}).call(this); }`)({ log: (...args) => scriptConsole.push(args) });
     return [sourceKey(script), { fn, location }];
@@ -31,6 +31,8 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   globals.NeoFlashText={...textModule,create:settings=>textModule.create({...settings,...options.text})};
   const audioModule=require(resolve(root,'web/audio.js'));
   globals.NeoFlashAudio={create:settings=>audioModule.create({...settings,...options.audio})};
+  const xmlModule=require(resolve(root,'web/xml.js'));
+  globals.NeoFlashXML={create:settings=>xmlModule.create({...settings,...options.xml})};
   globals.NeoFlashGeom=require(resolve(root,'web/geom.js'));
   const timerModule=require(resolve(root,'web/timers.js'));
   globals.NeoFlashTimers={create:settings=>timerModule.create({...settings,...options.timers})};
@@ -39,7 +41,7 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const host = new Function('player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'traceSpy', 'global', 'bundle', 'project', 'context', 'font', 'canvas', 'viewport',
     'const proxies = new Map(); const render = () => {}; let lastTrace = "";\n' + runtime.slice(start, end) +
     '\nconst originalTrace = trace; trace = (...args) => { traceSpy(...args); return originalTrace(...args); };\n' +
-    'initializeFamily(); return { proxyFor, proxyForRef, activateSemantic, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, disposeFamily, stopTimers, display:()=>display, stage:()=>stageHost, legacy:()=>legacyGlobals, timers:()=>timerHost, binary:()=>binaryHost, net:()=>netHost, bitmap:()=>bitmapHost, text:()=>textHost, audio:()=>audioHost, program:()=>program, lastTrace: () => lastTrace };'
+    'initializeFamily(); return { proxyFor, proxyForRef, activateSemantic, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, disposeFamily, stopTimers, display:()=>display, stage:()=>stageHost, legacy:()=>legacyGlobals, timers:()=>timerHost, binary:()=>binaryHost, net:()=>netHost, bitmap:()=>bitmapHost, text:()=>textHost, audio:()=>audioHost, xml:()=>xmlHost, program:()=>program, lastTrace: () => lastTrace };'
   )(player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args),
     globals, options.bundle, options.project || options.bundle?.project, options.context, kind=>`${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`, options.canvas, options.keyboardTarget);
   return { host, traceCalls, hostConsole, scriptConsole };

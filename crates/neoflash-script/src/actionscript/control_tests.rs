@@ -33,6 +33,12 @@ fn control_targets_are_validated_at_source_and_reset_at_functions() {
         "delete local;",
         "var value:Vector.<void>;",
         "var value:Vector;",
+        "var tree=<item/>;",
+        "tree.@id;",
+        "tree..item;",
+        "tree.ns::item;",
+        "tree.(value==1);",
+        "default xml namespace = \"urn:catalog\";",
     ] {
         assert!(as3(source).is_err(), "must reject {source}");
     }
@@ -45,6 +51,9 @@ fn control_targets_are_validated_at_source_and_reset_at_functions() {
         "for(var key:String in {a:1}){if(key in {a:2})delete this[key];}",
         "var value:Vector.<Vector.<int>>=new Vector.<Vector.<int>>(); var shifts=(16>>2)+(16>>>3);",
         "for(var f=function(){return 'x' in {x:1};};false;){}",
+        "var tree:XML=XML('<root/>'); var list:XMLList=new XMLList('<item/>'); for each(var item:XML in list){trace(String(item));} var yes:Boolean=tree is XML;var optional:XML=tree as XML;",
+        "var values:Vector.<XML>=new Vector.<XML>();values.push(new XML('<root/>'));",
+        "function local(XML:Function,XMLList:Function):String {return String(XML('x'))+String(XMLList('y'));} var result=local(function(x:String):String{return x;},function(x:String):String{return x;});",
     ] {
         assert!(as3(source).is_ok(), "must accept {source}");
     }

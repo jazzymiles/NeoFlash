@@ -1,6 +1,16 @@
 {
   "cases": [
     {
+      "id": "xml-catalog",
+      "path": "examples/xml-catalog.nflash",
+      "title": "AS2 XML DOM and AS3 XML/XMLList catalog",
+      "checks": [
+        "Both loaders show three catalog items and stock13, including decoded Film & frames. Both serialized trees retain the meta namespace.",
+        "Update both catalogs twice: AS3 copies the original and appends a fourth item (stock17, original still3); AS2 clones/moves/removes items (stock14 then13). The two models remain independent.",
+        "Malformed/DOCTYPE flags stay true; Restart restores three records/stock13 and the next update runs revision1 once."
+      ]
+    },
+    {
       "id": "typed-collections",
       "path": "examples/typed-collections.nflash",
       "title": "Typed Vector models, Dictionary identity and enumeration",

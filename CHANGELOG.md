@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added shared bounded Rust XML parsing, AS2 XML/XMLNode DOM and AS3 XML/XMLList data facades: portable loading, traversal, copied/moved trees, serialization and publication lifetime. XML settings and typed values cross handler/project boundaries. Namespaces survive roundtrip; unsupported E4X and declarations diagnose. AS3 int()/uint() conversions support common data-processing source with existing numeric coercions.
+
+- Independently verified the 6396fd0 typed collection delivery: class Vector/Dictionary models drive live inventory cards and JSON with preserved identity/listeners through reuse, bounded fixed/bounds/type refusals, strong key controls and Restart. One five-project browser batch preserves Transform, text, data and collection behavior. Weak GC, arbitrary mutation/reentry/order and native enumeration remain outside the evidence.
+
 - Added a typed-container family: AS3 Vector and Dictionary, identity-preserving indexed operations, for-in/AS3 for-each, member deletion/membership and Vector JSON encoding. One inventory project connects typed models, linked-card reuse and report generation; fixed traits and unsupported native enumeration have explicit boundaries. Weak Dictionary storage uses actual weak references; garbage-collection timing and full AVM conformance remain unverified.
 
 - Independently verified the 852c8b7 affine/color delivery: matrix/skew and world-pose preservation, distinct bitmap tints, parent-alpha pixels/hits, transform-copy ownership and Restart, with one shared browser regression. Recorded P1 TRANSFORM-AS2-RGB-001: canonical AS2 rgb writes remain a silent custom field; the adjacent color control works. Exact declarations retain their bounded status.

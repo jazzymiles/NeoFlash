@@ -261,14 +261,16 @@
       "title": "Property enumeration and with",
       "status": "partial",
       "scope": "Bounded for-in property enumeration over ordinary records, Arrays and project objects; original-key membership and member/index deletion. AS2 variable annotations retain their erased profile.",
-      "limitations": "Snapshot keys ignore later insertions, skip deletions and read values at visit time. Historical iteration order, with, XML/E4X and enumeration of hidden native/display storage remain unsupported. The combined typed-collections workflow supplies delivery evidence separately; this is not a full Flash enumeration contract.",
+      "limitations": "Snapshot keys ignore later insertions, skip deletions and read values at visit time. Historical iteration order, with, XML/E4X and enumeration of hidden native/display storage remain unsupported. The combined typed-collections workflow supplies delivery evidence separately; this is not a full Flash enumeration contract. Independent 6396fd0 evidence (TYPED-COLLECTIONS-HTML5-20261027T0525Z) covers only the ordinary AS2 record for-in total in the inventory scenario and its Restart in VERIFICATION.md. It does not imply AS2 native Vector/Dictionary/for-each, native-storage enumeration or general historical enumeration order.",
       "evidence": [
         "crates/neoflash-script/src/actionscript.rs",
         "docs/COMPATIBILITY.md",
         "crates/neoflash-script/src/actionscript/containers.js",
         "crates/neoflash-script/tests/typed-collections.mjs",
         "examples/typed-collections.nflash",
-        "docs/decisions/0019-typed-collections-and-enumeration.md"
+        "docs/decisions/0019-typed-collections-and-enumeration.md",
+        "docs/VERIFICATION.md",
+        "docs/progress/actionscript-audit.json"
       ]
     },
     {
@@ -600,12 +602,19 @@
     {
       "id": "as2-xml",
       "title": "XML",
-      "status": "planned",
-      "scope": "AS2 XML/XMLNode and their parsing, traversal and networking contracts.",
-      "limitations": "The XML API is absent; XML parsing in the XFL importer does not execute AS2 XML.",
+      "status": "partial",
+      "scope": "XML/XMLNode constructors and strict shared Rust parsing; DOM traversal, individual attributes/text, clone/move/remove, serialization and namespace preservation. XML.load reuses URLLoader with legacy callbacks/byte counters and publication lifetime.",
+      "limitations": "This is a bounded XML1.0 UTF-8 profile, separate from XFL parsing. DTD/custom entities, declaration/namespace mutation, send/sendAndLoad and full legacy status/coercion/partial-tree recovery remain unsupported. Strict syntax/namespace/character failure sets -6 and preserves prior content; other unsupported forms diagnose. Detached nodes count against publication bounds until Restart. Combined delivery evidence does not imply independent per-declaration audit or original-player conformance.",
       "evidence": [
         "docs/COMPATIBILITY.md",
-        "docs/ROADMAP.md"
+        "docs/ROADMAP.md",
+        "crates/neoflash-core/src/xml.rs",
+        "crates/neoflash-web/src/lib.rs",
+        "web/xml.js",
+        "web/runtime.js",
+        "crates/neoflash-script/tests/xml-catalog.mjs",
+        "examples/xml-catalog.nflash",
+        "docs/decisions/0020-xml-tree-and-language-facades.md"
       ]
     }
   ]

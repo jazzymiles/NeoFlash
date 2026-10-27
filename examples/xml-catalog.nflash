@@ -1,0 +1,707 @@
+{
+  "format_version": 3,
+  "name": "XML catalog in AS2 and AS3",
+  "width": 1040,
+  "height": 860,
+  "fps": 24,
+  "background": [
+    13,
+    21,
+    32,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "XML catalog",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 40,
+                      "y": 25,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "NEOFLASH / XML DATA + TWO SCRIPT MODELS",
+                      "width": 960,
+                      "height": 24,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 12,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "heading",
+                    "name": "heading",
+                    "transform": {
+                      "x": 40,
+                      "y": 58,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "One catalog. Two XML models.",
+                      "width": 960,
+                      "height": 46,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 31,
+                        "color": 15726847,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 40,
+                      "y": 113,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Load portable XML, traverse records, copy a branch and serialize the updated tree.",
+                      "width": 960,
+                      "height": 40,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 16,
+                        "color": 14346740,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modernLabel",
+                    "name": "modernLabel",
+                    "transform": {
+                      "x": 40,
+                      "y": 166,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "AS3 / XML + XMLList / COPY AND APPEND",
+                      "width": 470,
+                      "height": 30,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 13,
+                        "color": 7985602,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyLabel",
+                    "name": "legacyLabel",
+                    "transform": {
+                      "x": 550,
+                      "y": 166,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "AS2 / XML DOM / CLONE, MOVE AND REMOVE",
+                      "width": 450,
+                      "height": 30,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 13,
+                        "color": 10143724,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modernPanel",
+                    "name": "modernPanel",
+                    "transform": {
+                      "x": 40,
+                      "y": 206,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 470,
+                      "height": 190,
+                      "fill": [
+                        28,
+                        44,
+                        56,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyPanel",
+                    "name": "legacyPanel",
+                    "transform": {
+                      "x": 550,
+                      "y": 206,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 450,
+                      "height": 190,
+                      "fill": [
+                        28,
+                        44,
+                        56,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modernRows",
+                    "name": "modernRows",
+                    "transform": {
+                      "x": 54,
+                      "y": 220,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Loading XML\u2026",
+                      "width": 440,
+                      "height": 158,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 15,
+                        "color": 14346740,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyRows",
+                    "name": "legacyRows",
+                    "transform": {
+                      "x": 564,
+                      "y": 220,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Loading XML\u2026",
+                      "width": 420,
+                      "height": 158,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 15,
+                        "color": 14346740,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modernStatus",
+                    "name": "modernStatus",
+                    "transform": {
+                      "x": 40,
+                      "y": 410,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "",
+                      "width": 470,
+                      "height": 62,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 14346740,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyStatus",
+                    "name": "legacyStatus",
+                    "transform": {
+                      "x": 550,
+                      "y": 410,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "",
+                      "width": 450,
+                      "height": 62,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 14346740,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modernCodePanel",
+                    "name": "modernCodePanel",
+                    "transform": {
+                      "x": 40,
+                      "y": 490,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 470,
+                      "height": 222,
+                      "fill": [
+                        22,
+                        30,
+                        42,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyCodePanel",
+                    "name": "legacyCodePanel",
+                    "transform": {
+                      "x": 550,
+                      "y": 490,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 450,
+                      "height": 222,
+                      "fill": [
+                        22,
+                        30,
+                        42,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "modernXML",
+                    "name": "modernXML",
+                    "transform": {
+                      "x": 52,
+                      "y": 502,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "",
+                      "width": 446,
+                      "height": 198,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 11,
+                        "color": 14346740,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyXML",
+                    "name": "legacyXML",
+                    "transform": {
+                      "x": 562,
+                      "y": 502,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "",
+                      "width": 426,
+                      "height": 198,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 11,
+                        "color": 14346740,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "guardStatus",
+                    "name": "guardStatus",
+                    "transform": {
+                      "x": 40,
+                      "y": 729,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "",
+                      "width": 960,
+                      "height": 30,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 13,
+                        "color": 12114117,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 285,
+                      "y": 789,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Restart restores the original catalog, XML settings and both loader sessions.",
+                      "width": 715,
+                      "height": 40,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 13,
+                        "color": 11059150,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "advance-button",
+                    "name": "advance-button",
+                    "transform": {
+                      "x": 40,
+                      "y": 783,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "advance-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "var missing:XML;this.root.handlerNullable=(missing==null);var value:XML=this.root.acceptXML(this.root.catalog);var list:XMLList=this.root.acceptList(value.elements(\"item\"));this.root.handlerTypes=(value is XML)&&(list is XMLList)&&((list as XMLList).length()>0);this.root.sharedSettings=(XML.prettyIndent==2);this.root.advance();"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.advanceLegacy();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Update both catalogs",
+                      "description": "Copy and append with AS3, then clone, move and remove with AS2.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "var legacyDoc:XML=new XML();legacyDoc.ignoreWhite=true;\nvar legacyReady:Boolean=false;var legacyRevision:Number=0;var legacyTotal:Number=0;var legacyCount:Number=0;\nvar legacyReceiverOK:Boolean=false;var legacySerialized:String=\"\";var legacyMoved:Boolean=false;\nfunction refreshLegacy():Void {\n var root=legacyDoc.firstChild;var children=root.childNodes;var lines:String=\"\";legacyTotal=0;legacyCount=0;\n for(var i:Number=0;i<children.length;i++) {\n  var node=children[i];\n  if(node.nodeType==1&&node.nodeName==\"item\") {\n   legacyCount++;legacyTotal+=Number(node.attributes.stock);\n   lines+=node.attributes.id+\" / \"+node.firstChild.firstChild.nodeValue+\" / \"+node.attributes.stock+\"\\n\";\n  }\n }\n legacySerialized=legacyDoc.toString();legacyRows.text=lines;legacyXML.text=legacySerialized;\n legacyStatus.text=\"AS2 revision \"+legacyRevision+\" / \"+legacyCount+\" items / stock \"+legacyTotal+\"\\nLoad callback owns XML: \"+legacyReceiverOK+\" / moved clone: \"+legacyMoved;\n}\nfunction advanceLegacy():Void {\n if(!legacyReady)return;\n legacyRevision++;var root=legacyDoc.firstChild;var first=root.firstChild;var cloned=first.cloneNode(true);\n cloned.attributes.id=\"COPY-\"+legacyRevision;cloned.attributes.stock=\"5\";\n cloned.firstChild.firstChild.nodeValue=\"DOM copy / revision \"+legacyRevision;\n root.appendChild(cloned);legacyMoved=(root.lastChild==cloned&&cloned.parentNode==root);first.removeNode();refreshLegacy();\n}\nlegacyDoc.onLoad=function(success:Boolean):Void {\n legacyReady=success;legacyReceiverOK=(this==legacyDoc);\n if(success)refreshLegacy();else legacyStatus.text=\"AS2 XML load failed / status \"+legacyDoc.status;\n};\nlegacyDoc.load(\"data/catalog.xml\");"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "advance-control",
+      "name": "Update both catalogs",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "advance-control-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Update both catalogs",
+                      "width": 200,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 16,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "source-main",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;\n import flash.net.URLLoader;\n import flash.net.URLRequest;\n import flash.events.Event;\n import flash.events.IOErrorEvent;\n public class Main extends MovieClip {\n  public var loader:URLLoader;\n  public var original:XML;\n  public var catalog:XML;\n  public var roundtrip:XML;\n  public var rows:XMLList;\n  public var ready:Boolean=false;\n  public var revision:int=0;\n  public var total:int=0;\n  public var serialized:String;\n  public var malformedRejected:Boolean=false;\n  public var declarationRejected:Boolean=false;\n  public var operatorRejected:Boolean=false;\n  public var handlerTypes:Boolean=false;\n  public var handlerNullable:Boolean=false;\n  public var sharedSettings:Boolean=false;\n  public function Main() {\n   super(); stop(); XML.prettyPrinting=true; XML.prettyIndent=2;\n   loader=new URLLoader();\n   loader.addEventListener(Event.COMPLETE,loaded);\n   loader.addEventListener(IOErrorEvent.IO_ERROR,failed);\n   loader.load(new URLRequest(\"data/catalog.xml\"));\n  }\n  public function loaded(event:Event):void {\n   original=new XML(loader.data);catalog=original;\n   try {var bad:XML=new XML(\"<catalog><item></catalog>\");} catch(error:*) {malformedRejected=true;}\n   try {var blocked:XML=new XML(\"<!DOCTYPE catalog><catalog/>\");} catch(error:*) {declarationRejected=true;}\n   try {var implicit:* = original + original;} catch(error:*) {operatorRejected=true;}\n   ready=true;refresh();\n  }\n  public function failed(event:IOErrorEvent):void {modernStatus.text=\"XML load failed: \"+event.text;}\n  public function acceptXML(value:XML):XML {return value;}\n  public function acceptList(value:XMLList):XMLList {return value;}\n  public function advance():void {\n   if(!ready)return;\n   revision++;catalog=original.copy();\n   var copied:XML=original.elements(\"item\")[0].copy();\n   copied.child(\"name\").setChildren(\"Copied item / revision \"+revision);\n   catalog.appendChild(copied);refresh();\n  }\n  public function refresh():void {\n   rows=catalog.elements(\"item\");total=0;var lines:String=\"\";\n   for each(var row:XML in rows) {\n    var stock:int=int(String(row.attribute(\"stock\")));total+=stock;\n    lines+=String(row.attribute(\"id\"))+\" / \"+String(row.child(\"name\"))+\" / \"+stock+\"\\n\";\n   }\n   serialized=catalog.toXMLString();roundtrip=new XML(serialized);\n   modernRows.text=lines;modernXML.text=serialized;\n   modernStatus.text=\"AS3 revision \"+revision+\" / \"+rows.length()+\" items / stock \"+total+\"\\nOriginal remains \"+original.elements(\"item\").length()+\" items / roundtrip \"+roundtrip.elements(\"item\").length();\n   guardStatus.text=\"Malformed XML rejected: \"+malformedRejected+\" / DOCTYPE rejected: \"+declarationRejected+\" / E4X addition refused: \"+operatorRejected;\n   trace(\"xml catalog\",revision,rows.length(),total,original.elements(\"item\").length());\n  }\n }\n}"
+    }
+  ],
+  "resources": [
+    {
+      "id": "catalog-data",
+      "path": "data/catalog.xml",
+      "media_type": "application/xml",
+      "data_base64": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPGNhdGFsb2cgeG1sbnM6bWV0YT0idXJuOm5lb2ZsYXNoOmNhdGFsb2ciIHJldmlzaW9uPSIxIj4KICA8aXRlbSBpZD0iUEVOIiBzdG9jaz0iNCI+PG5hbWU+VmVjdG9yIHBlbjwvbmFtZT48L2l0ZW0+CiAgPGl0ZW0gaWQ9IlBBUEVSIiBzdG9jaz0iNiI+PG5hbWU+UHJpbnQgcGFwZXI8L25hbWU+PC9pdGVtPgogIDxpdGVtIGlkPSJGSUxNIiBzdG9jaz0iMyI+PG5hbWU+RmlsbSAmYW1wOyBmcmFtZXM8L25hbWU+PC9pdGVtPgogIDxtZXRhOm5vdGU+T3JpZ2luYWwgJmFtcDsgcG9ydGFibGU8L21ldGE6bm90ZT4KPC9jYXRhbG9nPg=="
+    }
+  ]
+}

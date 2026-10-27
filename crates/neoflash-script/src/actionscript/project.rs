@@ -455,9 +455,9 @@ fn context(
     // Source classes/imports win over these top-level native names. In
     // particular, AS2 projects may define their own JSON or RegExp classes.
     for name in if language == ScriptLanguage::ActionScript3 {
-        &["Date", "RegExp", "JSON", "Vector"][..]
+        &["Date", "RegExp", "JSON", "Vector", "XML", "XMLList"][..]
     } else {
-        &["Date"][..]
+        &["Date", "XML", "XMLNode"][..]
     } {
         if !c.types.contains_key(*name) {
             c.types.insert((*name).into(), (*name).into());
@@ -489,7 +489,7 @@ fn parse_class(
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "Native Date/RegExp/Vector subclass initialization is outside this profile; use composition. JSON supplies static functions and cannot be a base class.",
+            "Native Date/RegExp/Vector/XML-family subclass initialization is outside this profile; use composition. JSON supplies static functions and cannot be a base class.",
         ));
     }
     let base = header
@@ -1322,7 +1322,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
     );
     // Common intrinsic captures precede helper declarations.
     let code = format!(
-        "const __nfNumber=Number,__nfString=String,__nfBoolean=Boolean,__nfTypeError=TypeError;\nconst __nfAs2Method=__nfBuiltins.__nfAs2Method,__nfAs2Value=__nfBuiltins.__nfAs2Value,__nfDisplay=__nfBuiltins.__nfDisplay,__nfLegacy=__nfBuiltins.__nfLegacy;\nconst __nfTrace=(...args)=>{{if(typeof __nfBuiltins.__nfTrace !== 'function')throw new Error('Project trace host binding is missing');return __nfBuiltins.__nfTrace(...args);}};\n{code}"
+        "const __nfNumber=Number,__nfString=String,__nfBoolean=Boolean,__nfTypeError=TypeError;\nconst __nfAs2Method=__nfBuiltins.__nfAs2Method,__nfAs2Value=__nfBuiltins.__nfAs2Value,__nfDisplay=__nfBuiltins.__nfDisplay,__nfLegacy=__nfBuiltins.__nfLegacy,__nfXML=__nfBuiltins.__nfXML;\nconst __nfTrace=(...args)=>{{if(typeof __nfBuiltins.__nfTrace !== 'function')throw new Error('Project trace host binding is missing');return __nfBuiltins.__nfTrace(...args);}};\n{code}"
     );
     Ok(ProjectProgram {
         code,

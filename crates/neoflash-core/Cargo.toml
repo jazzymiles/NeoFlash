@@ -10,3 +10,4 @@ serde_json.workspace = true
 thiserror.workspace = true
 base64.workspace = true
 image.workspace = true
+quick-xml = { version = "=0.41.0", default-features = false }

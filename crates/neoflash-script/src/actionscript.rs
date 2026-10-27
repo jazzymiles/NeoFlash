@@ -25,8 +25,13 @@ struct CompileContext {
 
 impl CompileContext {
     fn intrinsic_type(&self, name: &str, as3: bool) -> bool {
-        (matches!(name, "Date") || (as3 && matches!(name, "RegExp" | "JSON" | "Vector")))
+        (matches!(name, "Date" | "XML")
+            || (as3 && matches!(name, "RegExp" | "JSON" | "Vector" | "XMLList"))
+            || (!as3 && name == "XMLNode"))
             && (!self.project || self.intrinsic_types.contains(name))
+    }
+    fn numeric_conversion(&self, name: &str, as3: bool) -> bool {
+        as3 && matches!(name, "int" | "uint") && !self.types.contains_key(name)
     }
     fn canonical_type(&self, name: &str) -> String {
         if let Some(element) = vector_element(name) {
@@ -1079,7 +1084,7 @@ impl<'a> Frontend<'a> {
                         && !self.context.types.contains_key(&name)
                         && vector_element(&name).is_none())
                 {
-                    return Err(self.error("is/as currently requires Date, RegExp or a resolved project/native type; dynamic class expressions are unsupported."));
+                    return Err(self.error("is/as currently requires a supported native type or a resolved project/native type; dynamic class expressions are unsupported."));
                 }
                 lhs = Expr::TypeTest(operator, Box::new(lhs), name, offset);
                 continue;
@@ -1147,7 +1152,7 @@ impl<'a> Frontend<'a> {
                 && (!is_error_type(&name)
                     || (self.script.language == ScriptLanguage::ActionScript2 && name != "Error"))
             {
-                return Err(self.error("Only Array, String and core Error constructors are supported here; user classes require project type resolution."));
+                return Err(self.error("This constructor is not a supported native type in this language/profile; user classes require project type resolution."));
             }
             self.expect("(")?;
             let mut args = Vec::new();
@@ -1215,7 +1220,7 @@ impl<'a> Frontend<'a> {
                 } }
                 self.expect("}")?; Ok(Expr::Object(values))
             }
-            Kind::Punct("<" | "@" | "::" | "..") => Err(self.error("XML/E4X and namespace operators are not implemented yet.")),
+            Kind::Punct("<" | "@" | "::" | "..") => Err(self.error("XML literals and E4X namespace/attribute operators are unsupported; use XML(string) and explicit traversal methods.")),
             Kind::Punct("/") => Err(self.error("Regular expression literals are not implemented in ActionScript yet; use a JavaScript handler.")),
             _ => Err(self.error("Expected an expression.")),
         }
@@ -1253,6 +1258,9 @@ impl<'a> Frontend<'a> {
                         | "isFinite"
                         | "Date"
                         | "RegExp"
+                        | "XML"
+                        | "XMLList"
+                        | "XMLNode"
                 ) || is_timeline_method(name)
             }
             Expr::Member(base, name) if matches!(base.as_ref(), Expr::Name(n) if n == "Math") => {
@@ -1393,6 +1401,38 @@ fn is_family_method(name: &str) -> bool {
             | "toLocaleTimeString"
             | "toLocaleString"
             | "toJSON"
+            | "length"
+            | "child"
+            | "children"
+            | "elements"
+            | "descendants"
+            | "attribute"
+            | "attributes"
+            | "text"
+            | "parent"
+            | "localName"
+            | "nodeKind"
+            | "hasSimpleContent"
+            | "hasComplexContent"
+            | "copy"
+            | "appendChild"
+            | "prependChild"
+            | "setChildren"
+            | "normalize"
+            | "toXMLString"
+            | "settings"
+            | "setSettings"
+            | "defaultSettings"
+            | "parseXML"
+            | "createElement"
+            | "createTextNode"
+            | "hasChildNodes"
+            | "insertBefore"
+            | "removeNode"
+            | "cloneNode"
+            | "load"
+            | "getBytesLoaded"
+            | "getBytesTotal"
     )
 }
 
@@ -1578,6 +1618,9 @@ impl Emitter<'_> {
             Some("Array") => format!(
                 "((__nfValue) => {{ if (__nfValue == null || __nfArrayIsArray(__nfValue)) return __nfValue == null ? null : __nfValue; throw new __nfTypeError('AS3 Array value required'); }})({value})"
             ),
+            Some(ty @ ("XML" | "XMLList")) if self.analysis.context.intrinsic_type(ty, true) => {
+                format!("__nfXMLCast({ty:?}, {value})")
+            }
             Some(ty @ ("Date" | "RegExp")) if self.analysis.context.intrinsic_type(ty, true) => {
                 format!(
                     "((__nfValue) => {{ if (__nfValue == null) return null; if (__nf{ty}Is(__nfValue)) return __nfValue; throw new __nfTypeError('AS3 {ty} value required'); }})({value})"
@@ -1654,7 +1697,9 @@ impl Emitter<'_> {
         if self.analysis.resolve(self.scope, name).is_none()
             && self.analysis.context.intrinsic_type(name, self.as3)
         {
-            return if name == "JSON" {
+            return if matches!(name, "XML" | "XMLList" | "XMLNode") {
+                format!("__nfXMLClass({name:?}, {})", self.as3)
+            } else if name == "JSON" {
                 "__nfJSON".into()
             } else {
                 format!("__nf{name}Class({})", self.as3)
@@ -1708,7 +1753,9 @@ impl Emitter<'_> {
             Some("Number") => "NaN",
             Some("Boolean") => "false",
             Some("String" | "Function" | "Object" | "Array") => "null",
-            Some(ty @ ("Date" | "RegExp")) if self.analysis.context.intrinsic_type(ty, true) => {
+            Some(ty @ ("Date" | "RegExp" | "XML" | "XMLList"))
+                if self.analysis.context.intrinsic_type(ty, true) =>
+            {
                 "null"
             }
             Some(ty) if is_error_type(ty) => "null",
@@ -1803,6 +1850,21 @@ impl Emitter<'_> {
             _ => None,
         }
     }
+    fn binary(&self, op: &str, left: String, right: String) -> String {
+        if self.as3 && matches!(op, "+" | "==" | "!=" | "===" | "!==") {
+            format!("__nfXMLBinary({op:?}, {left}, {right})")
+        } else {
+            format!("({left} {op} {right})")
+        }
+    }
+    fn switch_value(&self, expr: &Expr) -> String {
+        let value = self.expression(expr);
+        if self.as3 {
+            format!("__nfXMLSwitch({value})")
+        } else {
+            value
+        }
+    }
     fn expression(&self, expr: &Expr) -> String {
         fn qualified_name(expr: &Expr) -> Option<String> {
             match expr {
@@ -1861,6 +1923,18 @@ impl Emitter<'_> {
                     .join(", ")
             ),
             Expr::NewBuiltin(name, args, _)
+                if matches!(name.as_str(), "XML" | "XMLList" | "XMLNode") =>
+            {
+                format!(
+                    "new (__nfXMLClass({name:?}, {}))({})",
+                    self.as3,
+                    args.iter()
+                        .map(|a| self.expression(a))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+            Expr::NewBuiltin(name, args, _)
                 if matches!(name.as_str(), "LoadVars" | "TextFormat" | "Sound") =>
             {
                 format!(
@@ -1918,14 +1992,16 @@ impl Emitter<'_> {
                 self.expression(left),
                 self.expression(right)
             ),
-            Expr::Binary(op, left, right) => format!(
-                "({} {op} {})",
-                self.expression(left),
-                self.expression(right)
-            ),
+            Expr::Binary(op, left, right) => {
+                self.binary(op, self.expression(left), self.expression(right))
+            }
             Expr::TypeTest(op, value, ty, _) => {
                 let predicate = if vector_element(ty).is_some() {
                     format!("{}.__nfIs(__nfValue)", self.vector_type(ty))
+                } else if matches!(ty.as_str(), "XML" | "XMLList")
+                    && self.analysis.context.intrinsic_type(ty, true)
+                {
+                    format!("__nfXMLClass({ty:?}, true).__nfIs(__nfValue)")
                 } else if self.analysis.context.intrinsic_type(ty, true) {
                     format!("__nf{ty}Is(__nfValue)")
                 } else {
@@ -1987,7 +2063,7 @@ impl Emitter<'_> {
                     let value = if op == "=" {
                         value
                     } else {
-                        format!("({target} {} {value})", &op[..op.len() - 1])
+                        self.binary(&op[..op.len() - 1], target.clone(), value)
                     };
                     return format!("({target} = {})", self.coerce(name, value));
                 }
@@ -1999,7 +2075,10 @@ impl Emitter<'_> {
                     let expression = if matches!(op.as_str(), "&&=" | "||=") {
                         format!("__nfOld {operator} __nfRef.set({value})")
                     } else {
-                        format!("__nfRef.set(__nfOld {operator} {value})")
+                        format!(
+                            "__nfRef.set({})",
+                            self.binary(operator, "__nfOld".into(), value.clone())
+                        )
                     };
                     let assignment = format!(
                         "((__nfRef)=>{{const __nfOld=__nfRef.get();return {expression};}})({reference})"
@@ -2010,7 +2089,11 @@ impl Emitter<'_> {
                         assignment
                     };
                 }
-                let assignment = format!("({target} {op} {value})");
+                let assignment = if self.as3 && op == "+=" {
+                    format!("({target} = {})", self.binary("+", target.clone(), value))
+                } else {
+                    format!("({target} {op} {value})")
+                };
                 if self.as3 && matches!(op.as_str(), "&&=" | "||=") {
                     // A short-circuited indexed ||= may itself extract the old
                     // function value without passing through an ordinary read.
@@ -2076,6 +2159,27 @@ impl Emitter<'_> {
                 if let Expr::Name(name) = callee.as_ref()
                     && self.analysis.resolve(self.scope, name).is_none()
                 {
+                    if self.analysis.context.numeric_conversion(name, self.as3) {
+                        let value = args
+                            .first()
+                            .map_or_else(|| "0".into(), |value| self.expression(value));
+                        return format!(
+                            "(__nfNumber({value}) {} 0)",
+                            if name == "int" { "|" } else { ">>>" }
+                        );
+                    }
+                    if matches!(name.as_str(), "XML" | "XMLList" | "XMLNode")
+                        && self.analysis.context.intrinsic_type(name, self.as3)
+                    {
+                        return format!(
+                            "(__nfXMLClass({name:?}, {}))({})",
+                            self.as3,
+                            args.iter()
+                                .map(|a| self.expression(a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
                     if matches!(name.as_str(), "Date" | "RegExp")
                         && self.analysis.context.intrinsic_type(name, self.as3)
                     {
@@ -2319,14 +2423,14 @@ impl Emitter<'_> {
             ),
             Stmt::Switch(value, cases) => format!(
                 "switch ({}) {{\n{}\n}}",
-                self.expression(value),
+                self.switch_value(value),
                 cases
                     .iter()
                     .map(|c| format!(
                         "{}:\n{}",
                         c.test.as_ref().map_or_else(
                             || "default".into(),
-                            |e| format!("case {}", self.expression(e))
+                            |e| format!("case {}", self.switch_value(e))
                         ),
                         self.statements(&c.body)
                     ))
@@ -2425,6 +2529,34 @@ fn embedded_helpers() -> String {
         include_str!("actionscript/containers.js"),
         include_str!("actionscript/json.js"),
         r#"
+// XML state/settings belong to the publication host, shared by every source unit.
+function __nfXMLClass(name,as3) {
+    if(typeof __nfXML==='undefined'||!__nfXML)throw new __nfTypeError('XML service is not available in this publication.');
+    const key=!as3&&name==='XML'?'LegacyXML':name;
+    const ctor=__nfXML[key];
+    if(typeof ctor!=='function')throw new __nfTypeError('Unsupported XML native type '+name);
+    return ctor;
+}
+function __nfXMLCast(name,value) {
+    if(value==null)return null;
+    if(__nfXMLClass(name,true).__nfIs(value))return value;
+    throw new __nfTypeError('AS3 '+name+' value required; use the XML/XMLList constructor for conversion.');
+}
+function __nfXMLSwitch(value) {
+    if(typeof __nfXML!=='undefined'&&__nfXML) {
+        const kind=__nfXML.kind(value);
+        if(kind==='xml'||kind==='list')throw new __nfTypeError('E4X XML switch equality is not implemented; explicitly convert the selector and case values.');
+    }
+    return value;
+}
+function __nfXMLBinary(op,left,right) {
+    if(typeof __nfXML!=='undefined'&&__nfXML) {
+        const a=__nfXML.kind(left),b=__nfXML.kind(right);
+        if(a==='xml'||a==='list'||b==='xml'||b==='list')throw new __nfTypeError('E4X XML addition and equality are not implemented; explicitly convert content with String()/toXMLString() before comparing or combining it.');
+    }
+    switch(op){case '+':return left+right;case '==':return left==right;case '!=':return left!=right;case '===':return left===right;case '!==':return left!==right;}
+    throw new __nfTypeError('Unsupported XML operator.');
+}
 const __nfPrimitiveTypes = new Map();
 const __nfObjectType=Object, __nfFunctionType=Function, __nfArrayType=Array;
 function __nfPrimitiveDescriptor(name) {
@@ -2441,6 +2573,7 @@ function __nfPrimitiveDescriptor(name) {
       case 'Object':token=__nfObjectType;coerce=nullable;break;
       case 'Function':token=__nfFunctionType;coerce=value=>{if(value==null)return null;if(typeof value==='function')return value;throw new __nfTypeError('AS3 Function value required');};break;
       case 'Array':token=__nfArrayType;coerce=value=>{if(value==null)return null;if(__nfArrayIsArray(value))return value;throw new __nfTypeError('AS3 Array value required');};break;
+      case 'XML':case 'XMLList':token=__nfXMLClass(name,true);coerce=value=>__nfXMLCast(name,value);break;
       case 'Date':token=__nfDateNative;coerce=__nfDateCast;break;
       case 'RegExp':token=Symbol.for('neoflash.vector.element.RegExp');coerce=value=>{if(value==null)return null;if(__nfRegExpIs(value))return value;throw new __nfTypeError('AS3 RegExp value required');};break;
       default:
@@ -2537,8 +2670,8 @@ mod tests {
     #[test]
     fn operators_preserve_precedence() {
         let output = compile_as("x = 2 + 3 * 4; y = (2 + 3) * 4; flag = x > 3 && y < 50;").unwrap();
-        assert!(output.contains("this.x = (2 + (3 * 4))"));
-        assert!(output.contains("this.y = ((2 + 3) * 4)"));
+        assert!(output.contains("this.x = __nfXMLBinary(\"+\", 2, (3 * 4))"));
+        assert!(output.contains("this.y = (__nfXMLBinary(\"+\", 2, 3) * 4)"));
     }
     #[test]
     fn assignments_are_right_associative_and_require_lvalues() {
@@ -2556,7 +2689,7 @@ mod tests {
         )
         .unwrap();
         assert!(output.contains("this.speed = __nfNumber(2)"));
-        assert!(output.contains("this._x += this.speed"));
+        assert!(output.contains("this._x = __nfXMLBinary(\"+\", this._x, this.speed)"));
         assert!(output.contains("this.gotoAndStop(1)"));
     }
     #[test]

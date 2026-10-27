@@ -73,3 +73,7 @@ These families use captured browser-backed adapters. Regex patterns currently us
 ### Typed collections
 
 `examples/typed-collections.nflash` connects AS3 Vector models, Dictionary keys that are live card instances, for-in/for-each, deletion/membership and JSON serialization. Process batch updates stock and reuses the shipped card for an incoming model; construction stays at three linked instances. An independent AS2 for-in readout totals the original named properties. Restart restores the original models, keys and cards.
+
+## XML catalogs
+
+[xml-catalog.nflash](../examples/xml-catalog.nflash) loads one portable XML resource through AS3 URLLoader and AS2 XML.load. The AS3 side traverses XMLList values, copies an item and serializes a new tree; the AS2 side clones, moves and removes DOM nodes. Both retain namespace declarations and decoded entity text. Update both catalogs and Restart exercise publication lifetime. This bounded data API is separate from unfinished E4X syntax and full historical XML semantics.

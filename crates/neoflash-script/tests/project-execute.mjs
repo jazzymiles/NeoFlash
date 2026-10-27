@@ -17,6 +17,7 @@ import { verifySoundPlayback } from './sound-playback.mjs';
 import { verifyDataProcessing } from './data-processing.mjs';
 import { verifyDisplayTransforms } from './display-transforms.mjs';
 import { verifyTypedCollections } from './typed-collections.mjs';
+import { verifyXMLCatalog } from './xml-catalog.mjs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
@@ -27,6 +28,10 @@ const source=(id,path,source)=>({id,path,language:'action_script3',source});
 const project={format_version:2,name:'Original program fixture',width:320,height:180,fps:24,background:[255,255,255,255],root:'scene',
   symbols:[{id:'scene',name:'Scene',kind:'movie_clip',timeline:{frame_count:1,layers:[],scripts:[]}}],
   sources:[
+    source('user-xml3','user/XML.as','package user { public class XML {public function XML(){} public function marker():String{return "user-xml";}} }'),
+    source('user-list3','user/XMLList.as','package user { public class XMLList {public function XMLList(){} public function marker():String{return "user-list";}} }'),
+    {id:'user-xml2',path:'legacy/XML.as',language:'action_script2',source:'class legacy.XML {public function XML(){} public function marker():String{return "legacy-xml";}}'},
+    {id:'user-node2',path:'legacy/XMLNode.as',language:'action_script2',source:'class legacy.XMLNode {public function XMLNode(){} public function marker():String{return "legacy-node";}}'},
     source('typed-bag','model/Bag.as','package model { public class Bag { public var items:Vector.<DataBase>; public var numbers:Vector.<int>; public function Bag(){} public function accept(items:Vector.<DataBase>,numbers:Vector.<int>):int {this.items=items;this.numbers=numbers;return items.length+numbers.length;} } }'),
     {id:'user-vector',path:'legacy/Vector.as',language:'action_script2',source:'class legacy.Vector {public function Vector(){} public function size():Number{return 3;}}'},
     {id:'user-dictionary',path:'legacy/Dictionary.as',language:'action_script2',source:'class legacy.Dictionary {public function Dictionary(){} public function count():Number{return 4;}}'},
@@ -44,9 +49,9 @@ const project={format_version:2,name:'Original program fixture',width:320,height
     source('watcher','app/Watcher.as','package app { import flash.events.Event; import flash.events.EventDispatcher; public class Watcher extends EventDispatcher { public var count:int=0; public function Watcher() { super(); addEventListener(Event.CHANGE,changed); } public function changed(e:Event):void { count++; } public function close():void { removeEventListener(Event.CHANGE,changed); } } }'),
   ]};
 const scripts=[{language:'action_script3',source:'import flash.utils.getTimer; import model.Counter; import app.Watcher; import flash.events.Event; var a:Counter=new Counter(2); var b:Counter=new Counter(7); first=a.increment(); second=b.value; total=Counter.created; var cb:Function=a.callback(); detached=cb(); var w:Watcher=new Watcher(); w.dispatchEvent(new Event(Event.CHANGE)); w.close(); w.dispatchEvent(new Event(Event.CHANGE)); events=w.count; collection=a.summarize(new Array(30,2,11)); shadowed=a.localTypes(function(value:*):String { return "local:"+value; },function(value:int):int { return value+3; }); lookupResult=this.probe["sort"](this.argument()); var clock:Function=getTimer; elapsed=clock(); qualified=flash.utils.getTimer(); function localClock(getTimer:Function):Number {return getTimer();} localTime=localClock(function():Number{return 77;});'}];
-scripts[0].source='import model.DataRecord; '+scripts[0].source+' var record:DataRecord=new DataRecord(); emptySlots=(record.when==null&&record.pattern==null); var foreignDate:Date=new Date(0); var foreignRegex:RegExp=new RegExp("x"); accepted=record.accept(foreignDate,foreignRegex); record.extra="dynamic"; serialized=record.serialize();';
+scripts[0].source='import user.XML; import user.XMLList; import model.DataRecord; '+scripts[0].source+' var record:DataRecord=new DataRecord(); emptySlots=(record.when==null&&record.pattern==null); var foreignDate:Date=new Date(0); var foreignRegex:RegExp=new RegExp("x"); accepted=record.accept(foreignDate,foreignRegex); record.extra="dynamic"; serialized=record.serialize(); var customXML:XML=new XML(); var customList:XMLList=new XMLList(); customXMLResult=customXML.marker()+customList.marker();';
 scripts[0].source='import flash.utils.Dictionary; import model.Bag; import model.DataBase; '+scripts[0].source+' var modelVector:Vector.<DataBase>=new Vector.<DataBase>(); modelVector.push(record); var numbers:Vector.<int>=Vector.<int>([7,8]); var bag:Bag=new Bag(); bagResult=bag.accept(modelVector,numbers); var associations:Dictionary=new Dictionary(); associations[record]=7;associations[a]=9; dictionarySum=0; var objectKeys:Array=[];for(var identity:Object in associations){objectKeys.push(identity);dictionarySum+=associations[identity];} dictionaryHad=record in associations;dictionaryRemoved=delete associations[record];dictionaryNow=record in associations;dictionaryJSON=JSON.stringify(associations); fixedDelete=delete record.value;fixedHas="value" in record;var dynamicKeys:Array=[];for(var property:String in record)dynamicKeys.push(property);';
-scripts.push({language:'action_script2',source:'import legacy.JSON; import legacy.RegExp; import legacy.Date; import legacy.Vector; import legacy.Dictionary; legacyElapsed=getTimer(); var userJSON=new JSON(); var userRegex=new RegExp(); var userDate=new Date(); var userVector=new Vector(); var userDictionary=new Dictionary(); userCollections=userVector.size()+userDictionary.count(); userText=userJSON.parse("value"); userMatch=userRegex.test("user"); userTime=userDate.getTime(); function localNative(JSON:Object,RegExp:Object):String{return JSON.parse("local")+RegExp.test("local");} userShadow=localNative({parse:function(value:String):String{return value;}},{test:function(value:String):Boolean{return true;}});'});
+scripts.push({language:'action_script2',source:'import legacy.XML; import legacy.XMLNode; import legacy.JSON; import legacy.RegExp; import legacy.Date; import legacy.Vector; import legacy.Dictionary; legacyElapsed=getTimer(); var userJSON=new JSON(); var userRegex=new RegExp(); var userDate=new Date(); var userVector=new Vector(); var userDictionary=new Dictionary(); userCollections=userVector.size()+userDictionary.count(); var oldXML=new XML();var oldNode=new XMLNode(); oldXMLResult=oldXML.marker()+oldNode.marker(); userText=userJSON.parse("value"); userMatch=userRegex.test("user"); userTime=userDate.getTime(); function localNative(JSON:Object,RegExp:Object):String{return JSON.parse("local")+RegExp.test("local");} userShadow=localNative({parse:function(value:String):String{return value;}},{test:function(value:String):Boolean{return true;}});'});
 const result=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-script','--example','compile_project'],{cwd:root,input:JSON.stringify({project,scripts}),encoding:'utf8'});
 assert.equal(result.status,0,result.error?.message || result.stderr);
 const compiled=JSON.parse(result.stdout);assert.ok(compiled.Ok,JSON.stringify(compiled));
@@ -64,6 +69,7 @@ const context={probe,argument(){lookup.push('argument');return 16;}};
 new Function('__nfProgram','trace',compiled.Ok.scripts[0]).call(context,program,()=>{});
 new Function('__nfProgram','trace','__nfAs2Value','__nfAs2Method',compiled.Ok.scripts[1]).call(context,program,()=>{},bridge.value,bridge.method);
 assert.equal(context.legacyElapsed,0);
+assert.equal(context.customXMLResult,'user-xmluser-list');assert.equal(context.oldXMLResult,'legacy-xmllegacy-node');
 assert.deepEqual([context.userText,context.userMatch,context.userTime,context.userShadow],['user:value',true,17,'localtrue']);
 assert.equal(context.emptySlots,true); assert.equal(context.accepted,true);
 assert.equal(program.is(context.foreignDate,'Date'),true); assert.equal(program.is(context.foreignRegex,'RegExp'),true);
@@ -155,4 +161,5 @@ await verifySoundPlayback(root,cargo);
 await verifyDataProcessing(root,cargo);
 await verifyDisplayTransforms(root,cargo);
 await verifyTypedCollections(root,cargo);
+await verifyXMLCatalog(root,cargo);
 console.log('Project program: imports, inheritance/super, typed fields, constructors, static/const, stable methods, independent instances and actual EventDispatcher passed.');

@@ -11,6 +11,7 @@ function __nfContainerKey(key){
 function __nfContainerProgram(){return typeof __nfProgram!=='undefined'?__nfProgram:null;}
 function __nfContainerRef(receiver,key,as3){
     if(receiver==null)throw new __nfTypeError('Cannot access a property on null or undefined.');
+    if(typeof __nfXML!=='undefined'&&__nfXML?.is(receiver))return __nfXML.ref(receiver,key,as3);
     if(__nfDictionaryIs(receiver)){if(!as3)throw new __nfTypeError('Dictionary access requires AS3.');return __nfDictionaryRef(receiver,key);}
     if(typeof __nfVectorIs==='function'&&__nfVectorIs(receiver)){if(!as3)throw new __nfTypeError('Vector access requires AS3.');return __nfVectorRef(receiver,key);}
     const object=Object(receiver),program=__nfContainerProgram();
@@ -33,6 +34,7 @@ function __nfContainerRef(receiver,key,as3){
     };
 }
 function __nfContainerMethod(receiver,key,as3){
+    if(typeof __nfXML!=='undefined'&&__nfXML?.is(receiver))return __nfXML.method(receiver,key,as3);
     if(__nfDictionaryIs(receiver)||(typeof __nfVectorIs==='function'&&__nfVectorIs(receiver))){
         const method=__nfContainerRef(receiver,key,as3).get();
         return (...args)=>__nfApply(method,receiver,args);
@@ -47,6 +49,7 @@ function __nfContainerMethod(receiver,key,as3){
 }
 function __nfEnumerate(receiver,values,as3){
     if(receiver==null)return [][Symbol.iterator]();
+    if(typeof __nfXML!=='undefined'&&__nfXML?.is(receiver))return __nfXML.enumerate(receiver,values,as3);
     if(__nfDictionaryIs(receiver)){if(!as3)throw new __nfTypeError('Dictionary enumeration requires AS3.');return __nfDictionaryEnumerate(receiver,values);}
     if(typeof __nfVectorIs==='function'&&__nfVectorIs(receiver)){
         if(!as3)throw new __nfTypeError('Vector enumeration requires AS3.');

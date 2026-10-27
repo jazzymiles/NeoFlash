@@ -194,9 +194,9 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 **Scope:** Bounded for-in property enumeration over ordinary records, Arrays and project objects; original-key membership and member/index deletion. AS2 variable annotations retain their erased profile.
 
-**Limitations:** Snapshot keys ignore later insertions, skip deletions and read values at visit time. Historical iteration order, with, XML/E4X and enumeration of hidden native/display storage remain unsupported. The combined typed-collections workflow supplies delivery evidence separately; this is not a full Flash enumeration contract.
+**Limitations:** Snapshot keys ignore later insertions, skip deletions and read values at visit time. Historical iteration order, with, XML/E4X and enumeration of hidden native/display storage remain unsupported. The combined typed-collections workflow supplies delivery evidence separately; this is not a full Flash enumeration contract. Independent 6396fd0 evidence (TYPED-COLLECTIONS-HTML5-20261027T0525Z) covers only the ordinary AS2 record for-in total in the inventory scenario and its Restart in VERIFICATION.md. It does not imply AS2 native Vector/Dictionary/for-each, native-storage enumeration or general historical enumeration order.
 
-**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-script/src/actionscript/containers.js](../../crates/neoflash-script/src/actionscript/containers.js), [crates/neoflash-script/tests/typed-collections.mjs](../../crates/neoflash-script/tests/typed-collections.mjs), [examples/typed-collections.nflash](../../examples/typed-collections.nflash), [docs/decisions/0019-typed-collections-and-enumeration.md](../../docs/decisions/0019-typed-collections-and-enumeration.md)
+**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-script/src/actionscript/containers.js](../../crates/neoflash-script/src/actionscript/containers.js), [crates/neoflash-script/tests/typed-collections.mjs](../../crates/neoflash-script/tests/typed-collections.mjs), [examples/typed-collections.nflash](../../examples/typed-collections.nflash), [docs/decisions/0019-typed-collections-and-enumeration.md](../../docs/decisions/0019-typed-collections-and-enumeration.md), [docs/VERIFICATION.md](../../docs/VERIFICATION.md), [docs/progress/actionscript-audit.json](../../docs/progress/actionscript-audit.json)
 
 ### Additional language operators
 
@@ -360,13 +360,13 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 ### XML
 
-`as2-xml` · **Planned**
+`as2-xml` · **Partial**
 
-**Scope:** AS2 XML/XMLNode and their parsing, traversal and networking contracts.
+**Scope:** XML/XMLNode constructors and strict shared Rust parsing; DOM traversal, individual attributes/text, clone/move/remove, serialization and namespace preservation. XML.load reuses URLLoader with legacy callbacks/byte counters and publication lifetime.
 
-**Limitations:** The XML API is absent; XML parsing in the XFL importer does not execute AS2 XML.
+**Limitations:** This is a bounded XML1.0 UTF-8 profile, separate from XFL parsing. DTD/custom entities, declaration/namespace mutation, send/sendAndLoad and full legacy status/coercion/partial-tree recovery remain unsupported. Strict syntax/namespace/character failure sets -6 and preserves prior content; other unsupported forms diagnose. Detached nodes count against publication bounds until Restart. Combined delivery evidence does not imply independent per-declaration audit or original-player conformance.
 
-**Evidence:** [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [docs/ROADMAP.md](../../docs/ROADMAP.md)
+**Evidence:** [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [docs/ROADMAP.md](../../docs/ROADMAP.md), [crates/neoflash-core/src/xml.rs](../../crates/neoflash-core/src/xml.rs), [crates/neoflash-web/src/lib.rs](../../crates/neoflash-web/src/lib.rs), [web/xml.js](../../web/xml.js), [web/runtime.js](../../web/runtime.js), [crates/neoflash-script/tests/xml-catalog.mjs](../../crates/neoflash-script/tests/xml-catalog.mjs), [examples/xml-catalog.nflash](../../examples/xml-catalog.nflash), [docs/decisions/0020-xml-tree-and-language-facades.md](../../docs/decisions/0020-xml-tree-and-language-facades.md)
 
 ## ActionScript 3
 
@@ -548,9 +548,9 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 **Scope:** Bounded for-in property enumeration over ordinary records, Arrays and project objects; original-key membership and member/index deletion. AS3 for-each visits values; Vector/Dictionary retain typed indices and object-key identity. Fixed AS3 traits are excluded and protected from deletion.
 
-**Limitations:** Snapshot keys ignore later insertions, skip deletions and read values at visit time. Historical iteration order, with, XML/E4X and enumeration of hidden native/display storage remain unsupported. The combined typed-collections workflow supplies delivery evidence separately; this is not a full Flash enumeration contract.
+**Limitations:** Snapshot keys ignore later insertions, skip deletions and read values at visit time. Historical iteration order, with, XML/E4X and enumeration of hidden native/display storage remain unsupported. The combined typed-collections workflow supplies delivery evidence separately; this is not a full Flash enumeration contract. Independent 6396fd0 evidence (TYPED-COLLECTIONS-HTML5-20261027T0525Z) is restricted to the Item/InventoryCard Vector and strong Dictionary inventory→scene→JSON workflow, specific fixed/bounds/type rejection observations, key controls, recycled listener identity and Restart in VERIFICATION.md. Weak GC, native enumeration, general mutation/order/reentry, other specializations and Dictionary serialization do not inherit the pass.
 
-**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-script/src/actionscript/containers.js](../../crates/neoflash-script/src/actionscript/containers.js), [crates/neoflash-script/tests/typed-collections.mjs](../../crates/neoflash-script/tests/typed-collections.mjs), [examples/typed-collections.nflash](../../examples/typed-collections.nflash), [docs/decisions/0019-typed-collections-and-enumeration.md](../../docs/decisions/0019-typed-collections-and-enumeration.md)
+**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-script/src/actionscript/containers.js](../../crates/neoflash-script/src/actionscript/containers.js), [crates/neoflash-script/tests/typed-collections.mjs](../../crates/neoflash-script/tests/typed-collections.mjs), [examples/typed-collections.nflash](../../examples/typed-collections.nflash), [docs/decisions/0019-typed-collections-and-enumeration.md](../../docs/decisions/0019-typed-collections-and-enumeration.md), [docs/VERIFICATION.md](../../docs/VERIFICATION.md), [docs/progress/actionscript-audit.json](../../docs/progress/actionscript-audit.json)
 
 ### Additional language operators
 
@@ -714,13 +714,13 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 ### Namespaces, XML and E4X
 
-`as3-namespaces-e4x` · **Planned**
+`as3-namespaces-e4x` · **Partial**
 
-**Scope:** namespace/use namespace, qualified names, XML/XMLList, E4X and for each.
+**Scope:** XML/XMLList string construction, nullable typed slots, is/as and typed project/handler transfer; list indices/for-each, explicit traversal, copy/child mutation, simple versus markup serialization and shared static settings. Shared Rust parsing preserves namespace declarations and expanded names.
 
-**Limitations:** These are rejected by the frontend; XFL XML parsing does not implement AS3 XML.
+**Limitations:** XML literals/interpolation, @/../::/filter/default-namespace syntax, QName/Namespace mutation, implicit list targets and full E4X remain unfinished. Branded XML addition/equality/switch operands explicitly diagnose; explicit String/tree methods work. The namespace selector and insertion/coercion rules are bounded profiles. Restart retires wrappers/settings; limits and separate delivery evidence are documented in COMPATIBILITY/VERIFICATION. Independent per-declaration audit and original-player comparison remain separate.
 
-**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md)
+**Evidence:** [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [crates/neoflash-core/src/xml.rs](../../crates/neoflash-core/src/xml.rs), [crates/neoflash-web/src/lib.rs](../../crates/neoflash-web/src/lib.rs), [web/xml.js](../../web/xml.js), [web/runtime.js](../../web/runtime.js), [crates/neoflash-script/tests/xml-catalog.mjs](../../crates/neoflash-script/tests/xml-catalog.mjs), [examples/xml-catalog.nflash](../../examples/xml-catalog.nflash), [docs/decisions/0020-xml-tree-and-language-facades.md](../../docs/decisions/0020-xml-tree-and-language-facades.md)
 
 ### Vector, Dictionary and ByteArray
 
@@ -728,7 +728,7 @@ Tracked families of language features and Flash APIs. The completed share of thi
 
 **Scope:** AS3 exact ByteArray/Endian imports, indexed binary storage, primitive numeric IO, endian control, UTF, byte copying and clear. Publication-owned limits and reset/disposal isolate buffers; invalid size/overrun/UTF failures preserve state. Dense invariant Vector types, bounded methods/callbacks and Vector JSON; Dictionary identity keys, primitive property-name keys and actual weak ownership; original-key indexed access and snapshot enumeration.
 
-**Limitations:** Vector is bounded to 1,000,000 elements; structural callback/reentrant coercion mutation, RETURNINDEXEDARRAY and subclassing diagnose. Dictionary bounds 100,000 live entry records and 1,000,000 UTF-16 primitive key units; weak collection timing and historical enumeration/coercion remain unverified. Native/display hidden-storage enumeration is separate. ByteArray excludes AMF, compression, other code pages, indexed enumeration, native subclass initialization and full coercion/error-class fidelity. Defaults bound each buffer to 16 MiB, total backing capacity to 64 MiB and initialized arrays to 4,096; the ordinary binary-data browser workflow and Restart passed. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified.
+**Limitations:** Vector is bounded to 1,000,000 elements; structural callback/reentrant coercion mutation, RETURNINDEXEDARRAY and subclassing diagnose. Dictionary bounds 100,000 live entry records and 1,000,000 UTF-16 primitive key units; weak collection timing and historical enumeration/coercion remain unverified. Native/display hidden-storage enumeration is separate. ByteArray excludes AMF, compression, other code pages, indexed enumeration, native subclass initialization and full coercion/error-class fidelity. Defaults bound each buffer to 16 MiB, total backing capacity to 64 MiB and initialized arrays to 4,096; the ordinary binary-data browser workflow and Restart passed. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Independent 6396fd0 evidence (TYPED-COLLECTIONS-HTML5-20261027T0525Z) is restricted to the Item/InventoryCard Vector and strong Dictionary inventory→scene→JSON workflow, specific fixed/bounds/type rejection observations, key controls, recycled listener identity and Restart in VERIFICATION.md. Weak GC, native enumeration, general mutation/order/reentry, other specializations and Dictionary serialization do not inherit the pass.
 
 **Evidence:** [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md), [docs/ROADMAP.md](../../docs/ROADMAP.md), [web/byte-array.js](../../web/byte-array.js), [crates/neoflash-script/src/actionscript/project.rs](../../crates/neoflash-script/src/actionscript/project.rs), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [crates/neoflash-script/tests/binary-data.mjs](../../crates/neoflash-script/tests/binary-data.mjs), [examples/binary-data.nflash](../../examples/binary-data.nflash), [docs/VERIFICATION.md](../../docs/VERIFICATION.md), [docs/progress/actionscript-audit.json](../../docs/progress/actionscript-audit.json), [crates/neoflash-script/src/actionscript/vectors.js](../../crates/neoflash-script/src/actionscript/vectors.js), [crates/neoflash-script/src/actionscript/dictionary.js](../../crates/neoflash-script/src/actionscript/dictionary.js), [crates/neoflash-script/src/actionscript/containers.js](../../crates/neoflash-script/src/actionscript/containers.js), [crates/neoflash-script/tests/typed-collections.mjs](../../crates/neoflash-script/tests/typed-collections.mjs), [examples/typed-collections.nflash](../../examples/typed-collections.nflash)
 

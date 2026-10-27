@@ -44,12 +44,16 @@ var copy = labels.concat(["end"]);
 var reversed = copy.reverse();
 records.sort = function(flags) { return "custom:" + flags; };
 var custom = records.sort(Array.NUMERIC);
+function localXML(XML,XMLNode) {return XML("old")+XMLNode("node");}
+var xmlShadow=localXML(function(value){return value;},function(value){return value;});
 var stock={apples:2,pears:3}; var stockTotal=0;
 for(var stockKey:String in stock) stockTotal+=stock[stockKey];
 var hadPears="pears" in stock; var removedPears=delete stock.pears;
 result = labels.join("|");
 trace("AS2", result, "order", order.join(","), "numbers", numeric.join(","));`,
-  as3: `var lines:Array = new Array(3);
+  as3: `function localXML(XML:Function,XMLList:Function):String {return XML("new")+XMLList("list");}
+var xmlShadow:String=localXML(function(value:String):String{return value;},function(value:String):String{return value;});
+var lines:Array = new Array(3);
 lines[0] = "Ada,30"; lines[1] = "zoe,15"; lines[2] = "Bob,20";
 var records:Array = lines.map(function(line:*, index:int, source:Array):Object {
     var parts:Array = line.split(",");
@@ -101,12 +105,12 @@ export const collectionsFixtures = [
       assert.equal(c.preview[0].name,'Ada'); assert.equal(c.unchanged,'Ada'); assert.deepEqual(c.order,[1,0,2]);
       assert.deepEqual(c.numeric,[2,11,30]); assert.equal(c.unique,0); assert.deepEqual(c.duplicate,['echo','echo']);
       assert.equal(c.reversed,c.copy); assert.equal(c.custom,'custom:16');
-      assert.equal(c.stockTotal,5);assert.equal(c.hadPears,true);assert.equal(c.removedPears,true);assert.equal(Object.hasOwn(c.stock,'pears'),false);
+      assert.equal(c.xmlShadow,'oldnode');assert.equal(c.stockTotal,5);assert.equal(c.hadPears,true);assert.equal(c.removedPears,true);assert.equal(Object.hasOwn(c.stock,'pears'),false);
       assert.deepEqual(logs,[['AS2','Zoe:45|Ada:30|Bob:20','order','1,0,2','numbers','2,11,30']]);
     } },
   { language:'action_script3', profile:collectionsProfile, source:collectionSources.as3, context:{},
     verify(c, logs) {
-      assert.equal(c.result,'Zoe:45|Ada:30|Bob:20'); assert.equal(c.records.length,4); assert.equal(c.selected.length,3);
+      assert.equal(c.xmlShadow,'newlist');assert.equal(c.result,'Zoe:45|Ada:30|Bob:20'); assert.equal(c.records.length,4); assert.equal(c.selected.length,3);
       assert.equal(c.unchanged,'Ada'); assert.deepEqual(c.order,[1,0,2]); assert.equal(c.total,95);
       assert.equal(c.eachResult,undefined); assert.equal(c.all,true); assert.equal(c.any,true);
       assert.equal(c.first,1); assert.equal(c.last,2); assert.deepEqual(c.numeric,[2,11,30]); assert.equal(c.unique,0);

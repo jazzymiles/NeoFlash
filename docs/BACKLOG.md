@@ -1,6 +1,8 @@
 # Backlog
 
-Independent 852c8b7 acceptance (`TRANSFORMS-HTML5-20261027T0502Z`) confirms bounded affine/skew and world-pose preservation, independent tint views, parent-alpha pixels/hits, copy ownership and Restart. Canonical AS2 ColorTransform.rgb remains missing: a reproduced silent custom-field write leaves tint unchanged while the adjacent `.color` control works (P1 TRANSFORM-AS2-RGB-001). Exact rendering/accessibility and native editing are not inferred. See [the independent record](VERIFICATION.md#independent-transform-verification-of-852c8b7). Vector/Dictionary/iteration is already in development and requires its own delivery evidence.
+Independent 6396fd0 acceptance (`TYPED-COLLECTIONS-HTML5-20261027T0525Z`) confirms a class-specialized Vector/Dictionary inventory→scene→JSON workflow, real recycled-card identity/listeners, bounded fixed/bounds/type refusals, strong object/primitive key controls, AS2 plain-record enumeration and Restart. Weak GC, arbitrary mutation/order/reentry and native enumeration are not inferred. See [the independent record](VERIFICATION.md#independent-typed-collection-verification-of-6396fd0). The separate XML/XMLList delivery now has a combined HTML5 workflow; it inherits no independent declaration acceptance from this earlier audit.
+
+Independent 852c8b7 acceptance (`TRANSFORMS-HTML5-20261027T0502Z`) confirms bounded affine/skew and world-pose preservation, independent tint views, parent-alpha pixels/hits, copy ownership and Restart. Canonical AS2 ColorTransform.rgb remains missing: a reproduced silent custom-field write leaves tint unchanged while the adjacent `.color` control works (P1 TRANSFORM-AS2-RGB-001). Exact rendering/accessibility and native editing are not inferred. See [the independent record](VERIFICATION.md#independent-transform-verification-of-852c8b7). The later 6396fd0 typed collection family has a separate independent record.
 
 Independent 7ed1605 acceptance (`DATA-HTML5-20261027T0452Z`) confirms a resource-driven AS3 JSON/RegExp/String report, public getter serialization, adjacent safe diagnostics, AS2/AS3 numeric UTC dates across selected boundaries and Restart. Nine AS3 timestamps match a Python UTC oracle. Exact declarations remain partial; locale/DST/parsing, full PCRE and general JSON class/coercion semantics are not inferred. See [the independent record](VERIFICATION.md#independent-data-processing-verification-of-7ed1605). Transform/ColorTransform now has a separate [main-delivery record](VERIFICATION.md#runtime-transform-and-colortransform-batch); independent declaration acceptance remains separate.
 
@@ -132,3 +134,7 @@ Still open: broader owner-aware unsupported API diagnostics (including TextField
 - Native macOS menus/document integration, shortcuts, accessibility tree, IME, trackpad conventions.
 - Localization, advanced workspace layouts, performance profiling and extension API.
 - Signed/notarized releases, Intel build verification, browser support matrix and updater policy.
+
+## XML data family
+
+Shared bounded parsing, AS2 XML/XMLNode DOM and AS3 XML/XMLList traversal/mutation/serialization are one delivery. Reuse existing loader transport and one combined catalog workflow. Follow-ups include E4X literals/interpolation, attribute/descendant/filter/namespace syntax, QName/Namespace mutation, implicit list targets, XML equality/addition and complete historical parser/coercion behavior. See [the decision](decisions/0020-xml-tree-and-language-facades.md).

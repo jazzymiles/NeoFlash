@@ -6,6 +6,15 @@ use neoflash_core::{
 use neoflash_core::{TextError, TextFieldState, TextPatch, layout_text};
 use wasm_bindgen::prelude::*;
 
+/// Pure, bounded XML fragment parsing. No Player borrow or host callback occurs.
+#[wasm_bindgen]
+pub fn parse_xml_json(source: &str) -> String {
+    match neoflash_core::parse_xml(source) {
+        Ok(tree) => serde_json::json!({ "ok": tree }).to_string(),
+        Err(error) => serde_json::json!({ "error": error }).to_string(),
+    }
+}
+
 #[wasm_bindgen]
 pub struct WebPlayer {
     project: Project,

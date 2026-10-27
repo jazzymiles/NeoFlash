@@ -45,8 +45,9 @@ export const intrinsicFixtures = [
     assert.equal(c.before, dialect === 'as2' ? 'RS' : 'SR');
     assert.equal(c.after, dialect === 'as2' ? 'R' : 'SR');
   })),
-  fixture('as3', 'var n:Number=7.31343; var integer:int=4; var unsigned:uint=4294967295; values=[n.toFixed(3),integer.toFixed(2),unsigned.toFixed(0),n.toFixed(),n.toFixed(undefined),n.toFixed(2.9),n.toFixed(NaN),n.toFixed(Infinity),n.toFixed(4294967296),(-0).toFixed(2),NaN.toFixed(2),Infinity.toFixed(2),(-Infinity).toFixed(2),(1.25).toFixed(1),(1e21).toFixed(2)];', c => {
+  fixture('as3', 'var n:Number=7.31343; var integer:int=4; var unsigned:uint=4294967295; values=[n.toFixed(3),integer.toFixed(2),unsigned.toFixed(0),n.toFixed(),n.toFixed(undefined),n.toFixed(2.9),n.toFixed(NaN),n.toFixed(Infinity),n.toFixed(4294967296),(-0).toFixed(2),NaN.toFixed(2),Infinity.toFixed(2),(-Infinity).toFixed(2),(1.25).toFixed(1),(1e21).toFixed(2)]; casts=[int(),uint(),int("4.9"),uint(-1),int(NaN),uint(Infinity),int(-3.9),uint(4294967297)];var castReads:int=0;var castValue={valueOf:function():Number{castReads++;return 4294967295;}};castOnce=int(castValue);function capturedInt(Number:Object):int{return int("12.8");}capturedCast=capturedInt({});function localCast(int:Function,uint:Function):String{return int("x")+uint("y");}shadowCast=localCast(function(value:String):String{return "i"+value;},function(value:String):String{return "u"+value;});', c => {
     assert.deepEqual(c.values, ['7.313','4.00','4294967295','7','7','7.31','7','7','7','0.00','NaN','Infinity','-Infinity','1.3','1000000000000000000000.00']);
+    assert.deepEqual(c.casts,[0,0,4,4294967295,0,0,-3,1]);assert.equal(c.castReads,1);assert.equal(c.castOnce,-1);assert.equal(c.capturedCast,12);assert.equal(c.shadowCast,'ixuy');
   }),
   fixture('as3', 'var values=[]; var numbers=[1,NaN,Infinity,-Infinity]; var digits=[-1,21,4294967295]; for(var i:int=0;i<4;i++){for(var j:int=0;j<3;j++){try{numbers[i].toFixed(digits[j]);values.push("bad");}catch(e:RangeError){values.push(e.errorID);}}} boundary=(1).toFixed(20);', c => {
     assert.deepEqual(c.values, Array(12).fill(1002)); assert.equal(c.boundary, '1.00000000000000000000');

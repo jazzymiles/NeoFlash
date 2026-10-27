@@ -13,6 +13,7 @@ mod runtime_graph;
 mod runtime_graphics;
 mod text;
 mod validation;
+mod xml;
 
 pub use clipboard::{
     CLIPBOARD_PREFIX, ClipboardError, ClipboardPayload, MAX_CLIPBOARD_BYTES, PasteResult,
@@ -46,3 +47,8 @@ pub use text::{
     TextLayout, TextLine, TextPatch, TextReplacement, layout_text,
 };
 pub use validation::{ProjectError, ValidationIssue, validate};
+pub use xml::{
+    MAX_XML_ATTRIBUTES, MAX_XML_BYTES, MAX_XML_DEPTH, MAX_XML_ITEMS, MAX_XML_NAME_BYTES,
+    MAX_XML_STRING_BYTES, XmlAttribute, XmlDeclaration, XmlErrorKind, XmlName, XmlNode,
+    XmlNodeKind, XmlParseError, XmlParseTree, parse_xml,
+};

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "3712f69a0f083cb795180d1cd1e793c2922537f695e21f3a0d5367e7a9ee3673",
+  "catalogSha256": "09da70e4949b96ed61c05e62ea8a95e5e9f29dd57349ebd7ee44897a869597f9",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -83,8 +83,8 @@
       }
     ],
     "inputHashes": {
-      "implementation-audit.json": "13447f8abd3169db68bfb899563abf6fb5dacdfd51bf9360a7dc91f62cb23bed",
-      "implementation-evidence.json": "27a256dfd509986373f64d4b1a5093915c57220df34a80c232c4a6e29e766020",
+      "implementation-audit.json": "7929985f5bc96b871c678c45f8d122e79d94544e15acdef466b722d6233ebe5b",
+      "implementation-evidence.json": "afdf47c7389b907b34a1b947c06594a452b981f482ecc20388d5965220a61590",
       "as2.json": "160442a3ef962733440d4b187096b816398d5c4bc7fed87209e20bc157bf3791",
       "as2-components.json": "891666b00f6caf7c4bfc250187ab33cc19880715cb69468d8e0370a43a9aac82",
       "as2-components-supplement.json": "f7677e2c3a3e0f8baf899bdb4511de7bb14965bac4956b9de78a22be64eaa802",
@@ -401,30 +401,42 @@
         "originalFlashComparison": "documented_only",
         "decision": "accepted_bounded_affine_color_and_lifecycle_profile_with_targeted_as2_rgb_gap",
         "currentSourceVerified": false
+      },
+      {
+        "id": "TYPED-COLLECTIONS-HTML5-20261027T0525Z",
+        "recordedHead": "6396fd07b94a713a76f136c41b8de1045f28c2d3",
+        "sourceCapturedAt": "2026-10-27T05:27:23.917534+00:00",
+        "verifiedAt": "2026-10-27T05:31:28.884554+00:00",
+        "sourceManifestSha256": "3a97b23823483a96302ed6b1444da0e329e8d59902160aafe2b5ebe5653c799f",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified; no other engine tested.",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_bounded_typed_inventory_identity_iteration_and_json_workflow",
+        "currentSourceVerified": false
       }
     ]
   },
   "summary": {
     "total": {
       "implemented_subset": 30,
-      "partial": 687,
-      "missing": 44984,
-      "needs_review": 346,
+      "partial": 698,
+      "missing": 44978,
+      "needs_review": 341,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
         "implemented_subset": 15,
-        "partial": 280,
-        "missing": 1903,
+        "partial": 281,
+        "missing": 1902,
         "needs_review": 109,
         "total": 2307
       },
       "AS3": {
         "implemented_subset": 15,
-        "partial": 407,
-        "missing": 43081,
-        "needs_review": 237,
+        "partial": 417,
+        "missing": 43076,
+        "needs_review": 232,
         "total": 43740
       }
     },
@@ -438,9 +450,9 @@
       },
       "core": {
         "implemented_subset": 0,
-        "partial": 214,
+        "partial": 219,
         "missing": 26,
-        "needs_review": 281,
+        "needs_review": 276,
         "total": 521
       },
       "framework": {
@@ -452,8 +464,8 @@
       },
       "language": {
         "implemented_subset": 28,
-        "partial": 154,
-        "missing": 65,
+        "partial": 159,
+        "missing": 60,
         "needs_review": 62,
         "total": 309
       },
@@ -466,8 +478,8 @@
       },
       "runtime": {
         "implemented_subset": 2,
-        "partial": 319,
-        "missing": 5834,
+        "partial": 320,
+        "missing": 5833,
         "needs_review": 3,
         "total": 6158
       }
@@ -497,8 +509,8 @@
         },
         "language": {
           "implemented_subset": 14,
-          "partial": 80,
-          "missing": 32,
+          "partial": 81,
+          "missing": 31,
           "needs_review": 59,
           "total": 185
         },
@@ -527,9 +539,9 @@
         },
         "core": {
           "implemented_subset": 0,
-          "partial": 128,
+          "partial": 133,
           "missing": 15,
-          "needs_review": 233,
+          "needs_review": 228,
           "total": 376
         },
         "framework": {
@@ -541,8 +553,8 @@
         },
         "language": {
           "implemented_subset": 14,
-          "partial": 74,
-          "missing": 33,
+          "partial": 78,
+          "missing": 29,
           "needs_review": 3,
           "total": 124
         },
@@ -555,8 +567,8 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 205,
-          "missing": 5043,
+          "partial": 206,
+          "missing": 5042,
           "needs_review": 1,
           "total": 5250
         }
@@ -9288,6 +9300,568 @@
           "status": "partial",
           "evidenceKind": "independent_browser_bounded_profile",
           "scopeNote": "Direct AS2 blueOffset readback is 176 after ineffective canonical rgb assignment and 0 after the noncanonical color positive control, matching visible stripe states. Independent direct blueOffset writes were not exercised."
+        }
+      ]
+    },
+    {
+      "id": "TYPED-COLLECTIONS-HTML5-20261027T0525Z",
+      "title": "Independent HTML5 acceptance: TYPED-COLLECTIONS-HTML5-20261027T0525Z",
+      "reason": "accepted bounded typed inventory identity iteration and json workflow",
+      "limitations": "Vector catalogue IDs are generic declarations; scopes here cover Item/InventoryCard construction, length/index access, push/shift and observed Item fixed/bounds/type refusals only. No blanket promotion of numeric/nested/native specializations, conversions, callback/sort methods, default-fill coercion, size limits or covariance. Dictionary strong-mode object/display identity plus selected1/string1 andnull/stringnull primitive routes were exercised. Weak references/GC timing, functions, NaN/undefined/numeric-key edge cases, default toJSON, arbitrary mutation order and entry/text bounds remain unverified by this browser run. Only observed AS2 record for-in and AS3 Array/Vector/Dictionary loops and membership/deletion paths are accepted. Fixed-trait/default enumeration, inherited properties, prototype changes, native hidden-storage enumeration, reentrant mutation and exact evaluation/coercion order remain incomplete or unverified. The public getter JSON array profile has concrete report output; general JSON callback/deletion/cycle semantics and full historical Flash serialization remain unverified. No class-wide promotion and no diagnostic is implementation of an unsupported path. Only IAB; engine/version not separately identified, original Flash and other engines not run (documented_only). Native Sources/D-008 and unsaved-document-dependent UI remain pending; document untouched. Direct file URL refusal not retried. TRANSFORM-AS2-RGB-001 and RESOURCE-FIXTURE-INPUT-001 were not retested or closed. The shared Transform control uses its original noncanonical .color path; this cannot establish rgb support. Main has already started AS2 XML and AS3 XML/XMLList loading/traversal/serialization; later XML sources inherit no pass from this frozen typed-collections delivery.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/Cargo.toml",
+          "sha256": "9fab752decd25b433f07b1ba01a8eb89695146ba08c73261dadddc706f7dcdfe"
+        },
+        {
+          "path": "crates/neoflash-core/src/clipboard.rs",
+          "sha256": "45ca958aa45830f8c10ffa45c629c9f625895b90f01c041343853e8140f28c60"
+        },
+        {
+          "path": "crates/neoflash-core/src/demo.rs",
+          "sha256": "0a714dc68bc8bea957b3352f17665d0e690ab77eb41a6cd2478fd4571301a591"
+        },
+        {
+          "path": "crates/neoflash-core/src/evaluate.rs",
+          "sha256": "f55ef83dfab9285910d00f0b99f22025ed6e58d811c3980d5a393c9e3ae262ef"
+        },
+        {
+          "path": "crates/neoflash-core/src/geometry.rs",
+          "sha256": "94b9531d20975840a8a9c998832f090fee17cfa66c5dbe78c12a30b0a527b2f8"
+        },
+        {
+          "path": "crates/neoflash-core/src/history.rs",
+          "sha256": "662c5cd0855fa1cccccac432fb374a7f86db680ed476559c92fbe324fff88441"
+        },
+        {
+          "path": "crates/neoflash-core/src/lib.rs",
+          "sha256": "dd56389504ed02df34b60edbbceae5c23868bd1a30b1ed4a37fe3ceb4277089e"
+        },
+        {
+          "path": "crates/neoflash-core/src/model.rs",
+          "sha256": "aec122d2c3ed1a2276efbeefdd7e3a0af3fd12313a095467ddc830aab569126a"
+        },
+        {
+          "path": "crates/neoflash-core/src/pixels.rs",
+          "sha256": "e7f6711ba01d1bf82242b1c864a5d5dabb45f0d02382eb20005e1baa78214023"
+        },
+        {
+          "path": "crates/neoflash-core/src/resource_image.rs",
+          "sha256": "3bf07d0887a64385b4ff15f63c35af4363b9b501ebb3709ab2f74d0b988cfac7"
+        },
+        {
+          "path": "crates/neoflash-core/src/resources.rs",
+          "sha256": "51964faf7747aa135a001f9939cd304edad394e3e05c12bec14ab51569a2924a"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime.rs",
+          "sha256": "539df38b83ed259d24ff70253f2dc1f364af6909466344910fed9b3ef70a4278"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph.rs",
+          "sha256": "99dfe9a722208359355bceb54d5900982926f137cb026e9dcdf8201d987eb628"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/bitmap.rs",
+          "sha256": "35b6bb35e31d742131a12c87bae681eb849e634630330024fecf1f2f55f41426"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/linked.rs",
+          "sha256": "7cf01162afc0331605c8b8e515b68ec4fb467f039bf975b10e62e8c38809422a"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/text.rs",
+          "sha256": "59f192b419d0d7505c2bbc2c3b4721023a9b1a714f65a7bc200f03706311af60"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/transform.rs",
+          "sha256": "58acbec3e79f3cf2953196f1649386f0e8fe69606744d2c23f27cb4f8b17c45a"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graphics.rs",
+          "sha256": "96cb776dc5c22f00030b855185ddf8de5568fafc3547d44aeb416ac829d54057"
+        },
+        {
+          "path": "crates/neoflash-core/src/text.rs",
+          "sha256": "572824f401708d594da1633fb0526f4f9e0edaf52f8a1675ca35edb686143914"
+        },
+        {
+          "path": "crates/neoflash-core/src/validation.rs",
+          "sha256": "2f403522cec6921b434292ea6feb4546d331dd8c9318935dd0e47752ae58fc65"
+        },
+        {
+          "path": "crates/neoflash-editor/Cargo.toml",
+          "sha256": "8549dc2d0d3b59abd1336bb322e2ca39e4198372b5f5cdf3ace861521e8741d9"
+        },
+        {
+          "path": "crates/neoflash-editor/src/accessibility.rs",
+          "sha256": "7b02f21d880283cdf480a6c0579f732abf19fbe317917e4e18faf9b11d069369"
+        },
+        {
+          "path": "crates/neoflash-editor/src/app.rs",
+          "sha256": "dd371a8302b2e539bfd36b8c46fd96959268a02ee5b647230cd6efe60b7f8749"
+        },
+        {
+          "path": "crates/neoflash-editor/src/bitmaps.rs",
+          "sha256": "ec7d1385f4e8e74fb32ab7d23d484dbecff848d1951d6f4f0acceff7b98ac32d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard.rs",
+          "sha256": "e3ffc6db4a9567d2de9194bfbc8a4715e3ddb0b206dc593002cce2ec9eb169fe"
+        },
+        {
+          "path": "crates/neoflash-editor/src/clipboard_tests.rs",
+          "sha256": "cd47a143e3954f0b664aa57df66d31175977a269f000a088ab7d136b854704ae"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached.rs",
+          "sha256": "4857ae64827f7818f7f159fff43b3e14a6ff784bcd0148d161a25e7765e59b3d"
+        },
+        {
+          "path": "crates/neoflash-editor/src/detached_tests.rs",
+          "sha256": "e66b38262cd5cf6d0a1f64887b19ba86950233cc6fd77c16a977bcba16f14ceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/fonts.rs",
+          "sha256": "59e6bf607f4a074add517fe5fa1e29a09b65b8a51331ac6d5467e98e6064b988"
+        },
+        {
+          "path": "crates/neoflash-editor/src/main.rs",
+          "sha256": "a28169289b6e566c56f4d4c862a234724bf1d0d1fb1e476f34598f81dd2521ea"
+        },
+        {
+          "path": "crates/neoflash-editor/src/native_screens.rs",
+          "sha256": "b3eb6e6612dfd09c9ddfb206b82c3039343730bcf616c380cbee383b92664440"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panel_tests.rs",
+          "sha256": "1f30578675e958423af68ba50fc07ca5cc466f91f5f0a7fee9a56f65ee98dd11"
+        },
+        {
+          "path": "crates/neoflash-editor/src/panels.rs",
+          "sha256": "3e773a37870cc6703474689b72dc09f541c8c4579ef6cb022a0b4543f9281c75"
+        },
+        {
+          "path": "crates/neoflash-editor/src/resources.rs",
+          "sha256": "8c1aad47de4850fd10a110d299970ddad9911e025597f42f9761db6ed123b4d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection.rs",
+          "sha256": "0c1ea7f8306eb81328d80672436993f0c4d270891d6c50ee81d6ef0243626859"
+        },
+        {
+          "path": "crates/neoflash-editor/src/selection_tests.rs",
+          "sha256": "5f0dd0cfcf2243aef8e82d4e7fbaba0f0fcae365abf86e5535b01ae112b8e080"
+        },
+        {
+          "path": "crates/neoflash-editor/src/sources.rs",
+          "sha256": "a41612c805421a92f4a49af70475dc7822d605d2060bc335ce1704a2b95a3ec9"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage.rs",
+          "sha256": "b0230a81f243ad51befdb9d23526f1aa295e05c5740af9e2121826a745504336"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_primitives.rs",
+          "sha256": "fe940d6123cb492a4c6a6a9e135b51da023fe4c47193a6c3cdc185bd679cfceb"
+        },
+        {
+          "path": "crates/neoflash-editor/src/stage_selection.rs",
+          "sha256": "e7ca9975a795b79e376ad096bc440bc469b17247f66b166c801756e8bcaeed13"
+        },
+        {
+          "path": "crates/neoflash-editor/src/tests.rs",
+          "sha256": "a4b96abeb579c8d59014b974e97d883d8ff9802dfb5baca770340c60405c73d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/text_boxes.rs",
+          "sha256": "026d5cd1f800e39d70fa9a9e07d69d74363ddbc157c17ce35af8c2668cd4dcde"
+        },
+        {
+          "path": "crates/neoflash-editor/src/theme.rs",
+          "sha256": "98c946389cff79af8d415b3bd8a282633d097989e60d8643f2f8125f7f8c4936"
+        },
+        {
+          "path": "crates/neoflash-editor/src/timeline_paint.rs",
+          "sha256": "87a87535956dcfaa686e6222bb56f1953328b00be858a0b522094097759848d3"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_geometry.rs",
+          "sha256": "584f5b1d3d7cc50906d5fe647812678d97333fd8df4a7d31264e0b9f245c971f"
+        },
+        {
+          "path": "crates/neoflash-editor/src/transform_gesture_tests.rs",
+          "sha256": "490e7e0df25c8ad6a7793109076100ea63c54b11d9469542f583b0cf4daf6ed6"
+        },
+        {
+          "path": "crates/neoflash-editor/src/ui_icons.rs",
+          "sha256": "532a69689f893cb6ad5bf82f4106b6472315fa1cea8af335b2d459ac0eaed74e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector.rs",
+          "sha256": "0d3ae90b25ab48e3228149b0b96920b8f1367e86a609f8d2c10176653ae35f1c"
+        },
+        {
+          "path": "crates/neoflash-editor/src/vector_gesture_tests.rs",
+          "sha256": "6f54dd33ea9edf03f1c08383e932cffcc47a26cb2a54e2dfe0d8fed07e84d77e"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace.rs",
+          "sha256": "e5adb69dad73eba07bc70ebed9d7907d837290df1bb80cae44f4fcd64d9f3b45"
+        },
+        {
+          "path": "crates/neoflash-editor/src/workspace_editor_tests.rs",
+          "sha256": "6d26ab3e6be19b91b25fc13f27b9580b9810a8efbcb3892198de060216eb07af"
+        },
+        {
+          "path": "crates/neoflash-export/Cargo.toml",
+          "sha256": "577ab7bd07bb5614f4a0ef2e408b553befaad996024c65916121a52266cd0954"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "f8c33044fb053e412a4dec7cd6e04726f5da931fa230ba0a20835f0c2f7d8389"
+        },
+        {
+          "path": "crates/neoflash-export/src/main.rs",
+          "sha256": "a174e11c87e970fc4ff37cb5966c525dd5435c744715b6ce93b0052c56bf89d8"
+        },
+        {
+          "path": "crates/neoflash-import/Cargo.toml",
+          "sha256": "ae07834a20cc84f4472c253088f5ce17127b137952daad3f066f34eca6ea96cc"
+        },
+        {
+          "path": "crates/neoflash-import/examples/contour_fixture.rs",
+          "sha256": "037f00320374630c556f0e45087b279071260e8de090fac6c81d059c362f3a59"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_binary_corpus.rs",
+          "sha256": "3ea8b650bcd5ced084b3c266f4f5865e2af96b43b3d3075588c6ae1414dea4d1"
+        },
+        {
+          "path": "crates/neoflash-import/examples/inspect_contour_candidates.rs",
+          "sha256": "9e6912139440480d7dee72ac4c6643c3690408f0ea19618df8f4d1276b20fe5e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy.rs",
+          "sha256": "9dfdb5573c5e1f63121cc4e7bc623bf151e55124ba47da8e688de153f65ccafa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents.rs",
+          "sha256": "adde25d4fa8736d8d47acbf215e78b054b9d31345fb80caef65009f2677cbffa"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contents/payload.rs",
+          "sha256": "b0c146ec3f5c56525f7e7c4e7b6a4bb28590e4711445b811766801caf685fedd"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours.rs",
+          "sha256": "f434f77c72359b53b18b42b137763d4d607b38b1f010a407b92f2575e7f7799e"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/contours/certificate.rs",
+          "sha256": "fb4abe54a5984e47a05b1848e92f15adf61c4a35825edf7872e9103f8950caae"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/geometry.rs",
+          "sha256": "15797f76b2ed8a9b165b9f184ab8cf2d9439eefe702dcdc68e019c7ad9a191bf"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/mfc.rs",
+          "sha256": "2b79189ee7105947f7a18732860630e3f677ef82e55b2e91fcbde17959812021"
+        },
+        {
+          "path": "crates/neoflash-import/src/legacy/timeline.rs",
+          "sha256": "7d5f4e1c0b44f6cc4e39628ed8f3724a99b81957394a0d8d07923ffd89f41f3a"
+        },
+        {
+          "path": "crates/neoflash-import/src/lib.rs",
+          "sha256": "3c54d4afecd01fde3e8f5db2bd9b42b0b0c5371be70d90ccc525027e2de53b8b"
+        },
+        {
+          "path": "crates/neoflash-import/src/main.rs",
+          "sha256": "2710f27ef30f4e62afb44537e56da44844aed04d4e8a864ccbda6edd75d4c2cc"
+        },
+        {
+          "path": "crates/neoflash-import/src/source.rs",
+          "sha256": "25662f5fd70d4e2cdafaf59518301dc8875fcf2f2e0636fd05e440823be5e9de"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl.rs",
+          "sha256": "17654ef592571a342b70eece359bb55e94a3281ac42baf8163dca72011706744"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/publish.rs",
+          "sha256": "0a631fa1a3c6b9c186eb76aef5115775b72b86e0d88462f3ea5028ee28b14c89"
+        },
+        {
+          "path": "crates/neoflash-import/src/xfl/shape.rs",
+          "sha256": "2303fb011b22b32d56fccfe0505653af76057983da39540098b84be37abce1a5"
+        },
+        {
+          "path": "crates/neoflash-script/Cargo.toml",
+          "sha256": "2923af027d33f803b1fb9e876f0793be299b666fd437b22c81b70d7e15122b57"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_batch.rs",
+          "sha256": "c428fa1a84b3649229d9b8a6b33b3fa08ac274dd07679ca61de666b9bc069436"
+        },
+        {
+          "path": "crates/neoflash-script/examples/compile_project.rs",
+          "sha256": "e7d780759bb4e62704d56c55e0d8e76c2ed9f5ae4a35f82e286aaea98a7c0ac6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "69ad888b10c5292bab81d60adce1ee472f8efa0a8e1affefb66fca1095c0ef44"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/collections.js",
+          "sha256": "63d55193c51b297e35970684a20cf31d8608956aa1f87210af778f67c0ab8cd0"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/completion.rs",
+          "sha256": "cbc6f6492a8d998193e5c4e1166c17b7df02211ae15f77d9f96c249ece6f7dea"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/containers.js",
+          "sha256": "9890f6596da839debcb0ec64822d0f24a715d924c35be640d6e67092c2ce4fa8"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/control_tests.rs",
+          "sha256": "8140781933d7fc58b0d4dd766927df34ec9b9bed4cf8ac50dd3384c099c6de3d"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/dates.js",
+          "sha256": "d8e821a7e50e822b6af1a16e3d5462a25bba8f345dd1dec5490fe0f573ae5024"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/dictionary.js",
+          "sha256": "f218db23553d32593ed4bced084bb466c0644ff3719702ce9391ddfb613e3034"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/exceptions.js",
+          "sha256": "534534a37d9d0c48b1898847615e0581b20661341d24ded64ed355785e8e366e"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/intrinsics.js",
+          "sha256": "65528ea334627dc829097e59627647382ffe716b39acb77e15c8bcbef68ebdb4"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/json.js",
+          "sha256": "f1d574087cb0c3174d63965bd35653d1add7da0b4462ae9950e37b39ae1b79c6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "90b32c3c250eedfe979845ac14bb558b6cf8bc8d272937b5c2830f1ad23072bd"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "8c26090758b60334c4646741e0fe3e892a96882b7c30cd7ad3e65b334ae7199a"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/regexp.js",
+          "sha256": "2c0ed0066bd2894a6f78afce18ea718271d38d8b169fd728fee676b04dee9b07"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "c0e53721111b37c24419c0c82a1de0670b02087daa863040f61d1ec4308c651d"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/strings.js",
+          "sha256": "11e60ba1f8e3204cab0b44a57089f70eb1fb022d94f55cc63300cf96e9a296e8"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/vectors.js",
+          "sha256": "b0eda4b41827889d9e676f4161b8c7bdb3cccd7724bebf42f84fa0502b7c93d1"
+        },
+        {
+          "path": "crates/neoflash-script/src/lib.rs",
+          "sha256": "3b7e634f008786775f3e8dd40dca84868b92e8af3e96f633ef28de5aa4464ec3"
+        },
+        {
+          "path": "crates/neoflash-web/Cargo.toml",
+          "sha256": "7658ff86ac02627a03ea66fe5c7c288333ff7c4d13e456b444e3b01fb0ea23f5"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "53c27fd89e61082b12a2a017d548e73a11ef2d5d289ba0778822a0090dff54ba"
+        },
+        {
+          "path": "web/accessibility.js",
+          "sha256": "2ebfaf92e8b9a28525c9af842a80e7dc8c9451e9c39b2701f746f27270b4fce5"
+        },
+        {
+          "path": "web/audio-formats.js",
+          "sha256": "91d325e5508967d057b697cedc37090058b09f1f34a71c603a1f6a11bb9d3443"
+        },
+        {
+          "path": "web/audio.js",
+          "sha256": "0fdcec0a321ca69419f825a9512cfb57c92fb6a3c671f83fad70b59b64e0c63c"
+        },
+        {
+          "path": "web/bitmap.js",
+          "sha256": "2ff3af2ff0f2b7abac7c2d9411f6847eacc415f403bfea0981e25976e922fb13"
+        },
+        {
+          "path": "web/byte-array.js",
+          "sha256": "3510f8acf4a79b13e8bb69ec6ccd14bd7317ce47cfcc27a38fd7993e47615b8a"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "676df766fdd9729e1624ff65e4b4ce38cc4c3850c1aa125c7c8d7e2213cc8146"
+        },
+        {
+          "path": "web/events.js",
+          "sha256": "e1bd25a1637d20dc99705648b209ed2e2b936d1ac9c0331a964046e42daf43f0"
+        },
+        {
+          "path": "web/geom.js",
+          "sha256": "2aa4ec042d7ea8fa8a8b0f8519e23eca1ea722960f4bb43496ac814ddd1de2b6"
+        },
+        {
+          "path": "web/legacy-input.js",
+          "sha256": "14ac0086abbbb5b1de591ea5ae35fafdce9f65f101b6e942871c62dc9c7b4c35"
+        },
+        {
+          "path": "web/net.js",
+          "sha256": "69481d42950084aaee22ae0f26382cdc322f6277072b703c1ed5c5f24f03c8a6"
+        },
+        {
+          "path": "web/path.js",
+          "sha256": "9286174f715ef1d1d37303aa010148a9fc593abfc2ee304599f6a2cd56f69da9"
+        },
+        {
+          "path": "web/preview.js",
+          "sha256": "1278996d0f1c0a7efe974919a8c496bbefebd5a0b5707926de03a708f4ca51fa"
+        },
+        {
+          "path": "web/progress/app.js",
+          "sha256": "b5f78ad52e27e498e0020ae33f59e4e545ed2d83c4f4abe8f9c3bd8fbc098780"
+        },
+        {
+          "path": "web/progress/history.html",
+          "sha256": "612e7564f63569bc8ee5497a91c14666c813653b6b348837506dd91cd0ba43e2"
+        },
+        {
+          "path": "web/progress/index.html",
+          "sha256": "5bcbd13e811e7a0ce201d7460ea6e3aaa60c73c2f00073d06c5baf9b01b527ef"
+        },
+        {
+          "path": "web/progress/style.css",
+          "sha256": "078133fc916b8e2714e0a178c67bffadb99c11799c3af0250a4d3a911cb9d235"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "78d5170edb3778fe3d1eae4dc9265c3b0ca3414e49ed73f0980f0177f818a4b7"
+        },
+        {
+          "path": "web/stage.js",
+          "sha256": "22a028eb5580e04276a6fb63e042f8094fa5d77ba00d91b6629017d52f981dd4"
+        },
+        {
+          "path": "web/text.js",
+          "sha256": "e876ae0d6ca8b4eca2c6b65417d488c99e801125c7ce0869397b110b2ac9a716"
+        },
+        {
+          "path": "web/timers.js",
+          "sha256": "d42569c79bcda28ffd1b3712facb73e45e78e3b7dc22a1f194527781c9cdb9b1"
+        }
+      ],
+      "verification": {
+        "id": "TYPED-COLLECTIONS-HTML5-20261027T0525Z",
+        "recordedHead": "6396fd07b94a713a76f136c41b8de1045f28c2d3",
+        "sourceCapturedAt": "2026-10-27T05:27:23.917534+00:00",
+        "verifiedAt": "2026-10-27T05:31:28.884554+00:00",
+        "sourceManifestSha256": "3a97b23823483a96302ed6b1444da0e329e8d59902160aafe2b5ebe5653c799f",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified; no other engine tested.",
+        "originalFlashComparison": "documented_only",
+        "decision": "accepted_bounded_typed_inventory_identity_iteration_and_json_workflow",
+        "currentSourceVerified": false
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:constructor:Vector.html#Vector()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual no-argument Vector.<app.Item> and Vector.<app.InventoryCard> construction supplies the visible three-model/card inventory before and after Restart. This uses the generic reference declaration with explicit specialization scope; primitive/nested Vector types, constructor length/default values and conversion function remain unverified."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#push()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual Item and InventoryCard pushes build and rotate the inventory with correct displayed order, models and linked-card identity. On Vector.<Item>, fixed push raises RangeError, and multi-argument push(first,cards[0]) raises TypeError with length/first identity unchanged; the full subsequent JSON report retains original 4/6/3 inventory before the positive batch workflow succeeds. No other specializations or exhaustive transactional/coercion behavior are implied."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#shift()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual shifts remove the first Item and InventoryCard, followed by appending a new model and the same card. Reports show [PAPER,FILM,RESTOCK-1] then [FILM,RESTOCK-1,RESTOCK-2]; identity traces remain true and the recycled card retains its real click counter/listener while constructor count stays three. Empty/fixed-vector shift semantics and other types are unverified."
+        },
+        {
+          "catalogId": "AS3:property:Vector.html#length",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual Item and InventoryCard lengths remain three across construction, shifts/pushes, rejected mutation probes and Restart, matching three rendered rows and identity keys. No explicit length assignment, default growth or other specialization claim."
+        },
+        {
+          "catalogId": "AS3:property:Vector.html#fixed",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Direct Vector.<Item>.fixed=true is read as true; push is rejected with RangeError and length/first identity unchanged. After fixed=false, ordinary pushes and batch updates succeed. This is the observed fixed flag route only; constructor fixed mode and other length-changing operations are not inferred."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/utils/Dictionary.html#Dictionary()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Default strong Dictionary indexes three linked InventoryCard identities across remove/reinsert reuse. A second default Dictionary preserves two equal-content object identities while 1/\"1\" and null/\"null\" share primitive-name slots, yielding four keys. Weak-key GC, other primitive coercions and native subclassing remain unverified."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#in",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual Dictionary membership is false after deleting a recycled card key and each visible update resolves the reinserted identity. In the adjacent control, deleting object a makes a in keys false while b remains true with value beta. Scope is observed Dictionary object membership, not all objects or XML."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#delete",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual deletion removes the selected Dictionary object identity while retaining the other equal-content object key; the inventory records released=true before reusing the same card key. Vector/trait/XML deletion and the delete expression return value were not tested."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#array_access",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual indexing preserves Vector Item/InventoryCard identity and Dictionary linked-object keys; four identity checks are true in each of five inventory states. Vector access at length raises RangeError without length change; the adjacent Dictionary preserves object-key separation and primitive 1/\"1\", null/\"null\" collisions. Broader coercion/key/specialization behavior is unverified."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#for..in",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual Dictionary iteration binds all three original object keys to the correct visible cards/models through batches 0/1/2/0/1. Temporary mixed object/primitive-key iteration counts four slots before deletion. Historical hash order, mutation during iteration and weak-key collection are not claimed."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#for_each..in",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual iteration over parsed Array records constructs three typed models, and Item-vector value iteration increments quantities and totals. Observed totals are 13/16/17/13/16, with expected full JSON item order and quantities. Structural mutation during iteration and other containers remain unverified."
+        },
+        {
+          "catalogId": "as2:statements.html#for..in",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Independent AS2 plain stock-record key iteration sums ink4/paper6/film3 to visible and traced quantity13, including after Restart. This does not imply AS2 Dictionary, Vector or for-each."
+        },
+        {
+          "catalogId": "as2:operators.html#array_access",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual AS2 string-key reads legacyStock[stockKey] produce the independent visible/traced stock total13 before and after Restart. Object-identity keys and wider coercion behavior are unverified in AS2."
+        },
+        {
+          "catalogId": "AS3:method:JSON.html#stringify()",
+          "status": "partial",
+          "evidenceKind": "independent_browser_bounded_profile",
+          "scopeNote": "Actual Vector.<Item> serialization with indentation produces an array preserving each public sku/label/quantity and stockLabel getter. All five saved JSON reports match expected order and quantities through 0/1/2/0/1, including intact original content after caught Vector diagnostics. No Dictionary serialization or other Vector specialization claim."
         }
       ]
     },

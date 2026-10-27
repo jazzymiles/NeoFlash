@@ -387,11 +387,13 @@ impl<'a> Analysis<'a> {
             }
         }
         match expr {
+            Expr::Name(name) if !direct_callee && self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3) && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"Native int/uint values are currently supported through direct conversion calls; class values and constructor aliases are outside this profile.")),
             Expr::Delete(target,offset) if !matches!(target.as_ref(),Expr::Member(_,_)|Expr::Index(_,_)) => return Err(self.error(*offset,"delete requires a property or indexed element.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "Vector"|"Dictionary") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,format!("{name} is an AS3 native collection; AS2 user bindings/classes may use that name, but the native family is unavailable."))),
             Expr::Name(name) if name=="Vector" && self.context.intrinsic_type(name,self.script.language==ScriptLanguage::ActionScript3) && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"Vector requires a resolved element type: Vector.<T>. Untyped native Vector class values are unsupported.")),
             Expr::TypeValue(_,offset) | Expr::NewVector(_,_,offset) if self.resolve(scope,"Vector").is_some() => return Err(self.error(*offset,"A shadowed Vector value cannot act as the native generic class; use an unshadowed type name.")),
-            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "RegExp" | "JSON") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset, format!("{name} is an AS3 native family; AS2 has no native {name} in this profile. A declared user binding/class with that name is supported."))),
+            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript3 && name=="XMLNode" && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"Bare XMLNode belongs to the AS2 legacy DOM profile. AS3 XML/XMLList are supported; flash.xml legacy aliases are not integrated yet.")),
+            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "RegExp" | "JSON" | "XMLList") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset, format!("{name} is an AS3 native family; AS2 has no native {name} in this profile. A declared user binding/class with that name is supported."))),
             Expr::TypeTest(_, _, name, offset) if self.resolve(scope,name.split('.').next().unwrap()).is_some() => return Err(self.error(*offset, "is/as requires a resolved type name; a shadowed value or dynamic class alias is outside this profile.")),
             Expr::NewBuiltin(name, _, offset) if matches!(name.as_str(), "RegExp" | "JSON") && self.script.language == ScriptLanguage::ActionScript2 => return Err(self.error(*offset, format!("{name} is an AS3 native family, not an AS2 constructor."))),
             Expr::NewBuiltin(name, _, offset) if name == "JSON" => return Err(self.error(*offset, "JSON supplies parse/stringify static functions and is not constructible.")),
@@ -436,6 +438,9 @@ impl<'a> Analysis<'a> {
                     && binding.is_some_and(|(_,b)| b.ty.as_deref().is_some_and(|t|matches!(t,"Number"|"String"|"Boolean"|"int"|"uint"))) {
                     return Err(self.error(*offset,"An AS3 primitive binding cannot be called as a function."));
                 }
+                if binding.is_none() && matches!(callee.as_ref(),Expr::Name(name) if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)) && args.len()>1 {
+                    return Err(self.error(*offset,"int/uint conversions currently accept zero or one argument; excess-argument semantics are outside this profile."));
+                }
                 let user_binding=binding.is_some_and(|(_,b)| self.script.language==ScriptLanguage::ActionScript2 || !b.ty.as_deref().is_some_and(|t|matches!(t,"Number"|"String"|"Boolean"|"int"|"uint")));
                 let shadowed_math=matches!(callee.as_ref(),Expr::Member(base,_) if matches!(base.as_ref(),Expr::Name(name) if name=="Math" && self.resolve(scope,name).is_some()));
                 let project_call = self.context.project && match callee.as_ref() {
@@ -444,7 +449,7 @@ impl<'a> Analysis<'a> {
                     _ => false,
                 };
                 let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"));
-                let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_api);
+                let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_api||matches!(callee.as_ref(),Expr::Name(name)if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)));
                 // AS2 permits a later frame or a parent script to install a
                 // function on this timeline. The host checks the actual value
                 // when the call executes; arbitrary member APIs stay blocked.
@@ -456,7 +461,7 @@ impl<'a> Analysis<'a> {
             }
             Expr::Assign(_,left,_) | Expr::Update(_,left,_) => {
                 if let Expr::Name(name)=left.as_ref() && self.resolve(scope,name).is_some_and(|(_,b)|b.kind==BindingKind::SelfName) { return Err(self.error(self.scopes[&scope].offset,"A named function expression's self binding cannot be assigned.")); }
-                if let Expr::Name(name)=left.as_ref() && (is_global(name) || self.context.intrinsic_type(name,self.script.language == ScriptLanguage::ActionScript3)) && self.resolve(scope,name).is_none() {return Err(self.error(self.scopes[&scope].offset,"Cannot assign to an unshadowed built-in name in this ActionScript subset."));}
+                if let Expr::Name(name)=left.as_ref() && (is_global(name) || self.context.intrinsic_type(name,self.script.language == ScriptLanguage::ActionScript3) || self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)) && self.resolve(scope,name).is_none() {return Err(self.error(self.scopes[&scope].offset,"Cannot assign to an unshadowed built-in name in this ActionScript subset."));}
             }
             _=>{}
         }
