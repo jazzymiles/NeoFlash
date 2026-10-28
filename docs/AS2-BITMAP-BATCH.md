@@ -1,16 +1,16 @@
-# AS2 bitmap and displacement batch
+# AS2 bitmap operations and displacement
 
-This two-hour-cycle package adds real pixel operations in the existing Rust arena. Only AS2 call routes are enabled. The AS3 BitmapData stubs and AS3 filter catalogue are unchanged. No UI, FLA conversion or complete third-party engine is introduced.
+AS2 BitmapData uses the shared Rust pixel arena for pixel operations and displacement filtering. The boundaries below describe the AS2 facade; they do not automatically extend the AS3 facade.
 
-## Delivered scope and counting
+## Supported operations
 
-Twelve previously absent AS2 BitmapData methods now have working partial implementations: `compare`, `copyChannel`, `floodFill`, `getColorBoundsRect`, `hitTest`, `loadBitmap`, `merge`, `noise`, `paletteMap`, `perlinNoise`, `pixelDissolve`, and `threshold`.
+AS2 BitmapData supports bounded `compare`, `copyChannel`, `floodFill`, `getColorBoundsRect`, `hitTest`, `loadBitmap`, `merge`, `noise`, `paletteMap`, `perlinNoise`, `pixelDissolve` and `threshold`.
 
-AS2 DisplacementMapFilter adds its constructor, nine properties (`alpha`, `color`, `componentX`, `componentY`, `mapBitmap`, `mapPoint`, `mode`, `scaleX`, `scaleY`) and `clone`. It produces an actual pixel effect through BitmapData `applyFilter`; it is not a data-only placeholder. Combined new-declaration count: **23** (13 methods, nine properties, one constructor).
+AS2 DisplacementMapFilter provides `alpha`, `color`, `componentX`, `componentY`, `mapBitmap`, `mapPoint`, `mode`, `scaleX`, `scaleY` and `clone`. It produces a pixel effect through BitmapData `applyFilter`.
 
-Three existing methods expand: `copyPixels` accepts an alpha bitmap/point and merge-alpha; `applyFilter` handles AS2 displacement; `generateFilterRect` handles displacement bounds. Four other catalogue entries already worked and are reviewed separately: `dispose`, `getPixel`, `scroll`, `setPixel`. No code written in an earlier cycle is credited as new implementation. `colorTransform` was already implemented and partial; it is exercised without claiming another addition.
+`copyPixels` accepts an alpha bitmap/point and merge-alpha; `applyFilter` and `generateFilterRect` support the bounded AS2 displacement profile.
 
-There are no AS2 BitmapDataChannel or DisplacementMapFilterMode classes in the reference catalogue. The AS2 API uses channel numbers 1/2/4/8 and mode strings; this delivery does not invent AS3 constants as AS2 coverage.
+AS2 uses channel numbers 1/2/4/8 and mode strings, without the AS3 BitmapDataChannel or DisplacementMapFilterMode classes.
 
 ## Architecture and reusable work
 
@@ -33,11 +33,9 @@ The resource loader resolves an **exact bundled image resource ID** to a fresh d
 - Displacement supports all four edge modes (`wrap`, `clamp`, `ignore`, `color`), integer map points, map channel selection, finite scales within +/-8192, color/alpha and independent filter-value clones. A null/outside map gives zero displacement. Sampling uses integer source pixels and is limited to 4 Mi-pixel work. BitmapData filtering is supported; **DisplayObject.filters explicitly rejects this class** until live map ownership/snapshots are integrated. No stage-scale/subpixel identity is claimed.
 - Static `loadBitmap` resolves bundled PNG/JPEG resources by ID; it does not fetch network images, open local paths, or parse FLA/SWF linkage. Nonimage resources diagnose.
 
-## Verification and ordinary example
+## Example
 
-Two grouped native tests cover the pixel family and displacement family. The first ran initially, then once more when alpha-mask and Perlin behavior were added; no per-method harnesses were created. Both passed. JavaScript syntax checks passed. `examples/as2-bitmap-batch.nflash` is an ordinary AS2 project with ten visible panels, a combined status row, bundled-image loading and a visible displacement-mode control. It exercises the families together and exposes limits in its own stage text.
-
-The targeted ordinary export to `dist/as2-bitmap-batch/` is the compiler/schema check. The coordinator owns the shared WASM build and browser acceptance. An export alone is not recorded as a browser pass; final evidence is added by the delivery report.
+[as2-bitmap-batch.nflash](../examples/as2-bitmap-batch.nflash) combines pixel operations, bundled-image loading and visible displacement-mode controls. Its stage text describes the demonstrated limits.
 
 ## Provenance and licenses
 
@@ -51,5 +49,3 @@ The following Ruffle sources were inspected and their algorithms adapted at immu
 - `core/src/bitmap/turbulence.rs`: W3C SVG turbulence port, used to design the smaller bounded gradient-noise implementation.
 
 Ruffle's MIT option is selected; its existing full notice remains in `THIRD_PARTY_NOTICES.txt`. The turbulence material retains the W3C 2015 software/document notice, copyright and modification statement, appended to that same exported notice file. It is not relabeled as wholly original. Downloaded references and exploratory files remain ignored under `target/references/as2-two-hour/` and `target/verification/as2-two-hour/`.
-
-The delivery browser pass exposed a sample predicate collision: pixels (0,0) and (30,20) both quantize to `0x808080` for the chosen noise seed. One focused check through the shipped Rust WASM confirmed deterministic equality of two complete generated images, 172 distinct colors and a full-size nonmatching color-bounds rectangle. The sample now checks the field-wide nonmatching bounds rather than assuming two individual pixels differ. The 14 grouped predicates and native test count are unchanged.

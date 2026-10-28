@@ -1,11 +1,6 @@
 # AS2 dynamic objects and named access
 
-The two-hour AS2 batch adds `Object.watch`, `unwatch`, `addProperty`,
-`isPropertyEnumerable` and missing-property `__resolve`. Watchpoint identity,
-replacement/deletion lifetime, reentrant-write suppression and resolver recursion
-are owned by `neoflash-core::as2_object`. The browser retains actual authored
-object/function references and invokes getters/setters; no global prototype is
-modified and no complete foreign VM is included.
+AS2 supports bounded `Object.watch`, `unwatch`, `addProperty`, `isPropertyEnumerable` and missing-property `__resolve`. Watchpoint identity, replacement/deletion lifetime, reentrant-write suppression and resolver recursion belong to `neoflash-core::as2_object`. Browser adapters retain authored references and invoke getters/setters without modifying the global prototype.
 
 The Rust compiler lowers AS2 member reads/writes through that publication service.
 Ordinary records and project instances support watchpoints; native objects,
@@ -46,8 +41,4 @@ is the LF constant.
   adapted to owned bounded IDs/maps rather than Ruffle GC/Activation/Value types.
   Compiler lowering and integration reuse NeoFlash's own frontend/class registry.
 
-One existing grouped Object state test covers the native policy. The ordinary
-`examples/as2-object-batch.nflash` combines object behavior, local/path lookup,
-project classes and an authored legacy event button. Final browser results and
-exact declaration counts are recorded in the two-hour delivery report. This is
-useful partial support, not AVM1 conformance or original-Flash differential proof.
+[as2-object-batch.nflash](../examples/as2-object-batch.nflash) combines object behavior, local/path lookup, project classes and a legacy event button. It demonstrates useful partial behavior, not complete AVM1 or original-player equivalence.

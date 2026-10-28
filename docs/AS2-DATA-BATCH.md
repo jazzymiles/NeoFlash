@@ -1,6 +1,6 @@
-# AS2 nonvisual data and binding batch
+# AS2 collections, data providers and binding
 
-This batch implements useful AS2 collection, data-provider, record-set and primitive data-binding behavior. It adds no editor controls, FLA import or AS3 behavior. The ordinary authored example is `examples/as2-data-batch.nflash`; its current success marker is `AS2_DATA_RESULT 14/14`.
+AS2 provides bounded collection, data-provider, record-set and primitive data-binding behavior. These are nonvisual runtime services.
 
 ## Implementation and reuse
 
@@ -28,21 +28,6 @@ This is partial compatibility. UI component inheritance, schema construction, re
 
 The data model is bounded to 10,000 rows, 256 views, 64 named sorts, 16 fields per sort, 1,024 snapshot iterators and 100,000 reference handles. Binding paths contain at most 32 segments and explicitly reject prototype-mutation keys. Restart invalidates old model, iterator, packet and binding references.
 
-## Catalogue accounting and verification
+## Example
 
-The exact inventory is `target/verification/as2-two-hour/data-inventory.json`, relative to baseline `b3edf75`. Every selected row was missing at that baseline; this batch contains no stale-audit promotions.
-
-| Catalogue kind | New partial rows |
-| --- | ---: |
-| Methods | 82 |
-| Properties | 23 |
-| Events | 8 |
-| Classes | 7 |
-| Interfaces | 5 |
-| Documented constructors | 3 |
-| Catalogue constant rows | 2 |
-| Total | 130 |
-
-The useful method/property subtotal is **105**. The two catalogue constant rows are `EndPoint.constant` and `DeltaItem.kind`: these are instance fields classified as constants by the source catalogue, not two new static constants. Class/interface availability does not imply every member is supported.
-
-Verification uses two grouped native tests (`as2_data_family`, `as2_binding_family`) and one authored integration example with 14 grouped checks. Each native family test passed once during implementation. The coordinator verified the expanded example at 14/14 in a real browser and saved a screenshot in the delivery evidence. No separate HTML5 cycle was created for individual methods.
+[as2-data-batch.nflash](../examples/as2-data-batch.nflash) combines collections, sorting, data-provider updates, local transactions and binding in one visible workflow. Representative browser execution was observed; full historical component behavior remains outside the supported profile.

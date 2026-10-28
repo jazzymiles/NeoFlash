@@ -2,6 +2,7 @@
 
 - Work only within the latest human-authorized scope. Keep unrelated subsystems and existing monitor automations paused.
 - Public documentation should describe user-visible behavior, current coverage, setup, architecture and known limits. Keep agent coordination, timeboxes, command logs and internal delivery chronology under ignored `target/`. Preserve necessary licenses and provenance. Do not create additional statistics pages; maintain the existing generated registry and summary.
+- Before adding public documentation, update the existing topic instead of appending another delivery report. Do not commit hour/batch/experiment diaries, agent productivity comparisons, duplicate verification narratives or copies of coverage tables. Preserve concise reproducible validation boundaries and pinned audit/provenance evidence; keep raw observations in ignored `target/`. README is the product entry point, roadmap is future work, and changelog records user-visible changes.
 - Validate several related changes as one delivery batch. Recheck only a concrete affected failure; do not add per-method or per-small-edit verification cycles.
 
 - Product: open-source Rust authoring environment for macOS 15+, inspired by classic Flash before Animate. HTML5 is the primary publishing target.

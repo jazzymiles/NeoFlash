@@ -1,6 +1,6 @@
 # AS2 project includes and automatic Locale text
 
-This runtime-only batch extends the existing Rust compiler and Locale service. It adds one directive and two Locale declarations; the pre-existing arguments object is counted separately in the class audit. No editor Strings panel, filesystem dependency, FLA conversion or AS3 feature is added.
+The Rust compiler supports project-contained source includes, and the Locale service supports delayed plain-text replacement. Arbitrary filesystem access and an editor Strings panel are not part of this profile.
 
 ## Project-contained source includes
 
@@ -16,4 +16,4 @@ Rust owns the bounded field-to-ID table, selected-language lookup and replacemen
 
 ## Evidence
 
-The existing compiler module-resolution test now includes nested project resources, missing resources, cycles and path containment. The existing Locale native family gains replacement/rebinding state assertions; no new test function is added for either feature. The ordinary `examples/as2-runtime-language-batch.nflash` combines nested includes, the existing supplied arguments object, real XLIFF resources, automatic and manual replacement, two visible text fields and reload. The coordinator observed **6 passed / 0 failed** on initial execution and **11/0** after clicking the French reload control in the ordinary HTML5 export. This confirms the exercised nested resource includes, actual XLIFF loading and visible replacement sequence; no separate per-directive or per-Locale-API browser cycle was added.
+[as2-runtime-language-batch.nflash](../examples/as2-runtime-language-batch.nflash) combines nested includes, supplied arguments, XLIFF resources, automatic/manual replacement, two visible fields and a French reload control. Representative browser observations covered resource includes, actual XLIFF loading and visible replacement.

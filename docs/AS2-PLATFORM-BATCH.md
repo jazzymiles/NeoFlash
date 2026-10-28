@@ -1,6 +1,6 @@
 # AS2 platform and component events
 
-This AS2-only batch adds a browser publication profile for `System.capabilities`, `System`, `System.security`, IME composition listeners, lock-key queries, `mx.utils.Delegate`, `mx.events.EventDispatcher`, `getVersion`, `updateAfterEvent` and `stopAllSounds`. It does not modify AS3 classes, the native editor or FLA import. The profile reports NeoFlash's facilities and browser facts; it does not identify itself as an Adobe or Macromedia player.
+AS2 exposes a browser publication profile for `System.capabilities`, `System`, `System.security`, IME composition listeners, lock-key queries, `mx.utils.Delegate`, `mx.events.EventDispatcher`, `getVersion`, `updateAfterEvent` and `stopAllSounds`. It reports NeoFlash facilities and browser facts without identifying itself as an Adobe or Macromedia player.
 
 ## Implementation and reuse
 
@@ -16,7 +16,7 @@ The 26 read-only capability properties form a publication snapshot. Audio/MP3/vi
 
 `System.exactSettings` supports the fixed exact-origin profile (`true`), and `System.useCodepage` supports Unicode (`false`). Assigning the supported value is accepted; changing the policy throws an explanatory error. `System.security.sandboxType` reports `remote` for a web publication or `localWithNetwork` for a file publication; actual authority always remains the browser's origin and permission model. Domain-policy bypass, Flash policy files, player settings panels, synchronous clipboard writes and OS codepage switching are unavailable and explicitly diagnosed. These unsupported methods are **not counted** as partial support.
 
-The ordinary success example checks the supported property values and assignments. Unsupported setters were reviewed in source and are deliberately excluded from that scenario: the current AS2 catch profile handles authored throws, while unsupported native-operation diagnostics terminate the script instead of entering an authored catch block. No exception-runtime change is part of this package.
+Unsupported native-operation diagnostics currently terminate the AS2 script instead of entering an authored catch block. Supported settings assignments and authored throws retain their own behavior.
 
 `System.IME.addListener/removeListener` binds listener objects to browser `compositionend` delivery and passes the committed text to `onIMEComposition`. Eight documented IME constant bindings are available. The browser cannot inspect or control OS conversion mode, enable state or composition replacement, so those six control/query methods throw actionable diagnostics and remain missing. Up to 1,024 listener objects are supported. Restart removes all prior registrations.
 
@@ -30,22 +30,6 @@ The AS2 global `stopAllSounds()` cancels every active or pending channel owned b
 
 `EventDispatcher.initialize(target)` installs `addEventListener`, `removeEventListener` and `dispatchEvent` on an ordinary object. Events require a string `type`; missing `target` is set to the dispatcher. Listeners can be functions or objects whose method matches the event type. Duplicate registration is idempotent. Method lookup occurs at dispatch time, and Rust controls the ordered listener IDs. Function listeners use the dispatcher as receiver; object listeners retain their own receiver. Reinitialization clears registrations. Limits are 1,024 initialized targets, 128 event types per target, 1,024 listeners per type, and event names from 1 through 256 characters. This manual component dispatcher does not implement UI components, bubbling/capture, historical prototype flags, cloning or native subclass construction.
 
-## Counts and evidence
+## Example and limits
 
-| Category | New | Already implemented, stale catalogue |
-| --- | ---: | ---: |
-| Methods in the declaration catalogue | 8 | 6 |
-| Global functions | 3 | 1 |
-| Properties in the declaration catalogue | 30 | 0 |
-| Constants | 8 | 15 |
-| Event names | 1 | 4 |
-| Static namespace/class entries | 6 | 0 |
-| Constructors | 0 | 0 |
-
-The new method/function/property subtotal is **41**. `EventDispatcher.initialize` is one additional working method absent from this catalogue and is reported separately. The 26 existing entries are four removal/Stage-registration methods, primitive Number/Boolean `valueOf` methods, the `getTimer` global, 15 Key constants and four Mouse/Stage event names found in the baseline implementation. They are catalogue corrections, not newly written functionality. Primitive `valueOf` uses the pre-existing host primitive dispatch, with boxed constructors still unsupported. The six class entries describe accessible static namespaces, not six constructible classes. No language syntax is added or existing AS3 implementation converted.
-
-`examples/as2-platform-batch.nflash` is one ordinary AS2 source project with eight grouped assertions, a repeat button, keyboard status and visible committed IME text. It reads every capability property and covers settings boundaries, global utilities, primitive values, Delegate binding, component event registration/late lookup/removal/reinitialization, IME registration and singleton input lifecycle. The single new Rust test is `as2_platform::tests::as2_platform_family`; it passed once. JavaScript syntax checks passed. The coordinating delivery report records the ordinary HTML5 export, actual browser execution and shared regression outcome; authored assertions alone are not proof that browser acceptance passed.
-
-The same source scenario invokes individual/global stop on two unloaded, zero-volume Sound objects without creating audio playback. Active-channel cancellation uses the pre-existing tested channel-stop implementation, but this package does not claim a new audible browser playback check.
-
-The machine-readable entry inventory, previous statuses and pinned source hashes are kept under ignored `target/verification/as2-runtime-hour/platform-inventory.json` for the coordinating audit. Source files, this document and the authored example are the intended committed package.
+[as2-platform-batch.nflash](../examples/as2-platform-batch.nflash) demonstrates capability/settings values, global utilities, primitive values, Delegate binding, component event registration and input lifecycle, with visible keyboard and committed IME text. Its unloaded zero-volume Sound checks do not establish audible playback or active-channel behavior.

@@ -1,6 +1,6 @@
 # AS2 SOAP services and XML connectors
 
-This package implements a useful nonvisual profile of `mx.services.WebService`, `SOAPCall`, `PendingCall`, `Log`, `mx.data.components.XMLConnector` and `WebServiceConnector`. It adds **58 previously missing declaration entries**: 12 methods, 20 properties, 11 callbacks/events, seven constants, two constructors and six class entries. The generic `WebService.myMethodName` catalogue row represents dynamic WSDL operations; individual fixture operation names are not counted as new APIs. `SOAPCall.doLazyDecoding` remains unsupported and is not promoted.
+AS2 provides a bounded nonvisual profile of `mx.services.WebService`, `SOAPCall`, `PendingCall`, `Log`, `mx.data.components.XMLConnector` and `WebServiceConnector`. WSDL declares dynamic service operations; `SOAPCall.doLazyDecoding` remains unsupported.
 
 The new protocol algorithms are Rust in `crates/neoflash-core/src/as2_services.rs`. They reuse the existing bounded XML tree and its quick-xml parser. `web/as2-services.js` holds browser object identities, connects the existing network transport, forwards callbacks and uses existing AS2 EventDispatcher and ComponentMixins. The WASM adapter only serializes command inputs/results. No foreign-language protocol implementation or complete engine is embedded. There is no editor UI, FLA conversion or added AS3 facade.
 
@@ -24,7 +24,7 @@ WebServiceConnector uses the same WebService implementation with an operation na
 
 Log supplies NONE/BRIEF/VERBOSE/DEBUG filtering, mutable name/level, logInfo/logDebug, onLog and a local-time date string. The browser supplies clock fields; Rust formats and filters messages. Logs go to the authored callback, not a fabricated disk log. Service/connector lifecycle messages are a bounded subset of the historical verbose diagnostics.
 
-A publication holds at most 128 service/connector objects before Restart, with the shared transport limit of 32 in-flight requests. Reset cancels pending transports, invalidates callbacks and discards service references before dependent XML, network, binding and event services reset. A bounded lifecycle review also added generation checks after the authored WSDL onFault callback and before each queued fault delivery or queued invocation, so a callback-triggered Restart stops the old queue; these final guards were source-reviewed without another test cycle. The same review separated XML parsing failures from subsequent binding/callback errors, preserving one active-count decrement per completed request; callback failures follow the shared transport error-reporting path. Native subclassing and full historical component inheritance remain unsupported.
+A publication holds at most 128 service/connector objects before Restart, with the shared transport limit of 32 in-flight requests. Reset cancels pending transports and invalidates callbacks before dependent XML, network, binding and event services reset. Generation guards stop queued delivery after callback-triggered Restart. XML parsing failures and subsequent binding/callback errors remain distinct, with one active-count decrement per completed request. Native subclassing and full historical component inheritance remain unsupported.
 
 ## Provenance and validation
 
@@ -32,9 +32,9 @@ Contracts were checked against Adobe's [AS2 Components Language Reference](https
 
 The reused parser is quick-xml 0.41.0 (MIT), already pinned in Cargo.lock with checksum `e660451e55124f798a69a5af3f49ccfbefbd41910eefd25caf2393e1f3473ec1`. Existing XML, broadcaster, binding and transport provenance remains with those modules. New SOAP/WSDL composition and service glue are project code; no additional library or engine dependency was introduced.
 
-One grouped native scenario, `as2_services::tests::as2_services_family`, passed. It exercises typed parameters, XML escaping, multiple output values, namespace-preserving output XML, actual HTTP-error fault decoding and explicit rejection of malformed/unsupported inputs. JavaScript syntax passed. One ordinary export of `examples/as2-services-batch.nflash` succeeded. In the shared coordinator browser run, the visible Run service batch button completed **12 passed / 0 failed**. Actual same-origin SOAP POSTs, HTTP 500 Fault, SINGLE/LAST concurrency and raw-XML response mode were observed, with matching local server request logs. This is representative family evidence, not one acceptance test per declaration or full SOAP conformance. There was no separate full suite or WASM build for this package.
+Representative browser observations covered actual same-origin SOAP POSTs, HTTP 500 Faults, SINGLE/LAST concurrency and raw-XML response mode. This does not establish full SOAP or historical component conformance.
 
-The ordinary example has one local Log check and eleven asynchronous HTTP groups behind a visible **Run service batch** button. It uses the authored `examples/as2-services.wsdl` and optional same-origin demo endpoints described below. Opening the file without the fixture server does not pretend those network scenarios passed. Exact declaration inventory is in ignored `target/verification/as2-two-hour-2/services-inventory.json`; the tracked catalogue review records this bounded shared acceptance.
+[as2-services-batch.nflash](../examples/as2-services-batch.nflash) uses [as2-services.wsdl](../examples/as2-services.wsdl) and the optional same-origin endpoints below. Its Run service batch button performs the HTTP workflow; a static file server alone cannot supply that backend.
 
 ## Optional local fixture contract
 
@@ -43,4 +43,4 @@ The ordinary example has one local Log check and eleven asynchronous HTTP groups
 - GET `/__as2_connector`: return `<catalog>\n  <item>Rust &amp; XML</item>\n</catalog>`.
 - POST `/__as2_connector`: validate `<request><message>connector</message></request>` and return `<receipt accepted="true">connector</receipt>`.
 
-The fixture server is delivery tooling under ignored target, not an exported service, deployed backend or production SOAP implementation.
+These endpoints are optional example backend contracts, not services included in the exported runtime.

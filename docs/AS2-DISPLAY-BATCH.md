@@ -1,6 +1,6 @@
-# AS2 MovieClip depth and target-path batch
+# AS2 MovieClip depths and target paths
 
-This bounded AS2 package adds sparse runtime depths, replacement, lookup, depth swapping, runtime MovieClip duplication and legacy display paths to the shared Rust graph. AS3 index-based display-list operations keep their existing semantics. UI, FLA import and other paused product work are unchanged.
+AS2 sparse runtime depths, replacement, lookup, depth swapping, duplication and legacy display paths use the shared Rust graph. AS3 index-based display-list operations retain their own semantics.
 
 ## Delivered behavior
 
@@ -21,22 +21,6 @@ Behavior was read and adapted from [Ruffle AVM1 MovieClip](https://github.com/ru
 
 The implementation is adapted to NeoFlash's lifetime-stamped ObjectRefs, native drawing budget, placement graph and event routes. It does not embed Ruffle or a second VM. New depth/path/duplication algorithms live in `crates/neoflash-core/src/runtime_graph/as2_display.rs`; `crates/neoflash-web/src/as2_display.rs` only transports requests/results. `web/display.js` resolves host proxy references, initialization values and the browser URL. The smaller bounded depth range and explicit errors replace Ruffle's SWF-version-dependent wrapping and silent failure cases.
 
-## Accounting
+## Example
 
-The exact catalogue inventory is produced for the coordinator in ignored `target/verification/as2-runtime-hour/display-inventory.json`. Counts are declarations, not independent algorithms:
-
-| Change | Methods | Properties | Total |
-| --- | ---: | ---: | ---: |
-| Newly exposed declarations | 8 | 7 | 15 |
-| Existing APIs with broader/corrected behavior | 9 | 0 | 9 |
-| Existing working declarations re-reviewed | 4 | 20 | 24 |
-
-The eight new method declarations are MovieClip `getDepth`, `getInstanceAtDepth`, `swapDepths`, `duplicateMovieClip`, the shared TextField/Button `getDepth`, and TextField `replaceSel` / `removeTextField`. The seven properties are `_target` and `_url` on all three owners, plus MovieClip `_framesloaded`. Owner aliases are not counted as independent implementations. No constructor, constant or event is added. Global `targetPath` registration is owned and counted by the coordinator, so it is excluded from this package's totals.
-
-The existing-method improvements are the five depth-aware creation/query APIs and four AS2 coordinate/bounds corrections. Existing `clear`, `curveTo`, `removeMovieClip` and MovieClip/Button `_width`/`_height` are re-reviewed rather than claimed as new implementations. The same applies to TextField `_name`, `_visible`, `_xmouse`, `_ymouse`, `filters`, `maxChars`, `password`, `replaceText`, `restrict`, `selectable`, `textHeight`, `textWidth`, `type`, and TextFormat `font`, `size`, `bold`, `italic`. TextFormat remains uniform whole-field formatting; metrics use the existing Rust layout with browser font measurements. Input restrictions retain the existing bounded input profile. Filters are the existing copied Rust filter state and have the existing filtered-editor limits.
-
-## Verification
-
-One grouped native scenario passed: `cargo test -p neoflash-core --test as2_display` (1 passed). It covers sparse depths, sibling swapping, free-depth movement, replacement events, independent drawing copies, nested target paths, reset invalidation and preservation of AS3 index semantics. No independent full suite was run by this agent. After the browser cycle exposed ObjectRef key-order loss in an untyped JSON packet, the WASM binding was changed to typed serialization. `cargo check -p neoflash-web` then passed; the direct workspace-pinned serde dependency adds no new package version.
-
-`examples/as2-display-batch.nflash` is an ordinary authored AS2 publication with 20 checks and visible independent drawings. It exercises depth mutations, replacement, duplicate init data, target paths, publication metadata, mutable coordinate points, bounds, independent graphics, TextField depth and removal, selected/range replacement, uniform TextFormat properties, input-state round trips and layout metrics. Actual HTML5 export/browser acceptance is delegated to the coordinator's shared delivery cycle; this document does not claim a browser pass before that cycle completes. Unexercised owner aliases are supported by shared source inspection, not separate browser passes.
+[as2-display-batch.nflash](../examples/as2-display-batch.nflash) combines depth mutation, replacement, duplication, target paths, bounds, independent drawings and TextField operations. It also demonstrates [uniform text, snapshots and legacy input](AS2-TEXT-DISPLAY-TWO-HOUR.md).

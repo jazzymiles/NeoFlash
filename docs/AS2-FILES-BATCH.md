@@ -1,6 +1,6 @@
 # AS2 FileReference and FileReferenceList
 
-This package brings 28 catalogue declarations to a bounded browser profile: 21 FileReference declarations and seven FileReferenceList declarations. They comprise two constructors, nine methods, six properties and eleven events. File creation time and Macintosh creator codes remain unsupported because browsers do not expose them. These counts describe implementation breadth, not 28 independent browser tests or full Flash conformance.
+AS2 FileReference and FileReferenceList use browser-native selection and bounded transfer. File creation time and Macintosh creator codes remain unsupported because browsers do not expose them.
 
 ## Selection and metadata
 
@@ -24,8 +24,6 @@ One active operation per FileReference and one active chooser per service are en
 
 The authored implementation is split between `crates/neoflash-core/src/as2_files.rs` (validation, filter conversion and multipart/form-data assembly) and `web/as2-files.js` (browser chooser/File handles, browser save facilities, reference wiring and existing transport). No third-party file-transfer engine or foreign-language algorithm was embedded. It follows the [AS2 FileReference contract](https://open-flash.github.io/mirrors/as2-language-reference/flash/net/FileReference.html), [FileReferenceList contract](https://open-flash.github.io/mirrors/as2-language-reference/flash/net/FileReferenceList.html) and [RFC 7578](https://www.rfc-editor.org/rfc/rfc7578.html). Existing Rust URI and broadcaster provenance remains in their respective source modules and notices.
 
-One native family scenario, `as2_file_transfer_family`, checks grouped filter/filename validation, binary multipart content, UTF-8/plus form decoding, reserved fields and boundary collisions. It passed once after module registration. An earlier pre-registration invocation selected zero tests and is not counted as a passing verification. JavaScript syntax and an ordinary HTML5 export passed.
+[as2-files-batch.nflash](../examples/as2-files-batch.nflash) provides Choose one, Choose multiple, Upload, Download and Cancel controls. [as2-files-fixture.txt](../examples/as2-files-fixture.txt) is the authored input. The optional example backend accepts POST `/__as2_file_echo` and GET `/__as2_file_fixture`; a static file server does not provide these endpoints.
 
-The ordinary project `examples/as2-files-batch.nflash` has visible Choose one, Choose multiple, Upload, Download and Cancel controls. Its tiny authored input is `examples/as2-files-fixture.txt`. The optional local verification server accepts POST `/__as2_file_echo` and GET `/__as2_file_fixture`. Browser acceptance, including any unperformed native-save-dialog branch, is reported by the coordinating two-hour batch. The source review does not substitute for browser observations.
-
-Coordinator browser evidence: actual single-file selection, a valid 35-byte multipart upload with the expected form fields and server response, the multiple-file chooser configured for multiple selection (one file selected), and clean Restart. The native save/download branch and cancellation during an active transfer were not exercised in this delivery.
+Recorded browser observations cover actual single-file selection, multipart upload with expected fields and response, a multiple-file chooser with one selected file, and Restart. **The native save/download branch and cancellation during an active transfer remain unverified.**

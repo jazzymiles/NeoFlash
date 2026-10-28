@@ -1,6 +1,6 @@
-# AS2 text, snapshot and interaction batches
+# AS2 text, snapshots and interaction
 
-This package extends the existing AS2 display publication with four coherent families: styled uniform text, static-text snapshots, legacy input preferences/callbacks, and TextField surfaces/scrolling/listeners. It is useful partial support, not complete AVM1 text or interaction conformance. Editor UI, FLA import and AS3 capability registrations are outside this work.
+AS2 display publication supports four related profiles: styled uniform text, static-text snapshots, legacy input preferences/callbacks, and TextField surfaces/scrolling/listeners. It is useful partial support, not complete AVM1 text or interaction conformance.
 
 ## Working behavior
 
@@ -14,7 +14,7 @@ AS2 `TextFormat` adds rendered `leftMargin`, `rightMargin`, `indent`, `blockInde
 
 **Legacy input.** AS2 MovieClip/Button/TextField preferences use Rust-owned optional flags and tab indices. `enabled` suppresses button-like callbacks and hand cursors; MovieClip `focusEnabled` controls programmatic focus. `tabEnabled`, `tabIndex` and MovieClip `tabChildren` participate in deterministic live, visible, eligible ordering. When any candidate has an explicit index, only indexed candidates participate; otherwise placement order is derived from coordinates. Legacy Tab traversal activates after an explicit AS2 preference write, preserving the existing default path for AS3 content. MovieClip mouse callbacks broadcast to registered on-stage clips. MovieClip/Button key callbacks go to the focused target; they do not imply `onClipEvent(keyDown/keyUp)` broadcast compatibility. Implicit MovieClip handlers and explicit Mouse/Key listener registration are separate delivery routes. A clip using both receives both calls; no identity-based deduplication is applied. A focused clip registered with Key likewise retains both routes; the current profile does not reproduce Flash's keyboard-focus-highlight gate or exact cross-route ordering. Pressed pointer boundary crossings drive `onDragOut`/`onDragOver`. `onUnload` covers removal of a still-live dynamic runtime object; authored timeline destruction and historical unload ordering remain outside the profile.
 
-**TextField viewport and listeners.** `background`, `backgroundColor`, `border`, `borderColor`, `scroll`, `hscroll`, `maxscroll`, `maxhscroll` and `bottomScroll` use Rust surface/layout state and affect the actual canvas and native text-input surface. Scroll positions clamp to layout limits; underline and glyph geometry move together. Direct `onScroller` and registered listeners receive the field identity when a programmatic clamped scroll value changes. `addListener`/`removeListener` reuse the existing Rust broadcaster and also receive native `onChanged` callbacks. Automatic native wheel-to-Rust scroll synchronization and `autoSize` are not implemented by this package.
+**TextField viewport and listeners.** `background`, `backgroundColor`, `border`, `borderColor`, `scroll`, `hscroll`, `maxscroll`, `maxhscroll` and `bottomScroll` use Rust surface/layout state and affect the actual canvas and native text-input surface. Scroll positions clamp to layout limits; underline and glyph geometry move together. Direct `onScroller` and registered listeners receive the field identity when a programmatic clamped scroll value changes. `addListener`/`removeListener` reuse the existing Rust broadcaster and also receive native `onChanged` callbacks. Wheel scrolling and anchored `autoSize` are described in the [display and layout profile](AS2-DISPLAY-FILTERS-BATCH.md).
 
 ## Ownership and isolation
 
@@ -26,7 +26,7 @@ AS2 `TextFormat` adds rendered `leftMargin`, `rightMargin`, `indent`, `blockInde
 - `web/as2-text.js`: native reference/format objects, browser loading, callbacks and the existing Rust broadcaster adapter.
 - `web/display.js`, `web/text.js`, `web/text-input.js`: existing browser input/render facilities and reference marshalling.
 
-The compiler/runtime resolves new legacy properties through per-access AS2 references. It does not permanently mark a shared object as AS2. Standard AS3 TextFormat construction and unsupported AS3 HTML properties retain their existing contract. New default fields preserve existing Rust text layout behavior. No editor source file is changed. The native input mentioned above is the HTML5 publication's browser input element.
+The compiler/runtime resolves new legacy properties through per-access AS2 references. It does not permanently mark a shared object as AS2. Standard AS3 TextFormat construction and unsupported AS3 HTML properties retain their existing contract. New default fields preserve existing Rust text layout behavior. The native input mentioned above is the HTML5 publication's browser input element.
 
 ## Provenance
 
@@ -41,24 +41,8 @@ Selected behavior and algorithms were read and adapted from Ruffle v0.7.1, pinne
 
 These ideas are adapted to NeoFlash's own bounded text model, Rust XML parser, lifetime-stamped references, renderer and event routes. No complete Ruffle engine or foreign-language runtime is included. The code is not described as wholly original: the Ruffle attribution and full MIT notice remain in `THIRD_PARTY_NOTICES.txt` and are bundled with HTML5 publications. Downloaded reference files remain ignored under `target/verification/as2-two-hour/text-upstream/`.
 
-## Accounting
+## Example and verification boundary
 
-The baseline is `b3edf75`. Counts are catalogue declarations, including owner aliases, not independent algorithms or complete compatibility claims. Exact IDs and scope notes are in the coordinator's ignored `target/verification/as2-two-hour/display-inventory.json` and are intended for the shared catalogue audit.
+[as2-display-batch.nflash](../examples/as2-display-batch.nflash) demonstrates uniform text, snapshots, scrolling and legacy interaction. Representative browser checks covered visible text and pointer, keyboard and Tab focus behavior. Full original-player text/input conformance has not been established. AS2 native-operation diagnostics are not generally recoverable through authored catch; malformed or unsupported rich text can terminate the script.
 
-| Change against baseline | Methods | Properties | Events | Constructors | Total |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| New useful partial declarations | 20 | 28 | 14 | 1 | 63 |
-| Existing declarations extended | 4 | 0 | 1 | 0 | 5 |
-| Existing behavior source-reviewed | 3 | 10 | 13 | 0 | 26 |
-
-No constant is added. The five extensions are TextField's four format get/set APIs and listener delivery for the existing `onChanged` event. The 26 source reviews cover already-working focus/button callbacks, local pointer/drag/hit-area/cursor behavior, filter and transform facades. They are explicitly not new implementations. Existing source review does not imply a new owner-specific browser pass. Coordinator-owned compiler event syntax, Selection target resolution and other agents' network/binding APIs are excluded from these totals.
-
-## Verification and limits of evidence
-
-Three grouped native family scenarios were added, each run once during development: `as2_text`, `as2_text_snapshot`, and `as2_input`; all three passed. The text scenario was then extended with surface/scroll assertions for the coordinator's shared delivery pass rather than rerun separately. A subsequent `cargo check -p neoflash-core -p neoflash-web --all-targets` passed after updating one existing TextFormatPatch fixture initializer with defaults. No independent full suite or WASM build was run by this agent.
-
-`examples/as2-display-batch.nflash` remains one ordinary authored AS2 example. It extends the previous 20 checks to **41**: 40 synchronous checks plus one asynchronous CSS-load check. Pointer/key/Tab interactions have separate visible counters and are not added to the assertion count. The CSS is an embedded format-3 project resource. The example displays styled/underlined text, snapshot selection, a scrolled bordered text surface and independently interactive clips.
-
-The deliberate mixed-format diagnostic is checked in the native family scenario, not caught inside the AS2 publication: AS2 catches currently handle authored thrown values while unsupported host diagnostics abort with their original message. The browser example uses supported uniform bold markup for that assertion.
-
-The coordinator observed the actual exported publication at **41/41** checks and exercised pointer press, A key input and Tab focus movement in the browser. A screenshot was captured by that shared delivery pass. This is representative family evidence, not a browser pass for every owner alias or limit. The existing 24-family shared regression had 23 immediate passes; the AS2 input fixture was then corrected for the evidenced dual Mouse callback route and its focused rerun passed, including Restart. The existing `as2-project-input` fixture explicitly registers its MovieClip document class with Mouse while also defining `onMouseDown`; its mouse counter therefore now expects two calls per press, including after Restart. Pinned Ruffle `player.rs` separately queues the clip event and `NotifyListeners`, and `as_broadcaster.rs` calls the registered object without filtering clips. This expectation corrects previously missing implicit callbacks rather than introducing a deduplication policy. No comparison against an original Flash player has been performed.
+Coverage decisions and declaration counts are maintained in the [complete ActionScript audit](progress/ACTIONSCRIPT.md). These profiles describe partial support, not full Flash compatibility.

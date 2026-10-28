@@ -1,6 +1,6 @@
 # AS2 TextField.variable
 
-This batch adds one previously missing catalogue property, `as2:TextField.html#variable`, as a bounded two-way binding between a plain TextField and a primitive MovieClip variable. It extends the existing AS2 Object identity/path/watch state and reuses the existing primitive binding conversion. There is no second binding framework or new scheduling loop.
+`TextField.variable` provides bounded two-way binding between a plain TextField and a primitive MovieClip variable. It uses existing AS2 Object identity/path/watch state and primitive binding conversion.
 
 Setting `field.variable = "score"` resolves score relative to the field's parent MovieClip. Root/slash/colon paths use the existing named-variable parser; `_root.score` can bind multiple fields to the same value. An existing variable initializes the text. A missing variable is seeded from nonempty current field text; empty text does not fabricate a variable. A temporarily unresolved MovieClip path is retried at synchronization boundaries. String, finite Number, Boolean, null and undefined values use the shared Rust binding conversion. Arbitrary object/Date/function coercion and HTML fields are explicitly outside this profile.
 
@@ -16,8 +16,6 @@ The public contract is the [Adobe AS2 TextField.variable reference](https://open
 
 Reference downloads stay under ignored `target/verification/as2-two-hour-2/text-variable-reference/`. Their SHA-256 values are `deccf5fbaa597606d546b95d3ba7ca961c20e5a2c470956f28c8962badda1bdf` (text_field.rs) and `abe09eb0318fc3a19ddda3a8fc289f6d0ff56a2cb85ccf61090e9b315b041abb` (edit_text.rs). Shared primitive conversion retains its existing module provenance.
 
-## Verification
+## Example and verification boundary
 
-The existing `as2_object::tests::as2_dynamic_property_family` was extended and passed, including initial synchronization, reentrancy, input propagation, seed and detach. **No new test function was added.** JavaScript syntax passed. One ordinary export, `examples/as2-text-variable-batch.nflash`, succeeded. It contains nine grouped source checks, an actual editable field and mirror, and a button changing the MovieClip variable. In the coordinator's shared browser run, all **nine initial grouped checks passed**. Physical typing of `Rust AS2 input` produced `INPUT_SYNC true`, 14 input events and a matching mirror. The button produced `BUTTON_SYNC true`. Restart removed the previous native DOM editor and restored the nine passing initial groups. These observations cover the described primitive-text workflow; they do not establish full historical TextField binding conformance.
-
-The exact one-entry inventory is under ignored `target/verification/as2-two-hour-2/text-variable-inventory.json`. Existing Object, XML, binding, text layout and event methods are not recounted as newly implemented APIs.
+[as2-text-variable-batch.nflash](../examples/as2-text-variable-batch.nflash) includes an editable field, a mirror and a button that changes the MovieClip variable. Representative browser observations covered actual typing, mirror synchronization, the button update and Restart removing the old input control. Complete historical TextField binding conformance remains unverified.
