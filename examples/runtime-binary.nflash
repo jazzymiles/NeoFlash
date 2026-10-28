@@ -1,0 +1,442 @@
+{
+  "format_version": 2,
+  "name": "AS3 Rust binary codecs",
+  "width": 960,
+  "height": 570,
+  "fps": 24,
+  "background": [
+    14,
+    24,
+    33,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 42,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / RUST REUSE EXPERIMENT",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        115,
+                        213,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 42,
+                      "y": 82,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ActionScript 3 · Rust binary codecs",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 42,
+                      "y": 125,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Compressed payloads and portable text/data codecs in ordinary HTML5 exports.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel",
+                    "name": "panel",
+                    "transform": {
+                      "x": 32,
+                      "y": 175,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 890,
+                      "height": 195,
+                      "fill": [
+                        25,
+                        42,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "result",
+                    "name": "result",
+                    "transform": {
+                      "x": 52,
+                      "y": 205,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Running checks…",
+                      "font_family": "Arial",
+                      "font_size": 25,
+                      "color": [
+                        115,
+                        229,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pipeline",
+                    "name": "pipeline",
+                    "transform": {
+                      "x": 52,
+                      "y": 248,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Compression pipeline",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "casing",
+                    "name": "casing",
+                    "transform": {
+                      "x": 52,
+                      "y": 286,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Multibyte character sets",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "codec",
+                    "name": "codec",
+                    "transform": {
+                      "x": 52,
+                      "y": 324,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Base64 and hex",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rerun",
+                    "name": "rerun",
+                    "transform": {
+                      "x": 42,
+                      "y": 397,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "run-button",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.runReuse();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 285,
+                      "y": 417,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run again executes the same authored AS3 method.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "counts",
+                    "name": "counts",
+                    "transform": {
+                      "x": 42,
+                      "y": 480,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Awaiting runtime results",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 42,
+                      "y": 522,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Bounded buffers · Rust compression · shared WASM core · local HTML5",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "run-button",
+      "name": "run-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "run-button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 56,
+                      "fill": [
+                        32,
+                        116,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 35,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RUN AGAIN",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "document_class": "app.BinaryExample",
+  "sources": [
+    {
+      "id": "binary-example",
+      "path": "app/BinaryExample.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;\n import flash.utils.ByteArray;\n public dynamic class BinaryExample extends MovieClip {\n  public var runs:int=0;\n  public var checks:Array;\n  public var failures:Array;\n  public var members:Array;\n  public function BinaryExample(){super();stop();runReuse();}\n  public function check(id:String,ok:Boolean,member:Boolean=true):void {\n   checks.push({id:id,pass:ok});if(!ok)failures.push(id);\n   if(member&&members.indexOf(id)<0)members.push(id);\n  }\n  public function runReuse():void {\n   runs++;checks=[];failures=[];members=[];\n   var payload:String=\"\";for(var i:int=0;i<40;i++)payload+=\"NeoFlash binary packet / Rust to HTML5. \";\n   var packed:ByteArray=new ByteArray();packed.writeUTFBytes(payload);var original:int=packed.length;\n   packed.position=7;packed.compress();var compressed:int=packed.length;\n   check(\"ByteArray.compress\",packed.position==packed.length&&compressed<original);\n   packed.uncompress();check(\"ByteArray.uncompress\",packed.position==0&&packed.toString()==payload);\n   packed.deflate();check(\"ByteArray.deflate\",packed.position==packed.length&&packed.length<original);\n   packed.inflate();check(\"ByteArray.inflate\",packed.position==0&&packed.toString()==payload);\n   var text:ByteArray=new ByteArray();text.writeMultiByte(\"café €\",\"iso-8859-1\");\n   check(\"ByteArray.writeMultiByte\",text.length==6&&text[3]==233&&text[5]==128);\n   text.position=0;check(\"ByteArray.readMultiByte\",text.readMultiByte(6,\"windows-1252\")==\"café €\"&&text.position==6);\n   var hex:ByteArray=new ByteArray();check(\"ByteArray.writeHexString\",hex.writeHexString(\"00017f80feff\")==6&&hex.position==6);\n   check(\"ByteArray.toHexString\",hex.toHexString()==\"00017F80FEFF\"&&hex.position==6);\n   check(\"ByteArray.toBase64\",hex.toBase64()==\"AAF/gP7/\"&&hex.position==6);\n   var decoded:ByteArray=new ByteArray();check(\"ByteArray.writeBase64\",decoded.writeBase64(hex.toBase64())==6&&decoded.toHexString()==hex.toHexString());\n   var fromBase:ByteArray=ByteArray.createFromBase64(\"TmVvRmxhc2g=\");\n   check(\"ByteArray.createFromBase64\",fromBase.toString()==\"NeoFlash\"&&fromBase.position==8);\n   var fromHex:ByteArray=ByteArray.createFromHexString(\"4E656F466C617368\");\n   check(\"ByteArray.createFromHexString\",fromHex.toString()==\"NeoFlash\"&&fromHex.position==8);\n   text.clear();text.writeMultiByte(\"🦀\\u0000tail\",\"utf-16be\");var length:int=text.length;text.position=0;\n   check(\"UTF16 and NUL consumption\",text.readMultiByte(length,\"utf-16be\")==\"🦀\"&&text.position==length,false);\n   var charsets:Array=[\"utf-8\",\"windows-1251\",\"shift_jis\",\"gbk\",\"big5\",\"euc-kr\",\"iso-2022-jp\"];\n   var samples:Array=[\"Привет\",\"Привет\",\"日本\",\"中文\",\"中文\",\"한국\",\"日本\"];\n   var pagesOK:Boolean=true;\n   for(var page:int=0;page<charsets.length;page++){\n    text.clear();text.writeMultiByte(samples[page],charsets[page]);text.position=0;\n    pagesOK=pagesOK&&text.readMultiByte(text.length,charsets[page])==samples[page]&&text.position==text.length;\n   }\n   check(\"Unicode and legacy codepage roundtrips\",pagesOK,false);\n   var before:String=hex.toHexString();var pos:int=hex.position;var refused:Boolean=false;\n   try{hex.uncompress();}catch(error:Error){refused=true;}\n   check(\"failed decompression preserves buffer\",refused&&hex.position==pos&&hex.toHexString()==before,false);\n   hex.position=0;refused=false;try{hex.writeHexString(\"123\");}catch(error:Error){refused=true;}\n   check(\"failed text codec preserves buffer\",refused&&hex.position==0&&hex.toHexString()==before,false);\n   result.text=(checks.length-failures.length)+\" / \"+checks.length+\" checks passed · run \"+runs;\n   pipeline.text=\"zlib: \"+original+\" → \"+compressed+\" bytes → original payload\";\n   casing.text=\"UTF8 · UTF16 · CP1251 · Shift_JIS · GBK · Big5 · EUC-KR\";\n   codec.text=\"Binary bytes: \"+hex.toHexString()+\" ⇄ \"+hex.toBase64();\n   counts.text=members.length+\" APIs · 6 legacy methods + 6 AIR 51 codecs\";\n   trace(\"AS3_BINARY_RESULT \"+JSON.stringify({run:runs,checks:checks.length,passed:checks.length-failures.length,failed:failures.length,members:members,newMembers:12,catalogEntries:4,uncatalogued:8,converted:5,codecFamilies:38,newCodecFamilies:34,failures:failures}));\n  }\n }\n}\n"
+    }
+  ]
+}

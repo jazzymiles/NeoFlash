@@ -1,178 +1,180 @@
-/* Pure finite-number geometry profile; original implementation, no VM or DOM.
- * Primary contracts:
- * https://airsdk.dev/reference/actionscript/3.0/flash/geom/Point.html
- * https://airsdk.dev/reference/actionscript/3.0/flash/geom/Rectangle.html
- * https://airsdk.dev/reference/actionscript/3.0/flash/geom/Matrix.html
- * https://airsdk.dev/reference/actionscript/3.0/flash/geom/ColorTransform.html
- * Order/empty-area details were cross-checked against the corresponding .as
- * files under core/src/avm2/globals/flash/geom at Ruffle revision
- * fe6cfc545405b888ebb478ce1c211d63147ca49b. No upstream code is incorporated.
- * Boundary: numeric finite 2D values and ordinary point/rectangle/matrix inputs.
- * Nonfinite values, overflow and singular inversion diagnose, rather than
- * reproducing historical NaN/coercion rules. Angles are radians. Mutators return
- * undefined and validate a complete result before writing it. This does not
- * implement Vector3D, Matrix3D, native class-slot
- * conformance or later output-parameter API extensions. No prototypes are patched.
- */
-(function (global) {
+/* Per-publication geometry facades. All value state and geometry algorithms are
+ * in the shared Rust core; this module only validates/marshals host values.
+ * Pinned adaptation details: docs/RUNTIME-GEOMETRY-PROVENANCE.md. */
+(function(global){
   'use strict';
-  const pointKeys=['x','y'], rectKeys=['x','y','width','height'], matrixKeys=['a','b','c','d','tx','ty'];
+  const pointKeys=['x','y'],rectKeys=['x','y','width','height'],matrixKeys=['a','b','c','d','tx','ty'];
   const colorKeys=['redMultiplier','greenMultiplier','blueMultiplier','alphaMultiplier','redOffset','greenOffset','blueOffset','alphaOffset'];
-  function finite(value) {
+  function finite(value){
     if(typeof value!=='number'||!Number.isFinite(value))throw new RangeError('Geometry currently requires finite numeric values; numeric coercion and nonfinite results are not supported.');
     return value;
   }
-  function read(object,keys) {
-    if(object===null||typeof object!=='object')throw new TypeError('Geometry requires an object with the expected numeric coordinates.');
-    return keys.map(key=>finite(object[key]));
-  }
-  function write(object,keys,values) {
-    values.forEach(finite);
-    keys.forEach((key,index)=>{object[key]=values[index];});
-  }
-  function slots(object,keys,values) {
-    values.forEach(finite);
-    keys.forEach((key,index)=>Object.defineProperty(object,key,{enumerable:true,get:()=>values[index],set:value=>{values[index]=finite(value);}}));
-  }
-  function rectangleEdges(object) {
-    const [x,y,w,h]=read(object,rectKeys);
-    return [x,y,finite(x+w),finite(y+h),w,h];
-  }
-  function pointAt(values,position,delta=false) {
-    const [a,b,c,d,tx,ty]=values,[x,y]=read(position,pointKeys);
-    return new Point(a*x+c*y+(delta?0:tx),b*x+d*y+(delta?0:ty));
-  }
-  function compose(before,after) {
-    // Column-vector convention: concat(after) maps by before, then by after.
-    const rows=([a,b,c,d,tx,ty])=>[[a,c,tx],[b,d,ty],[0,0,1]];
-    const left=rows(after),right=rows(before),result=[];
-    for(let row=0;row<2;row++)for(let column=0;column<3;column++) {
-      let value=0;for(let index=0;index<3;index++)value+=left[row][index]*right[index][column];
-      result.push(finite(value));
+  function create(wasm,{getVector3D=()=>null}={}){
+    if(typeof wasm?.Geom2dValue!=='function')throw new Error('Rust 2D geometry bindings are missing. Rebuild and re-export this project.');
+    const native=new WeakMap();
+    function read(value,keys){
+      if(value===null||typeof value!=='object')throw new TypeError('Geometry requires an object with the expected numeric coordinates.');
+      return keys.map(key=>finite(value[key]));
     }
-    return [result[0],result[3],result[1],result[4],result[2],result[5]];
+    function invoke(receiver,operation,args=[]){
+      const state=native.get(receiver);if(!state)throw new TypeError('Geometry method has an invalid receiver.');
+      try{return JSON.parse(state.call(operation,JSON.stringify(args)));}
+      catch(error){throw new RangeError(String(error));}
+    }
+    function calculate(kind,data,operation,args,output){
+      try{const value=JSON.parse(wasm.Geom2dValue.calculate(kind,JSON.stringify(data),operation,JSON.stringify(args)));return output===undefined?wrap(value):pointOutput(value,output);}
+      catch(error){throw new RangeError(String(error));}
+    }
+    function initialize(receiver,kind,keys,args,defaults){
+      if(native.has(receiver))throw new TypeError('Native geometry initialization may occur only once.');
+      const values=defaults.map((fallback,i)=>args[i]===undefined?fallback:finite(args[i]));
+      let state;try{state=new wasm.Geom2dValue(kind,JSON.stringify(values));}catch(error){throw new RangeError(String(error));}
+      native.set(receiver,state);
+      for(const key of keys)Object.defineProperty(receiver,key,{enumerable:true,get:()=>invoke(receiver,key),set:value=>{invoke(receiver,'set:'+key,[finite(value)]);}});
+    }
+    function wrap(value){
+      if(value?.type==='Point')return new Point(...value.data);
+      if(value?.type==='Rectangle')return new Rectangle(...value.data);
+      if(value?.type==='Matrix')return new Matrix(...value.data);
+      if(value?.type==='ColorTransform')return new ColorTransform(...value.data);
+      return value;
+    }
+    function pointOutput(value,output){
+      if(output==null)return wrap(value);
+      if(!Point.__nfIs(output))throw new TypeError('Geometry output requires a Point instance or null.');
+      invoke(output,'setTo',value.data);return output;
+    }
+    class Point {
+      constructor(x=0,y=0){initialize(this,'Point',pointKeys,[x,y],[0,0]);}
+      get length(){return invoke(this,'length');}
+      clone(){return wrap(invoke(this,'clone'));}
+      copyFrom(point){invoke(this,'copyFrom',[read(point,pointKeys)]);}
+      setTo(x,y){invoke(this,'setTo',[finite(x),finite(y)]);}
+      add(point){return wrap(invoke(this,'add',[read(point,pointKeys)]));}
+      subtract(point){return wrap(invoke(this,'subtract',[read(point,pointKeys)]));}
+      addToOutput(point,output=null){return pointOutput(invoke(this,'add',[read(point,pointKeys)]),output);}
+      subtractToOutput(point,output=null){return pointOutput(invoke(this,'subtract',[read(point,pointKeys)]),output);}
+      equals(point){return invoke(this,'equals',[read(point,pointKeys)]);}
+      offset(dx,dy){invoke(this,'offset',[finite(dx),finite(dy)]);}
+      normalize(thickness){invoke(this,'normalize',[finite(thickness)]);}
+      toString(){return invoke(this,'toString');}
+      static distance(first,second){return calculate('Point',read(first,pointKeys),'distance',[read(second,pointKeys)]);}
+      static interpolate(first,second,factor){return calculate('Point',read(first,pointKeys),'interpolate',[read(second,pointKeys),finite(factor)]);}
+      static polar(length,angle){return calculate('Point',[0,0],'polar',[finite(length),finite(angle)]);}
+      static interpolateToOutput(first,second,factor,output=null){return calculate('Point',read(first,pointKeys),'interpolate',[read(second,pointKeys),finite(factor)],output);}
+      static polarToOutput(length,angle,output=null){return calculate('Point',[0,0],'polar',[finite(length),finite(angle)],output);}
+    }
+    class Rectangle {
+      constructor(x=0,y=0,width=0,height=0){initialize(this,'Rectangle',rectKeys,[x,y,width,height],[0,0,0,0]);}
+      clone(){return wrap(invoke(this,'clone'));}
+      copyFrom(rectangle){invoke(this,'copyFrom',[read(rectangle,rectKeys)]);}
+      setTo(x,y,width,height){invoke(this,'setTo',[finite(x),finite(y),finite(width),finite(height)]);}
+      setEmpty(){invoke(this,'setEmpty');}
+      isEmpty(){return invoke(this,'isEmpty');}
+      equals(rectangle){return invoke(this,'equals',[read(rectangle,rectKeys)]);}
+      contains(x,y){return invoke(this,'contains',[finite(x),finite(y)]);}
+      containsPoint(point){return invoke(this,'containsPoint',[read(point,pointKeys)]);}
+      containsRect(rectangle){return invoke(this,'containsRect',[read(rectangle,rectKeys)]);}
+      intersection(rectangle){return wrap(invoke(this,'intersection',[read(rectangle,rectKeys)]));}
+      intersects(rectangle){return invoke(this,'intersects',[read(rectangle,rectKeys)]);}
+      union(rectangle){return wrap(invoke(this,'union',[read(rectangle,rectKeys)]));}
+      offset(dx,dy){invoke(this,'offset',[finite(dx),finite(dy)]);}
+      offsetPoint(point){invoke(this,'offsetPoint',[read(point,pointKeys)]);}
+      inflate(dx,dy){invoke(this,'inflate',[finite(dx),finite(dy)]);}
+      inflatePoint(point){invoke(this,'inflatePoint',[read(point,pointKeys)]);}
+      toString(){return invoke(this,'toString');}
+    }
+    for(const key of ['left','top','right','bottom'])Object.defineProperty(Rectangle.prototype,key,{get(){return invoke(this,key);},set(value){invoke(this,'set:'+key,[finite(value)]);}});
+    for(const key of ['topLeft','bottomRight','size'])Object.defineProperty(Rectangle.prototype,key,{get(){return wrap(invoke(this,key));},set(value){invoke(this,'set:'+key,[read(value,pointKeys)]);}});
+    for(const key of ['xMin','yMin','xMax','yMax'])Object.defineProperty(Rectangle.prototype,key,{get(){return invoke(this,key);}});
+    function vector(value){
+      const Type=getVector3D();
+      if(typeof Type?.__nfIs!=='function'||!Type.__nfIs(value))throw new TypeError('Matrix row/column operations require the current publication Vector3D instance.');
+      return read(value,['x','y','z','w']);
+    }
+    class Matrix {
+      constructor(a=1,b=0,c=0,d=1,tx=0,ty=0){initialize(this,'Matrix',matrixKeys,[a,b,c,d,tx,ty],[1,0,0,1,0,0]);}
+      clone(){return wrap(invoke(this,'clone'));}
+      copyFrom(matrix){invoke(this,'copyFrom',[read(matrix,matrixKeys)]);}
+      setTo(a,b,c,d,tx,ty){invoke(this,'setTo',[a,b,c,d,tx,ty].map(finite));}
+      identity(){invoke(this,'identity');}
+      concat(matrix){invoke(this,'concat',[read(matrix,matrixKeys)]);}
+      transformPoint(point){return wrap(invoke(this,'transformPoint',[read(point,pointKeys)]));}
+      deltaTransformPoint(point){return wrap(invoke(this,'deltaTransformPoint',[read(point,pointKeys)]));}
+      transformPointToOutput(point,output=null){return pointOutput(invoke(this,'transformPoint',[read(point,pointKeys)]),output);}
+      deltaTransformPointToOutput(point,output=null){return pointOutput(invoke(this,'deltaTransformPoint',[read(point,pointKeys)]),output);}
+      invert(){invoke(this,'invert');}
+      rotate(angle){invoke(this,'rotate',[finite(angle)]);}
+      scale(sx,sy){invoke(this,'scale',[finite(sx),finite(sy)]);}
+      translate(dx,dy){invoke(this,'translate',[finite(dx),finite(dy)]);}
+      createBox(sx,sy,rotation=0,tx=0,ty=0){invoke(this,'createBox',[sx,sy,rotation,tx,ty].map(finite));}
+      createGradientBox(width,height,rotation=0,tx=0,ty=0){invoke(this,'createGradientBox',[width,height,rotation,tx,ty].map(finite));}
+      copyRowFrom(index,source){invoke(this,'copyRowFrom',[finite(index),vector(source)]);}
+      copyColumnFrom(index,source){invoke(this,'copyColumnFrom',[finite(index),vector(source)]);}
+      copyRowTo(index,destination){const value=invoke(this,'copyRowTo',[finite(index),vector(destination)]);for(let i=0;i<3;i++)destination[['x','y','z'][i]]=value.data[i];}
+      copyColumnTo(index,destination){const value=invoke(this,'copyColumnTo',[finite(index),vector(destination)]);for(let i=0;i<3;i++)destination[['x','y','z'][i]]=value.data[i];}
+      toString(){return invoke(this,'toString');}
+    }
+    function transformerMatrix(value){if(!Matrix.__nfIs(value))throw new TypeError('MatrixTransformer requires a Matrix from the same publication.');return value;}
+    class MatrixTransformer {
+      constructor(){throw new TypeError('MatrixTransformer provides static methods and cannot be constructed.');}
+      static matchInternalPointWithExternal(matrix,internal,external){invoke(transformerMatrix(matrix),'transformer:matchInternalPointWithExternal',[read(internal,pointKeys),read(external,pointKeys)]);}
+    }
+    for(const name of ['getScaleX','getScaleY','getSkewX','getSkewXRadians','getSkewY','getSkewYRadians','getRotation','getRotationRadians'])MatrixTransformer[name]=matrix=>invoke(transformerMatrix(matrix),'transformer:'+name);
+    for(const name of ['setScaleX','setScaleY','setSkewX','setSkewXRadians','setSkewY','setSkewYRadians','setRotation','setRotationRadians'])MatrixTransformer[name]=(matrix,value)=>{invoke(transformerMatrix(matrix),'transformer:'+name,[finite(value)]);};
+    for(const name of ['rotateAroundInternalPoint','rotateAroundExternalPoint'])MatrixTransformer[name]=(matrix,x,y,degrees)=>{invoke(transformerMatrix(matrix),'transformer:'+name,[finite(x),finite(y),finite(degrees)]);};
+    MatrixTransformer.__nfInitialize=()=>{throw new TypeError('MatrixTransformer is a static utility and cannot initialize subclasses.');};
+    class ColorTransform {
+      constructor(redMultiplier=1,greenMultiplier=1,blueMultiplier=1,alphaMultiplier=1,redOffset=0,greenOffset=0,blueOffset=0,alphaOffset=0){initialize(this,'ColorTransform',colorKeys,[redMultiplier,greenMultiplier,blueMultiplier,alphaMultiplier,redOffset,greenOffset,blueOffset,alphaOffset],[1,1,1,1,0,0,0,0]);}
+      get color(){return invoke(this,'color');}
+      set color(value){invoke(this,'set:color',[finite(value)]);}
+      concat(second){invoke(this,'concat',[read(second,colorKeys)]);}
+      toString(){return invoke(this,'toString');}
+    }
+    class MotionColor extends ColorTransform {
+      get brightness(){return invoke(this,'motion:brightness');}
+      set brightness(value){invoke(this,'motion:setBrightness',[finite(value)]);}
+      get tintColor(){return invoke(this,'motion:tintColor');}
+      set tintColor(value){invoke(this,'motion:setTintColor',[finite(value)]);}
+      get tintMultiplier(){return invoke(this,'motion:tintMultiplier');}
+      set tintMultiplier(value){invoke(this,'motion:setTintMultiplier',[finite(value)]);}
+      setTint(color,amount){invoke(this,'motion:setTint',[finite(color),finite(amount)]);}
+      static interpolateColor(from,to,progress){return calculate('ColorTransform',[1,1,1,1,0,0,0,0],'motion:interpolateColor',[finite(from),finite(to),finite(progress)]);}
+      static interpolateTransform(from,to,progress){return calculate('ColorTransform',read(from,colorKeys),'motion:interpolateTransform',[read(to,colorKeys),finite(progress)]);}
+      static fromXML(){throw new TypeError('fl.motion.Color.fromXML is outside the current runtime profile.');}
+    }
+    Object.defineProperty(MotionColor,'__nfIs',{value:value=>value instanceof MotionColor&&native.has(value)});
+    MotionColor.__nfInitialize=()=>{throw new TypeError('Native fl.motion.Color subclass initialization is unsupported.');};
+    const colorTargets=new WeakMap();
+    function boundColor(receiver){
+      if(!colorTargets.has(receiver))throw new TypeError('Color method has an invalid receiver.');
+      const target=colorTargets.get(receiver);
+      if(target===null||typeof target!=='object'||!target.transform)throw new TypeError('Color requires a live display object target; unresolved target paths are unsupported.');
+      const transform=target.transform,color=transform.colorTransform;
+      if(!ColorTransform.__nfIs(color))throw new TypeError('Color requires a display transform from the same publication.');
+      return {transform,color};
+    }
+    class Color {
+      constructor(target){colorTargets.set(this,target);Object.defineProperty(this,'target',{value:target});boundColor(this);}
+      getRGB(){return invoke(boundColor(this).color,'legacy:getRGB');}
+      setRGB(value){const {transform,color}=boundColor(this);invoke(color,'legacy:setRGB',[finite(value)]);transform.colorTransform=color;}
+      getTransform(){return invoke(boundColor(this).color,'legacy:getTransform');}
+      setTransform(value){
+        if(value===null||typeof value!=='object')throw new TypeError('Color.setTransform requires an object.');
+        const values={};for(const key of ['ra','ga','ba','aa','rb','gb','bb','ab'])if(Object.hasOwn(value,key))values[key]=finite(value[key]);
+        const {transform,color}=boundColor(this);invoke(color,'legacy:setTransform',[values]);transform.colorTransform=color;
+      }
+    }
+    Object.defineProperty(Color,'__nfIs',{value:value=>value instanceof Color&&colorTargets.has(value)});
+    Color.__nfInitialize=()=>{throw new TypeError('Native Color subclassing is not supported.');};
+    for(const [Type,kind,keys,defaults] of [[Point,'Point',pointKeys,[0,0]],[Rectangle,'Rectangle',rectKeys,[0,0,0,0]],[Matrix,'Matrix',matrixKeys,[1,0,0,1,0,0]]]){
+      Object.defineProperty(Type,'__nfInitialize',{value:(receiver,args)=>initialize(receiver,kind,keys,args,defaults)});
+    }
+    ColorTransform.__nfInitialize=()=>{throw new TypeError('Native ColorTransform subclassing is not supported.');};
+    for(const Type of [Point,Rectangle,Matrix,ColorTransform])Object.defineProperty(Type,'__nfIs',{value:value=>value instanceof Type&&native.has(value)});
+    return Object.freeze({Point,Rectangle,Matrix,ColorTransform,Color,MotionColor,MatrixTransformer,profile:'rust-finite-2d'});
   }
-
-  class Point {
-    constructor(x=0,y=0){slots(this,pointKeys,[x,y]);}
-    get length(){const [x,y]=read(this,pointKeys);return finite(Math.hypot(x,y));}
-    clone(){return new Point(...read(this,pointKeys));}
-    copyFrom(point){write(this,pointKeys,read(point,pointKeys));}
-    setTo(x,y){write(this,pointKeys,[x,y]);}
-    add(point){const [x,y]=read(point,pointKeys);return new Point(this.x+x,this.y+y);}
-    subtract(point){const [x,y]=read(point,pointKeys);return new Point(this.x-x,this.y-y);}
-    equals(point){const [x,y]=read(point,pointKeys);return this.x===x&&this.y===y;}
-    offset(dx,dy){write(this,pointKeys,[this.x+finite(dx),this.y+finite(dy)]);}
-    normalize(thickness){finite(thickness);const length=this.length;if(length!==0)write(this,pointKeys,[this.x/length*thickness,this.y/length*thickness]);}
-    toString(){return `(x=${this.x}, y=${this.y})`;}
-    static distance(first,second){const [x,y]=read(first,pointKeys),[u,v]=read(second,pointKeys);return finite(Math.hypot(x-u,y-v));}
-    static interpolate(first,second,factor){const [x,y]=read(first,pointKeys),[u,v]=read(second,pointKeys);finite(factor);return new Point(u+(x-u)*factor,v+(y-v)*factor);}
-    static polar(length,angle){finite(length);finite(angle);return new Point(length*Math.cos(angle),length*Math.sin(angle));}
-  }
-
-  class Rectangle {
-    constructor(x=0,y=0,width=0,height=0){slots(this,rectKeys,[x,y,width,height]);}
-    get left(){return this.x;}
-    set left(value){finite(value);write(this,rectKeys,[value,this.y,this.right-value,this.height]);}
-    get top(){return this.y;}
-    set top(value){finite(value);write(this,rectKeys,[this.x,value,this.width,this.bottom-value]);}
-    get right(){return finite(this.x+this.width);}
-    set right(value){this.width=finite(value)-this.x;}
-    get bottom(){return finite(this.y+this.height);}
-    set bottom(value){this.height=finite(value)-this.y;}
-    get topLeft(){return new Point(this.x,this.y);}
-    set topLeft(value){const [x,y]=read(value,pointKeys);write(this,rectKeys,[x,y,this.right-x,this.bottom-y]);}
-    get bottomRight(){return new Point(this.right,this.bottom);}
-    set bottomRight(value){const [x,y]=read(value,pointKeys);write(this,rectKeys,[this.x,this.y,x-this.x,y-this.y]);}
-    get size(){return new Point(this.width,this.height);}
-    set size(value){const [width,height]=read(value,pointKeys);write(this,rectKeys,[this.x,this.y,width,height]);}
-    // Existing NeoFlash getBounds returns these read-only AS2 aliases.
-    get xMin(){return this.left;} get yMin(){return this.top;}
-    get xMax(){return this.right;} get yMax(){return this.bottom;}
-    clone(){return new Rectangle(...read(this,rectKeys));}
-    copyFrom(rectangle){write(this,rectKeys,read(rectangle,rectKeys));}
-    setTo(x,y,width,height){write(this,rectKeys,[x,y,width,height]);}
-    setEmpty(){write(this,rectKeys,[0,0,0,0]);}
-    isEmpty(){return this.width<=0||this.height<=0;}
-    equals(rectangle){const values=read(rectangle,rectKeys);return rectKeys.every((key,index)=>this[key]===values[index]);}
-    contains(x,y){finite(x);finite(y);return x>=this.x&&y>=this.y&&x<this.right&&y<this.bottom;}
-    containsPoint(point){return this.contains(...read(point,pointKeys));}
-    containsRect(rectangle){
-      const [x,y,right,bottom]=rectangleEdges(rectangle),[left,top,r,b]=rectangleEdges(this);
-      return x>=left&&y>=top&&x<r&&y<b&&right>left&&bottom>top&&right<=r&&bottom<=b;
-    }
-    intersection(rectangle){
-      const [x,y,r,b,w,h]=rectangleEdges(this),[u,v,s,t,ow,oh]=rectangleEdges(rectangle);
-      if(w<=0||h<=0||ow<=0||oh<=0)return new Rectangle();
-      const left=Math.max(x,u),top=Math.max(y,v),right=Math.min(r,s),bottom=Math.min(b,t);
-      return right>left&&bottom>top?new Rectangle(left,top,right-left,bottom-top):new Rectangle();
-    }
-    intersects(rectangle){return !this.intersection(rectangle).isEmpty();}
-    union(rectangle){
-      const [x,y,r,b,w,h]=rectangleEdges(this),[u,v,s,t,ow,oh]=rectangleEdges(rectangle);
-      if(w<=0||h<=0)return new Rectangle(u,v,ow,oh);
-      if(ow<=0||oh<=0)return this.clone();
-      const left=Math.min(x,u),top=Math.min(y,v);
-      return new Rectangle(left,top,Math.max(r,s)-left,Math.max(b,t)-top);
-    }
-    offset(dx,dy){write(this,rectKeys,[this.x+finite(dx),this.y+finite(dy),this.width,this.height]);}
-    offsetPoint(point){this.offset(...read(point,pointKeys));}
-    inflate(dx,dy){finite(dx);finite(dy);write(this,rectKeys,[this.x-dx,this.y-dy,this.width+2*dx,this.height+2*dy]);}
-    inflatePoint(point){this.inflate(...read(point,pointKeys));}
-    toString(){return `(x=${this.x}, y=${this.y}, w=${this.width}, h=${this.height})`;}
-  }
-
-  class Matrix {
-    constructor(a=1,b=0,c=0,d=1,tx=0,ty=0){slots(this,matrixKeys,[a,b,c,d,tx,ty]);}
-    clone(){return new Matrix(...read(this,matrixKeys));}
-    copyFrom(matrix){write(this,matrixKeys,read(matrix,matrixKeys));}
-    setTo(a,b,c,d,tx,ty){write(this,matrixKeys,[a,b,c,d,tx,ty]);}
-    identity(){write(this,matrixKeys,[1,0,0,1,0,0]);}
-    concat(matrix){write(this,matrixKeys,compose(read(this,matrixKeys),read(matrix,matrixKeys)));}
-    transformPoint(point){return pointAt(read(this,matrixKeys),point);}
-    deltaTransformPoint(point){return pointAt(read(this,matrixKeys),point,true);}
-    invert(){
-      const [a,b,c,d,tx,ty]=read(this,matrixKeys),determinant=finite(a*d-b*c);
-      if(determinant===0)throw new RangeError('Singular Matrix inversion is not supported by the finite geometry profile.');
-      const linear=[d/determinant,-b/determinant,-c/determinant,a/determinant];
-      write(this,matrixKeys,[...linear,-(linear[0]*tx+linear[2]*ty),-(linear[1]*tx+linear[3]*ty)]);
-    }
-    rotate(angle){finite(angle);const c=Math.cos(angle),s=Math.sin(angle);write(this,matrixKeys,compose(read(this,matrixKeys),[c,s,-s,c,0,0]));}
-    scale(sx,sy){finite(sx);finite(sy);write(this,matrixKeys,compose(read(this,matrixKeys),[sx,0,0,sy,0,0]));}
-    translate(dx,dy){const values=read(this,matrixKeys);values[4]+=finite(dx);values[5]+=finite(dy);write(this,matrixKeys,values);}
-    createBox(sx,sy,rotation=0,tx=0,ty=0){
-      [sx,sy,rotation,tx,ty].forEach(finite);
-      const c=Math.cos(rotation),s=Math.sin(rotation);
-      // Flash createBox is rotation, then world-axis scale, then translation.
-      write(this,matrixKeys,[c*sx,s*sy,-s*sx,c*sy,tx,ty]);
-    }
-    createGradientBox(width,height,rotation=0,tx=0,ty=0){
-      [width,height,rotation,tx,ty].forEach(finite);
-      this.createBox(width/1638.4,height/1638.4,rotation,finite(tx+width/2),finite(ty+height/2));
-    }
-    toString(){return `(${matrixKeys.map(key=>`${key}=${this[key]}`).join(', ')})`;}
-  }
-  class ColorTransform {
-    constructor(redMultiplier=1,greenMultiplier=1,blueMultiplier=1,alphaMultiplier=1,redOffset=0,greenOffset=0,blueOffset=0,alphaOffset=0){
-      slots(this,colorKeys,[redMultiplier,greenMultiplier,blueMultiplier,alphaMultiplier,redOffset,greenOffset,blueOffset,alphaOffset]);
-    }
-    get color(){return ((this.redOffset<<16)|(this.greenOffset<<8)|this.blueOffset)>>>0;}
-    set color(value){
-      if(!Number.isInteger(value)||value<0||value>0xffffffff)throw new RangeError('ColorTransform.color requires an unsigned RGB integer.');
-      write(this,colorKeys,[0,0,0,this.alphaMultiplier,(value>>>16)&255,(value>>>8)&255,value&255,this.alphaOffset]);
-    }
-    concat(second){
-      const before=read(this,colorKeys),after=read(second,colorKeys);
-      // Apply this transform first, then second (same order as Matrix.concat).
-      write(this,colorKeys,[...before.slice(0,4).map((value,index)=>value*after[index]),
-        ...before.slice(4).map((value,index)=>value*after[index]+after[index+4])]);
-    }
-    toString(){return `(${colorKeys.map(key=>`${key}=${this[key]}`).join(', ')})`;}
-  }
-  for(const Type of [Point,Rectangle,Matrix,ColorTransform])Object.defineProperty(Type,'__nfIs',{value:value=>value instanceof Type});
-  ColorTransform.__nfInitialize=()=>{throw new TypeError('Native ColorTransform subclassing is not supported.');};
-  for(const name of ['copyColumnFrom','copyColumnTo','copyRowFrom','copyRowTo'])Object.defineProperty(Matrix.prototype,name,{value(){throw new TypeError(`Matrix.${name} requires the unimplemented Vector3D family.`);}});
-  const api=Object.freeze({Point,Rectangle,Matrix,ColorTransform,profile:'finite-2d-documented-only'});
+  const api=Object.freeze({create});
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   else global.NeoFlashGeom=api;
 })(globalThis);

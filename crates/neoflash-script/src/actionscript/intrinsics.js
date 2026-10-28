@@ -17,6 +17,18 @@ function __nfAs2Strings() {
 }
 function __nfEscape2(...args) { return __nfAs2Strings().invoke('escape', '', args); }
 function __nfUnescape2(...args) { return __nfAs2Strings().invoke('unescape', '', args); }
+function __nfAs3Strings() {
+    if (typeof __nfLegacy === 'undefined' || typeof __nfLegacy?.strings3?.invoke !== 'function') {
+        throw new __nfTypeError('AS3 String Rust service is unavailable. Re-export this project with the current WASM runtime.');
+    }
+    return __nfLegacy.strings3;
+}
+function __nfMath(as3) {
+    if (typeof __nfLegacy === 'undefined' || !__nfLegacy?.math) {
+        throw new __nfTypeError('Rust Math service is unavailable. Re-export this project.');
+    }
+    return as3 ? __nfLegacy.math.as3 : __nfLegacy.math.as2;
+}
 const __nfLegacyStringGlobals = Object.freeze(Object.fromEntries(
     ['chr', 'ord', 'length', 'substring', 'mbchr', 'mbord', 'mblength', 'mbsubstring']
         .map(name => [name, (...args) => __nfAs2Strings().invoke('global.' + name, '', args)])
@@ -164,26 +176,15 @@ function __nfNumberFormatMethod(receiver, name, as3) {
     };
 }
 
-// The AVM2 globals take a nullable typed String, with a distinct omitted default.
-// The native JS UTF-8 URI codec supplies matching reserved-character behavior
-// and URIError failures; never expose it before the AS3 argument conversion.
+// Argument conversion and transport live in the per-publication String service.
+// The URI/UTF-16 codecs and XML-name validation execute in Rust.
 const __nfUriFunctions = Object.freeze(Object.fromEntries(
-    Object.entries({encodeURI, encodeURIComponent, decodeURI, decodeURIComponent}).map(([name, native]) => [name, function(value) {
-        if (arguments.length > 1) throw new __nfTypeError('Unsupported AS3 ' + name + ' call: pass at most one URI string.');
-        const text = arguments.length === 0 ? 'undefined' : value == null ? 'null' : __nfString(value);
-        return native(text);
-    }])
+    ['encodeURI','encodeURIComponent','decodeURI','decodeURIComponent','escape','unescape','isXMLName']
+        .map(name => [name, (...args) => __nfAs3Strings().invoke(name, '', args)])
 ));
 
-// AVM1 random's range saturates at signed-int max, unlike int's wrapping.
-// The distribution uses the host RNG, not a historical player seed sequence.
-const __nfRandomNative = Math.random;
-function __nfRandom2(value) {
-    if (arguments.length > 1) throw new __nfTypeError('Unsupported AS2 random call: pass one upper bound.');
-    const number = __nfNumber(value);
-    const maximum = Number.isNaN(number) ? 0 : Math.max(0, Math.min(2147483647, Math.trunc(number)));
-    return maximum > 0 ? Math.floor(__nfRandomNative() * maximum) : 0;
-}
+// AVM1 range conversion and random fraction quantization live in Rust.
+function __nfRandom2(...args) { __nfMath(false); return __nfLegacy.math.randomInt(...args); }
 
 // AVM1 Boolean() differs from Boolean(undefined): only omission is undefined.
 function __nfBoolean2(value) {

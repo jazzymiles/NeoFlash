@@ -42,12 +42,42 @@ const BUILTINS: &[&str] = &[
     "flash.filters.GlowFilter",
     "flash.filters.DropShadowFilter",
     "flash.filters.ColorMatrixFilter",
+    "mx.transitions.easing.Back",
+    "mx.transitions.easing.Bounce",
+    "mx.transitions.easing.Elastic",
+    "mx.transitions.easing.None",
+    "mx.transitions.easing.Regular",
+    "mx.transitions.easing.Strong",
+    "fl.transitions.easing.Back",
+    "fl.transitions.easing.Bounce",
+    "fl.transitions.easing.Elastic",
+    "fl.transitions.easing.None",
+    "fl.transitions.easing.Regular",
+    "fl.transitions.easing.Strong",
+    "fl.motion.MatrixTransformer",
+    "fl.motion.Color",
+    "fl.motion.CustomEase",
+    "fl.motion.easing.Back",
+    "fl.motion.easing.Bounce",
+    "fl.motion.easing.Circular",
+    "fl.motion.easing.Cubic",
+    "fl.motion.easing.Elastic",
+    "fl.motion.easing.Exponential",
+    "fl.motion.easing.Linear",
+    "fl.motion.easing.Quadratic",
+    "fl.motion.easing.Quartic",
+    "fl.motion.easing.Quintic",
+    "fl.motion.easing.Sine",
+    "fl.transitions.Tween",
+    "mx.transitions.Tween",
+    "fl.transitions.TweenEvent",
     "flash.geom.Point",
     "flash.geom.Rectangle",
     "flash.geom.Matrix",
     "flash.geom.Vector3D",
     "flash.geom.Matrix3D",
     "flash.geom.Utils3D",
+    "flash.geom.PerspectiveProjection",
     "flash.geom.Transform",
     "flash.geom.ColorTransform",
     "flash.utils.Timer",
@@ -78,6 +108,12 @@ const BUILTINS: &[&str] = &[
 ];
 const BUILTIN_FUNCTIONS: &[&str] = &[
     "flash.utils.getTimer",
+    "flash.utils.escapeMultiByte",
+    "flash.utils.unescapeMultiByte",
+    "flash.utils.setInterval",
+    "flash.utils.setTimeout",
+    "flash.utils.clearInterval",
+    "flash.utils.clearTimeout",
     "flash.net.navigateToURL",
     "flash.net.sendToURL",
 ];
@@ -342,8 +378,11 @@ fn visible_names(
         .filter(|name| {
             languages.get(*name).map_or_else(
                 || {
-                    language == ScriptLanguage::ActionScript3
+                    (language == ScriptLanguage::ActionScript3
+                        && !name.starts_with("mx.transitions."))
                         || matches!(name.as_str(), "Object" | "Array")
+                        || (language == ScriptLanguage::ActionScript2
+                            && name.starts_with("mx.transitions."))
                         || name.starts_with("flash.geom.")
                         || (name.starts_with("flash.filters.")
                             && name.as_str() != "flash.filters.BitmapFilterQuality")
@@ -782,13 +821,17 @@ fn parse_class(
                 | "flash.geom.Vector3D"
                 | "flash.geom.Matrix3D"
                 | "flash.geom.Utils3D"
+                | "flash.geom.PerspectiveProjection"
+                | "fl.motion.MatrixTransformer"
+                | "fl.motion.Color"
+                | "fl.motion.CustomEase"
                 | "flash.utils.Dictionary"
         )
     ) {
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "Transform, ColorTransform, Vector3D, Matrix3D, Utils3D and Dictionary native subclass initialization is outside this profile; use native instances through composition.",
+            "Native subclass initialization for geometry/motion values and utilities, and Dictionary is outside this profile; use native instances through composition.",
         ));
     }
     if matches!(

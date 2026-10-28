@@ -6,6 +6,8 @@
 //! Rotation and bulk-projection algorithms additionally Copyright (c) 2013-2021 Joshua Granick and
 //! other OpenFL contributors (MIT), through Ruffle's documented adaptation.
 //! See docs/AS3-REUSE-PROVENANCE.md for pinned sources, modifications and notices.
+//! Standalone PerspectiveProjection additionally adapts render/src/perspective_projection.rs;
+//! see docs/RUNTIME-GEOMETRY-PROVENANCE.md for its bounded profile.
 use serde_json::{Value, json};
 
 /// The transformation matrix for 3D used by Flash display objects.
@@ -174,6 +176,8 @@ impl Matrix3D {
 pub enum GeometryValue {
     Vector([f64; 4]),
     Matrix(Matrix3D),
+    /// Standalone projection: field of view followed by center x/y. Width is 500.
+    Projection([f64; 3]),
 }
 fn numbers(value: &Value) -> Result<Vec<f64>, String> {
     let values = value
@@ -241,6 +245,7 @@ fn dot(a: [f64; 4], b: [f64; 4]) -> f64 {
 impl GeometryValue {
     pub fn new(kind: &str, data: &Value) -> Result<Self, String> {
         match kind {
+            "PerspectiveProjection" if data.is_null() => Ok(Self::Projection([55., 250., 250.])),
             "Vector3D" => Ok(Self::Vector(vector(data)?)),
             "Matrix3D" if data.is_null() => Ok(Self::Matrix(Matrix3D::IDENTITY)),
             "Matrix3D" => Ok(Self::Matrix(matrix(data)?)),
@@ -251,6 +256,7 @@ impl GeometryValue {
         match self {
             Self::Vector(v) => json!(v),
             Self::Matrix(m) => json!(m.raw_data),
+            Self::Projection(p) => json!(p),
         }
     }
     /// Clone before applying: rejected inputs never partially mutate a value.
@@ -261,6 +267,9 @@ impl GeometryValue {
         let mut next = self.clone();
         let result = next.apply(operation, args)?;
         match &next {
+            Self::Projection(p) if p.iter().any(|v| !v.is_finite()) => {
+                return Err("PerspectiveProjection mutation produced non-finite values".into());
+            }
             Self::Vector(v) if v.iter().any(|v| !v.is_finite()) => {
                 return Err("Geometry mutation produced non-finite vector components".into());
             }
@@ -276,6 +285,56 @@ impl GeometryValue {
         let null = Value::Null;
         let a = |i: usize| args.get(i).unwrap_or(&null);
         match self {
+            Self::Projection(p) => {
+                // Adapted from Ruffle render/src/perspective_projection.rs and AVM2
+                // accessors. Unbound objects use width=500; no display association.
+                match op {
+                    "fieldOfView" => return numeric(p[0]),
+                    "set:fieldOfView" => {
+                        let fov = number(a(0))?;
+                        if fov <= 0. || fov >= 180. {
+                            return Err("PerspectiveProjection.fieldOfView requires 0 < value < 180 degrees".into());
+                        }
+                        p[0] = fov;
+                    }
+                    "focalLength" => return numeric(projection_focal_length(p[0]) as f64),
+                    "set:focalLength" => {
+                        let focal = number(a(0))?;
+                        if focal <= 0. {
+                            return Err("PerspectiveProjection.focalLength must be positive".into());
+                        }
+                        let fov = (250. / focal).atan().to_degrees() * 2.;
+                        if fov <= 0. || fov >= 180. {
+                            return Err("PerspectiveProjection focal length exceeds the finite projection profile".into());
+                        }
+                        p[0] = fov;
+                    }
+                    "projectionCenter" => return Ok(json!({"type":"Point","data":[p[1],p[2]]})),
+                    "set:projectionCenter" => {
+                        let center = numbers(a(0))?;
+                        if center.len() != 2 {
+                            return Err(
+                                "PerspectiveProjection.projectionCenter requires a Point".into()
+                            );
+                        }
+                        p[1] = center[0];
+                        p[2] = center[1];
+                    }
+                    "toMatrix3D" => {
+                        let f = projection_focal_length(p[0]);
+                        return matrix_output(Matrix3D {
+                            raw_data: [
+                                f, 0., 0., 0., 0., f, 0., 0., 0., 0., 1., 1., 0., 0., 0., 0.,
+                            ],
+                        });
+                    }
+                    _ => {
+                        return Err(format!(
+                            "PerspectiveProjection.{op} is outside the standalone projection profile"
+                        ));
+                    }
+                }
+            }
             Self::Vector(v) => {
                 let component = |name: &str| match name {
                     "x" => Some(0),
@@ -400,8 +459,8 @@ impl GeometryValue {
                 }
                 "set:position" => {
                     let p = vector(a(0))?;
-                    for i in 0..3 {
-                        m.raw_data[12 + i] = p[i] as f32;
+                    for (i, value) in p.iter().take(3).enumerate() {
+                        m.raw_data[12 + i] = *value as f32;
                     }
                 }
                 "determinant" => return numeric(m.determinant() as f64),
@@ -593,6 +652,11 @@ impl GeometryValue {
     }
 }
 
+// Ruffle preserves an f64 angle but returns f32 focal length/matrix components.
+fn projection_focal_length(field_of_view: f64) -> f32 {
+    250. * ((std::f64::consts::PI - field_of_view.to_radians()) / 2.).tan() as f32
+}
+
 // Adapted from Ruffle's AVM2 transform_vector/delta_transform_vector: f32 math.
 fn transform(m: &Matrix3D, v: [f64; 4], translated: bool) -> [f64; 4] {
     let [x, y, z, _] = v.map(|f| f as f32);
@@ -651,6 +715,24 @@ mod tests {
     use super::*;
     #[test]
     fn adapted_geometry_family() {
+        let mut p = GeometryValue::new("PerspectiveProjection", &Value::Null).unwrap();
+        p.call("set:fieldOfView", &json!([90])).unwrap();
+        assert_eq!(p.call("focalLength", &json!([])).unwrap(), json!(250.));
+        p.call("set:projectionCenter", &json!([[25, 75]])).unwrap();
+        assert_eq!(
+            p.call("projectionCenter", &json!([])).unwrap()["data"],
+            json!([25., 75.])
+        );
+        let projection = p.call("toMatrix3D", &json!([])).unwrap();
+        assert_eq!(projection["data"][11], json!(1.));
+        assert_eq!(projection["data"][15], json!(0.));
+        p.call("set:focalLength", &json!([250])).unwrap();
+        assert!(
+            (p.call("fieldOfView", &json!([])).unwrap().as_f64().unwrap() - 90.).abs() < 0.0001
+        );
+        let before = p.snapshot();
+        assert!(p.call("set:fieldOfView", &json!([180])).is_err());
+        assert_eq!(p.snapshot(), before);
         let mut v = GeometryValue::new("Vector3D", &json!([3, 4, 0, 7])).unwrap();
         assert_eq!(v.call("normalize", &json!([])).unwrap(), json!(5.0));
         assert_eq!(v.call("w", &json!([])).unwrap(), json!(7.0));

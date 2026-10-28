@@ -1,11 +1,12 @@
-/* Bounded AS3 binary buffers. Original implementation; no external IO.
+/* Bounded AS3 binary buffers and shared Rust codecs; no external IO.
  * Primary API contracts:
  * https://airsdk.dev/reference/actionscript/3.0/flash/utils/ByteArray.html
  * https://airsdk.dev/reference/actionscript/3.0/flash/utils/Endian.html
  * Cursor clamping, UTF prefix/endian and UTF BOM/NUL behavior cross-checked with
  * Ruffle fe6cfc545405b888ebb478ce1c211d63147ca49b:
  * core/src/avm2/bytearray.rs and globals/flash/utils/byte_array.rs.
- * No upstream code is incorporated and no original-player comparison is claimed.
+ * The original buffer host remains local; new codec adaptations are attributed
+ * in docs/RUNTIME-BINARY-PROVENANCE.md. No original-player comparison is claimed.
  *
  * create({maxBytes=16MiB,maxTotalBytes=64MiB,maxArrays=4096}) returns
  * {ByteArray,Endian,reset,dispose}. Limits include backing capacity; initialized
@@ -24,7 +25,10 @@
  * because its source/destination cursor aliases need a separate legacy contract;
  * writeBytes self-copy uses snapshot semantics and supports overlapping ranges.
  * Native subclass initialization/index enumeration, shared
- * workers, compression and multibyte code pages explicitly reject. This module
+ * workers and LZMA explicitly reject. Compression, multibyte and AIR 51
+ * base64/hex operations call the shared Rust codecs; see
+ * docs/RUNTIME-BINARY-PROVENANCE.md for the supported character sets/boundaries.
+ * This module
  * shares its per-publication lifecycle with the browser runtime. Host-only bulk
  * transfers copy bytes without exposing the backing store or changing cursors.
  */
@@ -40,9 +44,40 @@
     for(const [name,value,limit] of [['maxBytes',maxBytes,HARD_LIMIT],['maxTotalBytes',maxTotalBytes,HARD_LIMIT],['maxArrays',maxArrays,65536]]) {
       if(!Number.isInteger(value)||value<1||value>limit)throw new RangeError(`${name} must be an integer from 1 through ${limit}.`);
     }
-    const states=new WeakMap(),records=new Set(),encoder=new TextEncoder();
-    const decoder=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true});
+    const states=new WeakMap(),records=new Set();
     let generation=1,allocated=0,disposed=false,objectCodec=null,defaultEncoding=3;
+    const wasm=options.wasm;
+    function codec(name,...args){
+      if(typeof wasm?.[name]!=='function')throw new TypeError('ByteArray codecs require the shared Rust/WASM binary service.');
+      try{return wasm[name](...args);}
+      catch(error){
+        if(error instanceof Error)throw error;
+        // A host test/publication may instantiate WASM in another JS realm.
+        if(error?.name==='RangeError')throw new RangeError(String(error.message));
+        if(error?.name==='TypeError')throw new TypeError(String(error.message));
+        throw new TypeError(String(error));
+      }
+    }
+    function primitiveText(value,name){if(typeof value!=='string')throw new TypeError(`ByteArray ${name} requires a primitive String.`);return value;}
+    function transformed(operation,bytes,text='',parameter=''){
+      return codec('as_binary_transform',operation,bytes,text,parameter,maxBytes);
+    }
+    function replaceBytes(record,bytes,atEnd){
+      // Reserve before mutation: codec/allocation failures leave state intact.
+      size(bytes.length,'codec result');reserve(record,bytes.length);
+      record.bytes.set(bytes,0);
+      if(bytes.length<record.length)record.bytes.fill(0,bytes.length,record.length);
+      record.length=bytes.length;record.position=atEnd?bytes.length:0;
+    }
+    function writeEncoded(receiver,operation,value,parameter=''){
+      const record=state(receiver),bytes=transformed(operation,new Uint8Array(0),primitiveText(value,'text input'),parameter);
+      const end=writeEnd(record.position,bytes.length);extend(record,end);
+      record.bytes.set(bytes,record.position);record.position=end;return bytes.length;
+    }
+    function transformBuffer(receiver,operation,algorithm){
+      const record=state(receiver),bytes=transformed(operation,record.bytes.subarray(0,record.length),'',primitiveText(algorithm,'algorithm'));
+      replaceBytes(record,bytes,operation==='compress');
+    }
     function encoding(value){if(value!==0&&value!==3)throw new RangeError('ByteArray.objectEncoding must be AMF0 (0) or AMF3 (3).');return value;}
     function open(){if(disposed)throw new Error('This ByteArray service has been disposed.');}
     function state(receiver){
@@ -100,26 +135,12 @@
     function encoded(value,limit){
       if(typeof value!=='string')throw new TypeError('ByteArray UTF writes require a primitive String.');
       if(value.length>limit)throw new RangeError('ByteArray UTF string exceeds the supported byte length.');
-      let bytes=0;
-      for(let at=0;at<value.length;at++) {
-        const unit=value.charCodeAt(at);
-        if(unit>=0xd800&&unit<=0xdbff) {
-          const low=value.charCodeAt(++at);
-          if(!(low>=0xdc00&&low<=0xdfff))throw new TypeError('ByteArray UTF input contains an unsupported unpaired surrogate.');
-          bytes+=4;
-        } else {
-          if(unit>=0xdc00&&unit<=0xdfff)throw new TypeError('ByteArray UTF input contains an unsupported unpaired surrogate.');
-          bytes+=unit<0x80?1:unit<0x800?2:3;
-        }
-        if(bytes>limit)throw new RangeError('ByteArray UTF string exceeds the supported byte length.');
-      }
-      return encoder.encode(value);
+      const units=new Uint16Array(value.length);
+      for(let at=0;at<value.length;at++)units[at]=value.charCodeAt(at);
+      return codec('as_binary_encode_utf8',units,limit);
     }
     function decoded(bytes,stopAtNull){
-      let start=bytes[0]===0xef&&bytes[1]===0xbb&&bytes[2]===0xbf?3:0,end=bytes.length;
-      if(stopAtNull){const nul=bytes.indexOf(0,start);if(nul>=0)end=nul;}
-      try {return decoder.decode(bytes.subarray(start,end));}
-      catch {throw new TypeError('ByteArray UTF input is not valid UTF-8; legacy replacement/code-page behavior is not implemented.');}
+      return codec('as_binary_decode_utf8',bytes,stopAtNull,maxBytes);
     }
     function writeUtf(receiver,value,prefix){
       const record=state(receiver),bytes=encoded(value,prefix?Math.min(65535,maxBytes):maxBytes);
@@ -229,13 +250,28 @@
       }
       writeUTF(value){writeUtf(this,value,true);}
       writeUTFBytes(value){writeUtf(this,value,false);}
+      compress(algorithm='zlib'){transformBuffer(this,'compress',algorithm);}
+      uncompress(algorithm='zlib'){transformBuffer(this,'uncompress',algorithm);}
+      deflate(){transformBuffer(this,'compress','deflate');}
+      inflate(){transformBuffer(this,'uncompress','deflate');}
+      writeMultiByte(value,charSet){writeEncoded(this,'writeMultiByte',value,primitiveText(charSet,'character set'));}
+      readMultiByte(length,charSet){
+        const record=state(this),end=readEnd(record,record.position,size(length,'length'));
+        const result=codec('as_binary_decode',record.bytes.subarray(record.position,end),primitiveText(charSet,'character set'),maxBytes);
+        record.position=end;return result;
+      }
+      toBase64(){const record=state(this);return codec('as_binary_to_text','toBase64',record.bytes.subarray(0,record.length),maxBytes);}
+      toHexString(){const record=state(this);return codec('as_binary_to_text','toHexString',record.bytes.subarray(0,record.length),maxBytes);}
+      writeBase64(value){return writeEncoded(this,'writeBase64',value);}
+      writeHexString(value){return writeEncoded(this,'writeHexString',value);}
+      static createFromBase64(value){const result=fromBytes(transformed('writeBase64',new Uint8Array(0),primitiveText(value,'base64 input')));state(result).position=state(result).length;return result;}
+      static createFromHexString(value){const result=fromBytes(transformed('writeHexString',new Uint8Array(0),primitiveText(value,'hex input')));state(result).position=state(result).length;return result;}
       toString(){const record=state(this);return decoded(record.bytes.subarray(0,record.length),false);}
     }
     Object.defineProperties(ByteArray,{__nfIs:{value:value=>states.has(value)},__nfInitialize:{value:()=>{throw new TypeError('Native ByteArray subclass initialization requires indexed proxy construction and is not implemented.');}}});
     for(const name of ['shareable'])Object.defineProperty(ByteArray.prototype,name,{get(){unsupported(name);},set(){unsupported(name);}});
     Object.defineProperty(ByteArray,'defaultObjectEncoding',{get(){open();return defaultEncoding;},set(value){open();defaultEncoding=encoding(value);}});
-    for(const name of ['compress','uncompress','deflate','inflate','readMultiByte','writeMultiByte','atomicCompareAndSwapIntAt','atomicCompareAndSwapLength','toBase64','toHexString','writeBase64','writeHexString','writeRandomBytes'])Object.defineProperty(ByteArray.prototype,name,{value(){unsupported(name);}});
-    for(const name of ['createFromBase64','createFromHexString'])Object.defineProperty(ByteArray,name,{value(){unsupported(name);}});
+    for(const name of ['atomicCompareAndSwapIntAt','atomicCompareAndSwapLength','writeRandomBytes'])Object.defineProperty(ByteArray.prototype,name,{value(){unsupported(name);}});
     // Host-only copies for resource/network adapters. No mutable backing storage
     // escapes, and transfers never change an existing ByteArray cursor.
     function fromBytes(bytes){

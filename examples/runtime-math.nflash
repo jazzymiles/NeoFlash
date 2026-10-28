@@ -1,0 +1,451 @@
+{
+  "format_version": 2,
+  "name": "Rust AS2/AS3 Math family",
+  "width": 960,
+  "height": 570,
+  "fps": 24,
+  "background": [
+    14,
+    24,
+    33,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 42,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / RUST NUMERIC FAMILY",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        115,
+                        213,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 42,
+                      "y": 82,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ActionScript Math · shared Rust calculations",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 42,
+                      "y": 125,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Individual Ruffle rules adapted into the existing Rust core.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel",
+                    "name": "panel",
+                    "transform": {
+                      "x": 32,
+                      "y": 175,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 890,
+                      "height": 195,
+                      "fill": [
+                        25,
+                        42,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "result",
+                    "name": "result",
+                    "transform": {
+                      "x": 52,
+                      "y": 205,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Running checks…",
+                      "font_family": "Arial",
+                      "font_size": 25,
+                      "color": [
+                        115,
+                        229,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pipeline",
+                    "name": "pipeline",
+                    "transform": {
+                      "x": 52,
+                      "y": 248,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Text pipeline",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "casing",
+                    "name": "casing",
+                    "transform": {
+                      "x": 52,
+                      "y": 286,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Historical casing",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "codec",
+                    "name": "codec",
+                    "transform": {
+                      "x": 52,
+                      "y": 324,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "URL codecs",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rerun",
+                    "name": "rerun",
+                    "transform": {
+                      "x": 42,
+                      "y": 397,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "run-button",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.runReuse();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 285,
+                      "y": 417,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run again repeats the complete authored Math scenario.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "counts",
+                    "name": "counts",
+                    "transform": {
+                      "x": 42,
+                      "y": 480,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Awaiting runtime results",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 42,
+                      "y": 522,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "No new API names claimed for migrated methods. No full floating-point parity claim.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "var ok:Boolean=Math.max(1,2,99)==2 && Math.min(7,3,-10)==3 && isNaN(Math.min(1)) && Math.round(-1.5)==-1 && random(1)==0; trace(\"MATH_AS2_RESULT \"+ok);"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-button",
+      "name": "run-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "run-button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 56,
+                      "fill": [
+                        32,
+                        116,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 35,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RUN AGAIN",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": "",
+                "scripts": []
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "document_class": "app.MathExample",
+  "sources": [
+    {
+      "id": "math-main",
+      "path": "app/MathExample.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;\n public dynamic class MathExample extends MovieClip {\n  public var runs:int=0; public var checks:Array; public var failures:Array; public var members:Array;\n  public function MathExample(){super();stop();runReuse();}\n  public function near(a:Number,b:Number):Boolean{return Math.abs(a-b)<0.000001;}\n  public function check(name:String,pass:Boolean,member:String):void{checks.push(name);if(!pass)failures.push(name);if(member!=\"\"&&members.indexOf(member)<0)members.push(member);}\n  public function runReuse():void{\n   runs++;checks=[];failures=[];members=[];\n   check(\"absolute\",Math.abs(-7)==7,\"Math.abs\");check(\"acos\",near(Math.acos(0),Math.PI/2),\"Math.acos\");\n   check(\"asin\",near(Math.asin(1),Math.PI/2),\"Math.asin\");check(\"atan\",near(Math.atan(1),Math.PI/4),\"Math.atan\");\n   check(\"atan2\",near(Math.atan2(1,1),Math.PI/4),\"Math.atan2\");check(\"ceil\",Math.ceil(-1.2)==-1,\"Math.ceil\");\n   check(\"cos\",near(Math.cos(Math.PI),-1),\"Math.cos\");check(\"exp\",near(Math.exp(1),Math.E),\"Math.exp\");\n   check(\"floor\",Math.floor(-1.2)==-2,\"Math.floor\");check(\"log\",near(Math.log(Math.E),1),\"Math.log\");\n   check(\"max variadic\",Math.max(1,2,7)==7,\"Math.max\");check(\"min variadic\",Math.min(7,2,1)==1,\"Math.min\");\n   check(\"pow\",Math.pow(2,8)==256,\"Math.pow\");check(\"round\",Math.round(-1.5)==-1,\"Math.round\");\n   check(\"sin\",near(Math.sin(Math.PI/2),1),\"Math.sin\");check(\"sqrt\",Math.sqrt(81)==9,\"Math.sqrt\");\n   check(\"tan\",near(Math.tan(Math.PI/4),1),\"Math.tan\");var r:Number=Math.random();check(\"random range\",r>=0&&r<1,\"Math.random\");\n   check(\"nonfinite\",isNaN(Math.pow(1,Infinity))&&Math.min()==Infinity&&Math.max()==-Infinity,\"\");\n   check(\"signed zero\",1/Math.min(0,-0)==-Infinity&&1/Math.max(0,-0)==Infinity,\"\");\n   check(\"constants\",near(Math.LN2,Math.log(2))&&near(Math.LN10,Math.log(10))&&near(Math.LOG2E,1/Math.LN2)&&near(Math.LOG10E,1/Math.LN10)&&near(Math.SQRT2,Math.sqrt(2))&&near(Math.SQRT1_2,1/Math.SQRT2),\"\");\n   result.text=(checks.length-failures.length)+\" / \"+checks.length+\" AS3 checks passed · run \"+runs;\n   pipeline.text=\"Rust numeric functions · variadic extrema · nonfinite and signed-zero values\";\n   casing.text=\"AS2 min/max use the first two arguments; AS3 accepts many.\";\n   codec.text=\"Host entropy → Rust 31-bit fraction: \"+r;\n   counts.text=\"18 shared Math methods + AS2 random; 8 constants. Existing APIs moved to Rust.\";\n   trace(\"MATH_RESULT \"+JSON.stringify({checks:checks.length,passed:checks.length-failures.length,failed:failures.length,members:members,run:runs,failures:failures}));\n  }\n }\n}"
+    }
+  ]
+}

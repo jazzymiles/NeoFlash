@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
-import { as2StringsWasm } from './rust-strings-host.mjs';
+import { runtimeWasm } from './rust-runtime-host.mjs';
 const require = createRequire(import.meta.url);
 
 export function createRuntimeHost(root, player, compiledScripts, options = {}) {
@@ -25,7 +25,12 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const globals = { NeoFlashDisplay:require(resolve(root,'web/display.js')), NeoFlashEvents:require(resolve(root,'web/events.js')),
     NeoFlashStage:require(resolve(root,'web/stage.js')), NeoFlashLegacyInput:require(resolve(root,'web/legacy-input.js')), NeoFlashAccessibility:require(resolve(root,'web/accessibility.js')) };
   globals.NeoFlashAS2Strings=require(resolve(root,'web/as2-strings.js'));
-  globals.NeoFlashWasm=as2StringsWasm;
+  globals.NeoFlashAS3Strings=require(resolve(root,'web/as3-strings.js'));
+  globals.NeoFlashGeom3D=require(resolve(root,'web/geom3d.js'));
+  globals.NeoFlashEasing=require(resolve(root,'web/easing.js'));
+  globals.NeoFlashBroadcaster=require(resolve(root,'web/broadcaster.js'));
+  globals.NeoFlashMath=require(resolve(root,'web/math.js'));
+  globals.NeoFlashWasm=runtimeWasm;
   const stageModule=globals.NeoFlashStage;
   globals.NeoFlashStage={...stageModule,create:settings=>stageModule.create({...settings,...options.stage})};
   globals.NeoFlashByteArray=require(resolve(root,'web/byte-array.js'));

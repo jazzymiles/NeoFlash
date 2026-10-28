@@ -5,8 +5,10 @@
  * TIMER-before-TIMER_COMPLETE ordering was cross-checked with Ruffle Timer.as,
  * revision fe6cfc545405b888ebb478ce1c211d63147ca49b. No upstream code is copied.
  *
- * create({events,now,schedule,cancel,onError,afterEvent,requestRender,maxRunning})
- * returns {Timer,TimerEvent,getTimer,reset,dispose}. events is NeoFlashEvents;
+ * create({wasm,events,now,schedule,cancel,onError,afterEvent,requestRender,maxRunning})
+ * returns Timer/TimerEvent/getTimer, callback timer functions, legacy and lifecycle.
+ * Callback IDs/liveness are owned by Rust ScriptTimerIds; callbacks/targets stay
+ * at this browser boundary. Both dialects reuse the same Timer scheduler.
  * now() is monotonic milliseconds. schedule(callback,ms) must be asynchronous
  * and one-shot; cancel(handle) cancels it. Defaults use browser clock/timeouts.
  * afterEvent drains host script/render work; requestRender queues a render request
@@ -15,8 +17,8 @@
  * Bounded profile: finite numeric delays 0..2147483647, scheduled at >=1ms;
  * integer repeat counts 0..2147483647, <=1024 running timers by default. A delayed
  * wake emits one tick, with no historical Flash frame-rate/catch-up guarantee.
- * Browser background throttling applies. No setInterval/setTimeout public facade,
- * AS coercion/errorID fidelity, count overflow or timer-GC conformance is claimed.
+ * Browser background throttling applies. Full AS coercion/errorID fidelity,
+ * count overflow or timer-GC conformance is not claimed.
  * Publication reset invalidates old objects and rebases getTimer; per-Timer reset
  * only stops/zeros its own count. Completed finite timers need reset to run again.
  */
@@ -31,7 +33,8 @@
     const cancel=options.cancel||(handle=>global.clearTimeout(handle));
     const maxRunning=options.maxRunning??1024;
     if(!Number.isInteger(maxRunning)||maxRunning<1||maxRunning>10000)throw new RangeError('Timer running limit must be an integer from 1 through 10000.');
-    const states=new WeakMap(),eventInstances=new WeakSet(),running=new Set();
+    const states=new WeakMap(),eventInstances=new WeakSet(),running=new Set(),callbacks=new Map();
+    let callbackIds=null;
     let generation=1,disposed=false;
     function clock(){const value=now();if(typeof value!=='number'||!Number.isFinite(value))throw new RangeError('Timer clock must return finite milliseconds.');return value;}
     let origin=clock();
@@ -120,22 +123,79 @@
     Object.defineProperties(TimerEvent,{TIMER:{value:'timer'},TIMER_COMPLETE:{value:'timerComplete'},
       __nfIs:{value:value=>eventInstances.has(value)},
       __nfInitialize:{value:(receiver,args=[])=>{open();events.Event.__nfInitialize(receiver,args);eventInstances.add(receiver);}}});
+    function ids(){
+      open();
+      if(!callbackIds){
+        if(typeof options.wasm?.ScriptTimerIds!=='function')throw new Error('setInterval/setTimeout require the Rust ScriptTimerIds module. Rebuild this HTML5 export.');
+        callbackIds=new options.wasm.ScriptTimerIds(maxRunning);
+      }
+      return callbackIds;
+    }
+    function clearCallback(id){
+      if(typeof id!=='number')throw new TypeError('clearInterval/clearTimeout require a numeric timer ID.');
+      const registry=ids();
+      if(!registry.clear(id))return;
+      const binding=callbacks.get(id);callbacks.delete(id);
+      if(binding)binding.timer.stop();
+    }
+    function createCallback(repeating,legacy,args){
+      open();
+      let receiver,method,callback,delay,parameters;
+      if(legacy&&args[0]!==null&&typeof args[0]==='object'&&typeof args[1]==='string'){
+        if(args.length<3)throw new TypeError('AS2 object timer expects object, methodName, delay and optional callback arguments.');
+        [receiver,method,delay]=args;parameters=args.slice(3);
+      }else{
+        if(args.length<2||typeof args[0]!=='function')throw new TypeError('setInterval/setTimeout expect a function, delay and optional callback arguments.');
+        [callback,delay]=args;parameters=args.slice(2);
+      }
+      if(typeof delay!=='number')throw new TypeError('Callback timer delay requires numeric milliseconds.');
+      if(parameters.length>1024)throw new RangeError('Callback timers support at most 1024 arguments.');
+      const registry=ids(),id=registry.register(delay,repeating),ownerGeneration=generation;
+      let timer;
+      try{
+        timer=new Timer(delay,repeating?0:1);
+        callbacks.set(id,{timer});
+        timer.addEventListener(TimerEvent.TIMER,()=>{
+          if(!registry.fire(id))return;
+          if(!repeating)callbacks.delete(id);
+          try{
+            // AS2 method names are resolved at delivery, so replacement between
+            // registration and the next callback observes the new function.
+            const fn=method===undefined?callback:receiver[method];
+            if(typeof fn!=='function')throw new TypeError(`Callback timer method '${method}' is not callable.`);
+            Reflect.apply(fn,receiver,parameters);
+          }catch(error){
+            if(!disposed&&ownerGeneration===generation){registry.clear(id);callbacks.delete(id);timer.stop();}
+            throw error;
+          }
+        });
+        timer.start();return id;
+      }catch(error){registry.clear(id);callbacks.delete(id);if(timer)timer.stop();throw error;}
+    }
+    const setInterval=(...args)=>createCallback(true,false,args);
+    const setTimeout=(...args)=>createCallback(false,false,args);
+    const legacy=Object.freeze({setInterval:(...args)=>createCallback(true,true,args),setTimeout:(...args)=>createCallback(false,true,args),clearInterval:clearCallback,clearTimeout:clearCallback});
+    function clearCallbacks(){
+      callbackIds?.reset();callbacks.clear();
+    }
     function reset(){
       open();const nextOrigin=clock();
+      clearCallbacks();
       for(const record of [...running])stop(record);
       generation++;hub.clear();origin=nextOrigin;
     }
     function dispose(){
       if(disposed)return;
+      clearCallbacks();
       for(const record of [...running])stop(record);
-      generation++;hub.clear();disposed=true;
+      generation++;hub.clear();callbackIds?.free();callbackIds=null;disposed=true;
     }
     function getTimer(){
       open();const elapsed=clock()-origin;
       if(elapsed<0||!Number.isFinite(elapsed))throw new RangeError('Timer clock must advance monotonically within the publication session.');
       return Math.trunc(elapsed)|0;
     }
-    return Object.freeze({Timer,TimerEvent,getTimer,reset,dispose});
+    return Object.freeze({Timer,TimerEvent,getTimer,setInterval,setTimeout,clearInterval:clearCallback,clearTimeout:clearCallback,legacy,reset,dispose});
   }
   const api=Object.freeze({create});
   if(typeof module!=='undefined'&&module.exports)module.exports=api;

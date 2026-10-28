@@ -1,0 +1,442 @@
+{
+  "format_version": 2,
+  "name": "AS3 Rust strings and URI",
+  "width": 960,
+  "height": 570,
+  "fps": 24,
+  "background": [
+    14,
+    24,
+    33,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 42,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / RUST REUSE EXPERIMENT",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        115,
+                        213,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 42,
+                      "y": 82,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ActionScript 3 · Rust text core",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 42,
+                      "y": 125,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Shared Rust algorithms: strings, URI codecs and XML names.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel",
+                    "name": "panel",
+                    "transform": {
+                      "x": 32,
+                      "y": 175,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 890,
+                      "height": 195,
+                      "fill": [
+                        25,
+                        42,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "result",
+                    "name": "result",
+                    "transform": {
+                      "x": 52,
+                      "y": 205,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Running checks…",
+                      "font_family": "Arial",
+                      "font_size": 25,
+                      "color": [
+                        115,
+                        229,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pipeline",
+                    "name": "pipeline",
+                    "transform": {
+                      "x": 52,
+                      "y": 248,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Text pipeline",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "casing",
+                    "name": "casing",
+                    "transform": {
+                      "x": 52,
+                      "y": 286,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Historical casing",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "codec",
+                    "name": "codec",
+                    "transform": {
+                      "x": 52,
+                      "y": 324,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "URL codecs",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rerun",
+                    "name": "rerun",
+                    "transform": {
+                      "x": 42,
+                      "y": 397,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "run-button",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.runReuse();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 285,
+                      "y": 417,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run again executes the same authored AS3 method.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "counts",
+                    "name": "counts",
+                    "transform": {
+                      "x": 42,
+                      "y": 480,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Awaiting runtime results",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 42,
+                      "y": 522,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "UTF-16 · historical case tables · Rust/WASM · local HTML5",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "run-button",
+      "name": "run-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "run-button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 56,
+                      "fill": [
+                        32,
+                        116,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 35,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RUN AGAIN",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "document_class": "app.StringsExample",
+  "sources": [
+    {
+      "id": "string-example",
+      "path": "app/StringsExample.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;\n import flash.utils.escapeMultiByte;\n import flash.utils.unescapeMultiByte;\n public dynamic class StringsExample extends MovieClip {\n  public var runs:int=0;\n  public var checks:Array;\n  public var failures:Array;\n  public var members:Array;\n  public function StringsExample(){super();stop();runReuse();}\n  public function check(id:String,actual:*,expected:*,member:Boolean=true):void {\n   var ok:Boolean=actual===expected;\n   checks.push({id:id,pass:ok,actual:actual,expected:expected});\n   if(!ok)failures.push(id);\n   if(member&&members.indexOf(id)<0)members.push(id);\n  }\n  public function runReuse():void {\n   runs++;checks=[];failures=[];members=[];\n   var raw:String=\"title:neo|level:3|tag:flash\";\n   var rows:Array=raw.split(\"|\");var output:String=\"\";\n   for(var i:int=0;i<rows.length;i++){\n    var at:int=rows[i].indexOf(\":\");\n    output=output.concat(output==\"\"?\"\":\";\",rows[i].substring(0,at).toUpperCase(),\"=\",rows[i].slice(at+1));\n   }\n   check(\"String.charAt\",raw.charAt(0),\"t\");\n   check(\"String.charCodeAt\",raw.charCodeAt(0),116);\n   check(\"String.concat\",\"Neo\".concat(\"Flash\"),\"NeoFlash\");\n   check(\"String.fromCharCode\",String.fromCharCode(65,0,66).length,3);\n   check(\"String.indexOf\",raw.indexOf(\"|\"),9);\n   check(\"String.lastIndexOf\",raw.lastIndexOf(\"|\"),17);\n   check(\"String.slice\",raw.slice(-5),\"flash\");\n   check(\"String.split\",rows.length,3);\n   check(\"String.substr\",\"abcdef\".substr(1,-2),\"bcde\");\n   check(\"String.substring\",\"abcdef\".substring(4,1),\"bcd\");\n   check(\"String.toLowerCase\",\"İ\".toLowerCase(),\"i\");\n   check(\"String.toUpperCase\",\"straße\".toUpperCase(),\"STRAßE\");\n   check(\"String.toString\",\"value\".toString(),\"value\");\n   check(\"String.valueOf\",\"value\".valueOf(),\"value\");\n   check(\"String.replace\",\"red red\".replace(\"red\",\"$&\"),\"$& red\");\n   check(\"String.localeCompare\",\"abc\".localeCompare(\"abd\"),-1);\n   check(\"String.toLocaleLowerCase\",\"İ\".toLocaleLowerCase(),\"i\");\n   check(\"String.toLocaleUpperCase\",\"straße\".toLocaleUpperCase(),\"STRAßE\");\n   var uri:String=\"https://neo.test/a b?x=α&v=1\";\n   check(\"encodeURI\",encodeURI(uri),\"https://neo.test/a%20b?x=%CE%B1&v=1\");\n   check(\"decodeURI\",decodeURI(\"%2f%23\"),\"%2f%23\");\n   check(\"encodeURIComponent\",encodeURIComponent(\"a/b α\"),\"a%2Fb%20%CE%B1\");\n   check(\"decodeURIComponent\",decodeURIComponent(\"a%2Fb%20%CE%B1\"),\"a/b α\");\n   check(\"escape\",escape(\"é €😀\"),\"%E9%20%u20AC%uD83D%uDE00\");\n   check(\"unescape\",unescape(\"%E9%20%u20AC%uD83D%uDE00\"),\"é €😀\");\n   check(\"escapeMultiByte\",escapeMultiByte(\"é +/\"),\"%C3%A9%20%2B%2F\");\n   check(\"unescapeMultiByte\",unescapeMultiByte(\"%C3%A9%20%2B%2F\"),\"é +/\");\n   check(\"isXMLName\",isXMLName(\"élève_2\")&&!isXMLName(\"a:b\")&&!isXMLName(null),true);\n   check(\"UTF16 preservation\",unescape(\"%uD800\").slice(0,1).charCodeAt(0),55296,false);\n   check(\"combined text pipeline\",output,\"TITLE=neo;LEVEL=3;TAG=flash\",false);\n   check(\"replacement callback\",\"red\".replace(\"red\",function(match:String,index:int,subject:String):String{return match.toUpperCase()+\":\"+index+\":\"+subject.length;}),\"RED:0:3\",false);\n   var refused:Boolean=false;try{decodeURIComponent(\"%E0%A4\");}catch(error:URIError){refused=true;}\n   check(\"malformed UTF8 diagnostic\",refused,true,false);\n   result.text=(checks.length-failures.length)+\" / \"+checks.length+\" checks passed · run \"+runs;\n   pipeline.text=output;\n   casing.text=\"Historical casing: straße → \"+\"straße\".toLocaleUpperCase()+\" / İ → \"+\"İ\".toLocaleLowerCase();\n   codec.text=\"AS3 escape: \"+escape(\"é €😀\");\n   counts.text=members.length+\" APIs · 19 Rust migrations + 8 new methods/globals\";\n   trace(\"AS3_STRINGS_RESULT \"+JSON.stringify({run:runs,checks:checks.length,passed:checks.length-failures.length,failed:failures.length,members:members,newMembers:8,converted:19,failures:failures}));\n  }\n }\n}\n"
+    }
+  ]
+}

@@ -84,7 +84,7 @@ fn string_wrapping_index(index: i32, len: usize) -> usize {
         (index as usize).min(len)
     }
 }
-fn find(haystack: &[u16], needle: &[u16]) -> Option<usize> {
+pub(crate) fn find(haystack: &[u16], needle: &[u16]) -> Option<usize> {
     if needle.is_empty() {
         Some(0)
     } else {
@@ -93,7 +93,7 @@ fn find(haystack: &[u16], needle: &[u16]) -> Option<usize> {
             .position(|part| part == needle)
     }
 }
-fn rfind(haystack: &[u16], needle: &[u16]) -> Option<usize> {
+pub(crate) fn rfind(haystack: &[u16], needle: &[u16]) -> Option<usize> {
     if needle.is_empty() {
         Some(haystack.len())
     } else {
@@ -374,7 +374,7 @@ fn unescape_internal(source: &[u16]) -> Result<Vec<u16>, As2StringError> {
 }
 
 // Directly reused from Ruffle wstr/src/utils.rs, with local table visibility.
-fn swf_to_lowercase(c: u16) -> u16 {
+pub(crate) fn swf_to_lowercase(c: u16) -> u16 {
     if c < 0x80 {
         return (c as u8).to_ascii_lowercase().into();
     }
@@ -383,7 +383,7 @@ fn swf_to_lowercase(c: u16) -> u16 {
         Err(_) => c,
     }
 }
-fn swf_to_uppercase(c: u16) -> u16 {
+pub(crate) fn swf_to_uppercase(c: u16) -> u16 {
     if c < 0x80 {
         return (c as u8).to_ascii_uppercase().into();
     }

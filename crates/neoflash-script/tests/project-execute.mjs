@@ -6,6 +6,7 @@ import { resolve, dirname } from 'node:path';
 import { readFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import vm from 'node:vm';
 import { createRuntimeHost } from './host-integration.mjs';
+import { createGeometryFamily, createStringServices } from './rust-runtime-host.mjs';
 import { verifyAs2ProjectInput } from './as2-project-input.mjs';
 import { verifyGeometryTimer } from './geometry-timer.mjs';
 import { verifyBinaryData } from './binary-data.mjs';
@@ -75,9 +76,9 @@ const result=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-script',
 assert.equal(result.status,0,result.error?.message || result.stderr);
 const compiled=JSON.parse(result.stdout);assert.ok(compiled.Ok,JSON.stringify(compiled));
 const bridge=createRequire(import.meta.url)(resolve(root,'web/runtime.js')).createAs2Methods();
-const geom=createRequire(import.meta.url)(resolve(root,'web/geom.js'));
+const geom=createGeometryFamily();
 const timerService=createRequire(import.meta.url)(resolve(root,'web/timers.js')).create({events,now:()=>0,schedule:()=>7,cancel:()=>{}});
-const builtins={__nfTrace:()=>{},__nfAs2Method:bridge.method,__nfAs2Value:bridge.value,
+const builtins={__nfLegacy:createStringServices(),__nfTrace:()=>{},__nfAs2Method:bridge.method,__nfAs2Value:bridge.value,
  'flash.geom.Point':geom.Point,'flash.geom.Rectangle':geom.Rectangle,'flash.geom.Matrix':geom.Matrix,
  'flash.utils.Timer':timerService.Timer,'flash.events.TimerEvent':timerService.TimerEvent,'flash.utils.getTimer':timerService.getTimer};
 for(const name of ['Event','MouseEvent','KeyboardEvent','EventPhase','EventDispatcher'])builtins[`flash.events.${name}`]=events[name];

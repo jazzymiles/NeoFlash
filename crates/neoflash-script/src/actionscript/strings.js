@@ -1,10 +1,9 @@
 // Bounded primitive String family, embedded after intrinsics and RegExp helpers.
-// AS2 operations delegate to the shared Rust family. This file retains AS3
-// behavior and existing receiver/value coercion. No browser prototype is modified.
+// Both dialects delegate primitive String algorithms to the shared Rust core.
+// RegExp dispatch and existing receiver/value coercion remain here. No browser prototype is modified.
 const __nfStringNative = String;
 const __nfStringNumber = Number;
 const __nfStringApply = Reflect.apply;
-const __nfStringFromCode = String.fromCharCode;
 const __nfStringMethods = Object.freeze(Object.fromEntries(
     Object.getOwnPropertyNames(String.prototype)
         .filter(name => name !== 'constructor' && typeof String.prototype[name] === 'function')
@@ -15,7 +14,7 @@ const __nfStringClasses = new Map();
 const __nfStringLimit = 1000000;
 const __nfStringArity = Object.freeze({ charAt: 1, charCodeAt: 1, indexOf: 2, lastIndexOf: 2,
     slice: 2, substring: 2, substr: 2, split: 2, replace: 2, match: 1, search: 1,
-    toLowerCase: 0, toUpperCase: 0, toString: 0, valueOf: 0 });
+    toLowerCase: 0, toUpperCase: 0, toLocaleLowerCase: 0, toLocaleUpperCase: 0, localeCompare: 1, toString: 0, valueOf: 0 });
 
 function __nfStringUnsupported(detail) {
     throw new __nfTypeError('Unsupported ActionScript String operation: ' + detail);
@@ -33,14 +32,7 @@ function __nfStringCreate(as3, args, isNew = false) {
     return __nfStringBound(args.length ? __nfStringNative(args[0]) : '');
 }
 function __nfStringFromCharCode(as3, args) {
-    if (!as3) return __nfAs2Strings().invoke('fromCharCode', '', args);
-    if (args.length > __nfStringLimit) __nfStringUnsupported('fromCharCode argument count exceeds the supported string limit.');
-    let result = '';
-    for (const value of args) {
-        const code = __nfStringNumber(value) & 65535;
-        result += __nfStringFromCode(code);
-    }
-    return result;
+    return (as3 ? __nfAs3Strings() : __nfAs2Strings()).invoke('fromCharCode', '', args);
 }
 function __nfStringClass(as3) {
     as3 = Boolean(as3);
@@ -65,62 +57,6 @@ function __nfStringMethodValue(value) {
     }
     return value;
 }
-function __nfStringInteger(value) {
-    const number = __nfStringNumber(value);
-    return Number.isNaN(number) ? 0 : Math.trunc(number);
-}
-function __nfStringWrapping(index, length) {
-    return index < 0 ? Math.max(0, length + index) : Math.min(length, index);
-}
-function __nfStringPlain(value, operation) {
-    // AS's RegExp recognition differs from JS Symbol.match/Symbol.split hooks.
-    // Keep this profile explicit rather than invoking either by accident.
-    if (value !== null && (typeof value === 'object' || typeof value === 'function')) {
-        __nfStringUnsupported(operation + ' requires a primitive pattern/delimiter or supported AS3 RegExp; native JavaScript RegExp and custom pattern objects are not supported.');
-    }
-    return __nfStringNative(value);
-}
-function __nfStringSplit(receiver, args) {
-    // AS3 limit conversion precedes delimiter conversion.
-    const limit = args.length < 2 || args[1] == null ? 0xffffffff : __nfStringNumber(args[1]) >>> 0;
-    const delimiter = args[0];
-    if (limit === 0) return [];
-    if (receiver.length === 0) return [''];
-    if (__nfRegExpIs(delimiter)) return __nfRegExpSplit(receiver, delimiter, limit);
-    const pattern = __nfStringPlain(delimiter, 'split');
-    if (limit === 0) return [];
-    const result = [];
-    const push = value => {
-        if (result.length >= __nfStringLimit) __nfStringUnsupported('split output exceeds 1000000 items.');
-        result.push(value);
-    };
-    if (pattern === '') {
-        for (let index = 0; index < receiver.length && result.length < limit; index++) push(receiver[index]);
-        return result;
-    }
-    let start = 0;
-    while (start <= receiver.length && result.length < limit) {
-        const index = __nfStringApply(__nfStringMethods.indexOf, receiver, [pattern, start]);
-        if (index < 0) { push(__nfStringApply(__nfStringMethods.slice, receiver, [start])); break; }
-        push(__nfStringApply(__nfStringMethods.slice, receiver, [start, index]));
-        start = index + pattern.length;
-    }
-    return result;
-}
-function __nfStringReplace(receiver, args) {
-    if (__nfRegExpIs(args[0])) return __nfRegExpReplace(receiver, args[0], args[1]);
-    // Adobe's string-pattern path converts replacement BEFORE pattern; `$&`
-    // and similar text is literal here, unlike JavaScript String.replace.
-    const callback = typeof args[1] === 'function' ? args[1] : null;
-    let replacement = callback ? null : __nfStringBound(__nfStringNative(args[1]));
-    const pattern = __nfStringPlain(args[0], 'replace');
-    const index = __nfStringApply(__nfStringMethods.indexOf, receiver, [pattern]);
-    if (index < 0) return receiver;
-    if (callback) replacement = __nfStringBound(__nfStringNative(__nfStringApply(callback, undefined, [pattern, index, receiver])));
-    if (receiver.length - pattern.length + replacement.length > __nfStringLimit) __nfStringUnsupported('replace result exceeds the supported string limit.');
-    return __nfStringApply(__nfStringMethods.slice, receiver, [0, index]) + replacement
-        + __nfStringApply(__nfStringMethods.slice, receiver, [index + pattern.length]);
-}
 function __nfStringMethod(receiver, name, as3) {
     // The shared router chooses this family before any property lookup. Resolve
     // one property now; returned callable runs only after argument evaluation.
@@ -134,54 +70,17 @@ function __nfStringMethod(receiver, name, as3) {
         if (Object.hasOwn(__nfStringArity, name) && args.length > __nfStringArity[name]) {
             __nfStringUnsupported(name + ' excess-argument behavior is not verified; pass at most ' + __nfStringArity[name] + ' arguments.');
         }
-        switch (name) {
-            case 'toString': case 'valueOf': return receiver;
-            case 'toLowerCase': case 'toUpperCase':
-                // Modern JavaScript Unicode mappings are a declared partial
-                // profile; historical Flash case tables are not reproduced.
-                return __nfStringBound(__nfStringApply(method, receiver, []));
-            case 'charAt': case 'charCodeAt': {
-                const position = __nfStringInteger(args[0]);
-                return __nfStringApply(method, receiver, [position]);
-            }
-            case 'concat': {
-                let result = receiver;
-                for (const value of args) {
-                    const part = __nfStringBound(__nfStringNative(value));
-                    if (result.length + part.length > __nfStringLimit) __nfStringUnsupported('concat result exceeds the supported string limit.');
-                    result += part;
-                }
-                return result;
-            }
-            case 'indexOf': case 'lastIndexOf': {
-                const nullable = args.length > 0 && args[0] == null;
-                const pattern = nullable ? null : __nfStringNative(args.length ? args[0] : undefined);
-                let position;
-                if (name === 'lastIndexOf') {
-                    if (args.length < 2 || args[1] === undefined) position = receiver.length;
-                    else {
-                        const number = __nfStringNumber(args[1]);
-                        position = Number.isNaN(number) ? receiver.length : Math.trunc(number);
-                    }
-                } else position = __nfStringInteger(args[1]);
-                if (nullable || (name === 'lastIndexOf' && position < 0)) return -1;
-                return __nfStringApply(method, receiver, [pattern, position]);
-            }
-            case 'slice': case 'substring': case 'substr': {
-                const start = __nfStringInteger(args[0]);
-                const end = args.length < 2 ? receiver.length : __nfStringInteger(args[1]);
-                if (name !== 'substr') return __nfStringApply(method, receiver, [start, end]);
-                const from = __nfStringWrapping(start, receiver.length);
-                const combined = from + end;
-                const to = Math.max(from, __nfStringWrapping(combined, receiver.length));
-                return __nfStringApply(__nfStringMethods.slice, receiver, [from, to]);
-            }
-            case 'split': return __nfStringSplit(receiver, args);
-            case 'match': case 'search':
-                return name === 'match' ? __nfRegExpMatch(receiver, args[0]) : __nfRegExpSearch(receiver, args[0]);
-            case 'replace':
-                return __nfStringReplace(receiver, args);
-            default: __nfStringUnsupported(name + ' is outside the supported String profile (locale and modern JavaScript-only methods remain pending).');
+        if (name === 'match' || name === 'search') {
+            return name === 'match' ? __nfRegExpMatch(receiver, args[0]) : __nfRegExpSearch(receiver, args[0]);
         }
+        if (name === 'replace' && __nfRegExpIs(args[0])) return __nfRegExpReplace(receiver, args[0], args[1]);
+        if (name === 'split' && __nfRegExpIs(args[0])) {
+            // RegExp execution retains its existing separate backend profile.
+            const limit = args.length < 2 || args[1] == null ? 0xffffffff : __nfStringNumber(args[1]) >>> 0;
+            if (limit === 0) return [];
+            if (receiver.length === 0) return [''];
+            return __nfRegExpSplit(receiver, args[0], limit);
+        }
+        return __nfAs3Strings().invoke(name, receiver, args);
     };
 }

@@ -1,7 +1,14 @@
 //! Document model and deterministic authoring/runtime evaluation shared by desktop and web.
 mod amf;
 pub mod as2_strings;
+pub mod as2d_geom;
 pub mod as3_geom;
+pub mod as3_strings;
+pub mod as_binary;
+pub mod as_broadcaster;
+pub mod as_easing;
+pub mod as_math;
+pub mod as_timers;
 mod clipboard;
 mod demo;
 mod evaluate;

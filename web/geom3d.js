@@ -2,7 +2,7 @@
  * Rust algorithm provenance and MIT notices: docs/AS3-REUSE-PROVENANCE.md. */
 (function(global){
   'use strict';
-  function create(wasm){
+  function create(wasm,{getPoint=()=>null}={}){
     if(typeof wasm?.Geom3dValue!=='function')throw new Error('Rust geometry bindings are missing; rebuild and re-export this project.');
     const native=new WeakMap();
     let numberVector=values=>values;
@@ -25,7 +25,13 @@
     function result(value){
       if(value?.type==='Vector3D')return new Vector3D(...value.data);
       if(value?.type==='Matrix3D')return new Matrix3D(value.data);
+      if(value?.type==='Point'){const Point=getPoint();if(typeof Point!=='function')throw new Error('PerspectiveProjection requires the publication Point constructor.');return new Point(...value.data);}
       return value;
+    }
+    function vectorOutput(value,output){
+      if(output==null)return result(value);
+      if(!Vector3D.__nfIs(output))throw new TypeError('Vector3D output requires an instance from the same publication or null.');
+      invoke(output,'set:components',[value.data]);return output;
     }
     class Vector3D {
       constructor(x=0,y=0,z=0,w=0){native.set(this,new wasm.Geom3dValue('Vector3D',JSON.stringify([Number(x),Number(y),Number(z),Number(w)])));Object.preventExtensions(this);}
@@ -35,6 +41,9 @@
       nearEquals(other,tolerance,allFour=false){return invoke(this,'nearEquals',[other,Number(tolerance),Boolean(allFour)]);}
       setTo(x,y,z){invoke(this,'setTo',[Number(x),Number(y),Number(z)]);}
       scaleBy(value){invoke(this,'scaleBy',[Number(value)]);}
+      addToOutput(other,output=null){return vectorOutput(invoke(this,'add',[other]),output);}
+      subtractToOutput(other,output=null){return vectorOutput(invoke(this,'subtract',[other]),output);}
+      crossProductToOutput(other,output=null){return vectorOutput(invoke(this,'crossProduct',[other]),output);}
     }
     for(const name of ['x','y','z','w'])Object.defineProperty(Vector3D.prototype,name,{get(){return invoke(this,name);},set(value){invoke(this,'set:'+name,[Number(value)]);}});
     for(const name of ['length','lengthSquared'])Object.defineProperty(Vector3D.prototype,name,{get(){return invoke(this,name);}});
@@ -60,6 +69,21 @@
       transformVectors(input,output){copyArray(output,invoke(this,'transformVectors',[array(input),array(output)]));}
       static interpolate(){throw new Error('Matrix3D.interpolate is unsupported in the current Rust profile.');}
     }
+    class PerspectiveProjection {
+      constructor(){native.set(this,new wasm.Geom3dValue('PerspectiveProjection','null'));Object.preventExtensions(this);}
+      get fieldOfView(){return invoke(this,'fieldOfView');}
+      set fieldOfView(value){invoke(this,'set:fieldOfView',[Number(value)]);}
+      get focalLength(){return invoke(this,'focalLength');}
+      set focalLength(value){invoke(this,'set:focalLength',[Number(value)]);}
+      get projectionCenter(){return result(invoke(this,'projectionCenter'));}
+      set projectionCenter(value){
+        const Point=getPoint();
+        if(typeof Point?.__nfIs!=='function'||!Point.__nfIs(value))throw new TypeError('PerspectiveProjection.projectionCenter requires a Point from the same publication.');
+        invoke(this,'set:projectionCenter',[[value.x,value.y]]);
+      }
+      toMatrix3D(){return result(invoke(this,'toMatrix3D'));}
+    }
+    PerspectiveProjection.__nfInitialize=()=>{throw new TypeError('Native PerspectiveProjection subclassing is not supported.');};
     class Utils3D {
       constructor(){throw new TypeError('Utils3D exposes static geometry methods and cannot be constructed.');}
       static projectVector(matrix,vector){return result(invoke(matrix,'projectVector',[vector]));}
@@ -73,8 +97,8 @@
     for(const name of ['appendTranslation','prependTranslation','appendScale','prependScale'])Matrix3D.prototype[name]=function(x,y,z){invoke(this,name,[Number(x),Number(y),Number(z)]);};
     for(const name of ['append','prepend','copyFrom','transformVector','deltaTransformVector'])Matrix3D.prototype[name]=function(value){return result(invoke(this,name,[value]));};
     for(const name of ['identity','transpose','invert','clone','decompose','recompose','interpolateTo','pointAt'])Matrix3D.prototype[name]=function(){return result(invoke(this,name));};
-    for(const Type of [Vector3D,Matrix3D])Object.defineProperty(Type,'__nfIs',{value:value=>value instanceof Type&&native.has(value)});
-    return {Vector3D,Matrix3D,Utils3D,setNumberVectorFactory(factory){if(typeof factory!=='function')throw new TypeError('Number Vector factory must be callable.');numberVector=factory;}};
+    for(const Type of [Vector3D,Matrix3D,PerspectiveProjection])Object.defineProperty(Type,'__nfIs',{value:value=>value instanceof Type&&native.has(value)});
+    return {Vector3D,Matrix3D,Utils3D,PerspectiveProjection,setNumberVectorFactory(factory){if(typeof factory!=='function')throw new TypeError('Number Vector factory must be callable.');numberVector=factory;}};
   }
   const api={create};if(typeof module!=='undefined'&&module.exports)module.exports=api;global.NeoFlashGeom3D=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

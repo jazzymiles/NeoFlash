@@ -1,6 +1,13 @@
 //! Thin JavaScript bindings around the same Rust timeline runtime used by the editor.
 mod as2_strings;
+mod as2d_geom;
 mod as3_geom;
+mod as3_strings;
+mod as_binary;
+mod as_broadcaster;
+mod as_easing;
+mod as_math;
+mod as_timers;
 
 pub use as2_strings::as2_string_json;
 

@@ -277,6 +277,7 @@
     const references = new WeakMap();
     const attachedClasses = new Map();
     let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, externalHost = null, program = null;
+    let geometryHost = null, geometry3dHost = null, easingHost = null, broadcasterHost = null;
     let timerRenderGeneration=0, capturePainter=null,inputPaths=null;
     let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
@@ -287,7 +288,7 @@
       const cause=unwrapScriptThrow(error),failure=new Error(`Input callback: ${describeThrown(cause)}`,{cause});
       if(typeof fail==='function')fail(failure);else throw failure;
     }
-    function stopTimers() {timerRenderGeneration++;timerHost?.reset();}
+    function stopTimers() {timerRenderGeneration++;easingHost?.reset?.();broadcasterHost?.reset?.();timerHost?.reset();}
     function afterTimerEvent() {dispatchScripts();if(typeof context!=='undefined')render();}
     function timerFailure(error) {
       const cause=unwrapScriptThrow(error),failure=new Error(`Timer callback: ${describeThrown(cause)}`,{cause});
@@ -341,7 +342,9 @@
     }
     function initializeFamily() {
       if (!global.NeoFlashDisplay || typeof player.display_nodes_json !== 'function') return;
-      if(global.NeoFlashBitmap)bitmapHost=global.NeoFlashBitmap.create({player,geometry:global.NeoFlashGeom,as2,
+      const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
+      geometryHost=global.NeoFlashGeom.create(wasm,{getVector3D:()=>geometry3dHost.Vector3D});
+      if(global.NeoFlashBitmap)bitmapHost=global.NeoFlashBitmap.create({player,geometry:geometryHost,as2,
         getBinary:()=>binaryHost,getFilters:()=>filterHost,
         displayRef:source=>{const ref=references.get(source);if(!ref)return null;display.descriptor(source);return ref.objectRef;},
         paintScene:(target,snapshot)=>{
@@ -354,7 +357,7 @@
         }});
       if(global.NeoFlashFilters&&typeof player.filter_rgba==='function')filterHost=global.NeoFlashFilters.create({player});
       if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,onUpdate:ref=>textInputHost?.sync(ref),measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.font=global.NeoFlashText.cssFont(format);return context.measureText(text).width;}});
-      display=global.NeoFlashDisplay.create({player,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,as2,
+      display=global.NeoFlashDisplay.create({player,geometry:geometryHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,as2,
         shapeContains:(kind,x,y)=>{if(typeof context==='undefined'||typeof context.isPointInPath!=='function')throw new Error('Shape hit testing requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(context,kind,x,y,inputPaths.get(kind.commands));},
         clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[]),x,y,inputPaths);},
         beforeFilters:(target,specs)=>{if(specs.length)assertUnfilteredEditing(stageHost?.stage.focus,target);},referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
@@ -390,9 +393,12 @@
           onError:inputFailure,afterInput:afterTimerEvent,onClick:(target,event)=>{target=display.resolveInput(target);if(!target)return;stageHost.handlePointer('click',event,target);if(display.alive(target)){player.object_click(references.get(target).key);dispatchScripts(target);if(typeof context!=='undefined')render();}}});
         legacyGlobals=Object.freeze({...legacyGlobals,Selection:textInputHost.Selection});
       }
-      if(global.NeoFlashTimers&&global.NeoFlashEvents)timerHost=global.NeoFlashTimers.create({events:global.NeoFlashEvents,
+      if(global.NeoFlashTimers&&global.NeoFlashEvents)timerHost=global.NeoFlashTimers.create({wasm,events:global.NeoFlashEvents,
         onError:timerFailure,afterEvent:afterTimerEvent,requestRender:requestTimerRender});
-      if(global.NeoFlashByteArray)binaryHost=global.NeoFlashByteArray.create();
+      if(timerHost?.legacy)legacyGlobals=Object.freeze({...legacyGlobals,...timerHost.legacy});
+      if(global.NeoFlashEasing)easingHost=global.NeoFlashEasing.create(wasm,{timers:timerHost,events:global.NeoFlashEvents,getFrameRate:()=>runtimeFrameRate,onError:timerFailure,afterEvent:afterTimerEvent});
+      if(global.NeoFlashBroadcaster){broadcasterHost=global.NeoFlashBroadcaster.create(wasm);legacyGlobals=Object.freeze({...legacyGlobals,AsBroadcaster:broadcasterHost.AsBroadcaster});}
+      if(global.NeoFlashByteArray)binaryHost=global.NeoFlashByteArray.create({wasm});
       if(global.NeoFlashAMF&&binaryHost&&typeof player.amf_encode==='function'){
         amfHost=global.NeoFlashAMF.create({binary:binaryHost,encode:(format,graph)=>player.amf_encode(format,graph),decode:(format,bytes)=>player.amf_decode(format,bytes),getProgram:()=>program,isUnsupported:value=>references.has(value)});
         binaryHost.setObjectCodec(amfHost);
@@ -430,6 +436,9 @@
         const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
         legacyGlobals=Object.freeze({...legacyGlobals,strings:global.NeoFlashAS2Strings.create({execute:request=>wasm.as2_string_json(request)})});
       }
+      if(global.NeoFlashAS3Strings)legacyGlobals=Object.freeze({...legacyGlobals,strings3:global.NeoFlashAS3Strings.create({execute:request=>wasm.as3_string_json(request)})});
+      if(global.NeoFlashMath)legacyGlobals=Object.freeze({...legacyGlobals,math:global.NeoFlashMath.create(wasm)});
+      if(geometryHost.Color)legacyGlobals=Object.freeze({...legacyGlobals,Color:geometryHost.Color});
       initializeProgram();
     }
     function initializeProgram() {
@@ -440,16 +449,21 @@
       builtins.__nfDisplay=display;builtins.__nfLegacy=legacyGlobals;
       if(global.NeoFlashGeom3D){
         const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
-        const geometry=global.NeoFlashGeom3D.create(wasm);
-        for(const name of ['Vector3D','Matrix3D','Utils3D'])builtins['flash.geom.'+name]=geometry[name];
-        builtins.__nfGeometryNumberVector=geometry.setNumberVectorFactory;
+        geometry3dHost=global.NeoFlashGeom3D.create(wasm,{getPoint:()=>geometryHost.Point});
+        for(const name of ['Vector3D','Matrix3D','Utils3D','PerspectiveProjection'])builtins['flash.geom.'+name]=geometry3dHost[name];
+        builtins.__nfGeometryNumberVector=geometry3dHost.setNumberVectorFactory;
       }
+      if(geometryHost.MotionColor)builtins['fl.motion.Color']=geometryHost.MotionColor;
+      if(geometryHost.MatrixTransformer)builtins['fl.motion.MatrixTransformer']=geometryHost.MatrixTransformer;
+      if(easingHost)Object.assign(builtins,easingHost.builtins);
+      if(legacyGlobals?.strings3)for(const name of ['escapeMultiByte','unescapeMultiByte'])builtins['flash.utils.'+name]=legacyGlobals.strings3[name];
       builtins.__nfHasNativeProperty=(receiver,name)=>Boolean(references.get(receiver)?.nativeHas(name));
       builtins.__nfIsNativeDisplay=receiver=>references.has(receiver);
       if(xmlHost){builtins.__nfXML=xmlHost;builtins.XML=xmlHost.XML;builtins.XMLList=xmlHost.XMLList;}
       if(global.NeoFlashEvents)for(const name of ['Event','MouseEvent','KeyboardEvent','FocusEvent','TextEvent','EventDispatcher','EventPhase'])builtins['flash.events.'+name]=global.NeoFlashEvents[name];
       if(global.NeoFlashStage)builtins['flash.display.Stage']=global.NeoFlashStage.Stage;
       if(timerHost){builtins['flash.utils.Timer']=timerHost.Timer;builtins['flash.events.TimerEvent']=timerHost.TimerEvent;builtins['flash.utils.getTimer']=timerHost.getTimer;}
+      if(timerHost)for(const name of ['setInterval','setTimeout','clearInterval','clearTimeout'])builtins['flash.utils.'+name]=timerHost[name];
       if(bitmapHost){builtins['flash.display.BitmapData']=bitmapHost.BitmapData;builtins['flash.display.PixelSnapping']=bitmapHost.PixelSnapping;builtins['flash.display.PNGEncoderOptions']=bitmapHost.PNGEncoderOptions;}
       if(textHost){builtins['flash.text.TextFormat']=textHost.TextFormat;builtins['flash.text.TextFormatAlign']=textHost.TextFormatAlign;builtins['flash.text.TextFieldType']=textHost.TextFieldType;}
       if(filterHost)for(const name of ['BitmapFilter','BlurFilter','GlowFilter','DropShadowFilter','ColorMatrixFilter','BitmapFilterQuality'])builtins['flash.filters.'+name]=filterHost[name];
@@ -483,7 +497,7 @@
       pointerOverContent=false;legacyCursorVisible=true;updateCursor();
       capturePainter?.clear();capturePainter=null;
       filterHost?.renderer.clear();
-      externalHost?.dispose();textInputHost?.dispose();storageHost?.dispose();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
+      externalHost?.dispose();textInputHost?.dispose();storageHost?.dispose();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
       legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
     function prepareLinked(receiver,allocatedByProgram) {
@@ -741,7 +755,7 @@
           try {
             compiled.fn.call(scope, event, proxyFor([]), scope._parent, trace,
               scope.play, scope.stop, scope.gotoAndPlay, scope.gotoAndStop, scope.nextFrame, scope.prevFrame, as2.method, as2.value, program, display,
-              item.script.language==='action_script2'?legacyGlobals:undefined,xmlHost);
+              legacyGlobals,xmlHost);
           } catch (error) {
             const cause = unwrapScriptThrow(error);
             throw new Error(`${compiled.location}: ${describeThrown(cause)}`, { cause });

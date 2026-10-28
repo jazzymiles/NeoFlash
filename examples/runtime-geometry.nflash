@@ -1,0 +1,409 @@
+{
+  "format_version": 2,
+  "name": "Rust geometry and legacy Color",
+  "width": 960,
+  "height": 630,
+  "fps": 24,
+  "background": [
+    14,
+    23,
+    38,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "2D geometry family",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 36,
+                      "y": 26,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / ADAPTED RUST IMPLEMENTATIONS",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        105,
+                        217,
+                        199,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "heading",
+                    "name": "heading",
+                    "transform": {
+                      "x": 36,
+                      "y": 62,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Rust geometry",
+                      "font_family": "Arial",
+                      "font_size": 30,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "summary",
+                    "name": "summary",
+                    "transform": {
+                      "x": 36,
+                      "y": 115,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "details",
+                    "name": "details",
+                    "transform": {
+                      "x": 36,
+                      "y": 185,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "scope",
+                    "name": "scope",
+                    "transform": {
+                      "x": 36,
+                      "y": 245,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Point \u00b7 Rectangle \u00b7 Matrix \u00b7 ColorTransform \u00b7 shared Rust state and arithmetic",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "run",
+                    "name": "run",
+                    "transform": {
+                      "x": 36,
+                      "y": 292,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 170,
+                      "height": 48,
+                      "fill": [
+                        38,
+                        103,
+                        104,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "this.root.run();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "runLabel",
+                    "name": "runLabel",
+                    "transform": {
+                      "x": 65,
+                      "y": 307,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run checks",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "this.root.run();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "advance",
+                    "name": "advance",
+                    "transform": {
+                      "x": 226,
+                      "y": 292,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 48,
+                      "fill": [
+                        51,
+                        74,
+                        120,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "this.root.advance();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "advanceLabel",
+                    "name": "advanceLabel",
+                    "transform": {
+                      "x": 247,
+                      "y": 307,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Advance transform",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "java_script",
+                          "source": "this.root.advance();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "marker",
+                    "name": "marker",
+                    "transform": {
+                      "x": 220,
+                      "y": 390,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 36,
+                      "height": 36,
+                      "fill": [
+                        255,
+                        191,
+                        91,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 36,
+                      "y": 535,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 shared geometry probe: pending frame script",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "limits",
+                    "name": "limits",
+                    "transform": {
+                      "x": 36,
+                      "y": 575,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Finite-number profile; no full coercion/prototype or exact Flash numeric claim.",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        154,
+                        174,
+                        198,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import flash.geom.Point;\nimport flash.geom.Rectangle;\nimport flash.geom.Matrix;\nimport flash.geom.ColorTransform;\nstop();\nvar lp:Point=new Point(3,4);\nvar lm:Matrix=new Matrix();lm.createBox(2,3,0,10,20);\nvar mapped:Point=lm.transformPoint(lp);\nvar lr:Rectangle=new Rectangle(0,0,100,100);\nvar lc:ColorTransform=new ColorTransform();lc.color=0x336699;\nvar legacyPassed:Number=0;\nif(lp.length==5)legacyPassed++;\nif(mapped.x==16&&mapped.y==32)legacyPassed++;\nif(lr.containsPoint(mapped)&&lr.right==100)legacyPassed++;\nif(lc.color==0x336699&&lc.redOffset==51)legacyPassed++;\nvar legacyColor:Color=new Color(marker);\nlegacyColor.setRGB(0x33bbcc);\nif(legacyColor.getRGB()==0x33bbcc&&legacyColor.getTransform().rb==51)legacyPassed++;\nlegacyColor.setTransform({ra:50,ga:50,ba:50,rb:20});\nvar legacyTransform:Object=legacyColor.getTransform();\nif(legacyTransform.ra==50&&legacyTransform.ga==50&&legacyTransform.rb==20&&legacyTransform.gb==187&&legacyTransform.aa==100)legacyPassed++;\ncaption.text=\"AS2 shared Rust geometry: \"+legacyPassed+\" / 6 checks\";\ntrace(\"GEOMETRY_HOUR_AS2 \"+legacyPassed+\"/6\");\n"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "source-main",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;\n import flash.geom.Point;\n import flash.geom.Rectangle;\n import flash.geom.Matrix;\n import flash.geom.Vector3D;\n import flash.geom.ColorTransform;\n import flash.geom.PerspectiveProjection;\n import flash.geom.Matrix3D;\n import fl.motion.Color;\n import fl.motion.MatrixTransformer;\n public dynamic class Main extends MovieClip {\n  public var checks:Array;\n  public var api:Array;\n  public var failures:Array;\n  public var step:int=0;\n  public var pose:Matrix;\n  public var motionTint:Color;\n  public function Main(){super();stop();run();}\n  public function near(a:Number,b:Number):Boolean{return Math.abs(a-b)<0.0001;}\n  public function xy(p:Point,x:Number,y:Number):Boolean{return near(p.x,x)&&near(p.y,y);}\n  public function check(id:String,ok:Boolean,members:String):void {\n   checks.push({id:id,pass:ok});if(!ok)failures.push(id);\n   var names:Array=members.split(\",\");for each(var name:String in names){if(name.length>0&&api.indexOf(name)<0)api.push(name);}\n  }\n  public function run():void {\n   checks=[];api=[];failures=[];step=0;\n   var p:Point=new Point(3,4);var q:Point=new Point(1,2);var out:Point=new Point();\n   check(\"point coordinates length\",p.x==3&&p.y==4&&p.length==5,\"Point.x,Point.y,Point.length\");\n   var c:Point=p.add(q);check(\"point add subtract\",xy(c,4,6)&&xy(p.subtract(q),2,2),\"Point.add,Point.subtract\");\n   c=p.clone();check(\"clone equals\",c!=p&&c.equals(p),\"Point.clone,Point.equals\");\n   c.copyFrom(q);c.setTo(6,8);c.normalize(5);c.offset(1,2);check(\"point mutations\",xy(c,4,6),\"Point.copyFrom,Point.setTo,Point.normalize,Point.offset\");\n   check(\"point statics\",Point.distance(new Point(),p)==5&&xy(Point.interpolate(p,q,0.5),2,3)&&xy(Point.polar(5,0),5,0),\"Point.distance,Point.interpolate,Point.polar\");\n   check(\"point string\",p.toString()==\"(x=3, y=4)\",\"Point.toString\");\n   check(\"add to output identity\",p.addToOutput(q,out)==out&&xy(out,4,6),\"Point.addToOutput\");\n   check(\"subtract aliased output\",out.subtractToOutput(q,out)==out&&xy(out,3,4),\"Point.subtractToOutput\");\n   check(\"interpolate output\",Point.interpolateToOutput(p,q,0.5,out)==out&&xy(out,2,3),\"Point.interpolateToOutput\");\n   check(\"polar null output\",xy(Point.polarToOutput(5,0,null),5,0),\"Point.polarToOutput\");\n   var r:Rectangle=new Rectangle(10,20,30,40);\n   check(\"rectangle slots\",r.x==10&&r.y==20&&r.width==30&&r.height==40,\"Rectangle.x,Rectangle.y,Rectangle.width,Rectangle.height\");\n   check(\"rectangle edges\",r.left==10&&r.top==20&&r.right==40&&r.bottom==60,\"Rectangle.left,Rectangle.top,Rectangle.right,Rectangle.bottom\");\n   check(\"rectangle point getters\",xy(r.topLeft,10,20)&&xy(r.bottomRight,40,60)&&xy(r.size,30,40),\"Rectangle.topLeft,Rectangle.bottomRight,Rectangle.size\");\n   var rc:Rectangle=r.clone();rc.left=5;rc.top=7;rc.right=50;rc.bottom=70;rc.topLeft=new Point(10,20);rc.bottomRight=new Point(40,60);rc.size=new Point(30,40);\n   check(\"rectangle copy-valued setters\",rc.equals(r),\"Rectangle.clone,Rectangle.equals\");\n   rc.copyFrom(r);rc.setTo(1,2,3,4);check(\"rectangle copy and set\",rc.x==1&&rc.bottom==6,\"Rectangle.copyFrom,Rectangle.setTo\");\n   rc.setEmpty();check(\"rectangle empty\",rc.isEmpty()&&rc.x==0&&rc.height==0,\"Rectangle.setEmpty,Rectangle.isEmpty\");\n   check(\"rectangle containment\",r.contains(10,20)&&!r.contains(40,60)&&r.containsPoint(new Point(15,25))&&r.containsRect(new Rectangle(11,21,2,2)),\"Rectangle.contains,Rectangle.containsPoint,Rectangle.containsRect\");\n   rc=r.intersection(new Rectangle(25,40,30,30));check(\"intersection and intersects\",rc.equals(new Rectangle(25,40,15,20))&&r.intersects(rc),\"Rectangle.intersection,Rectangle.intersects\");\n   rc=r.union(new Rectangle(0,0,1,1));check(\"rectangle union\",rc.equals(new Rectangle(0,0,40,60)),\"Rectangle.union\");\n   rc=r.clone();rc.offset(1,2);rc.offsetPoint(new Point(-1,-2));rc.inflate(1,2);rc.inflatePoint(new Point(-1,-2));check(\"rectangle offset inflate\",rc.equals(r),\"Rectangle.offset,Rectangle.offsetPoint,Rectangle.inflate,Rectangle.inflatePoint\");\n   check(\"rectangle string\",r.toString()==\"(x=10, y=20, w=30, h=40)\",\"Rectangle.toString\");\n   var m:Matrix=new Matrix();check(\"matrix defaults\",m.a==1&&m.b==0&&m.c==0&&m.d==1&&m.tx==0&&m.ty==0,\"Matrix.a,Matrix.b,Matrix.c,Matrix.d,Matrix.tx,Matrix.ty\");\n   m.createBox(2,3,0,10,20);check(\"create box point delta\",xy(m.transformPoint(new Point(4,5)),18,35)&&xy(m.deltaTransformPoint(new Point(4,5)),8,15),\"Matrix.createBox,Matrix.transformPoint,Matrix.deltaTransformPoint\");\n   var mc:Matrix=m.clone();mc.invert();check(\"matrix inverse\",xy(mc.transformPoint(new Point(18,35)),4,5),\"Matrix.clone,Matrix.invert\");\n   mc.identity();mc.scale(2,3);mc.translate(10,20);check(\"matrix identity scale translate\",mc.a==2&&mc.d==3&&mc.tx==10&&mc.ty==20,\"Matrix.identity,Matrix.scale,Matrix.translate\");\n   mc.identity();mc.rotate(Math.PI/2);check(\"matrix rotation\",xy(mc.transformPoint(new Point(1,0)),0,1),\"Matrix.rotate\");\n   mc.copyFrom(m);mc.concat(new Matrix(1,0,0,1,7,8));check(\"matrix composition\",xy(mc.transformPoint(new Point(4,5)),25,43),\"Matrix.copyFrom,Matrix.concat\");\n   mc.setTo(1,2,3,4,5,6);check(\"matrix set and string\",mc.toString()==\"(a=1, b=2, c=3, d=4, tx=5, ty=6)\",\"Matrix.setTo,Matrix.toString\");\n   mc.createGradientBox(1638.4,819.2,0,3,4);check(\"gradient box\",mc.a==1&&mc.d==0.5&&near(mc.tx,822.2)&&near(mc.ty,413.6),\"Matrix.createGradientBox\");\n   var v:Vector3D=new Vector3D(7,8,9,42);mc.identity();mc.copyRowFrom(0,v);mc.copyRowTo(0,v);check(\"matrix row transfer\",mc.a==7&&mc.c==8&&mc.tx==9&&v.x==7&&v.y==8&&v.z==9&&v.w==42,\"Matrix.copyRowFrom,Matrix.copyRowTo\");\n   mc.copyColumnFrom(1,new Vector3D(2,3,4));mc.copyColumnTo(2,v);check(\"column Flash compatibility\",mc.b==2&&mc.d==3&&mc.ty==4&&v.x==9&&v.y==4&&v.z==1&&v.w==42,\"Matrix.copyColumnFrom,Matrix.copyColumnTo\");\n   check(\"transform output identity\",m.transformPointToOutput(new Point(4,5),out)==out&&xy(out,18,35),\"Matrix.transformPointToOutput\");\n   check(\"delta aliased output\",m.deltaTransformPointToOutput(out,out)==out&&xy(out,36,105),\"Matrix.deltaTransformPointToOutput\");\n   var color:ColorTransform=new ColorTransform(0.5,0.6,0.7,0.8,1,2,3,4);\n   check(\"color slots\",color.redMultiplier==0.5&&color.greenMultiplier==0.6&&color.blueMultiplier==0.7&&color.alphaMultiplier==0.8&&color.redOffset==1&&color.greenOffset==2&&color.blueOffset==3&&color.alphaOffset==4,\"ColorTransform.redMultiplier,ColorTransform.greenMultiplier,ColorTransform.blueMultiplier,ColorTransform.alphaMultiplier,ColorTransform.redOffset,ColorTransform.greenOffset,ColorTransform.blueOffset,ColorTransform.alphaOffset\");\n   color.color=0x123456;check(\"color packed setter\",color.color==0x123456&&color.redMultiplier==0&&color.greenMultiplier==0&&color.blueMultiplier==0&&color.alphaMultiplier==0.8,\"ColorTransform.color\");\n   color=new ColorTransform(2,3,4,0.5,10,20,30,40);color.concat(new ColorTransform(3,4,5,0.5,7,8,9,10));check(\"retained concat profile\",color.redMultiplier==6&&color.redOffset==37&&color.alphaOffset==30,\"ColorTransform.concat\");\n   check(\"color string\",color.toString().indexOf(\"redMultiplier=6\")>0,\"ColorTransform.toString\");\n   var bounded:Boolean=false;try{new Matrix(0,0,0,0).invert();}catch(error:Error){bounded=error.message.indexOf(\"Singular\")>=0;}check(\"bounded singular diagnostic\",bounded,\"\");\n   var projection:PerspectiveProjection=new PerspectiveProjection();\n   check(\"projection defaults\",projection.fieldOfView==55&&projection.focalLength>0&&xy(projection.projectionCenter,250,250),\"PerspectiveProjection.fieldOfView,PerspectiveProjection.focalLength,PerspectiveProjection.projectionCenter\");\n   projection.fieldOfView=90;var pm:Matrix3D=projection.toMatrix3D();var raw:Vector.<Number>=pm.rawData;\n   check(\"projection focal and matrix\",near(projection.focalLength,250)&&raw[0]==250&&raw[5]==250&&raw[10]==1&&raw[11]==1&&raw[15]==0,\"PerspectiveProjection.toMatrix3D\");\n   projection.focalLength=500;projection.projectionCenter=new Point(120,80);var center:Point=projection.projectionCenter;center.x=0;\n   check(\"projection reverse focal and center copy\",near(projection.fieldOfView,53.1301023542)&&xy(projection.projectionCenter,120,80),\"\");\n   var projectionBounded:Boolean=false;try{projection.fieldOfView=180;}catch(projectionError:Error){projectionBounded=true;}check(\"projection bounds atomic\",projectionBounded&&near(projection.fieldOfView,53.1301023542),\"\");\n   var vo:Vector3D=new Vector3D();var va:Vector3D=new Vector3D(1,2,3);var vb:Vector3D=new Vector3D(2,3,4);\n   var vectorOutputs:Boolean=va.addToOutput(vb,vo)==vo&&vo.x==3&&vo.y==5&&vo.z==7&&vo.w==0;\n   vectorOutputs=vectorOutputs&&vo.subtractToOutput(vb,vo)==vo&&vo.x==1&&vo.y==2&&vo.z==3;\n   var crossOutput:Vector3D=va.crossProductToOutput(vb,null);\n   check(\"vector output identity alias allocation\",vectorOutputs&&crossOutput.x==-1&&crossOutput.y==2&&crossOutput.z==-1&&crossOutput.w==1,\"Vector3D.addToOutput,Vector3D.subtractToOutput,Vector3D.crossProductToOutput\");\n   check(\"motion packed RGBA interpolation\",Color.interpolateColor(0xff0000,0x0000ff,0.5)==0x7f007f&&Color.interpolateColor(0x40000000,0xc0ffffff,0.5)==0x807f7f7f,\"fl.motion.Color.interpolateColor\");\n   var fromCT:ColorTransform=new ColorTransform(0,0,0,0.2);var toCT:ColorTransform=new ColorTransform(1,1,1,0.8,50,60,70,80);var blended:ColorTransform=Color.interpolateTransform(fromCT,toCT,0.5);\n   check(\"motion transform interpolation\",blended is ColorTransform&&blended.redMultiplier==0.5&&near(blended.alphaMultiplier,0.5)&&blended.redOffset==25&&fromCT.redMultiplier==0,\"fl.motion.Color.interpolateTransform\");\n   motionTint=new Color(1,1,1,0.5);motionTint.setTint(0x336699,0.5);var tintOk:Boolean=motionTint is ColorTransform&&motionTint.tintColor==0x336699&&motionTint.tintMultiplier==0.5;\n   motionTint.tintColor=0xff0000;motionTint.tintMultiplier=0.25;\n   check(\"motion tint properties\",tintOk&&motionTint.redMultiplier==0.75&&motionTint.redOffset==63.75&&motionTint.greenOffset==0&&motionTint.alphaMultiplier==0.5,\"fl.motion.Color.setTint,fl.motion.Color.tintColor,fl.motion.Color.tintMultiplier\");\n   motionTint.brightness=0.5;var brightOk:Boolean=motionTint.brightness==0.5&&motionTint.redOffset==127.5;motionTint.brightness=-0.25;\n   check(\"motion brightness\",brightOk&&motionTint.brightness==-0.25&&motionTint.redMultiplier==0.75&&motionTint.redOffset==0&&motionTint.alphaMultiplier==0.5,\"fl.motion.Color.brightness\");\n   var mt:Matrix=new Matrix();MatrixTransformer.setScaleX(mt,4);MatrixTransformer.setScaleY(mt,5);\n   check(\"transformer scale pair\",near(MatrixTransformer.getScaleX(mt),4)&&near(MatrixTransformer.getScaleY(mt),5),\"MatrixTransformer.setScaleX,MatrixTransformer.setScaleY,MatrixTransformer.getScaleX,MatrixTransformer.getScaleY\");\n   MatrixTransformer.setSkewX(mt,30);var skewOk:Boolean=near(MatrixTransformer.getSkewX(mt),30)&&near(MatrixTransformer.getSkewXRadians(mt),Math.PI/6);MatrixTransformer.setSkewXRadians(mt,Math.PI/4);\n   check(\"transformer skew X pair\",skewOk&&near(MatrixTransformer.getSkewX(mt),45),\"MatrixTransformer.setSkewX,MatrixTransformer.setSkewXRadians,MatrixTransformer.getSkewX,MatrixTransformer.getSkewXRadians\");\n   MatrixTransformer.setSkewY(mt,60);skewOk=near(MatrixTransformer.getSkewY(mt),60)&&near(MatrixTransformer.getSkewYRadians(mt),Math.PI/3);MatrixTransformer.setSkewYRadians(mt,Math.PI/6);\n   check(\"transformer skew Y pair\",skewOk&&near(MatrixTransformer.getSkewY(mt),30),\"MatrixTransformer.setSkewY,MatrixTransformer.setSkewYRadians,MatrixTransformer.getSkewY,MatrixTransformer.getSkewYRadians\");\n   MatrixTransformer.setRotation(mt,90);var rotationOk:Boolean=near(MatrixTransformer.getRotation(mt),90)&&near(MatrixTransformer.getRotationRadians(mt),Math.PI/2)&&near(MatrixTransformer.getSkewX(mt),105);MatrixTransformer.setRotationRadians(mt,0);\n   check(\"transformer rotation retains skew\",rotationOk&&near(MatrixTransformer.getRotation(mt),0)&&near(MatrixTransformer.getSkewX(mt),15),\"MatrixTransformer.setRotation,MatrixTransformer.setRotationRadians,MatrixTransformer.getRotation,MatrixTransformer.getRotationRadians\");\n   mt.identity();mt.translate(10,20);MatrixTransformer.rotateAroundInternalPoint(mt,2,3,90);\n   check(\"transformer internal pivot\",xy(mt.transformPoint(new Point(2,3)),12,23),\"MatrixTransformer.rotateAroundInternalPoint\");\n   mt.identity();mt.translate(10,0);MatrixTransformer.rotateAroundExternalPoint(mt,0,0,90);\n   check(\"transformer external pivot\",near(mt.tx,0)&&near(mt.ty,10),\"MatrixTransformer.rotateAroundExternalPoint\");\n   mt.createBox(2,3,0,10,20);MatrixTransformer.matchInternalPointWithExternal(mt,new Point(4,5),new Point(100,200));\n   check(\"transformer point alignment\",xy(mt.transformPoint(new Point(4,5)),100,200),\"MatrixTransformer.matchInternalPointWithExternal\");\n   pose=new Matrix();pose.translate(150,410);refresh();\n  }\n  public function advance():void {step++;MatrixTransformer.rotateAroundExternalPoint(pose,0,0,0.05*180/Math.PI);pose.translate(10,0);refresh();}\n  public function refresh():void {\n   marker.transform.matrix=pose;\n   motionTint.setTint(Color.interpolateColor(0x33bbcc,0xff8844,(step%11)/10),1);motionTint.alphaMultiplier=1;marker.transform.colorTransform=motionTint;\n   heading.text=\"Rust geometry / \"+(checks.length-failures.length)+\" of \"+checks.length+\" checks\";\n   summary.text=api.length+\" AS3 methods + properties executed \u00b7 74 migrated \u00b7 42 new\\nStep \"+step+\" \u00b7 matrix position (\"+pose.tx.toFixed(1)+\", \"+pose.ty.toFixed(1)+\")\";\n   details.text=failures.length==0?\"PASS \u00b7 values, matrices, output reuse, colors and projection\\nShared Rust values also drive the existing display transform.\":\"FAILURES: \"+failures.join(\", \");\n   trace(\"GEOMETRY_HOUR_AS3 \"+JSON.stringify({checks:checks.length,passed:checks.length-failures.length,failed:failures.length,apiMembers:api.length,converted:74,newMethods:36,newProperties:6,step:step,failures:failures}));\n  }\n }\n}\n"
+    }
+  ]
+}

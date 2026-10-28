@@ -4,7 +4,7 @@ Open-source authoring environment inspired by classic Macromedia/Adobe Flash, bu
 
 **Status: development preview, 0.1.0. This is a working foundation, not a complete Flash replacement.** Full AS2/AS3 compatibility, general FLA/SWF import, a complete vector toolset and DOM-based web layouts remain substantial work. See the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
 
-The wider project is paused. The isolated [Rust algorithm reuse experiment](docs/AS-REUSE-EXPERIMENT.md) adds 62 partial API members and ports 14 existing members to Rust, with ordinary HTML5 browser evidence. The declaration table below remains the separately dated audit, not a recount of that experiment.
+The wider project is paused. The latest bounded [AS2/AS3 runtime hour](docs/AS-RUNTIME-HOUR.md) adds 192 partial API paths and moves 117 existing entries into Rust, with five ordinary HTML5 examples and controlled grouped verification. It follows the [initial reuse experiment](docs/AS-REUSE-EXPERIMENT.md). The declaration table below remains the separately dated audit, not a recount of these increments.
 
 <!-- progress:start -->
 ## Where we are

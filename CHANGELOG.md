@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Completed the bounded AS2/AS3 runtime hour: 192 new partial method/function/property paths and 117 existing entries moved to Rust across String/URI, geometry/Color, easing/Tween/CustomEase, callback timers, AsBroadcaster, ByteArray and Math. Five ordinary HTML5 examples passed grouped browser execution and Restart; binary text uses 38 codec profiles. [Counts, costs, reuse and limitations](docs/AS-RUNTIME-HOUR.md). Editor, FLA and the wider project remain paused.
+
 - Completed a bounded Rust reuse experiment: 10 new AS2 globals, 43 AS3 geometry methods and nine properties; 14 existing AS2 String members moved to Rust. Individual licensed algorithms replace engine integration. Both ordinary HTML5 examples passed browser execution and Restart; see [the measured result](docs/AS-REUSE-EXPERIMENT.md). The wider project remains paused.
 
 - Added a bounded core-language batch: AS2/AS3 comma/void expressions, sparse arrays and Object construction; AS3 primitive is/as, scalar constructors, RegExp literals, numeric formatting and URI codecs; AS2 int/random and Boolean omission behavior. Existing grouped scenarios cover the batch; full catalogue reassessment and browser acceptance remain separate.

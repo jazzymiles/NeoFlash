@@ -1,0 +1,590 @@
+{
+  "format_version": 2,
+  "name": "Rust scripted easing and Tween",
+  "width": 960,
+  "height": 630,
+  "fps": 24,
+  "background": [
+    14,
+    23,
+    38,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.Main",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Geometry reuse lab",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 36,
+                      "y": 26,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / RUST EASING + TWEEN",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        105,
+                        217,
+                        199,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "heading",
+                    "name": "heading",
+                    "transform": {
+                      "x": 36,
+                      "y": 64,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Scripted easing and Tween / Rust",
+                      "font_family": "Arial",
+                      "font_size": 30,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status3",
+                    "name": "status3",
+                    "transform": {
+                      "x": 36,
+                      "y": 120,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 package loading\u2026",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status2",
+                    "name": "status2",
+                    "transform": {
+                      "x": 36,
+                      "y": 153,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 package loading\u2026",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "details",
+                    "name": "details",
+                    "transform": {
+                      "x": 36,
+                      "y": 195,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "scope",
+                    "name": "scope",
+                    "transform": {
+                      "x": 36,
+                      "y": 230,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "72 easing method paths \u00b7 11 mathematical families \u00b7 one Rust Tween state",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "runButton",
+                    "name": "runButton",
+                    "transform": {
+                      "x": 36,
+                      "y": 282,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 160,
+                      "height": 46,
+                      "fill": [
+                        45,
+                        94,
+                        89,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "_root.run();_root.runLegacyEasing();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "runLabel",
+                    "name": "runLabel",
+                    "transform": {
+                      "x": 56,
+                      "y": 295,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run checks",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "_root.run();_root.runLegacyEasing();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "animateButton",
+                    "name": "animateButton",
+                    "transform": {
+                      "x": 216,
+                      "y": 282,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 206,
+                      "height": 46,
+                      "fill": [
+                        51,
+                        65,
+                        113,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "_root.customAnimate();_root.runLegacyEasing();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "animateLabel",
+                    "name": "animateLabel",
+                    "transform": {
+                      "x": 236,
+                      "y": 295,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Custom curve",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "_root.customAnimate();_root.runLegacyEasing();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "marker",
+                    "name": "marker",
+                    "transform": {
+                      "x": 80,
+                      "y": 380,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 32,
+                      "height": 32,
+                      "fill": [
+                        255,
+                        191,
+                        91,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyMarker",
+                    "name": "legacyMarker",
+                    "transform": {
+                      "x": 80,
+                      "y": 450,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 32,
+                      "height": 32,
+                      "fill": [
+                        105,
+                        217,
+                        199,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "animationStatus",
+                    "name": "animationStatus",
+                    "transform": {
+                      "x": 36,
+                      "y": 344,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "legacyStatus",
+                    "name": "legacyStatus",
+                    "transform": {
+                      "x": 36,
+                      "y": 417,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 36,
+                      "y": 573,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Gold: AS3 Bounce / teal: AS2 Strong \u00b7 seconds-based Rust state",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "limits",
+                    "name": "limits",
+                    "transform": {
+                      "x": 36,
+                      "y": 597,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Partial: finite values, bounded programmatic curves; XML construction remains unsupported.",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        154,
+                        174,
+                        198,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "timerStatus3",
+                    "name": "timerStatus3",
+                    "transform": {
+                      "x": 36,
+                      "y": 498,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS3 callback timers loading\u2026",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "timerStatus2",
+                    "name": "timerStatus2",
+                    "transform": {
+                      "x": 36,
+                      "y": 520,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 callback timers loading\u2026",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "broadcasterStatus",
+                    "name": "broadcasterStatus",
+                    "transform": {
+                      "x": 36,
+                      "y": 542,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 broadcaster loading\u2026",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        218,
+                        231,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import mx.transitions.Tween;\nstop();\nfunction runLegacyEasing() {\n var checks=0;var passed=0;var methods=0;\n function check(ok:Boolean){checks++;if(ok)passed++;}\n function curve(name:String,f:Function){methods++;var x=f(0.37,10,90,1);check(Math.abs(f(0,10,90,1)-10)<0.00001&&Math.abs(f(1,10,90,1)-100)<0.00001&&isFinite(x));}\ncurve(\"mx.transitions.easing.Back.easeIn\",mx.transitions.easing.Back.easeIn);\ncurve(\"mx.transitions.easing.Back.easeOut\",mx.transitions.easing.Back.easeOut);\ncurve(\"mx.transitions.easing.Back.easeInOut\",mx.transitions.easing.Back.easeInOut);\ncurve(\"mx.transitions.easing.Bounce.easeIn\",mx.transitions.easing.Bounce.easeIn);\ncurve(\"mx.transitions.easing.Bounce.easeOut\",mx.transitions.easing.Bounce.easeOut);\ncurve(\"mx.transitions.easing.Bounce.easeInOut\",mx.transitions.easing.Bounce.easeInOut);\ncurve(\"mx.transitions.easing.Elastic.easeIn\",mx.transitions.easing.Elastic.easeIn);\ncurve(\"mx.transitions.easing.Elastic.easeOut\",mx.transitions.easing.Elastic.easeOut);\ncurve(\"mx.transitions.easing.Elastic.easeInOut\",mx.transitions.easing.Elastic.easeInOut);\ncurve(\"mx.transitions.easing.None.easeNone\",mx.transitions.easing.None.easeNone);\ncurve(\"mx.transitions.easing.None.easeIn\",mx.transitions.easing.None.easeIn);\ncurve(\"mx.transitions.easing.None.easeOut\",mx.transitions.easing.None.easeOut);\ncurve(\"mx.transitions.easing.None.easeInOut\",mx.transitions.easing.None.easeInOut);\ncurve(\"mx.transitions.easing.Regular.easeIn\",mx.transitions.easing.Regular.easeIn);\ncurve(\"mx.transitions.easing.Regular.easeOut\",mx.transitions.easing.Regular.easeOut);\ncurve(\"mx.transitions.easing.Regular.easeInOut\",mx.transitions.easing.Regular.easeInOut);\ncurve(\"mx.transitions.easing.Strong.easeIn\",mx.transitions.easing.Strong.easeIn);\ncurve(\"mx.transitions.easing.Strong.easeOut\",mx.transitions.easing.Strong.easeOut);\ncurve(\"mx.transitions.easing.Strong.easeInOut\",mx.transitions.easing.Strong.easeInOut);\n var target={value:0};var tween=new Tween(target,\"value\",mx.transitions.easing.Regular.easeIn,10,110,4,false);\n tween.stop();var events={changed:0,finished:0,resumed:0,started:0,stopped:0};\n tween.onMotionChanged=function(){events.changed++;};tween.onMotionFinished=function(){events.finished++;};tween.onMotionResumed=function(){events.resumed++;};tween.onMotionStarted=function(){events.started++;};tween.onMotionStopped=function(){events.stopped++;};\n check(tween.FPS==24&&tween.duration==4&&tween.finish==110&&tween.position==10&&tween.time==0);\n tween.start();check(tween.position==10);tween.stop();tween.nextFrame();check(tween.position==16.25);tween.prevFrame();check(tween.time==0);\n tween.rewind(2);check(tween.position==35);tween.resume();tween.stop();tween.fforward();check(tween.position==110);\n tween.continueTo(210,4);tween.stop();tween.time=2;check(tween.position==135);tween.yoyo();tween.stop();tween.fforward();check(tween.position==110);\n tween.FPS=30;tween.duration=2;tween.finish=310;tween.time=1;tween.position=77;check(tween.FPS==30&&tween.duration==2&&tween.finish==310&&target.value==77);\n check(tween.toString()==\"[Tween]\");check(events.changed>0&&events.finished>0&&events.resumed>0&&events.started>0&&events.stopped>0);\n status2.text=\"AS2: \"+passed+\" / \"+checks+\" checks \u00b7 19 easing methods + 10 Tween methods + 5 properties\";\n trace('EASING_AS2_RESULT {\"checks\":'+checks+',\"passed\":'+passed+',\"easingMethods\":19,\"tweenMethods\":10,\"properties\":5}');\n if(legacyAnimation!=undefined)legacyAnimation.stop();\n legacyAnimation=new Tween(legacyMarker,\"_x\",mx.transitions.easing.Strong.easeInOut,80,730,3,true);\n legacyAnimation.onMotionFinished=function(){_root.legacyStatus.text=\"AS2 completed \u00b7 x=\"+_root.legacyMarker._x;trace(\"EASING_AS2_ANIMATION_FINISHED \"+_root.legacyMarker._x);};\n legacyStatus.text=\"AS2 seconds tween running\";\n runLegacyTimerGlobals();runLegacyBroadcaster();\n}\nfunction runLegacyBroadcaster(){\n var checks=0;var passed=0;var calls=[];\n function check(ok){checks++;if(ok)passed++;}\n var broadcaster={};AsBroadcaster.initialize(broadcaster);\n var first={value:40};var second={value:50};\n first.onValue=function(a,b){calls.push(this.value+a+b);};\n second.onValue=function(a,b){calls.push(this.value+a+b);};\n check(broadcaster.addListener(first)&&broadcaster.addListener(first)&&broadcaster._listeners.length==1);\n check(broadcaster.addListener(second)&&broadcaster._listeners[0]==first&&broadcaster._listeners[1]==second);\n check(broadcaster.broadcastMessage(\"onValue\",1,1)&&calls.length==2&&calls[0]==42&&calls[1]==52);\n check(broadcaster.removeListener(first)&&!broadcaster.removeListener(first)&&broadcaster._listeners.length==1);\n second.onValue=function(a,b){calls.push(this.value+a+b+10);};\n broadcaster.broadcastMessage(\"onValue\",1,1);check(calls[2]==62);\n check(broadcaster.broadcastMessage(\"missingMethod\")&&calls.length==3);\n AsBroadcaster.initialize(broadcaster);check(broadcaster._listeners.length==0);\n var closure=function(value){calls.push(value);};broadcaster.addListener(closure);broadcaster.broadcastMessage(\"\",99);check(calls[3]==99);\n broadcaster.removeListener(closure);check(broadcaster._listeners.length==0);\n _root.broadcasterStatus.text=\"AS2 AsBroadcaster: \"+passed+\" / \"+checks+\" \u00b7 ordered listeners, callbacks and reinitialization\";\n trace('BROADCASTER_AS2_RESULT {\"checks\":'+checks+',\"passed\":'+passed+',\"members\":5}');\n}\nfunction runLegacyTimerGlobals(){\n if(_root.legacyTimerIds!=undefined)for(var oldIndex=0;oldIndex<_root.legacyTimerIds.length;oldIndex++)clearTimeout(_root.legacyTimerIds[oldIndex]);\n _root.legacyTimerIds=[];\n var result={ticks:0,timeout:0,cancelled:0,args:false,method:false};\n clearInterval(0);clearTimeout(0);\n var canceled=setTimeout(function(){result.cancelled++;},1);clearTimeout(canceled);\n var crossCanceled=setTimeout(function(){result.cancelled++;},1);clearInterval(crossCanceled);\n var target={value:41};\n target.tick=function(value){result.cancelled++;};\n var intervalId=setInterval(target,\"tick\",10,1);_root.legacyTimerIds.push(intervalId);\n target.tick=function(value){\n  result.ticks++;result.method=this.value+value==42;\n  if(result.ticks==2){clearInterval(intervalId);_root.legacyTimerIds.push(setTimeout(function(){\n   var ok=result.ticks==2&&result.timeout==1&&result.cancelled==0&&result.args&&result.method;\n   trace('TIMER_GLOBALS_AS2_RESULT {\"passed\":'+ok+',\"apiFunctions\":4,\"ticks\":'+result.ticks+',\"timeouts\":'+result.timeout+',\"cancelled\":'+result.cancelled+',\"arguments\":'+result.args+',\"lateBoundMethod\":'+result.method+'}');\n   _root.timerStatus2.text=\"AS2 callback timers: \"+(ok?\"PASS\":\"FAIL\")+\" \u00b7 function and object/method callbacks\";\n  },20));}\n };\n _root.legacyTimerIds.push(setTimeout(function(a,b){result.timeout++;result.args=a==\"rust\"&&b==42;},0,\"rust\",42));\n}\nrunLegacyEasing();\n"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "main-source",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;\n import fl.transitions.Tween;\n import fl.motion.CustomEase;\n import flash.geom.Point;\n import fl.transitions.TweenEvent;\n public dynamic class Main extends MovieClip {\n  public var checks:int=0;public var passed:int=0;public var members:Array;public var failures:Array;\n  public var custom:CustomEase;public var callbackIds:Array=[];public var t:Tween;public var animation:Tween;public var eventTypes:Array;\n  public function Main(){super();stop();run();}\n  public function near(a:Number,b:Number):Boolean{return Math.abs(a-b)<0.00001;}\n  public function check(name:String,ok:Boolean,apis:String=\"\"):void {checks++;if(ok)passed++;else failures.push(name);var parts:Array=apis.split(\",\");for each(var part:String in parts)if(part.length>0&&members.indexOf(part)<0)members.push(part);}\n  public function curve(name:String,f:Function):void {var x:Number=f(0.37,10,90,1);check(name,near(f(0,10,90,1),10)&&near(f(1,10,90,1),100)&&isFinite(x),name);}\n  public function eventSeen(e:TweenEvent):void {if(eventTypes.indexOf(e.type)<0)eventTypes.push(e.type);}\n  public function run():void {\n   if(t!=null)t.stop();checks=0;passed=0;members=[];failures=[];eventTypes=[];\ncurve(\"fl.transitions.easing.Back.easeIn\",fl.transitions.easing.Back.easeIn);\ncurve(\"fl.transitions.easing.Back.easeOut\",fl.transitions.easing.Back.easeOut);\ncurve(\"fl.transitions.easing.Back.easeInOut\",fl.transitions.easing.Back.easeInOut);\ncurve(\"fl.transitions.easing.Bounce.easeIn\",fl.transitions.easing.Bounce.easeIn);\ncurve(\"fl.transitions.easing.Bounce.easeOut\",fl.transitions.easing.Bounce.easeOut);\ncurve(\"fl.transitions.easing.Bounce.easeInOut\",fl.transitions.easing.Bounce.easeInOut);\ncurve(\"fl.transitions.easing.Elastic.easeIn\",fl.transitions.easing.Elastic.easeIn);\ncurve(\"fl.transitions.easing.Elastic.easeOut\",fl.transitions.easing.Elastic.easeOut);\ncurve(\"fl.transitions.easing.Elastic.easeInOut\",fl.transitions.easing.Elastic.easeInOut);\ncurve(\"fl.transitions.easing.None.easeNone\",fl.transitions.easing.None.easeNone);\ncurve(\"fl.transitions.easing.None.easeIn\",fl.transitions.easing.None.easeIn);\ncurve(\"fl.transitions.easing.None.easeOut\",fl.transitions.easing.None.easeOut);\ncurve(\"fl.transitions.easing.None.easeInOut\",fl.transitions.easing.None.easeInOut);\ncurve(\"fl.transitions.easing.Regular.easeIn\",fl.transitions.easing.Regular.easeIn);\ncurve(\"fl.transitions.easing.Regular.easeOut\",fl.transitions.easing.Regular.easeOut);\ncurve(\"fl.transitions.easing.Regular.easeInOut\",fl.transitions.easing.Regular.easeInOut);\ncurve(\"fl.transitions.easing.Strong.easeIn\",fl.transitions.easing.Strong.easeIn);\ncurve(\"fl.transitions.easing.Strong.easeOut\",fl.transitions.easing.Strong.easeOut);\ncurve(\"fl.transitions.easing.Strong.easeInOut\",fl.transitions.easing.Strong.easeInOut);\ncurve(\"fl.motion.easing.Back.easeIn\",fl.motion.easing.Back.easeIn);\ncurve(\"fl.motion.easing.Back.easeOut\",fl.motion.easing.Back.easeOut);\ncurve(\"fl.motion.easing.Back.easeInOut\",fl.motion.easing.Back.easeInOut);\ncurve(\"fl.motion.easing.Bounce.easeIn\",fl.motion.easing.Bounce.easeIn);\ncurve(\"fl.motion.easing.Bounce.easeOut\",fl.motion.easing.Bounce.easeOut);\ncurve(\"fl.motion.easing.Bounce.easeInOut\",fl.motion.easing.Bounce.easeInOut);\ncurve(\"fl.motion.easing.Circular.easeIn\",fl.motion.easing.Circular.easeIn);\ncurve(\"fl.motion.easing.Circular.easeOut\",fl.motion.easing.Circular.easeOut);\ncurve(\"fl.motion.easing.Circular.easeInOut\",fl.motion.easing.Circular.easeInOut);\ncurve(\"fl.motion.easing.Cubic.easeIn\",fl.motion.easing.Cubic.easeIn);\ncurve(\"fl.motion.easing.Cubic.easeOut\",fl.motion.easing.Cubic.easeOut);\ncurve(\"fl.motion.easing.Cubic.easeInOut\",fl.motion.easing.Cubic.easeInOut);\ncurve(\"fl.motion.easing.Elastic.easeIn\",fl.motion.easing.Elastic.easeIn);\ncurve(\"fl.motion.easing.Elastic.easeOut\",fl.motion.easing.Elastic.easeOut);\ncurve(\"fl.motion.easing.Elastic.easeInOut\",fl.motion.easing.Elastic.easeInOut);\ncurve(\"fl.motion.easing.Exponential.easeIn\",fl.motion.easing.Exponential.easeIn);\ncurve(\"fl.motion.easing.Exponential.easeOut\",fl.motion.easing.Exponential.easeOut);\ncurve(\"fl.motion.easing.Exponential.easeInOut\",fl.motion.easing.Exponential.easeInOut);\ncurve(\"fl.motion.easing.Linear.easeNone\",fl.motion.easing.Linear.easeNone);\ncurve(\"fl.motion.easing.Linear.easeIn\",fl.motion.easing.Linear.easeIn);\ncurve(\"fl.motion.easing.Linear.easeOut\",fl.motion.easing.Linear.easeOut);\ncurve(\"fl.motion.easing.Linear.easeInOut\",fl.motion.easing.Linear.easeInOut);\ncurve(\"fl.motion.easing.Quadratic.easeIn\",fl.motion.easing.Quadratic.easeIn);\ncurve(\"fl.motion.easing.Quadratic.easeOut\",fl.motion.easing.Quadratic.easeOut);\ncurve(\"fl.motion.easing.Quadratic.easeInOut\",fl.motion.easing.Quadratic.easeInOut);\ncurve(\"fl.motion.easing.Quartic.easeIn\",fl.motion.easing.Quartic.easeIn);\ncurve(\"fl.motion.easing.Quartic.easeOut\",fl.motion.easing.Quartic.easeOut);\ncurve(\"fl.motion.easing.Quartic.easeInOut\",fl.motion.easing.Quartic.easeInOut);\ncurve(\"fl.motion.easing.Quintic.easeIn\",fl.motion.easing.Quintic.easeIn);\ncurve(\"fl.motion.easing.Quintic.easeOut\",fl.motion.easing.Quintic.easeOut);\ncurve(\"fl.motion.easing.Quintic.easeInOut\",fl.motion.easing.Quintic.easeInOut);\ncurve(\"fl.motion.easing.Sine.easeIn\",fl.motion.easing.Sine.easeIn);\ncurve(\"fl.motion.easing.Sine.easeOut\",fl.motion.easing.Sine.easeOut);\ncurve(\"fl.motion.easing.Sine.easeInOut\",fl.motion.easing.Sine.easeInOut);\n   check(\"quadratic interior\",fl.transitions.easing.Regular.easeIn(0.5,0,100,1)==25);\n   check(\"bounce interior\",near(fl.transitions.easing.Bounce.easeOut(0.25,0,1,1),0.47265625));\n   check(\"custom overshoot\",fl.transitions.easing.Back.easeOut(0.7,0,100,1,2)>100);\n   check(\"elastic custom\",isFinite(fl.transitions.easing.Elastic.easeOut(0.4,0,100,1,150,0.3)));\n   var target:Object={value:0};\n   t=new Tween(target,\"value\",fl.transitions.easing.Regular.easeIn,10,110,4,false);t.stop();\n   var kinds:Array=[TweenEvent.MOTION_START,TweenEvent.MOTION_STOP,TweenEvent.MOTION_RESUME,TweenEvent.MOTION_CHANGE,TweenEvent.MOTION_FINISH,TweenEvent.MOTION_LOOP];\n   for each(var kind:String in kinds)t.addEventListener(kind,eventSeen);\n   check(\"initial properties\",t.begin==10&&t.finish==110&&t.duration==4&&t.position==10&&t.time==0&&t.FPS==24&&!t.isPlaying&&!t.looping&&!t.useSeconds&&t.obj==target&&t.prop==\"value\"&&t.func==fl.transitions.easing.Regular.easeIn,\"Tween.begin,Tween.finish,Tween.duration,Tween.position,Tween.time,Tween.FPS,Tween.isPlaying,Tween.looping,Tween.useSeconds,Tween.obj,Tween.prop,Tween.func\");\n   t.start();check(\"start\",t.isPlaying&&target.value==10,\"Tween.start\");t.stop();check(\"stop\",!t.isPlaying,\"Tween.stop\");\n   t.nextFrame();check(\"next frame\",t.time==1&&target.value==16.25,\"Tween.nextFrame\");\n   t.prevFrame();check(\"previous frame\",t.time==0&&target.value==10,\"Tween.prevFrame\");\n   t.rewind(2);check(\"rewind\",t.time==2&&target.value==35,\"Tween.rewind\");\n   t.resume();check(\"resume\",t.isPlaying,\"Tween.resume\");t.stop();\n   t.fforward();check(\"finish\",!t.isPlaying&&target.value==110,\"Tween.fforward\");\n   t.continueTo(210,4);check(\"continue\",t.begin==110&&t.finish==210&&t.time==0,\"Tween.continueTo\");t.stop();\n   t.time=2;check(\"time setter\",target.value==135);\n   t.func=fl.motion.easing.Linear.easeNone;t.duration=2;t.FPS=30;t.time=1;check(\"curve duration FPS setters\",target.value==160&&t.FPS==30);\n   var alternate:Object={other:0};t.obj=alternate;t.prop=\"other\";t.position=77;check(\"target binding and position setter\",alternate.other==77);\n   t.obj=target;t.prop=\"value\";t.begin=10;t.finish=110;t.duration=4;t.time=0;t.useSeconds=true;check(\"seconds property\",t.useSeconds);\n   t.useSeconds=false;t.looping=true;t.time=4;check(\"loop\",t.time==0&&target.value==10);t.looping=false;t.time=4;\n   t.yoyo();check(\"yoyo\",t.begin==110&&t.finish==10&&t.isPlaying,\"Tween.yoyo\");t.stop();t.fforward();\n   check(\"all event types\",eventTypes.length==6);\n   var ev:TweenEvent=new TweenEvent(TweenEvent.MOTION_CHANGE,2,35);check(\"event data\",ev.time==2&&ev.position==35,\"TweenEvent.time,TweenEvent.position\");\n   custom=new CustomEase();check(\"custom default\",custom.target==\"\"&&custom.getValue(0.5,10,20,1)==20,\"CustomEase.getValue,CustomEase.target\");\n   var curvePoints:Array=[new Point(0.25,0.1),new Point(0.25,1)];custom.points=curvePoints;custom.target=\"x\";\n   check(\"custom points property\",custom.points==curvePoints&&custom.target==\"x\",\"CustomEase.points\");\n   check(\"custom cubic\",near(custom.getValue(0.5,0,1,1),0.8024033876)&&custom.getValue(0,10,90,1)==10&&custom.getValue(1,10,90,1)==100);\n   curvePoints[0].y=0.25;curvePoints[1].y=0.25;check(\"custom live points\",near(custom.getValue(0.5,0,1,1),0.5));\n   custom.points=[new Point(0.1,0.1),new Point(0.2,0.2),new Point(0.5,0.5),new Point(0.6,0.6),new Point(0.9,0.9)];check(\"custom multiple segments\",near(custom.getValue(0.7,10,-20,1),-4));\n   custom.points=[new Point(0.25,0.1),new Point(0.25,1)];\n   var customTarget:Object={value:0};var customTween:Tween=new Tween(customTarget,\"value\",custom.getValue,0,100,4,false);customTween.stop();customTween.time=2;check(\"custom tween curve\",near(customTarget.value,80.24033876));\n   custom.points=[new Point(0.25,0.25),new Point(0.75,0.75)];customTween.func=custom.getValue;customTween.time=2;check(\"custom tween reassignment\",near(customTarget.value,50));customTween.fforward();\n   custom.points=[new Point(0.25,0.1),new Point(0.25,1)];\n   heading.text=\"Scripted easing and Tween / Rust\";\n   status3.text=\"AS3: \"+passed+\" / \"+checks+\" checks \u00b7 \"+members.length+\" API methods/properties\";\n   details.text=failures.length==0?\"PASS \u00b7 Rust curves, lifecycle, property changes and event dispatch\":\"FAIL: \"+failures.join(\", \");\n   trace(\"EASING_AS3_RESULT \"+JSON.stringify({checks:checks,passed:passed,members:members.length,failures:failures}));\n   timerGlobals();animate();\n  }\n  public function timerGlobals():void {\n   for each(var oldId:uint in callbackIds)flash.utils.clearTimeout(oldId);callbackIds=[];\n   var result:Object={ticks:0,timeout:0,cancelled:0,args:false,intervalArgs:false};\n   flash.utils.clearInterval(0);flash.utils.clearTimeout(0);\n   var canceled:uint=flash.utils.setTimeout(function():void{result.cancelled++;},1);flash.utils.clearTimeout(canceled);\n   var crossCanceled:uint=flash.utils.setInterval(function():void{result.cancelled++;},1);flash.utils.clearTimeout(crossCanceled);\n   var timeoutId:uint=flash.utils.setTimeout(function(a:String,b:int):void{result.timeout++;result.args=a==\"rust\"&&b==42;},0,\"rust\",42);callbackIds.push(timeoutId);\n   var intervalId:uint=flash.utils.setInterval(function(value:String):void{\n    result.ticks++;result.intervalArgs=value==\"tick\";\n    if(result.ticks==2){flash.utils.clearInterval(intervalId);\n     callbackIds.push(flash.utils.setTimeout(function():void{\n      var ok:Boolean=result.ticks==2&&result.timeout==1&&result.cancelled==0&&result.args&&result.intervalArgs;\n      trace(\"TIMER_GLOBALS_AS3_RESULT \"+JSON.stringify({passed:ok,apiFunctions:4,ticks:result.ticks,timeouts:result.timeout,cancelled:result.cancelled,arguments:result.args&&result.intervalArgs}));\n      timerStatus3.text=\"AS3 callback timers: \"+(ok?\"PASS\":\"FAIL\")+\" \u00b7 arguments, cancellation, repeat and one-shot\";\n     },20));\n    }\n   },10,\"tick\");callbackIds.push(intervalId);\n  }\n  public function animate():void {if(animation!=null)animation.stop();animation=new Tween(marker,\"x\",fl.transitions.easing.Bounce.easeOut,80,730,3,true);animation.addEventListener(TweenEvent.MOTION_FINISH,finished);animationStatus.text=\"AS3 seconds tween running\";}\n  public function customAnimate():void {\n   if(animation!=null)animation.stop();animation=new Tween(marker,\"x\",custom.getValue,80,730,3,true);animation.addEventListener(TweenEvent.MOTION_FINISH,customFinished);animationStatus.text=\"AS3 CustomEase seconds tween running\";\n  }\n  public function customFinished(e:TweenEvent):void {animationStatus.text=\"CustomEase completed \u00b7 x=\"+marker.x;trace(\"CUSTOM_EASE_ANIMATION_FINISHED \"+marker.x);}\n  public function finished(e:TweenEvent):void {animationStatus.text=\"AS3 completed \u00b7 x=\"+marker.x;trace(\"EASING_AS3_ANIMATION_FINISHED \"+marker.x);}\n }\n}\n"
+    }
+  ]
+}

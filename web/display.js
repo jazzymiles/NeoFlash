@@ -1,9 +1,6 @@
 /* MovieClip/DisplayObject facade over the shared Rust placement graph. */
 (function (global) {
   'use strict';
-  const geometry=typeof module!=='undefined'&&module.exports?require('./geom.js'):global.NeoFlashGeom;
-  if(!geometry)throw new Error('The geometry runtime is missing. Re-export this project.');
-  const {Point,Rectangle,Matrix,ColorTransform}=geometry;
   const UNHANDLED = Symbol('unhandled display member');
   const graphicsInstances=new WeakSet();
   class Graphics {constructor(){throw new TypeError('Graphics is created by Sprite, Shape or MovieClip; use the object.graphics property.');}}
@@ -57,7 +54,9 @@
   const unsupportedText=new Set(['htmlText','styleSheet','type','selectable','autoSize','embedFonts','displayAsPassword','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','background','backgroundColor','border','borderColor','antiAliasType','gridFitType','sharpness','thickness','condenseWhite','getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineMetrics','getParagraphLength','getFirstCharInParagraph','setSelection','replaceSelectedText']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{}}) {
+  function create({player,geometry,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{}}) {
+    if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
+    const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
     const graph=typeof player.runtime_snapshot_json==='function';
     const refKey=ref=>JSON.stringify(ref);
@@ -635,6 +634,6 @@
     }
     return {methods,get,set,builtins,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();cancelPointer();},UNHANDLED};
   }
-  const api={create,Point,Rectangle,Matrix,ColorTransform,...graphicsEnums,normalizedRotation,UNHANDLED};
+  const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;
 })(globalThis);

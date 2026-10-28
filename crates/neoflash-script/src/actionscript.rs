@@ -48,7 +48,13 @@ impl CompileContext {
         ((as3
             && matches!(
                 name,
-                "encodeURI" | "encodeURIComponent" | "decodeURI" | "decodeURIComponent"
+                "encodeURI"
+                    | "encodeURIComponent"
+                    | "decodeURI"
+                    | "decodeURIComponent"
+                    | "escape"
+                    | "unescape"
+                    | "isXMLName"
             ))
             || (!as3
                 && matches!(
@@ -1024,6 +1030,7 @@ impl<'a> Frontend<'a> {
                 && matches!(
                     name,
                     "LoadVars"
+                        | "Color"
                         | "TextFormat"
                         | "Sound"
                         | "MovieClipLoader"
@@ -1521,6 +1528,7 @@ impl<'a> Frontend<'a> {
                     && matches!(
                         name.as_str(),
                         "MovieClipLoader"
+                            | "Color"
                             | "SharedObject"
                             | "Selection"
                             | "NetConnection"
@@ -1642,6 +1650,11 @@ impl<'a> Frontend<'a> {
                         | "parseFloat"
                         | "escape"
                         | "unescape"
+                        | "isXMLName"
+                        | "setInterval"
+                        | "setTimeout"
+                        | "clearInterval"
+                        | "clearTimeout"
                         | "chr"
                         | "ord"
                         | "length"
@@ -1757,6 +1770,9 @@ fn is_family_method(name: &str) -> bool {
             | "split"
             | "toLowerCase"
             | "toUpperCase"
+            | "toLocaleLowerCase"
+            | "toLocaleUpperCase"
+            | "localeCompare"
             | "replace"
             | "toString"
             | "valueOf"
@@ -2082,6 +2098,22 @@ impl Emitter<'_> {
         if name == "arguments" {
             return "__nfArgumentsValue".into();
         }
+        if name == "Math"
+            && self.analysis.resolve(self.scope, name).is_none()
+            && !self.analysis.context.types.contains_key(name)
+        {
+            return format!("__nfMath({})", self.as3);
+        }
+        if !self.as3
+            && matches!(
+                name,
+                "setInterval" | "setTimeout" | "clearInterval" | "clearTimeout"
+            )
+            && self.analysis.resolve(self.scope, name).is_none()
+            && !self.analysis.context.functions.contains_key(name)
+        {
+            return format!("__nfLegacy.{name}");
+        }
         if !self.as3
             && name == "getURL"
             && self.analysis.resolve(self.scope, name).is_none()
@@ -2104,7 +2136,13 @@ impl Emitter<'_> {
                 "Key" | "Mouse" | "Stage" | "LoadVars" | "TextFormat" | "Sound"
             ) || (matches!(
                 name,
-                "MovieClipLoader" | "SharedObject" | "Selection" | "NetConnection" | "NetStream"
+                "MovieClipLoader"
+                    | "AsBroadcaster"
+                    | "Color"
+                    | "SharedObject"
+                    | "Selection"
+                    | "NetConnection"
+                    | "NetStream"
             ) && !self.analysis.context.types.contains_key(name)))
         {
             return format!("__nfLegacy.{name}");
@@ -2547,6 +2585,7 @@ impl Emitter<'_> {
                 if matches!(
                     name.as_str(),
                     "LoadVars"
+                        | "Color"
                         | "TextFormat"
                         | "Sound"
                         | "MovieClipLoader"
@@ -2848,7 +2887,15 @@ impl Emitter<'_> {
                         .resolve(self.scope, name.split('.').next().unwrap())
                         .is_none()
                     && (self.analysis.context.functions.contains_key(&name)
-                        || (!self.as3 && name == "getTimer"))
+                        || (!self.as3
+                            && matches!(
+                                name.as_str(),
+                                "getTimer"
+                                    | "setInterval"
+                                    | "setTimeout"
+                                    | "clearInterval"
+                                    | "clearTimeout"
+                            )))
                 {
                     return format!(
                         "({})({})",
@@ -3491,7 +3538,7 @@ mod tests {
             compile_as("for (var i:int = 0; i < 10; i++) { x += Math.sin(i); if (x > 4) break; }")
                 .unwrap();
         assert!(output.contains("for ("));
-        assert!(output.contains("__nfContainerMethod(Math, \"sin\", true)(this.i)"));
+        assert!(output.contains("__nfContainerMethod(__nfMath(true), \"sin\", true)(this.i)"));
     }
     #[test]
     fn missing_compatibility_features_fail_explicitly() {

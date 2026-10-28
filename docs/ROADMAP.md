@@ -1,6 +1,6 @@
 # Roadmap
 
-The wider project remains paused. The isolated Rust reuse experiment is complete: adapt licensed algorithms in coherent families into the shared core, keep one browser transport per family, and validate ordinary HTML5 scenarios. Its [measured result and limits](AS-REUSE-EXPERIMENT.md) inform a future plan; completion does not authorize another development batch.
+The wider project remains paused. The bounded [AS2/AS3 runtime hour](AS-RUNTIME-HOUR.md) follows the [first Rust reuse experiment](AS-REUSE-EXPERIMENT.md): 192 new partial API paths, 117 migrations and five ordinary HTML5 scenarios. Further work requires another user instruction; this delivery does not resume editor, FLA or whole-project work. The approach remains coherent subsystem packages, licensed Rust adaptations and controlled shared verification.
 
 Independent 01f2261 acceptance (`POINTER-HTML5-20261027T1113Z`) confirms the observed AS3 donor-margin and AS2 −4-degree-parent drags, child/disabled targeting, bounded geometry/rectangle refusals, outside release and fresh Restart. AS3 is unrotated and both parents use unit scale; cursor effects and the first unresolved nested linked-target miss remain outside the accepted scope. See [the independent record](VERIFICATION.md#independent-pointer-verification-of-01f2261). ExternalInterface/page integration is already active and retains separate verification.
 

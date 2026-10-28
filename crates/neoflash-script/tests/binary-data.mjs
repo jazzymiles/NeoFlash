@@ -50,7 +50,7 @@ export async function verifyBinaryData(root,cargo) {
     assert.throws(()=>overlap.writeUTF('\ud800'),/unpaired surrogate/);assert.equal(overlap.position,2);
     assert.throws(()=>overlap.readObject(),/AMF|marker|truncated|available/i);
     assert.equal(overlap.position,2,'failed AMF decoding keeps the cursor');
-    assert.throws(()=>overlap.compress(),/not implemented/);
+    assert.throws(()=>overlap.compress('lzma'),/LZMA is not implemented/);
     assert.equal(overlap.objectEncoding,3);
     host.resetProject();
     assert.throws(()=>oldPacket.length,/previous publication|disposed/);
