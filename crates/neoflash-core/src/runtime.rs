@@ -56,11 +56,40 @@ pub struct DisplayNode {
     pub kind: Option<ElementKind>,
 }
 
+/// AS3 FrameLabel values use one-based frames. The public constructor also
+/// permits arbitrary int values, independently of an authored timeline.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FrameLabel {
+    pub name: String,
+    pub frame: i32,
+}
+
+impl FrameLabel {
+    pub fn new(name: String, frame: i32) -> Self {
+        Self { name, frame }
+    }
+}
+
+/// Read-only metadata for a locally materialized MovieClip timeline. The
+/// no-scenes profile exposes one unnamed scene; authored multiple scenes and
+/// streamed SWF loading are outside this runtime's timeline model.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimelineMetadata {
+    pub current_label: Option<String>,
+    pub current_frame_label: Option<String>,
+    pub labels: Vec<FrameLabel>,
+    pub frames_loaded: u32,
+    pub total_frames: u32,
+    pub scene_name: String,
+    pub is_playing: bool,
+}
+
 #[derive(Clone, Debug)]
 struct Clock {
     symbol_id: Id,
     frame: u32,
     playing: bool,
+    programmatically_played: bool,
 }
 
 /// Stateful playback. Scripts are queued as source, never evaluated by authoring code.
@@ -136,6 +165,7 @@ impl Player {
                 playing: project
                     .symbol(self.root_id(project))
                     .is_none_or(|s| s.kind != SymbolKind::Button),
+                programmatically_played: false,
             },
         );
         self.refresh(project, false, &HashSet::new());
@@ -199,6 +229,7 @@ impl Player {
                 symbol_id: self.root_id(project).into(),
                 frame: frame.min(count - 1),
                 playing: true,
+                programmatically_played: false,
             },
         );
         self.refresh(project, false, &HashSet::new());
@@ -419,6 +450,7 @@ impl Player {
                                 symbol_id: symbol_id.clone(),
                                 frame: 0,
                                 playing: true,
+                                programmatically_played: false,
                             },
                         );
                         changed = true;
@@ -556,7 +588,10 @@ impl Player {
             .symbol(&clock.symbol_id)
             .map_or(1, |s| s.timeline.frame_count.max(1));
         match command {
-            PlaybackCommand::Play => clock.playing = true,
+            PlaybackCommand::Play => {
+                clock.playing = true;
+                clock.programmatically_played |= count > 1;
+            }
             PlaybackCommand::Stop => clock.playing = false,
             PlaybackCommand::GotoAndPlay(frame) | PlaybackCommand::GotoAndStop(frame) => {
                 if frame >= count {
@@ -564,6 +599,7 @@ impl Player {
                 }
                 clock.frame = frame;
                 clock.playing = matches!(command, PlaybackCommand::GotoAndPlay(_));
+                clock.programmatically_played |= clock.playing && count > 1;
                 let mut forced = HashSet::new();
                 forced.insert(path.to_vec());
                 self.refresh(project, false, &forced);
@@ -850,6 +886,53 @@ impl Player {
     pub fn clip_frame_count(&self, project: &Project, path: &[Id]) -> Option<u32> {
         let id = self.previous.get(path)?.symbol_id.as_ref()?;
         Some(project.symbol(id)?.timeline.frame_count)
+    }
+
+    pub fn clip_metadata(&self, project: &Project, path: &[Id]) -> Option<TimelineMetadata> {
+        let node = self.previous.get(path)?;
+        let symbol = project.symbol(node.symbol_id.as_ref()?)?;
+        if symbol.kind != SymbolKind::MovieClip {
+            return None;
+        }
+        let clock = self.clocks.get(path)?;
+        let mut labels: Vec<_> = symbol
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|layer| &layer.keyframes)
+            .filter(|key| !key.label.is_empty())
+            .map(|key| FrameLabel::new(key.label.clone(), (key.frame + 1) as i32))
+            .collect();
+        // Stable ordering preserves all authored labels. When multiple layers
+        // label one frame, the first authored layer supplies the current label.
+        labels.sort_by_key(|label| label.frame);
+        let frame = (node.frame + 1) as i32;
+        let mut current: Option<&FrameLabel> = None;
+        for label in &labels {
+            if label.frame > frame {
+                break;
+            }
+            if current.is_none_or(|previous| previous.frame < label.frame) {
+                current = Some(label);
+            }
+        }
+        // Flash distinguishes automatic timeline playback from explicit play.
+        // Semantic reference: pinned Ruffle fe6cfc545405b888ebb478ce1c211d63147ca49b,
+        // avm2/globals/flash/display/movie_clip.rs::get_is_playing and
+        // display_object/movie_clip.rs::set_programmatically_played.
+        Some(TimelineMetadata {
+            current_label: current.map(|label| label.name.clone()),
+            current_frame_label: current
+                .filter(|label| label.frame == frame)
+                .map(|label| label.name.clone()),
+            labels,
+            frames_loaded: symbol.timeline.frame_count,
+            total_frames: symbol.timeline.frame_count,
+            // Pinned Ruffle MovieClip get_current_scene/get_scenes use an
+            // empty name when the movie has no authored scene metadata.
+            scene_name: String::new(),
+            is_playing: clock.playing && clock.programmatically_played,
+        })
     }
 
     pub fn resolve_frame(&self, project: &Project, path: &[Id], label: &str) -> Option<u32> {

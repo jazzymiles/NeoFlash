@@ -107,7 +107,7 @@
       return result;
     }
     function releaseCapture(){const id=captured;captured=null;if(id!==null&&options.canvas?.hasPointerCapture?.(id))options.canvas.releasePointerCapture(id);}
-    function cancelPointer(){pressedTarget=null;clickTarget=null;hadPress=false;releaseCapture();over=null;options.cancelPointer?.();}
+    function cancelPointer(){pressedTarget=null;clickTarget=null;hadPress=false;releaseCapture();over=null;return options.cancelPointer?.();}
     function chain(target){const result=[];while(target&&target!==stage&&alive(target)&&result.length<65){result.push(target);target=options.parentOf?options.parentOf(target):target.parent;}return result;}
     function hover(target,domEvent){
       if(target===over)return;const previous=over;over=target;
@@ -118,7 +118,7 @@
       if(target!==stage&&alive(target))deliver(target,mouse(MouseEvent.MOUSE_OVER,target,domEvent,previous),domEvent);
     }
     function handlePointer(type, domEvent = {}, explicitTarget = null, physicalPick = false) {
-      if(['pointercancel','lostpointercapture','cancel'].includes(type)){if(type!=='lostpointercapture'||captured!==null)cancelPointer();return true;}
+      if(['pointercancel','lostpointercapture','cancel'].includes(type)){if((type!=='lostpointercapture'||captured!==null)&&cancelPointer())options.afterInput?.();return true;}
       if(!enabled()||domEvent.pointerType==='touch')return true;
       if(domEvent.isPrimary===false&&/^(?:pointerdown|pointerup|pointermove)$/.test(type))return true;
       const mapped={pointerdown:'mouseDown',pointerup:'mouseUp',pointermove:'mouseMove',pointerleave:'mouseMove',mousedown:'mouseDown',mouseup:'mouseUp',mousemove:'mouseMove',dblclick:'doubleClick',wheel:'mouseWheel'};
@@ -192,7 +192,7 @@
       for (const type of ['pointerdown','pointerup','pointermove','pointercancel','lostpointercapture','pointerleave']) listen(options.canvas,type,event=>handlePointer(type,event));
       const outside=options.pointerTarget||global;
       for(const type of ['pointermove','pointerup','pointercancel'])listen(outside,type,event=>{if(event.target!==options.canvas&&(captured!==null||pressedTarget!==null||options.hasDrag?.()))handlePointer(type,event);});
-      listen(outside,'blur',cancelPointer);
+      listen(outside,'blur',()=>{if(cancelPointer())options.afterInput?.();});
       listen(options.canvas, 'wheel', event => handlePointer('wheel', event), { passive: false });
       // Existing runtime click owns authored Click dispatch; opt in only for standalone use.
       if (options.attachClick) listen(options.canvas, 'click', event => handlePointer('click', event));

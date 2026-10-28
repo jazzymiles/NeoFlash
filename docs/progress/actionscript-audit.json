@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "7026db8b4b7c89ab9c36e589eb660429a20aeff597f01be92acaff0c78fd78df",
+  "catalogSha256": "7f87c8c47d614f939072f94bfbf17868abe1ed112c43e96f90f56c34cfb0aaa3",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -1090,6 +1090,32 @@
         "decision": "Actual build passed; Rust 140 tests, 91 emitted-script fixtures, shared project workflows 25/25 and 63 web tests passed. The additional shared AS1 workflow is a regression result only, not independent AS1/Button feature acceptance. The ordinary HTML5 export showed identity/math/object/reflection true initially, after two actions (quantity 17, sqrt 4.12, recent Batch 2/Batch 1), and after Restart (quantity 13, sqrt 3.61, Ready/Empty). No runtime errors; existing Arial-not-embedded warning only. No original Flash differential or complete current-tree conformance is claimed. Subsequent unrelated Button compiler edits are excluded from the captured snapshot evidence.",
         "currentSourceVerified": false,
         "reviewKind": "coordinator"
+      },
+      {
+        "id": "COORD-AS3-ARRAY-TIMELINE-20261028",
+        "recordedHead": "08a3a250e208da1276325c36bc7fab5e2326bd0e",
+        "sourceCapturedAt": "2026-10-28T21:13:37.707801+00:00",
+        "verifiedAt": "2026-10-28T21:17:41.433152+00:00",
+        "sourceManifestSha256": "b11842bf5fee10be9e5e94438e4a3d7462458a867152b23310e91810f6984692",
+        "browser": "Codex in-app browser",
+        "engine": "actual exported Rust WASM + browser Canvas; Node actual-WASM host scenarios",
+        "originalFlashComparison": "documented_only",
+        "decision": "Array export showed stable bound pipelines after two data changes and Restart; its feature source stayed unchanged during the subsequent button packet. MovieClip metadata export showed nearest/exact labels, independent nested state and detach/reattach. The final button export showed _up/_over, disabled frame freeze with continuing mouse events/clicks, re-enabled transitions and fresh Restart. Down/drag-out/release-out/cancel, stale refs, pause-independent state and additional value checks are automated core/host evidence. These are bounded scenario observations, not individual conformance executions for every reviewed declaration. The final shared regression passed on the captured source bytes.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      {
+        "id": "COORD-AS3-SCENE-LIFECYCLE-20261028",
+        "recordedHead": "08a3a250e208da1276325c36bc7fab5e2326bd0e",
+        "sourceCapturedAt": "2026-10-28T21:24:26.662718+00:00",
+        "verifiedAt": "2026-10-28T21:31:37.024909+00:00",
+        "sourceManifestSha256": "936ff24c854f1b9cc33f980add8440fb9b14003fade30e5a6261f7dfdff61dd5",
+        "browser": "Codex in-app browser",
+        "engine": "actual exported Rust WASM + browser Canvas; actual-WASM host and Rust lifecycle scenarios",
+        "originalFlashComparison": "documented_only",
+        "decision": "The ordinary linked export stopped its nested animation, detached exactly the two AS3 cards (children17 to15), restored them (17) with working click handlers, then Restart restored initial state. Automated scenarios also establish same-reference retention, unrelated sibling clocks, detached subtree stopping, inclusive range/event routes, stale references and atomic authored-child refusal. The final packet received targeted checks only; no third full 25-family or 63-web-test run is claimed. One immediate post-restore screenshot retained an older metadata row until a later interaction; source refresh hooks were intact and underlying host assertions passed, so this remains an unclassified presentation observation rather than a diagnosed runtime failure.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
       }
     ],
     "supersededRules": [
@@ -1207,14 +1233,30 @@
         "reviewIds": [
           "COORD-AS3-OBJECT-IDENTITY-20261028"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/as3-array-timeline-20261028.json",
+        "sha256": "8eebe41e2808a3c4338cc1072f78fc49181604c15b14d259c92386bdfe676a05",
+        "baseCatalogSha256": "7026db8b4b7c89ab9c36e589eb660429a20aeff597f01be92acaff0c78fd78df",
+        "reviewIds": [
+          "COORD-AS3-ARRAY-TIMELINE-20261028"
+        ]
+      },
+      {
+        "path": "docs/progress/reviews/as3-scene-lifecycle-20261028.json",
+        "sha256": "768dded1230ce6b768545ae4f6956165ccbb3a1b9c6a82f22f62a67d4ade7eb2",
+        "baseCatalogSha256": "bf9295c182b34189db6650033a571746a063eb0ffc360173268f5f558b4700b4",
+        "reviewIds": [
+          "COORD-AS3-SCENE-LIFECYCLE-20261028"
+        ]
       }
     ]
   },
   "summary": {
     "total": {
       "implemented_subset": 30,
-      "partial": 2793,
-      "missing": 43037,
+      "partial": 2812,
+      "missing": 43018,
       "needs_review": 187,
       "total": 46047
     },
@@ -1228,8 +1270,8 @@
       },
       "AS3": {
         "implemented_subset": 15,
-        "partial": 1275,
-        "missing": 42300,
+        "partial": 1294,
+        "missing": 42281,
         "needs_review": 150,
         "total": 43740
       }
@@ -1272,8 +1314,8 @@
       },
       "runtime": {
         "implemented_subset": 2,
-        "partial": 1645,
-        "missing": 4508,
+        "partial": 1664,
+        "missing": 4489,
         "needs_review": 3,
         "total": 6158
       }
@@ -1361,8 +1403,8 @@
         },
         "runtime": {
           "implemented_subset": 1,
-          "partial": 835,
-          "missing": 4412,
+          "partial": 854,
+          "missing": 4393,
           "needs_review": 2,
           "total": 5250
         }
@@ -45693,6 +45735,524 @@
           "status": "missing",
           "ruleId": "C13",
           "evidenceKind": "source_routing_and_selected_probes"
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS3-ARRAY-TIMELINE-20261028",
+      "title": "AS3 Array method values, local MovieClip metadata and labeled button timelines",
+      "reason": "Bounded acceptance of ordinary exported Array method values and local MovieClip metadata/button timelines. The full shared collection passed 140 Rust tests, 91 emitted-script fixtures, 25 project workflows and 63 web tests; the WASM build and Clippy passed. Two standalone collection adapter pipelines also passed. Source fingerprints identify the assessed working-tree bytes, independently of the recorded HEAD.",
+      "limitations": "Only ordinary indexed AS3 arrays and locally materialized MovieClip timelines are covered. Array prototype-only methods, prototype borrowing, custom namespace lookup and full AVM2 coercion remain unsupported. Authored multiple scenes, streamed SWF metadata, automatic frameLabel/frame-phase events and public Scene construction are excluded. Extracted sortOn is adapter-only evidence; no browser extraction claim. No original Flash differential or complete VM conformance claim. Input listeners run before the automatic button transition; complete Flash event ordering is not established. MovieClip button transitions cover local pointer input; trackAsMenu, automatic tab ordering and keyboard activation are excluded.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/lib.rs",
+          "sha256": "18fcb8014c582f4f69636742d5cd0bf19c0bbbf763dab97f2cb3281e1901fe89"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime.rs",
+          "sha256": "d9948b4d9e406b0cc94f377ab200a1d84152f011c3e16d052b3d3dff4948f5b0"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph.rs",
+          "sha256": "5dc136a75d5ecb169a0223532abcdfa69f155e7aeca1ae5687abafcfc843212b"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/input.rs",
+          "sha256": "405fe2e334f638b58dc296083b04d728a7cd77145725192577ef81772731d002"
+        },
+        {
+          "path": "crates/neoflash-core/tests/dynamic_display.rs",
+          "sha256": "ab374ed267f659861e175820bb7d0e361f2463f29e3a4f8678cfd4a018fb7944"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "6ad9972c6b6e94b4baf8950d35163767768a659795887b3f0c568066935f3e5f"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/collections.js",
+          "sha256": "6cd32e4661d1b2844c5ed47c34aec86916791dc316beaba0ac162af363b0600c"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/containers.js",
+          "sha256": "097f5a89e2878a32811ef8225e1e0ead3e93a8c0a393f0fbe04be5f15b4254f4"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/intrinsics.js",
+          "sha256": "d07ccbfb73c23c1a7d99c6decd30c9373d24310dfcc04b27a2fcb29ce8efe9f6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "7c585fa4721a8e94668402dd21b58f05fe72a34fc413b8181396679719d8968f"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "2b1cbe8eb330fa7b509c018c8dc6ff0d8f51bef658be6c41c9f03c40d6a1d33d"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "2a8e4a1b1c9f601ba26579a77246bab53bb5b2f64c963661794bcea92cb825e5"
+        },
+        {
+          "path": "crates/neoflash-script/tests/collections-fixtures.mjs",
+          "sha256": "39d621b3121c29b8d60599e7594c6d04b0afa1c29c638a4f8d519b873ac46e36"
+        },
+        {
+          "path": "crates/neoflash-script/tests/project-execute.mjs",
+          "sha256": "581958c28871f9e4be72ba9de22a77efb2031f6ab9cd0a19466557aeba0e3d34"
+        },
+        {
+          "path": "crates/neoflash-script/tests/rust-runtime-host.mjs",
+          "sha256": "324c80fab73555a63ab2b51bec0eca5b484f0590a1bf4fbd16f23c167117eba0"
+        },
+        {
+          "path": "crates/neoflash-script/tests/typed-collections.mjs",
+          "sha256": "a8c8a958489df64b1216d0fd2310f079c9a3873cb12a2076d968c34d986f9b67"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "6242b79b35f39db2851b8d1e955a7dfeea672fced6206f3e7deb6f3703899fe3"
+        },
+        {
+          "path": "examples/linked-movieclips.nflash",
+          "sha256": "e48eec002269cfd9503174295abc8fed842e436529f2ebb37365d74e829c87f7"
+        },
+        {
+          "path": "examples/typed-collections.nflash",
+          "sha256": "d2feaebd333f4e5fc45e38115574a80997391024edb9a43aee8fd447a0bddbae"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "4e0cab2e9e36097ebf1c776d44d42043cfe35701ef1809f64e90b658ba64bf36"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "56b09ca883adb69eb7884399d1fc01202af8e117ea5cfe28c3688b5f5fe5e73d"
+        },
+        {
+          "path": "web/stage.js",
+          "sha256": "e1e95f26976d50326f05b38c13638d40acaf8f7866c26da083b3734128c65cc3"
+        },
+        {
+          "path": "web/tests/display-family.test.cjs",
+          "sha256": "df5488c4796f5504b2fae123c74e20cbb9a47520ca6553fb5a1c277cab4e69e0"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS3-ARRAY-TIMELINE-20261028",
+        "recordedHead": "08a3a250e208da1276325c36bc7fab5e2326bd0e",
+        "sourceCapturedAt": "2026-10-28T21:13:37.707801+00:00",
+        "verifiedAt": "2026-10-28T21:17:41.433152+00:00",
+        "sourceManifestSha256": "b11842bf5fee10be9e5e94438e4a3d7462458a867152b23310e91810f6984692",
+        "browser": "Codex in-app browser",
+        "engine": "actual exported Rust WASM + browser Canvas; Node actual-WASM host scenarios",
+        "originalFlashComparison": "documented_only",
+        "decision": "Array export showed stable bound pipelines after two data changes and Restart; its feature source stayed unchanged during the subsequent button packet. MovieClip metadata export showed nearest/exact labels, independent nested state and detach/reattach. The final button export showed _up/_over, disabled frame freeze with continuing mouse events/clicks, re-enabled transitions and fresh Restart. Down/drag-out/release-out/cancel, stale refs, pause-independent state and additional value checks are automated core/host evidence. These are bounded scenario observations, not individual conformance executions for every reviewed declaration. The final shared regression passed on the captured source bytes.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:class:Array.html#",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Bounded first-class AS3 Array value has one identity across the project registry, getDefinitionByName, document-class fields and frame handlers. Supported Array trait references are stable per receiver and preserve their receiver through call/apply. Prototype-only methods, custom namespace resolution and complete AVM2 Class behavior remain outside this profile."
+        },
+        {
+          "catalogId": "AS3:constructor:Array.html#Array()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Variadic Array construction through a Class-valued alias produces the ordinary numeric work queue used by the existing typed-collections export. The scenario covers new Values(3,1,2), not the separate single-length constructor variant or exotic constructor coercions."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#push()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "A cached push reference appends to its captured queue through direct/call invocation while a supplied decoy receiver remains untouched. An authored override remains an ordinary callable; replacing/deleting that override does not redirect the earlier native reference. Adapter checks separately exercise apply and a getter read exactly once."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#pop()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "A cached pop reference removes from its captured queue through apply with a decoy receiver and retains identity across fresh reads in program and frame handlers."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#splice()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "A cached splice reference replaces the work queue through call with a decoy receiver, reusing the existing indexed mutation and length-bound policy."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#slice()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "A cached slice reference copies its saved receiver through call with a decoy receiver and leaves the queue intact."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#sort()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "A cached sort reference uses the existing NUMERIC sort policy on the saved receiver. Its identity persists across fresh reads; the adapter pipeline additionally checks the existing descending option. This is not a new sorting algorithm or historical comparator-call-order claim."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#map()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "A cached map reference invoked through apply retains the source Array while using the existing typed callback profile to create a doubled queue. Historical callback/coercion completeness is not claimed."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#sortOn()",
+          "status": "partial",
+          "evidenceKind": "coordinator_adapter_pipeline",
+          "scopeNote": "The existing standalone collection adapter pipeline extracts the synthesized AS3 sortOn trait, sorts ordinary numeric record fields through its saved receiver, and preserves that captured target after an authored replacement. The new extracted sortOn behavior is adapter-level evidence only; no new browser extraction scenario is claimed. Existing sortOn field/option restrictions remain."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#currentLabel",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "For locally authored root, linked twin and nested MovieClip timelines, returns the nearest preceding authored label or null before any label; an empty dynamic clip returns null. Reads use the authoritative Rust timeline state, and retired instances reject access. Authored multiple scenes and streamed SWF loading are unsupported."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#currentFrameLabel",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "For locally authored MovieClip timelines, returns a label only on the exact labeled frame and null on intervening frames; linked instances and nested clips retain independent state. Retired-instance access diagnoses. Duplicate/same-frame label ordering remains the documented bounded authored-layer policy."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#currentLabels",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Returns a fresh Array of FrameLabel values in frame order for each read. Modifying the returned array does not edit the authored timeline; entries expose read-only name/frame values. The scenario covers root, linked twins, nested and empty clips. Authored multi-scene label boundaries and automatic label events are unsupported."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#framesLoaded",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Returns the complete local authored frame count for materialized root, linked and nested timelines and one for an empty MovieClip. This bounded eager-load value does not establish progressive or remote SWF streaming behavior."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#isPlaying",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Reports explicit per-clip playback state for multi-frame MovieClips. Initial automatic playback does not report explicit play; play/gotoAndPlay and stop/gotoAndStop state is independent of global preview pause. Empty one-frame clips report false. Linked twins, nested state, Restart and retired references are included; frame-phase events are excluded."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/FrameLabel.html#",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Bounded final FrameLabel value is exposed by MovieClip.currentLabels and direct construction, with read-only name/frame and the existing EventDispatcher ancestry. Automatic frameLabel events are explicitly unsupported; no new EventDispatcher event contract is accepted."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/FrameLabel.html#FrameLabel()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Direct new FrameLabel(\"manual\",4) creates a Rust-backed label value. The supported constructor requires a primitive String name and signed 32-bit integer frame; general ActionScript coercion and automatic timeline event emission are excluded."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/FrameLabel.html#name",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Reads the authored label name from currentLabels values and \"manual\" from the explicit constructor probe. Attempted writes diagnose and leave the Rust-backed label value unchanged."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/FrameLabel.html#frame",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Reads one-based authored frame numbers from currentLabels and frame 4 from the explicit constructor probe. Attempted writes diagnose. Arbitrary signed frame construction is a core value capability, not a newly observed browser scenario beyond the manual positive integer probe."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#currentScene",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "For the bounded locally authored no-scenes profile, each getter produces a fresh Scene value with empty name, total local frame count and a private copied label array. Root, linked twins, nested and empty clips are covered by the source/export scenario. Read-only property; authored multiple scenes and scene-navigation semantics remain unsupported."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#scenes",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Returns a fresh single-element Array containing a fresh Scene value for the no-authored-scenes profile. Local mutations of the returned array or scene labels do not edit the timeline or later getter results. Retired-instance metadata reads diagnose. No multi-scene authoring, loaded SWF scene metadata or scene navigation claim."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Scene.html#",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Bounded final Scene values are produced by MovieClip.currentScene/scenes and recognized by the Scene type. They expose read-only name, labels reference and numFrames for the sole unnamed local timeline. Public Scene construction diagnoses; no constructor support is claimed."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Scene.html#name",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Reads the empty default scene name for a locally authored timeline without scene metadata, matching the pinned Ruffle no-scenes fallback. The source/export scenario covers root, twin linked clips, a nested badge and an empty clip. Named or multiple scenes are outside this profile."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Scene.html#labels",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Within one produced Scene value, labels returns its same mutable Array of FrameLabel values. Deleting/popping local label entries stays local to that Scene snapshot; fresh MovieClip scene getters produce independent values and arrays. The labels property reference itself is read-only; authored timeline mutation is not supported."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Scene.html#numFrames",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Reads the total local timeline frame count, including one for an empty clip, from Rust-backed timeline metadata. The property is read-only and independent of local labels-array edits. Scene boundaries, streaming counts and multi-scene offsets are not represented."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#enabled",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "MovieClip enabled is a Rust-owned Boolean, initially true. Disabling freezes automatic _up/_over/_down transitions while ordinary mouse events continue; re-enabling restores pointer behavior. The ordinary export exercises a physical click while disabled, observes unchanged label and increasing input/click counts, then re-enables and restarts. No automatic tab-order or keyboard activation claim."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#buttonMode",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Extends the pre-existing buttonMode/cursor profile with Rust-owned local MovieClip transitions to _up/_over/_down labels. Ordinary Sprite has no timeline; existing mouseChildren and useHandCursor policies are retained. Drag-out/release behavior is checked in the combined host workflow; the browser observes _up/_over, disable/re-enable and Restart. Automatic tab order/keyboard button activation, trackAsMenu and original-player differential behavior are excluded."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:class:Array.html#",
+          "status": "partial",
+          "ruleId": "C17",
+          "evidenceKind": "source_inspection_and_existing_test_inspection"
+        },
+        {
+          "catalogId": "AS3:constructor:Array.html#Array()",
+          "status": "partial",
+          "ruleId": "COLLECTIONS-TEXT-HTML5-20261027T0120Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:Array.html#push()",
+          "status": "partial",
+          "ruleId": "COLLECTIONS-TEXT-HTML5-20261027T0120Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:Array.html#pop()",
+          "status": "partial",
+          "ruleId": "C04",
+          "evidenceKind": "source_routing_and_selected_probes"
+        },
+        {
+          "catalogId": "AS3:method:Array.html#splice()",
+          "status": "partial",
+          "ruleId": "COLLECTIONS-TEXT-HTML5-20261027T0120Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:Array.html#slice()",
+          "status": "partial",
+          "ruleId": "C04",
+          "evidenceKind": "source_routing_and_selected_probes"
+        },
+        {
+          "catalogId": "AS3:method:Array.html#sort()",
+          "status": "partial",
+          "ruleId": "COLLECTIONS-TEXT-HTML5-20261027T0120Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:Array.html#map()",
+          "status": "partial",
+          "ruleId": "COLLECTIONS-TEXT-HTML5-20261027T0120Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:Array.html#sortOn()",
+          "status": "partial",
+          "ruleId": "COLLECTIONS-TEXT-HTML5-20261027T0120Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#currentLabel",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#currentFrameLabel",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#currentLabels",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#framesLoaded",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#isPlaying",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/FrameLabel.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/FrameLabel.html#FrameLabel()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/FrameLabel.html#name",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/FrameLabel.html#frame",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#currentScene",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#scenes",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Scene.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Scene.html#name",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Scene.html#labels",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Scene.html#numFrames",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#enabled",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#buttonMode",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS3-SCENE-LIFECYCLE-20261028",
+      "title": "MovieClip subtree stopping and runtime-child range removal",
+      "reason": "Bounded acceptance of two missing container lifecycle methods in the existing linked MovieClip workflow. The final packet passed a fresh WASM build, the integrated Rust dynamic-display scenario, three compiler project tests, nine exported-display/Stage tests and Clippy. The earlier Array/metadata/button source snapshot has its own full shared regression review; those full-suite passes are not reassigned to these later edits.",
+      "limitations": "Local authoring model only. removeChildren preflights the entire selected runtime/linked-child range and delivers captured removal events after the atomic change; native per-child reentrant callback timing and authored child removal remain unsupported. stopAllMovieClips stops local independent clocks within the current subtree, without modifying media playback or inventing clocks for synchronized authoring modes. No sandbox/security-domain or original Flash differential execution claim.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/runtime.rs",
+          "sha256": "d9948b4d9e406b0cc94f377ab200a1d84152f011c3e16d052b3d3dff4948f5b0"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph.rs",
+          "sha256": "148c1f7243996963ccc144004f10ee703904b8e057bc027172d4a8e0e1661f3b"
+        },
+        {
+          "path": "crates/neoflash-core/tests/dynamic_display.rs",
+          "sha256": "7a555ff093e5b5f485eadb6cc8d776835d815d9c324e55af3d8bed150277f885"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "a878beb9816a812f59d068ae9975b2fe396be478aa439d78c1c30fefdd4e463b"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "70b37a891619cab65d472f0cbfe0e4f9d6056f9335101e9793af2445ba1f8d62"
+        },
+        {
+          "path": "examples/linked-movieclips.nflash",
+          "sha256": "dd08f3d7b124bca4e7f2fbb7787e5e807b9d17b3907a8734724a2fd24b2a38d4"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "d7bd643dadaa55f56b555ab9104146f32eb349d1cde9eb7853a56bea2cc92742"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "56b09ca883adb69eb7884399d1fc01202af8e117ea5cfe28c3688b5f5fe5e73d"
+        },
+        {
+          "path": "web/stage.js",
+          "sha256": "e1e95f26976d50326f05b38c13638d40acaf8f7866c26da083b3734128c65cc3"
+        },
+        {
+          "path": "web/tests/display-family.test.cjs",
+          "sha256": "b6e30bdfce726c7eee0f8fe66a2b9f3bc6a9a09ee4586760e796f1531d27b6fe"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS3-SCENE-LIFECYCLE-20261028",
+        "recordedHead": "08a3a250e208da1276325c36bc7fab5e2326bd0e",
+        "sourceCapturedAt": "2026-10-28T21:24:26.662718+00:00",
+        "verifiedAt": "2026-10-28T21:31:37.024909+00:00",
+        "sourceManifestSha256": "936ff24c854f1b9cc33f980add8440fb9b14003fade30e5a6261f7dfdff61dd5",
+        "browser": "Codex in-app browser",
+        "engine": "actual exported Rust WASM + browser Canvas; actual-WASM host and Rust lifecycle scenarios",
+        "originalFlashComparison": "documented_only",
+        "decision": "The ordinary linked export stopped its nested animation, detached exactly the two AS3 cards (children17 to15), restored them (17) with working click handlers, then Restart restored initial state. Automated scenarios also establish same-reference retention, unrelated sibling clocks, detached subtree stopping, inclusive range/event routes, stale references and atomic authored-child refusal. The final packet received targeted checks only; no third full 25-family or 63-web-test run is claimed. One immediate post-restore screenshot retained an older metadata row until a later interaction; source refresh hooks were intact and underlying host assertions passed, so this remains an unclassified presentation observation rather than a diagnosed runtime failure.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#removeChildren()",
+          "status": "partial",
+          "evidenceKind": "coordinator_targeted_wasm_and_browser_workflow",
+          "scopeNote": "Inclusive begin/end range for runtime-created and linked children. Defaults remove all eligible children; MAXint means through the last child. Whole-request validation refuses authored/Loader-owned selections before mutation. Detached objects retain identity and can be reattached. Primitive signed-int arguments only, no native per-child reentrant event-order claim."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#stopAllMovieClips()",
+          "status": "partial",
+          "evidenceKind": "coordinator_targeted_wasm_and_browser_workflow",
+          "scopeNote": "Stops the receiver when it is a MovieClip and independent local MovieClip clocks in its current subtree, including nested/linked clips and a detached receiver subtree. Unrelated siblings remain active. Explicit play/gotoAndPlay can resume them; media streams and synchronization without independent clocks are outside this operation."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#removeChildren()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#stopAllMovieClips()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
         }
       ]
     }

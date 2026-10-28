@@ -2,7 +2,7 @@
   "format_version": 2,
   "name": "Linked MovieClips and independent timelines",
   "width": 960,
-  "height": 540,
+  "height": 730,
   "fps": 24,
   "background": [
     16,
@@ -209,7 +209,7 @@
                     "name": "details",
                     "transform": {
                       "x": 48,
-                      "y": 448,
+                      "y": 438,
                       "scale_x": 1,
                       "scale_y": 1,
                       "rotation": 0,
@@ -217,9 +217,9 @@
                     },
                     "kind": {
                       "type": "text",
-                      "text": "Up restarts the left timeline and parks the right at its second label. Each badge has its own clock.",
+                      "text": "Reading timeline labels…",
                       "font_family": "Arial",
-                      "font_size": 15,
+                      "font_size": 16,
                       "color": [
                         225,
                         234,
@@ -234,7 +234,7 @@
                     "name": "footer",
                     "transform": {
                       "x": 48,
-                      "y": 510,
+                      "y": 700,
                       "scale_x": 1,
                       "scale_y": 1,
                       "rotation": 0,
@@ -242,7 +242,7 @@
                     },
                     "kind": {
                       "type": "text",
-                      "text": "Explicit library exports · nested animation · frame scripts · class constructors · stable references",
+                      "text": "Up: play left / park right · Labels and playback are per instance · Restart rebuilds the scene",
                       "font_family": "Arial",
                       "font_size": 13,
                       "color": [
@@ -253,10 +253,96 @@
                       ]
                     },
                     "scripts": []
+                  },
+                  {
+                    "id": "button-mode-heading",
+                    "name": "button-mode-heading",
+                    "transform": {
+                      "x": 60,
+                      "y": 533,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "MOVIECLIP / LABELED BUTTON STATES",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "enable-toggle",
+                    "name": "enableToggle",
+                    "transform": {
+                      "x": 350,
+                      "y": 550,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "enable-toggle-art",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-readout",
+                    "name": "buttonReadout",
+                    "transform": {
+                      "x": 60,
+                      "y": 650,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Button: waiting for constructor",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "scene-cleanup",
+                    "name": "sceneCleanup",
+                    "transform": {
+                      "x": 560,
+                      "y": 550,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "scene-cleanup-art",
+                      "playback": "independent"
+                    },
+                    "scripts": []
                   }
                 ],
                 "tween": null,
-                "label": ""
+                "label": "scene"
               }
             ]
           }
@@ -632,21 +718,21 @@
             "frame": 0,
             "script": {
               "language": "action_script3",
-              "source": "trace(\"linked frame\", this.name, \"first\");"
+              "source": "trace(\"linked frame\", this.name, \"first\"); if (this.parent != null) this.parent.updateMetadata();"
             }
           },
           {
             "frame": 6,
             "script": {
               "language": "action_script3",
-              "source": "trace(\"linked frame\", this.name, \"second\");"
+              "source": "trace(\"linked frame\", this.name, \"second\"); if (this.parent != null) this.parent.updateMetadata();"
             }
           },
           {
             "frame": 11,
             "script": {
               "language": "action_script3",
-              "source": "stop(); trace(\"linked frame\", this.name, \"last stopped\");"
+              "source": "stop(); trace(\"linked frame\", this.name, \"last stopped\"); if (this.parent != null) this.parent.updateMetadata();"
             }
           }
         ]
@@ -1085,7 +1171,7 @@
                   }
                 ],
                 "tween": "linear",
-                "label": ""
+                "label": "pulse"
               },
               {
                 "frame": 4,
@@ -1123,7 +1209,7 @@
                   }
                 ],
                 "tween": "linear",
-                "label": ""
+                "label": "bright"
               },
               {
                 "frame": 7,
@@ -1161,6 +1247,437 @@
                   }
                 ],
                 "tween": null,
+                "label": "rest"
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "label-control-art",
+      "name": "Labeled MovieClip button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 3,
+        "layers": [
+          {
+            "id": "label-control-art-layer",
+            "name": "Control",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "label-control-body",
+                    "name": "label-control-body",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 230,
+                      "height": 64,
+                      "fill": [
+                        37,
+                        109,
+                        139,
+                        255
+                      ],
+                      "stroke": [
+                        175,
+                        218,
+                        239,
+                        255
+                      ],
+                      "stroke_width": 2
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "Activate labeled MovieClip",
+                      "description": "MovieClip label-state example; ordinary clicks remain available when automatic states are disabled.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "label-control-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 18,
+                      "y": 39,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "_up",
+                      "font_family": "Arial",
+                      "font_size": 23,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "_up"
+              },
+              {
+                "frame": 1,
+                "elements": [
+                  {
+                    "id": "label-control-body",
+                    "name": "label-control-body",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 230,
+                      "height": 64,
+                      "fill": [
+                        42,
+                        139,
+                        113,
+                        255
+                      ],
+                      "stroke": [
+                        175,
+                        218,
+                        239,
+                        255
+                      ],
+                      "stroke_width": 2
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "Activate labeled MovieClip",
+                      "description": "MovieClip label-state example; ordinary clicks remain available when automatic states are disabled.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "label-control-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 18,
+                      "y": 39,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "_over",
+                      "font_family": "Arial",
+                      "font_size": 23,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "_over"
+              },
+              {
+                "frame": 2,
+                "elements": [
+                  {
+                    "id": "label-control-body",
+                    "name": "label-control-body",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 230,
+                      "height": 64,
+                      "fill": [
+                        145,
+                        90,
+                        43,
+                        255
+                      ],
+                      "stroke": [
+                        175,
+                        218,
+                        239,
+                        255
+                      ],
+                      "stroke_width": 2
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "Activate labeled MovieClip",
+                      "description": "MovieClip label-state example; ordinary clicks remain available when automatic states are disabled.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "label-control-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 18,
+                      "y": 39,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "_down",
+                      "font_family": "Arial",
+                      "font_size": 23,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "_down"
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script3",
+              "source": "stop(); if (this.parent != null) this.parent.updateButtonMetadata();"
+            }
+          },
+          {
+            "frame": 1,
+            "script": {
+              "language": "action_script3",
+              "source": "stop(); if (this.parent != null) this.parent.updateButtonMetadata();"
+            }
+          },
+          {
+            "frame": 2,
+            "script": {
+              "language": "action_script3",
+              "source": "stop(); if (this.parent != null) this.parent.updateButtonMetadata();"
+            }
+          }
+        ]
+      },
+      "linkage_id": "label-control",
+      "class_name": "app.LabelButton"
+    },
+    {
+      "id": "enable-toggle-art",
+      "name": "Enable label control",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "enable-toggle-art-layer",
+            "name": "Control",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "enable-toggle-body",
+                    "name": "enable-toggle-body",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 180,
+                      "height": 64,
+                      "fill": [
+                        57,
+                        67,
+                        86,
+                        255
+                      ],
+                      "stroke": [
+                        175,
+                        218,
+                        239,
+                        255
+                      ],
+                      "stroke_width": 2
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "Toggle labeled MovieClip enabled",
+                      "description": "MovieClip label-state example; ordinary clicks remain available when automatic states are disabled.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "enable-toggle-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 20,
+                      "y": 39,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Disable",
+                      "font_family": "Arial",
+                      "font_size": 22,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "scene-cleanup-art",
+      "name": "Scene cleanup control",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-cleanup-layer",
+            "name": "Control",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "scene-cleanup-body",
+                    "name": "scene-cleanup-body",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 180,
+                      "height": 64,
+                      "fill": [
+                        57,
+                        67,
+                        86,
+                        255
+                      ],
+                      "stroke": [
+                        175,
+                        218,
+                        239,
+                        255
+                      ],
+                      "stroke_width": 2
+                    },
+                    "scripts": [],
+                    "accessibility": {
+                      "name": "Clean up linked scene",
+                      "description": "Stop nested clocks, detach linked cards, then restore the same instances.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "scene-cleanup-caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 20,
+                      "y": 39,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Stop all",
+                      "font_family": "Arial",
+                      "font_size": 20,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
                 "label": ""
               }
             ]
@@ -1175,19 +1692,25 @@
       "id": "main-source",
       "path": "app/Main.as",
       "language": "action_script3",
-      "source": "package app {\n import flash.display.MovieClip;\n import flash.events.KeyboardEvent;\n public dynamic class Main extends MovieClip {\n  public var a:LinkedClip;\n  public var b:LinkedClip;\n  public function Main() {\n   super(); stop();\n   a = new LinkedClip(); a.name = \"left\"; a.x = 60; a.y = 210; addChild(a); a.gotoAndStop(1);\n   b = new LinkedClip(); b.name = \"right\"; b.x = 360; b.y = 210; addChild(b); b.gotoAndPlay(7);\n   stage.addEventListener(KeyboardEvent.KEY_DOWN, onKey);\n   report(\"Ready\");\n   trace(\"linked ready\", a !== b, a.badge !== b.badge, a.totalFrames, b.totalFrames, a.caption.text);\n  }\n  public function onKey(event:KeyboardEvent):void {\n   if (event.keyCode == 39) { a.nextFrame(); b.prevFrame(); report(\"Stepped separately\"); }\n   if (event.keyCode == 32) {\n    if (b.parent != null) removeChild(b); else addChild(b);\n    report(\"Attachment changed\"); trace(\"linked attachment\", b.parent != null, b.clicks, b.currentFrame);\n   }\n   if (event.keyCode == 38) { a.gotoAndPlay(\"first\"); b.gotoAndStop(\"second\"); report(\"Playing left / parked right\"); }\n  }\n  public function report(message:String):void {\n   status.text = message + \" | left frame \" + a.currentFrame + \" / right \" + b.currentFrame + \" | right attached \" + (b.parent != null);\n  }\n }\n}\n"
+      "source": "package app {\n import flash.display.MovieClip;\n import flash.display.FrameLabel;\n import flash.display.Scene;\n import flash.events.Event;\n import flash.events.EventDispatcher;\n import flash.events.KeyboardEvent;\n import flash.events.MouseEvent;\n public dynamic class Main extends MovieClip {\n  public var a:LinkedClip;\n  public var b:LinkedClip;\n  public var labeled:LabelButton;\n  public var emptyClip:MovieClip;\n  public var labelProbe:FrameLabel;\n  public var labelsTyped:Boolean = false;\n  public var labelsCopied:Boolean = false;\n  public var labelsReadOnly:Boolean = false;\n  public var scenesTyped:Boolean = false;\n  public var scenesCopied:Boolean = false;\n  public var sceneSummary:String = \"\";\n  public var cleanupStep:int = 0;\n  public var cleanupState:String = \"ready\";\n  public function Main() {\n   super(); stop();\n   a = new LinkedClip(); a.name = \"left\"; a.x = 60; a.y = 210; addChild(a); a.gotoAndStop(1);\n   b = new LinkedClip(); b.name = \"right\"; b.x = 360; b.y = 210; addChild(b); b.gotoAndPlay(7);\n   emptyClip = new MovieClip(); emptyClip.play();\n   labelProbe = new FrameLabel(\"manual\", 4);\n   var labels:Array = a.currentLabels;\n   var first:FrameLabel = labels[0] as FrameLabel;\n   labelsTyped = first != null && first is EventDispatcher && first.name == \"first\" && first.frame == 1 && labels[1].name == \"second\" && labels[1].frame == 7 && labels[2].name == \"last\" && labels[2].frame == 12;\n   labels.pop();\n   labelsCopied = labels.length == 2 && a.currentLabels.length == 3;\n   var value:Object = first;\n   var rejectedName:Boolean = false;\n   var rejectedFrame:Boolean = false;\n   try { value.name = \"changed\"; } catch (nameError:Error) { rejectedName = true; }\n   try { value.frame = 99; } catch (frameError:Error) { rejectedFrame = true; }\n   labelsReadOnly = rejectedName && rejectedFrame && first.name == \"first\" && first.frame == 1;\n   var sceneValue:Scene = a.currentScene;\n   var allScenes:Array = a.scenes;\n   var sceneLabels:Array = sceneValue.labels;\n   scenesTyped = sceneValue is Scene && allScenes.length == 1 && allScenes[0] is Scene && sceneValue.name == \"\" && sceneValue.numFrames == a.totalFrames && sceneLabels[0] is FrameLabel;\n   sceneLabels.pop();\n   scenesCopied = sceneValue.labels === sceneLabels && sceneValue.labels.length == 2 && a.currentScene !== sceneValue && a.currentScene.labels.length == 3 && a.scenes !== allScenes && a.scenes[0].labels.length == 3;\n   sceneSummary = \"Scenes single/isolated \" + scenesTyped + \"/\" + scenesCopied + \" | unnamed | \" + a.currentScene.numFrames + \" frames / \" + a.currentScene.labels.length + \" labels\";\n   labeled = new LabelButton(); labeled.name = \"labeled\"; labeled.x = 60; labeled.y = 550; addChild(labeled);\n   enableToggle.stop(); enableToggle.mouseChildren = false; enableToggle.buttonMode = true;\n   enableToggle.addEventListener(MouseEvent.CLICK, toggleEnabled);\n   sceneCleanup.stop(); sceneCleanup.mouseChildren = false; sceneCleanup.buttonMode = true;\n   sceneCleanup.addEventListener(MouseEvent.CLICK, cleanupScene);\n   addEventListener(Event.ENTER_FRAME, onFrame);\n   stage.addEventListener(KeyboardEvent.KEY_DOWN, onKey);\n   report(\"Ready\");\n   trace(\"linked ready\", a !== b, a.badge !== b.badge, a.totalFrames, b.totalFrames, a.caption.text);\n   trace(\"timeline metadata\", labelsTyped, labelsCopied, labelsReadOnly, labelProbe.name, labelProbe.frame, emptyClip.isPlaying, scenesTyped, scenesCopied);\n  }\n  public function onKey(event:KeyboardEvent):void {\n   if (event.keyCode == 39) { a.nextFrame(); b.prevFrame(); report(\"Stepped separately\"); }\n   if (event.keyCode == 32) {\n    if (b.parent != null) removeChild(b); else addChild(b);\n    report(\"Attachment changed\"); trace(\"linked attachment\", b.parent != null, b.clicks, b.currentFrame);\n   }\n   if (event.keyCode == 38) { a.gotoAndPlay(\"first\"); b.gotoAndStop(\"second\"); report(\"Playing left / parked right\"); }\n  }\n  public function onFrame(event:Event):void { updateMetadata(); }\n  public function toggleEnabled(event:MouseEvent):void {\n   labeled.enabled = !labeled.enabled;\n   enableToggle.caption.text = labeled.enabled ? \"Disable\" : \"Enable\";\n   updateButtonMetadata();\n  }\n  public function cleanupScene(event:MouseEvent):void {\n   if (cleanupStep == 0) {\n    stopAllMovieClips(); cleanupStep = 1; cleanupState = \"stopped\"; sceneCleanup.caption.text = \"Detach cards\";\n   } else if (cleanupStep == 1) {\n    addChild(a); addChild(b);\n    removeChildren(getChildIndex(a), getChildIndex(b));\n    cleanupStep = 2; cleanupState = \"detached\"; sceneCleanup.caption.text = \"Restore cards\";\n   } else {\n    addChild(a); addChild(b); a.play(); b.play(); a.badge.play(); b.badge.play();\n    cleanupStep = 0; cleanupState = \"restored\"; sceneCleanup.caption.text = \"Stop all\";\n   }\n   updateMetadata();\n  }\n  public function updateButtonMetadata():void {\n   if (labeled == null) return;\n   buttonReadout.text = \"Button \" + labeled.currentLabel + \" | enabled \" + labeled.enabled + \" | pointer events \" + labeled.pointerEvents + \" | clicks \" + labeled.clicks;\n   buttonReadout.appendText(\"\\nScene \" + cleanupState + \" | children \" + numChildren + \" | twins attached \" + (a.parent == this && b.parent == this));\n  }\n  public function report(message:String):void {\n   status.text = message + \" | left frame \" + a.currentFrame + \" / right \" + b.currentFrame + \" | right attached \" + (b.parent != null);\n   updateMetadata();\n  }\n  public function updateMetadata():void {\n   if (a == null || b == null || emptyClip == null) return;\n   details.text = \"Left \" + a.currentLabel + \" / exact \" + a.currentFrameLabel + \" / playing \" + a.isPlaying + \" / loaded \" + a.framesLoaded + \" of \" + a.totalFrames;\n   details.appendText(\"\\nRight \" + b.currentLabel + \" / exact \" + b.currentFrameLabel + \" / playing \" + b.isPlaying + \" / badge \" + a.badge.currentLabel);\n   details.appendText(\"\\nLabels typed/copied/readonly \" + labelsTyped + \"/\" + labelsCopied + \"/\" + labelsReadOnly + \" | root \" + currentLabel + \" | empty \" + emptyClip.framesLoaded + \"/\" + emptyClip.isPlaying);\n   details.appendText(\"\\n\" + sceneSummary);\n   updateButtonMetadata();\n  }\n }\n}\n"
     },
     {
       "id": "linked-source",
       "path": "app/LinkedClip.as",
       "language": "action_script3",
-      "source": "package app {\n import flash.display.MovieClip;\n import flash.events.MouseEvent;\n public class LinkedClip extends MovieClip {\n  public var clicks:int = 0;\n  public var paused:Boolean = false;\n  public function LinkedClip() {\n   super(); caption.text = \"AS3 linked\"; addEventListener(MouseEvent.CLICK, onClick);\n   trace(\"linked constructor\", caption.text, badge != null, totalFrames);\n  }\n  public function onClick(event:MouseEvent):void {\n   clicks++; paused = !paused;\n   if (paused) stop(); else play();\n   caption.text = name + \" / clicks \" + clicks;\n   root.status.text = name + \" | clicks \" + clicks + \" | frame \" + currentFrame + \" | paused \" + paused;\n   trace(\"linked click\", name, clicks, currentFrame, paused);\n  }\n }\n}\n"
+      "source": "package app {\n import flash.display.MovieClip;\n import flash.events.MouseEvent;\n public class LinkedClip extends MovieClip {\n  public var clicks:int = 0;\n  public var paused:Boolean = false;\n  public function LinkedClip() {\n   super(); caption.text = \"AS3 linked\"; addEventListener(MouseEvent.CLICK, onClick);\n   trace(\"linked constructor\", caption.text, badge != null, totalFrames);\n  }\n  public function onClick(event:MouseEvent):void {\n   clicks++; paused = !paused;\n   if (paused) stop(); else play();\n   caption.text = name + \" / clicks \" + clicks;\n   root.report(name + \" | clicks \" + clicks + \" | paused \" + paused);\n   trace(\"linked click\", name, clicks, currentFrame, paused);\n  }\n }\n}\n"
     },
     {
       "id": "legacy-source",
       "path": "legacy/Classic.as",
       "language": "action_script2",
       "source": "class legacy.Classic extends MovieClip {\n public var clicks:Number = 0;\n public var tag:String;\n public function Classic() {\n  super(); stop(); caption.text = \"AS2 attached\";\n  trace(\"legacy constructor\", tag, caption.text, _totalframes);\n }\n public function onPress():Void {\n  clicks++; caption.text = \"AS2 / clicks \" + clicks;\n  gotoAndPlay(\"second\");\n  _root.status.text = \"AS2 attached | clicks \" + clicks + \" | \" + tag;\n  trace(\"legacy linked click\", _name, clicks, _currentframe, tag);\n }\n}\n"
+    },
+    {
+      "id": "label-button-source",
+      "path": "app/LabelButton.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;\n import flash.events.MouseEvent;\n public class LabelButton extends MovieClip {\n  public var pointerEvents:int = 0;\n  public var clicks:int = 0;\n  public function LabelButton() {\n   super(); stop(); buttonMode = true; mouseChildren = false;\n   addEventListener(MouseEvent.MOUSE_OVER, onPointer);\n   addEventListener(MouseEvent.MOUSE_OUT, onPointer);\n   addEventListener(MouseEvent.MOUSE_DOWN, onPointer);\n   addEventListener(MouseEvent.MOUSE_UP, onPointer);\n   addEventListener(MouseEvent.CLICK, onPointer);\n  }\n  public function onPointer(event:MouseEvent):void {\n   if (event.type == MouseEvent.CLICK) clicks++; else pointerEvents++;\n   root.updateButtonMetadata();\n  }\n }\n}\n"
     }
   ]
 }

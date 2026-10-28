@@ -73,6 +73,12 @@ pub fn as2_property_name(index: u32) -> Result<String, JsValue> {
         .ok_or_else(|| JsValue::from_str("AS2 property index must be between 0 and 21."))
 }
 
+#[wasm_bindgen]
+pub fn frame_label_json(name: &str, frame: i32) -> Result<String, JsValue> {
+    serde_json::to_string(&neoflash_core::FrameLabel::new(name.to_owned(), frame))
+        .map_err(display_error)
+}
+
 /// Pure AMF codecs; graph JSON is a transport IR, never the persisted encoding.
 #[wasm_bindgen]
 pub fn amf_encode(format: u8, graph_json: &str) -> Result<Vec<u8>, JsValue> {
@@ -362,6 +368,16 @@ impl WebPlayer {
             .unwrap_or(0))
     }
 
+    pub fn clip_metadata(&self, target: &str) -> Result<String, JsValue> {
+        let metadata = self
+            .player
+            .clip_metadata(&self.project, &path(target)?)
+            .ok_or_else(|| {
+                JsValue::from_str("Timeline metadata requires a live local MovieClip.")
+            })?;
+        serde_json::to_string(&metadata).map_err(display_error)
+    }
+
     pub fn resolve_frame(&self, target: &str, label: &str) -> Result<i32, JsValue> {
         Ok(self
             .player
@@ -407,6 +423,35 @@ impl WebPlayer {
             serde_json::from_str(state).map_err(display_error)?;
         self.player
             .object_input_update(&self.project, &object_ref(target)?, state)
+            .map_err(display_error)
+    }
+    pub fn object_movieclip_pointer(&mut self, event: &str, target: &str) -> Result<bool, JsValue> {
+        let target = if target == "null" {
+            None
+        } else {
+            Some(object_ref(target)?)
+        };
+        self.player
+            .object_movieclip_pointer(&self.project, event, target.as_ref())
+            .map_err(display_error)
+    }
+    pub fn object_remove_children(
+        &mut self,
+        target: &str,
+        begin: i32,
+        end: i32,
+    ) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .object_remove_children(&self.project, &object_ref(target)?, begin, end)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn object_stop_all_movie_clips(&mut self, target: &str) -> Result<(), JsValue> {
+        self.player
+            .object_stop_all_movie_clips(&self.project, &object_ref(target)?)
             .map_err(display_error)
     }
     pub fn create_linked(&mut self, linkage_id: &str) -> Result<String, JsValue> {
@@ -1114,6 +1159,15 @@ impl WebPlayer {
             .player
             .object_frame_count(&self.project, &object_ref(target)?)
             .unwrap_or(0))
+    }
+    pub fn object_metadata(&self, target: &str) -> Result<String, JsValue> {
+        let metadata = self
+            .player
+            .object_metadata(&self.project, &object_ref(target)?)
+            .ok_or_else(|| {
+                JsValue::from_str("Timeline metadata requires a live local MovieClip.")
+            })?;
+        serde_json::to_string(&metadata).map_err(display_error)
     }
     pub fn object_resolve_frame(&self, target: &str, label: &str) -> Result<i32, JsValue> {
         Ok(self

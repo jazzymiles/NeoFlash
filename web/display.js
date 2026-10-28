@@ -281,6 +281,26 @@
         addChildAt:(child,index)=>{if(!Number.isInteger(index)||index<0)throw new RangeError('Child index requires a nonnegative integer.');mutate({op:'add',parent:ref(),child:childRef(child),index});return child;},
         removeChild:child=>{mutate({op:'remove',parent:ref(),child:childRef(child)});return child;},
         removeChildAt:index=>{const child=methods(target).getChildAt(index);mutate({op:'remove',parent:ref(),child:childRef(child)});return child;},
+        removeChildren:(...args)=>{
+          if(args.length>2)throw new TypeError('removeChildren accepts beginIndex and endIndex only.');
+          const begin=args.length?args[0]:0,end=args.length>1?args[1]:2147483647;
+          if(![begin,end].every(value=>typeof value==='number'&&Number.isInteger(value)&&value>=-2147483648&&value<=2147483647))throw new RangeError('removeChildren indices require primitive signed 32-bit integers.');
+          requireContainer(target);
+          if(typeof player.object_remove_children!=='function')throw new Error('Rust removeChildren services are unavailable; rebuild and re-export this project.');
+          let packet;
+          try{packet=JSON.parse(player.object_remove_children(referenceOf(target).key,begin,end));}
+          catch(error){throw error instanceof Error?error:new Error(String(error),{cause:error});}
+          // Rust preflights the complete range and captures lifecycle routes
+          // before detaching. User callbacks run only after the atomic change.
+          onMutation(packet.events);
+        },
+        stopAllMovieClips:(...args)=>{
+          if(args.length)throw new TypeError('stopAllMovieClips accepts no arguments.');
+          requireContainer(target);
+          if(typeof player.object_stop_all_movie_clips!=='function')throw new Error('Rust stopAllMovieClips services are unavailable; rebuild and re-export this project.');
+          try{player.object_stop_all_movie_clips(referenceOf(target).key);}
+          catch(error){throw error instanceof Error?error:new Error(String(error),{cause:error});}
+        },
         setChildIndex:(child,index)=>{if(!Number.isInteger(index)||index<0)throw new RangeError('Child index requires a nonnegative integer.');mutate({op:'set_index',parent:ref(),child:childRef(child),index});},
         swapChildren:(first,second)=>{mutate({op:'swap',parent:ref(),first:childRef(first),second:childRef(second)});},
         swapChildrenAt:(first,second)=>{const api=methods(target);mutate({op:'swap',parent:ref(),first:childRef(api.getChildAt(first)),second:childRef(api.getChildAt(second))});},
@@ -428,9 +448,9 @@
 
     let dragging=null,pressed=null,hovered=null;
     const drops=new WeakMap();
-    function inputOf(node){if(Object.hasOwn(node,'input'))return node.input;return ['movie_clip','sprite','graphic','button','text','loader'].includes(node.owner)?{mouse_enabled:true,mouse_children:true,button_mode:node.owner==='button',use_hand_cursor:true,hit_area:null}:null;}
+    function inputOf(node){if(Object.hasOwn(node,'input'))return node.input;return ['movie_clip','sprite','graphic','button','text','loader'].includes(node.owner)?{mouse_enabled:true,mouse_children:true,button_mode:node.owner==='button',movieclip_enabled:true,use_hand_cursor:true,hit_area:null}:null;}
     function nativeInput(target){const node=descriptor(target);if(!inputOf(node))throw new TypeError('This display object is not interactive.');return inputOf(node);}
-    function inputWrite(target,name,value){const input=nativeInput(target),key=inputNames[name];if(name==='hitArea'){if(value!==null)descriptor(value);value=value===null?null:referenceOf(value).objectRef;}else if(typeof value!=='boolean')throw new TypeError(`${name} requires a Boolean.`);try{player.object_input_update(referenceOf(target).key,JSON.stringify({...input,[key]:value}));}catch(error){if(error instanceof Error)throw error;throw new Error(String(error),{cause:error});}}
+    function inputWrite(target,name,value){const input=nativeInput(target),key=name==='enabled'?'movieclip_enabled':inputNames[name];if(name==='hitArea'){if(value!==null)descriptor(value);value=value===null?null:referenceOf(value).objectRef;}else if(typeof value!=='boolean')throw new TypeError(`${name} requires a Boolean.`);try{player.object_input_update(referenceOf(target).key,JSON.stringify({...input,[key]:value}));}catch(error){if(error instanceof Error)throw error;throw new Error(String(error),{cause:error});}}
     function nodeShapes(node){if(node.text)return[{type:'text_field',field:node.text}];if(node.video)return[{type:'video_frame',...node.video}];if(node.bitmap&&!node.bitmap.disposed)return[{type:'bitmap_pixels',...node.bitmap,smoothing:node.smoothing,pixel_snapping:'never'}];return node.kind?[node.kind]:[];}
     function leafHit(node,x,y){
       let q;try{q=point(inverse(node.world),x,y);}catch(_){return false;}
@@ -503,8 +523,18 @@
     let buttonOver=null,buttonPressed=null;
     function authoredButton(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current))if(descriptor(current).owner==='button')return current;return null;}
     function buttonState(target,state){if(target&&alive(target))player.object_button_state?.(referenceOf(target).key,state);}
+    function movieClipPointer(type,target){
+      if(typeof player.object_movieclip_pointer!=='function')throw new Error('Rust MovieClip button-state services are unavailable; rebuild and re-export this project.');
+      const key=target&&target!==getStage()&&alive(target)?referenceOf(target).key:'null';
+      try{return player.object_movieclip_pointer(type,key);}
+      catch(error){throw error instanceof Error?error:new Error(String(error),{cause:error});}
+    }
     function pointer(type,target,event={}){
       prune();
+      // Rust owns MovieClip eligibility, pointer ownership and label selection.
+      // This runs alongside the existing authored Button and AS2 callback paths;
+      // enabled=false never suppresses ordinary mouse or keyboard dispatch.
+      if(type==='mouseMove'||((type==='mouseDown'||type==='mouseUp')&&(event.button===undefined||event.button===0)))movieClipPointer(type,target);
       if(['mouseMove','mouseDown','mouseUp'].includes(type)){
         const next=authoredButton(target);
         if(buttonOver!==next){buttonState(buttonOver,0);buttonOver=next;}
@@ -533,9 +563,9 @@
       if(type==='mouseDown'&&(event.button===undefined||event.button===0)){pressed=callbackOwner(target,[...buttonCallbacks]);pressedInside=Boolean(pressed);callLegacy(pressed,'onPress');}
       if(type==='mouseUp'&&(event.button===undefined||event.button===0)){const old=pressed;pressed=null;pressedInside=false;if(old&&alive(old)){const inside=target&&target!==getStage()&&alive(target)&&descendant(descriptor(target),descriptor(old),nodes());callLegacy(old,inside?'onRelease':'onReleaseOutside');}}
     }
-    function cancelPointer(){buttonState(buttonOver,0);buttonState(buttonPressed,0);buttonOver=null;buttonPressed=null;dragging=null;pressed=null;hovered=null;pressedInside=false;}
+    function cancelPointer(){const changed=movieClipPointer('cancel',null);buttonState(buttonOver,0);buttonState(buttonPressed,0);buttonOver=null;buttonPressed=null;dragging=null;pressed=null;hovered=null;pressedInside=false;return changed;}
     function as2FocusBounds(){const target=getStage()?.focus;if(!target||target===getStage()||!alive(target)||!['movie_clip','button'].includes(descriptor(target).owner)||as2Input(target).focus_rect!==true)return null;const rect=bounds(target,getStage(),true);return {x:rect.x,y:rect.y,width:rect.width,height:rect.height};}
-    function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&as2Input(current).enabled&&(node.input.button_mode||[...buttonCallbacks].some(name=>callback(record,name))))return true;}return false;}
+    function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&as2Input(current).enabled&&(node.owner!=='movie_clip'||node.input.movieclip_enabled!==false)&&(node.input.button_mode||[...buttonCallbacks].some(name=>callback(record,name))))return true;}return false;}
     function methods(target) {
       const result={
         getDepth:()=>{descriptor(target);return player.as2_get_depth(referenceOf(target).key);},
@@ -596,7 +626,8 @@
 
       if(Object.hasOwn(inputNames,name)){const input=nativeInput(target);return name==='hitArea'?(input.hit_area?proxyForRef(input.hit_area):null):input[inputNames[name]];}
       if(['mouseX','mouseY','_xmouse','_ymouse'].includes(name)){const p=mousePoint(target);return name==='mouseX'||name==='_xmouse'?p.x:p.y;}
-      if(name==='enabled'&&['movie_clip','button'].includes(descriptor(target).owner))throw new TypeError('AS2 enabled is a separate callback-only switch not yet supported; use mouseEnabled for the current input profile.');
+      if(name==='enabled'&&descriptor(target).owner==='movie_clip')return nativeInput(target).movieclip_enabled!==false;
+      if(name==='enabled'&&descriptor(target).owner==='button')throw new TypeError('AS2 enabled is a separate callback-only switch not yet supported; use mouseEnabled for the current input profile.');
       if(name==='dropTarget'||name==='_droptarget'){descriptor(target);const dropped=drops.get(target);return name==='_droptarget'?legacyPath(dropped):dropped&&alive(dropped)?dropped:null;}
       if(descriptor(target).owner==='video'&&getVideo()){const host=getVideo(),value=host.get(target,name);if(value!==host.UNHANDLED)return value;}
       if(name==='filters'){
@@ -646,7 +677,8 @@
       return UNHANDLED;
     }
     function set(target,name,value) {
-      if(name==='enabled'&&['movie_clip','button'].includes(descriptor(target).owner))throw new TypeError('AS2 enabled is a separate callback-only switch not yet supported; use mouseEnabled for the current input profile.');
+      if(name==='enabled'&&descriptor(target).owner==='movie_clip'){inputWrite(target,name,value);return true;}
+      if(name==='enabled'&&descriptor(target).owner==='button')throw new TypeError('AS2 enabled is a separate callback-only switch not yet supported; use mouseEnabled for the current input profile.');
       if(Object.hasOwn(inputNames,name)){inputWrite(target,name,value);return true;}
       if(['mouseX','mouseY','_xmouse','_ymouse','dropTarget','_droptarget','_target','_framesloaded','_url'].includes(name))throw new TypeError(`${name} is read-only.`);
       if(descriptor(target).owner==='video'&&getVideo()&&getVideo().set(target,name,value))return true;

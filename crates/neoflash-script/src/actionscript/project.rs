@@ -97,6 +97,8 @@ const BUILTINS: &[&str] = &[
     "flash.display.DisplayObject",
     "flash.display.DisplayObjectContainer",
     "flash.display.MovieClip",
+    "flash.display.FrameLabel",
+    "flash.display.Scene",
     "flash.display.SimpleButton",
     "flash.display.Sprite",
     "flash.display.Shape",
@@ -280,6 +282,8 @@ fn is_display_method(name: &str) -> bool {
             | "addChildAt"
             | "removeChild"
             | "removeChildAt"
+            | "removeChildren"
+            | "stopAllMovieClips"
             | "setChildIndex"
             | "setMask"
             | "swapChildren"
@@ -922,6 +926,16 @@ fn parse_class(
             "ExternalInterface supplies static browser integration methods and cannot be subclassed.",
         ));
     }
+    if matches!(
+        base.as_deref(),
+        Some("flash.display.FrameLabel" | "flash.display.Scene")
+    ) {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "FrameLabel and Scene are final metadata types and cannot be subclassed.",
+        ));
+    }
     if base
         .as_ref()
         .is_some_and(|name| interface_names.contains(name))
@@ -1546,6 +1560,13 @@ fn native_member(base: &str, name: &str) -> bool {
                     | "parent"
                     | "currentFrame"
                     | "totalFrames"
+                    | "currentLabel"
+                    | "currentFrameLabel"
+                    | "currentLabels"
+                    | "framesLoaded"
+                    | "isPlaying"
+                    | "currentScene"
+                    | "scenes"
                     | "play"
                     | "stop"
                     | "gotoAndPlay"

@@ -48,7 +48,7 @@ See the [compatibility matrix](docs/COMPATIBILITY.md) for current support and li
 
 ### Scripting and data
 
-- Add AS3 numeric Class aliases, int/uint bounds and bound numeric method values; ordinary object property/enumerability controls, public source-class reflection, source-class prototype/constructor identity and dense Array insertAt/removeAt. Extend the existing inventory example with visible calculations, metadata and recent batches.
+- Add AS3 numeric Class aliases, int/uint bounds and bound numeric method values; ordinary object property/enumerability controls, public source-class reflection, source-class prototype/constructor identity and dense Array insertAt/removeAt. Share Array Class identity across handlers and project code and retain array receivers in captured trait method values. Extend the existing inventory example with visible calculations, metadata and collection processing.
 - Add ActionScript functions, closures, structured control flow, exceptions, optional/rest arguments and Function.call/apply. Improve HTML5 diagnostics for arbitrary thrown values.
 - Add AS2/AS3 project classes and imports, linked MovieClip construction, AS3 access control, final/dynamic classes, interfaces and inherited accessors. Preserve distinct AS2 class and receiver semantics.
 - Extend Array/String, numeric/URI operations, Date, JSON, RegExp, finite geometry, easing/Tween/CustomEase, callback timers and AsBroadcaster. Individual upstream algorithms are adapted into Rust with attribution.
@@ -57,7 +57,7 @@ See the [compatibility matrix](docs/COMPATIBILITY.md) for current support and li
 
 ### Display, media and HTML5
 
-- Add runtime display objects, dynamic hierarchy changes, linked timelines, events and Stage input. Correct Stage mouse-click delivery while retaining secondary-pointer filtering.
+- Add runtime display objects, dynamic hierarchy changes, linked timelines, events and Stage input. Expose local MovieClip label/playback/loaded-frame metadata, typed FrameLabel values and a single unnamed Scene snapshot. Add MovieClip buttonMode label transitions and enabled while retaining ordinary mouse/key events, plus subtree timeline stopping and validated runtime-child range removal. Correct Stage mouse-click delivery while retaining secondary-pointer filtering.
 - Add transformed dragging, hit tests, hitArea, input flags and legacy pointer callbacks. Hidden objects retain their clocks and state; symbol replacement creates fresh instance state.
 - Add runtime Graphics gradients/paths, vector masks, scroll rectangles, exact 2D transforms and nested color transforms.
 - Add shared BitmapData pixels, filters, channel operations, capture, bulk byte transfers and PNG output. Add AS3 Loader/LoaderInfo and AS2 MovieClipLoader with cancellation and unload behavior.

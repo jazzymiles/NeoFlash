@@ -16,7 +16,7 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | AS2 | 2,307 | 15 | 1,518 | 737 | 37 |
-| AS3 | 43,740 | 15 | 1,275 | 42,300 | 150 |
+| AS3 | 43,740 | 15 | 1,294 | 42,281 | 150 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 
@@ -24,7 +24,7 @@ Counts use the complete selected documentation catalogue, including AIR, Flex an
 
 | AS3 scope | Entries | Implemented subset | Partial | Audit missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Important now: classic foundation | 1,939 | 15 | 725 | 1,052 | 147 |
+| Important now: classic foundation | 1,939 | 15 | 744 | 1,033 | 147 |
 | Next: file audio and video | 91 | 0 | 35 | 54 | 2 |
 | Later: services and advanced Player APIs | 2,134 | 0 | 358 | 1,776 | 0 |
 | Far future: AIR extensions | 1,448 | 0 | 32 | 1,416 | 0 |

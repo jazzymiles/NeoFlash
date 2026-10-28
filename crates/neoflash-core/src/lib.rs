@@ -79,7 +79,8 @@ pub use resources::{
     ResourceError, ResourceUnit,
 };
 pub use runtime::{
-    AccessibleNode, DisplayNode, PlaybackCommand, Player, ScriptDispatch, ScriptEvent,
+    AccessibleNode, DisplayNode, FrameLabel, PlaybackCommand, Player, ScriptDispatch, ScriptEvent,
+    TimelineMetadata,
 };
 pub use runtime_graph::{
     ClipComponent, ColorTransform, DisplayError, DisplayEvent, DisplayInputState, DisplayMutation,

@@ -238,6 +238,7 @@ pub(crate) struct RuntimeGraph {
     text_states: HashMap<ObjectRef, TextFieldState>,
     video_states: HashMap<ObjectRef, VideoState>,
     input_states: HashMap<ObjectRef, DisplayInputState>,
+    movieclip_pointer: input::MovieClipPointer,
     text_bytes: usize,
     affines: HashMap<ObjectRef, transform::AffineState>,
     color_transforms: HashMap<ObjectRef, ColorTransform>,
@@ -279,6 +280,7 @@ impl RuntimeGraph {
         self.text_states.clear();
         self.video_states.clear();
         self.input_states.clear();
+        self.movieclip_pointer = input::MovieClipPointer::default();
         self.text_bytes = 0;
         self.affines.clear();
         self.color_transforms.clear();
@@ -1342,6 +1344,148 @@ impl Player {
         Ok(result)
     }
 
+    /// Detach an inclusive child range after validating the complete request.
+    /// This bounded runtime-child profile delivers lifecycle events after the
+    /// batch; native reentrant per-child removal callbacks are not modeled.
+    pub fn object_remove_children(
+        &mut self,
+        project: &Project,
+        parent: &ObjectRef,
+        begin: i32,
+        end: i32,
+    ) -> Result<MutationResult, DisplayError> {
+        if !self.graph.alive(parent) {
+            return Err(error(
+                "Display reference is stale or belongs to another player",
+            ));
+        }
+        let snapshot = self.runtime_snapshot(project);
+        let container = snapshot
+            .objects
+            .iter()
+            .find(|node| &node.object_ref == parent)
+            .ok_or_else(|| error("Container is absent from the display graph"))?;
+        if container.display.owner == "loader" {
+            return Err(error(
+                "Loader owns its content child; use load/unload instead of child-list mutation",
+            ));
+        }
+        if !matches!(
+            container.display.owner.as_str(),
+            "sprite" | "movie_clip" | "graphic"
+        ) {
+            return Err(error("removeChildren requires a DisplayObjectContainer"));
+        }
+        let children = self.graph.children(parent);
+        if begin < 0
+            || end < 0
+            || begin > end
+            || (end != i32::MAX
+                && (begin as usize >= children.len() || end as usize >= children.len()))
+        {
+            return Err(error(
+                "removeChildren index range is outside the child list",
+            ));
+        }
+        // The default maximum means through the last child, including an empty
+        // list or a begin position beyond its end (pinned Ruffle remove_children).
+        let selected: Vec<_> = children
+            .into_iter()
+            .take(end as usize + 1)
+            .skip(begin as usize)
+            .collect();
+        let mut result = MutationResult::default();
+        for child in &selected {
+            if !self.graph.dynamic.contains_key(child) {
+                return Err(error(
+                    "removeChildren cannot remove authored timeline children; select only runtime-created or linked children",
+                ));
+            }
+            self.graph
+                .validate_loader_mutation(&DisplayMutation::Remove {
+                    parent: parent.clone(),
+                    child: child.clone(),
+                })?;
+            let subtree = self.graph.subtree(child);
+            let attached = self.graph.on_stage(child);
+            let cost = 1 + if attached { subtree.len() } else { 0 };
+            if result.events.len().saturating_add(cost) > MAX_DISPLAY_EVENTS {
+                return Err(error("Display mutation exceeds its lifecycle event budget"));
+            }
+            result.events.push(DisplayEvent {
+                kind: "removed".into(),
+                target_ref: child.clone(),
+                route: self.graph.route(child),
+            });
+            if attached {
+                for reference in subtree {
+                    result.events.push(DisplayEvent {
+                        kind: "removed_from_stage".into(),
+                        route: self.graph.route(&reference),
+                        target_ref: reference,
+                    });
+                }
+            }
+        }
+        if !selected.is_empty() {
+            let removed: BTreeSet<_> = selected.iter().cloned().collect();
+            self.graph
+                .suffix
+                .get_mut(parent)
+                .expect("runtime children")
+                .retain(|child| !removed.contains(child));
+            for child in selected {
+                self.graph
+                    .dynamic
+                    .get_mut(&child)
+                    .expect("validated runtime child")
+                    .parent = None;
+            }
+        }
+        Ok(result)
+    }
+
+    /// Stop this container's local MovieClip clocks and those in its current
+    /// subtree, including detached linked subtrees. Media playback is separate.
+    pub fn object_stop_all_movie_clips(
+        &mut self,
+        project: &Project,
+        target: &ObjectRef,
+    ) -> Result<(), DisplayError> {
+        if !self.graph.alive(target) {
+            return Err(error(
+                "Display reference is stale or belongs to another player",
+            ));
+        }
+        let snapshot = self.runtime_snapshot(project);
+        let container = snapshot
+            .objects
+            .iter()
+            .find(|node| &node.object_ref == target)
+            .ok_or_else(|| error("Container is absent from the display graph"))?;
+        if !matches!(
+            container.display.owner.as_str(),
+            "sprite" | "movie_clip" | "graphic" | "loader"
+        ) {
+            return Err(error("stopAllMovieClips requires a DisplayObjectContainer"));
+        }
+        let clips: BTreeSet<_> = snapshot
+            .objects
+            .iter()
+            .filter(|node| node.display.owner == "movie_clip")
+            .map(|node| node.object_ref.clone())
+            .collect();
+        // The receiver is part of subtree(). Source MovieClips in synchronized
+        // authoring modes have no independent clock; object_control leaves them
+        // to their parent timeline instead of inventing playback state.
+        for reference in self.graph.subtree(target) {
+            if clips.contains(&reference) && !self.graph.loaded_as2(&reference) {
+                self.object_control(project, &reference, PlaybackCommand::Stop);
+            }
+        }
+        Ok(())
+    }
+
     pub fn graphics_apply(
         &mut self,
         reference: &ObjectRef,
@@ -1651,6 +1795,41 @@ impl Player {
             _ => return false,
         }
         true
+    }
+    pub fn object_metadata(
+        &self,
+        project: &Project,
+        reference: &ObjectRef,
+    ) -> Option<TimelineMetadata> {
+        if !self.graph.alive(reference) || self.graph.loaded_as2(reference) {
+            return None;
+        }
+        if let Some(address) = self.graph.source_address(reference) {
+            return self
+                .graph
+                .namespaces
+                .get(&address.namespace)?
+                .player
+                .clip_metadata(project, &address.path);
+        }
+        if let Some(path) = self.graph.paths.get(reference) {
+            return self.clip_metadata(project, path);
+        }
+        self.graph
+            .dynamic
+            .get(reference)
+            .filter(|node| node.kind == DynamicKind::MovieClip)
+            .map(|_| TimelineMetadata {
+                current_label: None,
+                current_frame_label: None,
+                labels: vec![],
+                frames_loaded: 1,
+                total_frames: 1,
+                scene_name: String::new(),
+                // Empty MovieClip instances have one frame; explicit play
+                // cannot put them into the AS3 isPlaying state.
+                is_playing: false,
+            })
     }
     pub fn object_frame(&self, reference: &ObjectRef) -> Option<u32> {
         if self.graph.loaded_as2(reference) {

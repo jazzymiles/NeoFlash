@@ -280,6 +280,8 @@
     const attachedClasses = new Map();
     let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, externalHost = null, program = null, as2PlatformHost = null, as2ObjectHost = null, as2TextHost = null, as2DataHost = null, as2BindingHost = null, as2NetworkHost = null, as2FilesHost = null, as2LocaleHost = null, as2MediaHost = null, as2ServicesHost = null, as2TransitionsHost = null, as2DepthManagerHost = null, as2StageHost = null, as2CaptureHost = null, as2ConnectionsHost = null, as2BoxingHost = null, as2PrintHost = null;
     let geometryHost = null, geometry3dHost = null, easingHost = null, broadcasterHost = null;
+    let frameLabelType = null, sceneValueFactory = null;
+    const timelineMetadataProperties=Object.freeze({currentLabel:'current_label',currentFrameLabel:'current_frame_label',currentLabels:'labels',framesLoaded:'frames_loaded',isPlaying:'is_playing',currentScene:'scene_name',scenes:'scene_name'});
     let eventFamilies = {};
     let timerRenderGeneration=0, capturePainter=null,inputPaths=null;
     let legacyCursorVisible = true, pointerOverContent = false;
@@ -515,6 +517,7 @@
       legacyGlobals=Object.freeze({...legacyGlobals,objects3:Object.freeze({
         execute:request=>JSON.parse(wasm.as3_object_json(JSON.stringify(request))),
         arrayPlan:(method,length,index)=>JSON.parse(wasm.as3_array_plan_json(method,length,index)),
+        arrays:{classes:new Map(),methods:new WeakMap()},
       })});
       if(global.NeoFlashDate)legacyGlobals=Object.freeze({...legacyGlobals,date:global.NeoFlashDate.create(wasm)});
       if(geometryHost.Color)legacyGlobals=Object.freeze({...legacyGlobals,Color:geometryHost.Color});
@@ -523,6 +526,42 @@
     function initializeProgram() {
       if(!display)return;
       const builtins={...display.builtins};
+      // FrameLabel stores a Rust value and uses the existing event dispatcher.
+      // Automatic frameLabel delivery is separate from this readback profile.
+      if(global.NeoFlashEvents){
+        const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
+        const values=new WeakMap();
+        frameLabelType=class FrameLabel extends global.NeoFlashEvents.EventDispatcher {
+          constructor(name,frame){
+            if(arguments.length!==2||typeof name!=='string'||!Number.isInteger(frame)||frame < -2147483648||frame > 2147483647)throw new TypeError('FrameLabel requires a primitive String name and a signed 32-bit integer frame.');
+            if(typeof wasm?.frame_label_json!=='function')throw new Error('Rust FrameLabel values are unavailable; rebuild and re-export this project.');
+            let value;try{value=JSON.parse(wasm.frame_label_json(name,frame));}catch(error){throw new TypeError(String(error?.message??error));}
+            super();values.set(this,value);
+            const add=this.addEventListener;
+            this.addEventListener=(type,...args)=>{if(type==='frameLabel')throw new TypeError('Automatic FrameLabel events are not implemented; read MovieClip.currentFrameLabel when handling timeline input.');return add(type,...args);};
+            Object.freeze(this);
+          }
+          get name(){const value=values.get(this);if(!value)throw new TypeError('Invalid FrameLabel receiver.');return value.name;}
+          get frame(){const value=values.get(this);if(!value)throw new TypeError('Invalid FrameLabel receiver.');return value.frame;}
+        };
+        frameLabelType.__nfIs=value=>values.has(value);
+        frameLabelType.__nfInitialize=()=>{throw new TypeError('FrameLabel is final and cannot initialize a subclass.');};
+        builtins['flash.display.FrameLabel']=frameLabelType;
+        const sceneValues=new WeakMap(),sceneToken={};
+        class Scene {
+          constructor(token,value){
+            if(token!==sceneToken)throw new TypeError('Scene values are produced by MovieClip.currentScene/scenes; public Scene construction is not supported.');
+            sceneValues.set(this,value);Object.freeze(this);
+          }
+          get name(){const value=sceneValues.get(this);if(!value)throw new TypeError('Invalid Scene receiver.');return value.name;}
+          get labels(){const value=sceneValues.get(this);if(!value)throw new TypeError('Invalid Scene receiver.');return value.labels;}
+          get numFrames(){const value=sceneValues.get(this);if(!value)throw new TypeError('Invalid Scene receiver.');return value.numFrames;}
+        }
+        Scene.__nfIs=value=>sceneValues.has(value);
+        Scene.__nfInitialize=()=>{throw new TypeError('Scene is final and cannot initialize a subclass.');};
+        sceneValueFactory=value=>new Scene(sceneToken,{name:value.scene_name,numFrames:value.total_frames,labels:value.labels.map(label=>new frameLabelType(label.name,label.frame))});
+        builtins['flash.display.Scene']=Scene;
+      }
       builtins.__nfTrace=trace;
       if(as2StageHost){builtins.ContextMenu=as2StageHost.ContextMenu;builtins.ContextMenuItem=as2StageHost.ContextMenuItem;}
       if(as2PrintHost)builtins.PrintJob=as2PrintHost.PrintJob;
@@ -736,10 +775,27 @@
         if (cached) return cached.proxy;
         throw new Error(`Display object ${key} is no longer active.`);
       }
-      const call=(name,...args)=>player[objectRef?'object_'+({clip_frame:'frame',clip_frame_count:'frame_count'}[name]||name):name](key,...args);
+      const call=(name,...args)=>player[objectRef?'object_'+({clip_frame:'frame',clip_frame_count:'frame_count',clip_metadata:'metadata'}[name]||name):name](key,...args);
       const custom = Object.create(null);
       function assertAlive() {
         if (!live()) throw new Error(`Display object ${key} was removed or replaced.`);
+      }
+      function ownsTimelineMetadata(name){
+        if(!Object.hasOwn(timelineMetadataProperties,name))return false;
+        assertAlive();
+        return !objectRef||display?.descriptor(proxy).owner==='movie_clip';
+      }
+      function timelineMetadata(name){
+        assertAlive();
+        let value;try{value=JSON.parse(call('clip_metadata'));}catch(error){throw new TypeError(String(error?.message??error));}
+        if(name==='currentScene'||name==='scenes'){
+          if(!sceneValueFactory)throw new Error('Scene values are unavailable; rebuild and re-export this project.');
+          const scene=sceneValueFactory(value);return name==='scenes'?[scene]:scene;
+        }
+        const field=value[timelineMetadataProperties[name]];
+        if(name!=='currentLabels')return field;
+        if(!frameLabelType)throw new Error('FrameLabel type is unavailable; rebuild and re-export this project.');
+        return field.map(label=>new frameLabelType(label.name,label.frame));
       }
       const target = Object.create(null);
       const methods = {
@@ -764,6 +820,7 @@
       }
       function nativeHas(name){
         if(typeof name!=='string')return name===Symbol.toStringTag;
+        if(ownsTimelineMetadata(name))return true;
         if(['toString','toJSON','root','_root','parent','_parent','currentFrame','_currentframe','totalFrames','_totalframes','visible','_visible'].includes(name)||Object.hasOwn(methods,name)||Object.hasOwn(propertyMap,name))return true;
         return Boolean(display&&display.get(proxy,name)!==display.UNHANDLED);
       }
@@ -788,6 +845,7 @@
           if (name === '_parent' || name === 'parent') {assertAlive();const parent=display?display.parentSpace(proxy):path.length?proxyFor(path.slice(0,-1)):stageHost?.stage||null;return name==='_parent'&&parent===stageHost?.stage?null:parent;}
           if (name === '_currentframe' || name === 'currentFrame') return call('clip_frame') + 1;
           if (name === '_totalframes' || name === 'totalFrames') return call('clip_frame_count');
+          if (ownsTimelineMetadata(name)) return timelineMetadata(name);
           if (Object.hasOwn(methods, name)) return methods[name];
           if(display){const value=display.get(proxy,name);if(value!==display.UNHANDLED)return value;}
           if (name === 'visible' || name === '_visible') {
@@ -823,7 +881,7 @@
             if (!call('set_property',propertyMap[name],percentage.has(name)?value/100:value)) {
               throw new Error(`Cannot change ${name} on inactive display object ${key}.`);
             }
-          } else if (['currentFrame', 'totalFrames', '_currentframe', '_totalframes', '_root', '_parent', 'root', 'parent'].includes(name)) {
+          } else if (ownsTimelineMetadata(name)||['currentFrame', 'totalFrames', '_currentframe', '_totalframes', '_root', '_parent', 'root', 'parent'].includes(name)) {
             throw new Error(`${name} is read-only.`);
           } else if(Object.hasOwn(target,name)||(!Object.hasOwn(custom,name)&&Reflect.has(target,name)))return Reflect.set(target,name,value,proxy);
           else {program?.assertDynamicWrite?.(proxy,name);custom[name] = value;}

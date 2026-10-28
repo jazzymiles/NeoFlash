@@ -13,8 +13,10 @@ export const collectionsProfile = {
     'https://airsdk.dev/reference/actionscript/3.0/Array.html',
     'https://github.com/ruffle-rs/ruffle/blob/fe6cfc545405b888ebb478ce1c211d63147ca49b/core/src/avm1/globals/array.rs',
     'https://github.com/ruffle-rs/ruffle/blob/fe6cfc545405b888ebb478ce1c211d63147ca49b/core/src/avm2/globals/array.rs',
+    'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/Array.as',
+    'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/MethodClosure.cpp',
   ],
-  boundary: 'Ordinary indexed arrays and data records; up to 1,000,000 elements. No historical comparator-call order, native method extraction, prototype augmentation, or exotic length coercions. AS3 NUMERIC requires numeric values. Equal-length sortOn options arrays; AS2 sortOn plain stored fields. String case folding uses JavaScript Unicode tables.',
+  boundary: 'Ordinary indexed arrays and data records; up to 1,000,000 elements. AS3 trait method values retain their array receiver and publication identity; AS2 native extraction and prototype-only toString/toLocaleString extraction are unsupported. No historical comparator-call order, prototype augmentation/borrowing, custom namespace lookup, or exotic length coercions. AS3 NUMERIC requires numeric values. Equal-length sortOn options arrays; AS2 sortOn plain stored fields. String case folding uses JavaScript Unicode tables.',
 };
 
 export const collectionSources = {
@@ -162,7 +164,9 @@ export const collectionsFixtures = [
 export function verifyCollectionsAdapter() {
   const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
   const code=readFileSync(resolve(root,'crates/neoflash-script/src/actionscript/collections.js'),'utf8');
-  const api=new Function(code+'\nreturn {create:__nfArrayCreate,method:__nfArrayMethod,type:__nfArrayClass,value:__nfArrayMethodValue};')();
+  const state={objects3:{arrays:{classes:new Map(),methods:new WeakMap()}}};
+  const createAPI=new Function('__nfLegacy',code+'\nreturn {create:__nfArrayCreate,method:__nfArrayMethod,type:__nfArrayClass,value:__nfArrayMethodValue,reference:__nfArrayReference};');
+  const api=createAPI(state);
   for(const as3 of [false,true]) {
     const A=api.type(as3),call=(value,name,...args)=>api.method(value,name,as3)(...args);
     const lines=new A('Ada,30','zoe,15','Bob,20'),records=[];
@@ -185,6 +189,41 @@ export function verifyCollectionsAdapter() {
     assert.throws(()=>api.value(Array.prototype.sort),/Call the method directly/);
     assert.equal(A,api.type(as3));assert.equal(records instanceof A,true);
   }
+  // One reference pipeline spans compiled units, preserved receiver identity,
+  // custom accessors and later replacements, using the existing Array policies.
+  const otherAPI=createAPI(state),queue=[3,1,2],other=[];
+  assert.equal(api.type(true),otherAPI.type(true));
+  assert.notEqual(api.type(false),otherAPI.type(false),'AS2 keeps its existing per-unit facade');
+  let reads=0;
+  Object.defineProperty(queue,'push',{configurable:true,get(){reads++;return Array.prototype.push;}});
+  const push=api.reference(queue,'push',queue.push,true);
+  assert.equal(reads,1);assert.equal(push.call(other,4),4);assert.equal(push.apply(null,[5]),5);assert.equal(reads,1);
+  assert.equal(otherAPI.reference(queue,'push',Array.prototype.push,true),push);
+  const custom=function(value){return this===other?'custom:'+value:'wrong receiver';};
+  Object.defineProperty(queue,'push',{configurable:true,value:custom});
+  const override=api.reference(queue,'push',queue.push,true);
+  assert.equal(override,custom);assert.equal(override.call(other,6),'custom:6');
+  assert.equal(push(6),6);assert.deepEqual(other,[]);
+  for(const returned of [custom,undefined]) {
+    const selfDeleting=[];let getterReads=0;
+    Object.defineProperty(selfDeleting,'sortOn',{configurable:true,get(){getterReads++;delete selfDeleting.sortOn;return returned;}});
+    const present='sortOn' in selfDeleting,resolved=selfDeleting.sortOn;
+    assert.equal(api.reference(selfDeleting,'sortOn',resolved,true,present),returned,'a self-deleting authored getter must not become a synthesized trait');
+    assert.equal(getterReads,1);assert.equal('sortOn' in selfDeleting,false);
+    assert.equal(typeof api.reference(selfDeleting,'sortOn',undefined,true,false),'function','a later absent read resolves the native trait');
+  }
+  const sort=api.reference(queue,'sort',queue.sort,true);
+  assert.equal(sort(api.type(true).NUMERIC|api.type(true).DESCENDING),queue);
+  const map=api.reference(queue,'map',queue.map,true);
+  assert.deepEqual(map(value=>value*2),[12,10,8,6,4,2]);
+  const records=[{score:3},{score:1}];
+  const sortOn=api.reference(records,'sortOn',undefined,true);
+  records.sortOn=()=>{throw new Error('replacement must not redirect a saved trait closure');};
+  assert.equal(sortOn('score',api.type(true).NUMERIC),records);assert.equal(records[0].score,1);
+  assert.throws(()=>new push(1),TypeError);
+  assert.equal(api.reference(queue,'sort',Array.prototype.sort,false),Array.prototype.sort);
+  assert.equal(api.reference(queue,'toString',Array.prototype.toString,true),Array.prototype.toString);
+  assert.throws(()=>api.value(api.reference(queue,'toString',Array.prototype.toString,true)),/Prototype method borrowing/);
   assert.equal(Object.hasOwn(Array.prototype,'sortOn'),false,'adapter must not modify JavaScript prototypes');
   console.log('Array adapter: two coherent AS2/AS3 processing pipelines passed; compiler/export integration pending.');
 }

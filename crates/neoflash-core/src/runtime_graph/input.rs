@@ -9,6 +9,29 @@ pub struct DisplayInputState {
     pub button_mode: bool,
     pub use_hand_cursor: bool,
     pub hit_area: Option<ObjectRef>,
+    #[serde(default = "enabled_default")]
+    pub movieclip_enabled: bool,
+}
+
+fn enabled_default() -> bool {
+    true
+}
+
+#[derive(Default)]
+pub(super) struct MovieClipPointer {
+    over: Option<ObjectRef>,
+    pressed: Option<ObjectRef>,
+}
+
+impl MovieClipPointer {
+    fn release(&mut self, target: &ObjectRef) {
+        if self.over.as_ref() == Some(target) {
+            self.over = None;
+        }
+        if self.pressed.as_ref() == Some(target) {
+            self.pressed = None;
+        }
+    }
 }
 
 fn sprite(owner: &str) -> bool {
@@ -28,6 +51,7 @@ impl DisplayInputState {
             button_mode: owner == "button",
             use_hand_cursor: true,
             hit_area: None,
+            movieclip_enabled: true,
         })
     }
 }
@@ -55,11 +79,17 @@ impl RuntimeGraph {
         if !sprite(owner) {
             state.hit_area = None;
         }
+        if owner != "movie_clip" {
+            state.movieclip_enabled = true;
+        }
         Some(state)
     }
     pub(super) fn retire_input(&mut self, retired: &BTreeSet<ObjectRef>) {
         self.input_states
             .retain(|reference, _| !retired.contains(reference));
+        for reference in retired {
+            self.movieclip_pointer.release(reference);
+        }
         for state in self.input_states.values_mut() {
             if state
                 .hit_area
@@ -125,6 +155,9 @@ impl Player {
         let owner = node.display.owner.as_str();
         let defaults = DisplayInputState::for_owner(owner)
             .ok_or_else(|| error("Mouse input state requires an InteractiveObject; Shape, Bitmap and Video are not interactive"))?;
+        if owner != "movie_clip" && !state.movieclip_enabled {
+            return Err(error("MovieClip enabled requires a MovieClip instance"));
+        }
         if !container(owner) && state.mouse_children != defaults.mouse_children {
             return Err(error("mouseChildren requires a display container"));
         }
@@ -168,11 +201,167 @@ impl Player {
                     .and_then(|input| input.hit_area.as_ref());
             }
         }
+        if !state.movieclip_enabled || !state.button_mode {
+            self.graph.movieclip_pointer.release(target);
+        }
         if state == defaults {
             self.graph.input_states.remove(target);
         } else {
             self.graph.input_states.insert(target.clone(), state);
         }
         Ok(())
+    }
+
+    /// Mouse observations drive local MovieClip button labels in Rust. This
+    /// does not filter normal AS3 mouse/key events or change real buttons.
+    pub fn object_movieclip_pointer(
+        &mut self,
+        project: &Project,
+        event: &str,
+        target: Option<&ObjectRef>,
+    ) -> Result<bool, DisplayError> {
+        if !matches!(event, "mouseMove" | "mouseDown" | "mouseUp" | "cancel") {
+            return Err(error(
+                "MovieClip pointer event must be mouseMove, mouseDown, mouseUp or cancel",
+            ));
+        }
+        if target.is_some_and(|reference| !self.graph.alive(reference)) {
+            return Err(error(
+                "MovieClip pointer target is stale or belongs to another player",
+            ));
+        }
+        let snapshot = self.runtime_snapshot(project);
+        let eligible: BTreeSet<_> = snapshot
+            .objects
+            .iter()
+            .filter(|node| {
+                node.on_stage
+                    && node.display.owner == "movie_clip"
+                    && node
+                        .input
+                        .as_ref()
+                        .is_some_and(|input| input.button_mode && input.movieclip_enabled)
+                    && self.object_metadata(project, &node.object_ref).is_some()
+            })
+            .map(|node| node.object_ref.clone())
+            .collect();
+        let mut next = None;
+        if event != "cancel" {
+            let mut candidate = target;
+            for _ in 0..=MAX_GRAPH_DEPTH {
+                let Some(reference) = candidate else { break };
+                let Some(node) = snapshot
+                    .objects
+                    .iter()
+                    .find(|node| &node.object_ref == reference)
+                else {
+                    break;
+                };
+                // Real buttons retain their existing independent pointer path.
+                if node.display.owner == "button" {
+                    break;
+                }
+                if eligible.contains(reference) {
+                    next = Some(reference.clone());
+                    break;
+                }
+                candidate = node.parent_ref.as_ref();
+            }
+        }
+        let state = &mut self.graph.movieclip_pointer;
+        if state
+            .over
+            .as_ref()
+            .is_some_and(|reference| !eligible.contains(reference))
+        {
+            state.over = None;
+        }
+        if state
+            .pressed
+            .as_ref()
+            .is_some_and(|reference| !eligible.contains(reference))
+        {
+            state.pressed = None;
+        }
+        let mut transitions: Vec<(ObjectRef, &'static str)> = vec![];
+        let mut transition = |target: &Option<ObjectRef>, label: &'static str| {
+            if let Some(target) = target {
+                if let Some((_, previous)) = transitions.iter_mut().find(|(id, _)| id == target) {
+                    *previous = label;
+                } else {
+                    transitions.push((target.clone(), label));
+                }
+            }
+        };
+        // Semantic reference: Ruffle fe6cfc545405b888ebb478ce1c211d63147ca49b,
+        // display_object/movie_clip.rs::event_dispatch. DragOut uses _over;
+        // ReleaseOutside/RollOut use _up, while Press/DragOver use _down.
+        match event {
+            "cancel" => {
+                transition(&state.over, "_up");
+                transition(&state.pressed, "_up");
+                state.over = None;
+                state.pressed = None;
+            }
+            "mouseDown" => {
+                if state.over != next {
+                    transition(&state.over, "_up");
+                }
+                transition(&next, "_down");
+                state.over = next.clone();
+                state.pressed = next;
+            }
+            "mouseUp" => {
+                if state.over != next && state.over != state.pressed {
+                    transition(&state.over, "_up");
+                }
+                transition(
+                    &state.pressed,
+                    if state.pressed == next {
+                        "_over"
+                    } else {
+                        "_up"
+                    },
+                );
+                if state.pressed != next && (state.pressed.is_some() || state.over != next) {
+                    transition(&next, "_over");
+                }
+                state.over = next;
+                state.pressed = None;
+            }
+            _ => {
+                if state.over != next {
+                    transition(
+                        &state.over,
+                        if state.over == state.pressed {
+                            "_over"
+                        } else {
+                            "_up"
+                        },
+                    );
+                    if state.pressed.is_none() || next == state.pressed {
+                        transition(
+                            &next,
+                            if next == state.pressed {
+                                "_down"
+                            } else {
+                                "_over"
+                            },
+                        );
+                    }
+                    state.over = next;
+                }
+            }
+        }
+        let mut changed = false;
+        for (target, label) in transitions {
+            if self.graph.alive(&target)
+                && let Some(frame) = self.object_resolve_frame(project, &target, label, false)
+            {
+                changed |=
+                    self.object_control(project, &target, PlaybackCommand::GotoAndStop(frame));
+            }
+        }
+        Ok(changed)
     }
 }

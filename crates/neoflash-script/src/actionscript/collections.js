@@ -2,8 +2,10 @@
 // Original implementation; semantic references are listed in collections-fixtures.mjs.
 // Arrays retain native identity/storage. No JavaScript prototype is modified.
 // This profile covers ordinary indexed arrays, documented sort flags and AS3
-// callbacks. Historical comparison-call order, prototype extensions, borrowed
-// native method values and exotic constructor/index coercions remain unsupported.
+// callbacks and AS3 trait method values. Historical comparison-call order,
+// prototype extensions/borrowing and exotic constructor/index coercions remain
+// unsupported. AS3 traits and public prototype functions are distinct in pinned
+// Adobe Array.as; toString/toLocaleString are not receiver-bound traits.
 const __nfNativeArray = Array;
 const __nfArrayIsArray = Array.isArray;
 const __nfArrayApply = Reflect.apply;
@@ -17,7 +19,10 @@ const __nfArrayMethods = Object.freeze(Object.fromEntries([
 ].map(name => [name, Array.prototype[name]])));
 const __nfArrayFlags = Object.freeze({ CASEINSENSITIVE: 1, DESCENDING: 2, UNIQUESORT: 4, RETURNINDEXEDARRAY: 8, NUMERIC: 16 });
 const __nfArrayLimit = 1000000;
-const __nfArrayClasses = new Map();
+const __nfArrayLocalState = { classes: new Map(), methods: new WeakMap() };
+function __nfArrayState(as3) {
+    return as3 && typeof __nfLegacy !== 'undefined' && __nfLegacy?.objects3?.arrays || __nfArrayLocalState;
+}
 
 function __nfArrayBound(length) {
     if (!Number.isInteger(length) || length < 0 || length > __nfArrayLimit) {
@@ -35,7 +40,8 @@ function __nfArrayCreate(as3, args) {
 }
 function __nfArrayClass(as3) {
     as3 = Boolean(as3);
-    if (!__nfArrayClasses.has(as3)) {
+    const classes = __nfArrayState(as3).classes;
+    if (!classes.has(as3)) {
         const facade = function(...args) { return __nfArrayCreate(as3, args); };
         for (const [name, value] of Object.entries(__nfArrayFlags)) Object.defineProperty(facade, name, { value, enumerable: true });
         Object.defineProperty(facade, '__nfIs', { value: __nfArrayIsArray });
@@ -43,15 +49,32 @@ function __nfArrayClass(as3) {
         // Prototype augmentation is outside this adapter. Do not expose a mutable
         // alias to Array.prototype or pretend facade methods were installed there.
         Object.freeze(facade.prototype);
-        __nfArrayClasses.set(as3, Object.freeze(facade));
+        classes.set(as3, Object.freeze(facade));
     }
-    return __nfArrayClasses.get(as3);
+    return classes.get(as3);
 }
 function __nfArrayMethodValue(value) {
     if (Object.values(__nfArrayMethods).includes(value)) {
-        throw new __nfArrayTypeError('Array native method values are not supported yet. Call the method directly on the array so its receiver and ActionScript profile are preserved.');
+        throw new __nfArrayTypeError('Unbound Array native method values are unsupported. Call the method directly on the array, or read a supported AS3 trait method from its array receiver. Prototype method borrowing is outside this profile.');
     }
     return value;
+}
+function __nfArrayReference(receiver, name, value, as3, capturedPresence) {
+    if (!as3 || !__nfArrayIsArray(receiver)) return value;
+    const native = name !== 'toString' && Object.hasOwn(__nfArrayMethods, name) && value === __nfArrayMethods[name];
+    const present = capturedPresence === undefined ? name in receiver : capturedPresence;
+    const synthetic = (name === 'sortOn' || name === 'insertAt' || name === 'removeAt') && value === undefined && !present;
+    if (!native && !synthetic) return value;
+    const cache = __nfArrayState(true).methods;
+    let methods = cache.get(receiver);
+    if (!methods) { methods = new Map(); cache.set(receiver, methods); }
+    if (!methods.has(name)) {
+        // Capture the resolved target now. Neither an accessor nor a replacement
+        // installed after this read may redirect an existing method closure.
+        // MethodClosure.cpp retains the receiver even through call/apply.
+        methods.set(name, __nfArrayMethod(receiver, name, true, { value, present }));
+    }
+    return methods.get(name);
 }
 function __nfArrayOptions(value) {
     if (value === undefined || value === null) return 0;
@@ -165,13 +188,14 @@ function __nfArrayIterate(receiver, name, args) {
     if (name === 'forEach') return undefined;
     return result;
 }
-function __nfArrayMethod(receiver, name, as3) {
+function __nfArrayMethod(receiver, name, as3, resolved) {
     // Resolve once before caller evaluates arguments. An override, including a
     // getter or explicitly undefined property, must retain ordinary call behavior.
-    const method = receiver[name];
+    const method = resolved ? resolved.value : receiver[name];
     const array = __nfArrayIsArray(receiver);
-    const synthesizeSortOn = array && name === 'sortOn' && !(name in receiver);
-    const synthesizeMutation = as3 && array && (name === 'insertAt' || name === 'removeAt') && !(name in receiver);
+    const absent = () => resolved ? !resolved.present : !(name in receiver);
+    const synthesizeSortOn = array && name === 'sortOn' && absent();
+    const synthesizeMutation = as3 && array && (name === 'insertAt' || name === 'removeAt') && absent();
     const native = array && Object.hasOwn(__nfArrayMethods, name) && method === __nfArrayMethods[name];
     return (...args) => {
         if (!native && !synthesizeSortOn && !synthesizeMutation) {

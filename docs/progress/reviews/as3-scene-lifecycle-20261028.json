@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "baseCatalogSha256": "bf9295c182b34189db6650033a571746a063eb0ffc360173268f5f558b4700b4",
+  "reviews": [
+    {
+      "id": "COORD-AS3-SCENE-LIFECYCLE-20261028",
+      "title": "MovieClip subtree stopping and runtime-child range removal",
+      "reason": "Bounded acceptance of two missing container lifecycle methods in the existing linked MovieClip workflow. The final packet passed a fresh WASM build, the integrated Rust dynamic-display scenario, three compiler project tests, nine exported-display/Stage tests and Clippy. The earlier Array/metadata/button source snapshot has its own full shared regression review; those full-suite passes are not reassigned to these later edits.",
+      "limitations": "Local authoring model only. removeChildren preflights the entire selected runtime/linked-child range and delivers captured removal events after the atomic change; native per-child reentrant callback timing and authored child removal remain unsupported. stopAllMovieClips stops local independent clocks within the current subtree, without modifying media playback or inventing clocks for synchronized authoring modes. No sandbox/security-domain or original Flash differential execution claim.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/runtime.rs",
+          "sha256": "d9948b4d9e406b0cc94f377ab200a1d84152f011c3e16d052b3d3dff4948f5b0"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph.rs",
+          "sha256": "148c1f7243996963ccc144004f10ee703904b8e057bc027172d4a8e0e1661f3b"
+        },
+        {
+          "path": "crates/neoflash-core/tests/dynamic_display.rs",
+          "sha256": "7a555ff093e5b5f485eadb6cc8d776835d815d9c324e55af3d8bed150277f885"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "a878beb9816a812f59d068ae9975b2fe396be478aa439d78c1c30fefdd4e463b"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "70b37a891619cab65d472f0cbfe0e4f9d6056f9335101e9793af2445ba1f8d62"
+        },
+        {
+          "path": "examples/linked-movieclips.nflash",
+          "sha256": "dd08f3d7b124bca4e7f2fbb7787e5e807b9d17b3907a8734724a2fd24b2a38d4"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "d7bd643dadaa55f56b555ab9104146f32eb349d1cde9eb7853a56bea2cc92742"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "56b09ca883adb69eb7884399d1fc01202af8e117ea5cfe28c3688b5f5fe5e73d"
+        },
+        {
+          "path": "web/stage.js",
+          "sha256": "e1e95f26976d50326f05b38c13638d40acaf8f7866c26da083b3734128c65cc3"
+        },
+        {
+          "path": "web/tests/display-family.test.cjs",
+          "sha256": "b6e30bdfce726c7eee0f8fe66a2b9f3bc6a9a09ee4586760e796f1531d27b6fe"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS3-SCENE-LIFECYCLE-20261028",
+        "recordedHead": "08a3a250e208da1276325c36bc7fab5e2326bd0e",
+        "sourceCapturedAt": "2026-10-28T21:24:26.662718+00:00",
+        "verifiedAt": "2026-10-28T21:31:37.024909+00:00",
+        "sourceManifestSha256": "936ff24c854f1b9cc33f980add8440fb9b14003fade30e5a6261f7dfdff61dd5",
+        "browser": "Codex in-app browser",
+        "engine": "actual exported Rust WASM + browser Canvas; actual-WASM host and Rust lifecycle scenarios",
+        "originalFlashComparison": "documented_only",
+        "decision": "The ordinary linked export stopped its nested animation, detached exactly the two AS3 cards (children17 to15), restored them (17) with working click handlers, then Restart restored initial state. Automated scenarios also establish same-reference retention, unrelated sibling clocks, detached subtree stopping, inclusive range/event routes, stale references and atomic authored-child refusal. The final packet received targeted checks only; no third full 25-family or 63-web-test run is claimed. One immediate post-restore screenshot retained an older metadata row until a later interaction; source refresh hooks were intact and underlying host assertions passed, so this remains an unclassified presentation observation rather than a diagnosed runtime failure.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#removeChildren()",
+          "status": "partial",
+          "evidenceKind": "coordinator_targeted_wasm_and_browser_workflow",
+          "scopeNote": "Inclusive begin/end range for runtime-created and linked children. Defaults remove all eligible children; MAXint means through the last child. Whole-request validation refuses authored/Loader-owned selections before mutation. Detached objects retain identity and can be reattached. Primitive signed-int arguments only, no native per-child reentrant event-order claim."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#stopAllMovieClips()",
+          "status": "partial",
+          "evidenceKind": "coordinator_targeted_wasm_and_browser_workflow",
+          "scopeNote": "Stops the receiver when it is a MovieClip and independent local MovieClip clocks in its current subtree, including nested/linked clips and a detached receiver subtree. Unrelated siblings remain active. Explicit play/gotoAndPlay can resume them; media streams and synchronization without independent clocks are outside this operation."
+        }
+      ]
+    }
+  ]
+}

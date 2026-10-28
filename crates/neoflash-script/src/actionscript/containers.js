@@ -70,10 +70,11 @@ function __nfContainerRef(receiver,key,as3,caller){
     return {
         get(){
             const name=__nfLegacyKey(receiver,key,as3);
+            const arrayMember=as3&&__nfArrayIsArray(receiver),arrayPresent=arrayMember&&(name in object);
             if(as3&&name==='setPropertyIsEnumerable'&&!(name in object))return __nfObjectPropertyMethod(receiver,name);
-            if(as3&&__nfArrayIsArray(receiver)&&(name==='insertAt'||name==='removeAt')&&!(name in object))return __nfArrayMethod(receiver,name,true);
             const scoped=scopedRef(name),read=()=>scoped?scoped.get():receiver[name];
             const value=legacy?.objects?legacy.objects.get(receiver,name,read,()=>scoped?scoped.has():Reflect.has(object,name)):read();
+            if(arrayMember){const reference=__nfArrayReference(receiver,name,value,true,arrayPresent);if(reference!==value)return reference;}
             if(as3&&typeof receiver==='number')return __nfNumericMethodValue(receiver,value);
             if(as3&&Object.hasOwn(__nfObjectPropertyMethods,name)&&value===__nfObjectPropertyMethods[name])return __nfObjectPropertyMethod(receiver,name);
             if(as3){const method=__nfObjectDefaultMethod(receiver,name,value,program);if(method)return method;}

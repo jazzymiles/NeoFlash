@@ -87,6 +87,20 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
     assert!(player.object_control(&project, &movie, PlaybackCommand::Stop));
     assert_eq!(player.object_frame_count(&project, &movie), Some(1));
     assert!(!player.object_control(&project, &movie, PlaybackCommand::GotoAndPlay(1)));
+    assert!(player.object_control(&project, &movie, PlaybackCommand::Play));
+    assert_eq!(
+        player.object_metadata(&project, &movie),
+        Some(TimelineMetadata {
+            current_label: None,
+            current_frame_label: None,
+            labels: vec![],
+            frames_loaded: 1,
+            total_frames: 1,
+            scene_name: String::new(),
+            is_playing: false,
+        })
+    );
+    assert!(player.object_metadata(&project, &shape).is_none());
 
     player
         .graphics_apply(
@@ -383,7 +397,165 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
     image_loading_owns_content_and_replaces_timelines(project.clone());
     video_viewports_share_display_state_and_lifetimes();
     mouse_input_capabilities_follow_identity(project.clone());
+    movieclip_button_labels_follow_mouse_input(project.clone());
     linked_timelines_are_independent_namespaces(project);
+}
+
+fn movieclip_button_labels_follow_mouse_input(mut project: Project) {
+    let component = project.symbol_mut("component").unwrap();
+    component.linkage_id = Some("ButtonClip".into());
+    component.timeline.frame_count = 3;
+    component.timeline.layers[0].keyframes = ["_up", "_over", "_down"]
+        .into_iter()
+        .enumerate()
+        .map(|(frame, label)| Keyframe {
+            frame: frame as u32,
+            elements: vec![],
+            tween: None,
+            label: label.into(),
+        })
+        .collect();
+    component.timeline.scripts = vec![FrameScript {
+        frame: 1,
+        script: Script {
+            language: ScriptLanguage::JavaScript,
+            source: "over();".into(),
+        },
+    }];
+    let mut player = Player::new(&project);
+    player.control(&project, &[], PlaybackCommand::Stop);
+    let root = player.object_ref(&[]).unwrap();
+    let authored = player.object_ref(&["authored-container".into()]).unwrap();
+    let linked = player.create_linked(&project, "ButtonClip").unwrap();
+    add(&mut player, &project, &root, &linked);
+    for target in [&authored, &linked] {
+        let mut input = player.object_input_info(&project, target).unwrap();
+        assert!(input.movieclip_enabled);
+        input.button_mode = true;
+        player.object_input_update(&project, target, input).unwrap();
+    }
+    player.drain_runtime_scripts();
+    assert!(
+        player
+            .object_movieclip_pointer(&project, "mouseMove", Some(&authored))
+            .unwrap()
+    );
+    assert_eq!(player.object_frame(&authored), Some(1));
+    assert!(
+        !player
+            .object_metadata(&project, &authored)
+            .unwrap()
+            .is_playing
+    );
+    assert_eq!(player.drain_runtime_scripts().len(), 1);
+    assert!(
+        !player
+            .object_movieclip_pointer(&project, "mouseMove", Some(&authored))
+            .unwrap()
+    );
+    assert!(player.drain_runtime_scripts().is_empty());
+    assert!(
+        player
+            .object_movieclip_pointer(&project, "mouseDown", Some(&authored))
+            .unwrap()
+    );
+    assert_eq!(player.object_frame(&authored), Some(2));
+    assert!(
+        player
+            .object_movieclip_pointer(&project, "mouseMove", None)
+            .unwrap()
+    );
+    assert_eq!(player.object_frame(&authored), Some(1)); // Held drag outside keeps _over.
+    assert!(
+        player
+            .object_movieclip_pointer(&project, "mouseMove", Some(&authored))
+            .unwrap()
+    );
+    assert_eq!(player.object_frame(&authored), Some(2));
+    assert!(
+        player
+            .object_movieclip_pointer(&project, "mouseUp", None)
+            .unwrap()
+    );
+    assert_eq!(player.object_frame(&authored), Some(0));
+
+    assert!(
+        player
+            .object_movieclip_pointer(&project, "mouseDown", Some(&linked))
+            .unwrap()
+    );
+    assert_eq!(player.object_frame(&linked), Some(2));
+    let mut disabled = player.object_input_info(&project, &linked).unwrap();
+    disabled.movieclip_enabled = false;
+    player
+        .object_input_update(&project, &linked, disabled.clone())
+        .unwrap();
+    assert!(
+        !player
+            .object_movieclip_pointer(&project, "mouseUp", Some(&linked))
+            .unwrap()
+    );
+    assert_eq!(player.object_frame(&linked), Some(2)); // Disable freezes, not goto(_up).
+    assert!(
+        player
+            .object_input_info(&project, &linked)
+            .unwrap()
+            .mouse_enabled
+    );
+    disabled.movieclip_enabled = true;
+    player
+        .object_input_update(&project, &linked, disabled.clone())
+        .unwrap();
+    assert!(
+        player
+            .object_movieclip_pointer(&project, "mouseMove", Some(&linked))
+            .unwrap()
+    );
+    assert_eq!(player.object_frame(&linked), Some(1));
+    assert!(
+        player
+            .object_movieclip_pointer(&project, "mouseDown", Some(&linked))
+            .unwrap()
+    );
+    assert!(
+        player
+            .object_movieclip_pointer(&project, "cancel", None)
+            .unwrap()
+    );
+    assert_eq!(player.object_frame(&linked), Some(0));
+    disabled.button_mode = false;
+    player
+        .object_input_update(&project, &linked, disabled)
+        .unwrap();
+    assert!(
+        !player
+            .object_movieclip_pointer(&project, "mouseMove", Some(&linked))
+            .unwrap()
+    );
+    assert_eq!(player.object_frame(&linked), Some(0));
+
+    let empty = player.create_display(DynamicKind::MovieClip).unwrap();
+    add(&mut player, &project, &root, &empty);
+    let mut input = player.object_input_info(&project, &empty).unwrap();
+    input.button_mode = true;
+    player.object_input_update(&project, &empty, input).unwrap();
+    assert!(
+        !player
+            .object_movieclip_pointer(&project, "mouseDown", Some(&empty))
+            .unwrap()
+    );
+    assert_eq!(player.object_frame(&empty), Some(0)); // Missing labels do not invent frames.
+    player.reset(&project);
+    assert!(
+        player
+            .object_movieclip_pointer(&project, "mouseMove", Some(&linked))
+            .is_err()
+    );
+    assert!(
+        !player
+            .object_movieclip_pointer(&project, "cancel", None)
+            .unwrap()
+    );
 }
 
 fn mouse_input_capabilities_follow_identity(project: Project) {
@@ -1436,6 +1608,13 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
     pulse.timeline.frame_count = 4;
     pulse.timeline.layers[0].id = "pulse-layer".into();
     pulse.timeline.layers[0].keyframes[0].elements = vec![leaf.clone()];
+    pulse.timeline.layers[0].keyframes[0].label = "PulseStart".into();
+    pulse.timeline.layers[0].keyframes.push(Keyframe {
+        frame: 2,
+        elements: vec![leaf.clone()],
+        tween: None,
+        label: "PulseLater".into(),
+    });
     pulse.timeline.scripts = vec![FrameScript {
         frame: 1,
         script: script("pulse();"),
@@ -1474,6 +1653,23 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
             script: script("turn();"),
         },
     ];
+    let mut label_layer = component.timeline.layers[0].clone();
+    label_layer.id = "component-labels".into();
+    label_layer.keyframes = vec![
+        Keyframe {
+            frame: 1,
+            elements: vec![],
+            tween: None,
+            label: "TurnAlias".into(),
+        },
+        Keyframe {
+            frame: 2,
+            elements: vec![],
+            tween: None,
+            label: "Start".into(),
+        },
+    ];
+    component.timeline.layers.push(label_layer);
     let root_id = project.root.clone();
     let root = project.symbol_mut(&root_id).unwrap();
     root.timeline.layers[0].keyframes[0].elements[0].accessibility = Some(Accessibility {
@@ -1489,10 +1685,45 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
     player.control(&project, &[], PlaybackCommand::Stop);
     let root = player.object_ref(&[]).unwrap();
     let holder = player.object_ref(&["authored-container".into()]).unwrap();
+    let root_metadata = player.object_metadata(&project, &root).unwrap();
+    assert_eq!(root_metadata, player.clip_metadata(&project, &[]).unwrap());
+    assert_eq!(root_metadata.frames_loaded, 3);
+    assert_eq!(root_metadata.total_frames, 3);
+    assert_eq!(root_metadata.scene_name, "");
+    assert!(root_metadata.current_label.is_none());
+    assert!(!root_metadata.is_playing);
+    assert_eq!(
+        player
+            .object_metadata(&project, &holder)
+            .unwrap()
+            .current_label
+            .as_deref(),
+        Some("Start")
+    );
     player.drain_runtime_scripts();
     assert!(player.create_linked(&project, "Component").is_err()); // Never guess by symbol name.
     let first = player.create_linked(&project, "ExportedClip").unwrap();
     let second = player.create_linked(&project, "ExportedClip").unwrap();
+    let initial_metadata = player.object_metadata(&project, &first).unwrap();
+    assert_eq!(initial_metadata.current_label.as_deref(), Some("Start"));
+    assert_eq!(
+        initial_metadata.current_frame_label.as_deref(),
+        Some("Start")
+    );
+    assert!(!initial_metadata.is_playing);
+    assert_eq!(initial_metadata.frames_loaded, 3);
+    assert_eq!(initial_metadata.total_frames, 3);
+    assert_eq!(initial_metadata.scene_name, "");
+    assert_eq!(
+        initial_metadata.labels,
+        vec![
+            FrameLabel::new("Start".into(), 1),
+            FrameLabel::new("Turn".into(), 2),
+            FrameLabel::new("TurnAlias".into(), 2),
+            FrameLabel::new("Empty".into(), 3),
+            FrameLabel::new("Start".into(), 3),
+        ]
+    );
     let initial = player.drain_runtime_scripts();
     assert!(
         initial
@@ -1584,12 +1815,25 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
         None
     );
     player.object_control(&project, &first, PlaybackCommand::GotoAndStop(1));
+    let stopped_metadata = player.object_metadata(&project, &first).unwrap();
+    assert_eq!(stopped_metadata.current_label.as_deref(), Some("Turn"));
+    assert_eq!(
+        stopped_metadata.current_frame_label.as_deref(),
+        Some("Turn")
+    );
+    assert!(!stopped_metadata.is_playing);
     player.object_control(&project, &second, PlaybackCommand::Stop);
     let entered = player.drain_runtime_scripts();
     player.tick(&project);
     assert_eq!(player.object_frame(&first), Some(1));
     assert_eq!(player.object_frame(&second), Some(0));
     assert_eq!(player.object_frame(&first_nested), Some(1));
+    let nested_metadata = player.object_metadata(&project, &first_nested).unwrap();
+    assert_eq!(nested_metadata.current_label.as_deref(), Some("PulseStart"));
+    assert!(nested_metadata.current_frame_label.is_none());
+    assert_eq!(nested_metadata.frames_loaded, 4);
+    assert_eq!(nested_metadata.total_frames, 4);
+    assert_eq!(nested_metadata.scene_name, "");
     assert!(
         player.drain_runtime_scripts().iter().any(
             |item| item.target_ref == first_nested && item.dispatch.script.source == "pulse();"
@@ -1597,7 +1841,16 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
     );
     let decoration = player.create_display(DynamicKind::Sprite).unwrap();
     add(&mut player, &project, &first_nested, &decoration);
+    assert!(player.object_control(&project, &first_nested, PlaybackCommand::GotoAndPlay(2)));
+    let nested_metadata = player.object_metadata(&project, &first_nested).unwrap();
+    assert_eq!(nested_metadata.current_label.as_deref(), Some("PulseLater"));
+    assert_eq!(
+        nested_metadata.current_frame_label.as_deref(),
+        Some("PulseLater")
+    );
+    assert!(nested_metadata.is_playing);
     player.object_control(&project, &first, PlaybackCommand::GotoAndStop(2));
+    assert!(player.object_metadata(&project, &first_nested).is_none());
     assert!(!player.object_alive(&first_leaf));
     assert!(player.object_alive(&second_leaf));
     assert!(
@@ -1623,6 +1876,11 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
         )
         .unwrap();
     player.object_control(&project, &first, PlaybackCommand::Play);
+    player.set_playing(false);
+    assert!(player.object_metadata(&project, &first).unwrap().is_playing);
+    player.tick(&project);
+    assert_eq!(player.object_frame(&first), Some(0));
+    player.set_playing(true);
     player.tick(&project);
     assert_eq!(player.object_frame(&first), Some(1));
     assert!(
@@ -1640,9 +1898,159 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
     );
     add(&mut player, &project, &root, &first);
     assert!(object(&player.runtime_snapshot(&project), &recreated).on_stage);
+
+    let nested = find(&player, &first, &["linked-nested"]);
+    player.object_control(&project, &first, PlaybackCommand::Play);
+    player.object_control(&project, &nested, PlaybackCommand::Play);
+    player.object_control(&project, &second, PlaybackCommand::Play);
+    let frames = (player.object_frame(&first), player.object_frame(&nested));
+    let sibling_frame = player.object_frame(&second).unwrap();
+    player
+        .object_stop_all_movie_clips(&project, &first)
+        .unwrap();
+    assert!(!player.object_metadata(&project, &first).unwrap().is_playing);
+    assert!(
+        !player
+            .object_metadata(&project, &nested)
+            .unwrap()
+            .is_playing
+    );
+    assert!(
+        player
+            .object_metadata(&project, &second)
+            .unwrap()
+            .is_playing
+    );
+    player.tick(&project);
+    assert_eq!(
+        (player.object_frame(&first), player.object_frame(&nested)),
+        frames
+    );
+    assert_eq!(player.object_frame(&second), Some((sibling_frame + 1) % 3));
+    assert!(
+        player
+            .object_stop_all_movie_clips(&project, &recreated)
+            .is_err()
+    );
+
+    let children = object(&player.runtime_snapshot(&project), &root)
+        .children
+        .clone();
+    assert!(
+        player
+            .object_remove_children(&project, &root, 0, i32::MAX)
+            .is_err()
+    );
+    assert_eq!(
+        object(&player.runtime_snapshot(&project), &root).children,
+        children
+    );
+    for (begin, end) in [(-1, i32::MAX), (2, 1), (0, children.len() as i32)] {
+        assert!(
+            player
+                .object_remove_children(&project, &root, begin, end)
+                .is_err()
+        );
+        assert_eq!(
+            object(&player.runtime_snapshot(&project), &root).children,
+            children
+        );
+    }
+    let a = children.iter().position(|child| child == &first).unwrap() as i32;
+    let b = children.iter().position(|child| child == &second).unwrap() as i32;
+    let removed = player
+        .object_remove_children(&project, &root, a.min(b), a.max(b))
+        .unwrap();
+    assert_eq!(
+        removed
+            .events
+            .iter()
+            .filter(|event| event.kind == "removed")
+            .count(),
+        2
+    );
+    assert!(
+        removed
+            .events
+            .iter()
+            .all(|event| event.route.last() == Some(&root))
+    );
+    assert!(
+        removed
+            .events
+            .iter()
+            .any(|event| event.kind == "removed_from_stage" && event.target_ref == nested)
+    );
+    for child in [&first, &second] {
+        assert!(player.object_alive(child));
+        assert!(
+            object(&player.runtime_snapshot(&project), child)
+                .parent_ref
+                .is_none()
+        );
+        assert!(!object(&player.runtime_snapshot(&project), child).on_stage);
+    }
+    // A detached subtree can still be stopped, without stopping another
+    // detached linked namespace or changing either root's identity.
+    player.object_control(&project, &first, PlaybackCommand::Play);
+    player.object_control(&project, &nested, PlaybackCommand::Play);
+    player
+        .object_stop_all_movie_clips(&project, &first)
+        .unwrap();
+    player.tick(&project);
+    assert_eq!(
+        (player.object_frame(&first), player.object_frame(&nested)),
+        frames
+    );
+    add(&mut player, &project, &root, &second);
+    add(&mut player, &project, &root, &first);
+    assert!(object(&player.runtime_snapshot(&project), &nested).on_stage);
+    assert!(
+        player
+            .object_remove_children(&project, &decoration, 0, i32::MAX)
+            .unwrap()
+            .events
+            .is_empty()
+    );
+    assert!(
+        player
+            .object_remove_children(&project, &decoration, 0, 0)
+            .is_err()
+    );
+    assert!(
+        player
+            .object_remove_children(&project, &root, 100, i32::MAX)
+            .unwrap()
+            .events
+            .is_empty()
+    );
+    let loader = player.create_display(DynamicKind::Loader).unwrap();
+    assert!(
+        player
+            .object_remove_children(&project, &loader, 0, i32::MAX)
+            .is_err()
+    );
     player.reset(&project);
     assert!(!player.object_alive(&first));
     assert!(!player.object_alive(&recreated));
+    assert!(player.object_metadata(&project, &first).is_none());
+    assert!(
+        player
+            .object_remove_children(&project, &first, 0, i32::MAX)
+            .is_err()
+    );
+    assert!(
+        player
+            .object_stop_all_movie_clips(&project, &first)
+            .is_err()
+    );
+    let reset_root = player.object_ref(&[]).unwrap();
+    assert!(
+        !player
+            .object_metadata(&project, &reset_root)
+            .unwrap()
+            .is_playing
+    );
 }
 
 fn image_loading_owns_content_and_replaces_timelines(mut project: Project) {
