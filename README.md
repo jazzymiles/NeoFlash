@@ -38,7 +38,7 @@ The important foundation comes first: mathematics and types, objects, MovieClips
 | Area | Closed | Partial | Planned | Closed capability groups |
 | --- | ---: | ---: | ---: | ---: |
 | Editor and graphics | 5/12 | 7 | 0 | 41.7% |
-| Timelines and animation | 5/10 | 3 | 2 | 50.0% |
+| Timelines and animation | 5/10 | 4 | 1 | 50.0% |
 | HTML5 and interactivity | 6/12 | 4 | 2 | 50.0% |
 | Import and file compatibility | 1/10 | 7 | 2 | 10.0% |
 | Platform and quality | 4/10 | 5 | 1 | 40.0% |

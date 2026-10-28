@@ -9,7 +9,7 @@ ActionScript coverage uses the [complete declaration catalogue and audit](ACTION
 | Area | Closed | Partial | Planned | Closed capability groups |
 | --- | ---: | ---: | ---: | ---: |
 | Editor and graphics | 5/12 | 7 | 0 | 41.7% |
-| Timelines and animation | 5/10 | 3 | 2 | 50.0% |
+| Timelines and animation | 5/10 | 4 | 1 | 50.0% |
 | HTML5 and interactivity | 6/12 | 4 | 2 | 50.0% |
 | Import and file compatibility | 1/10 | 7 | 2 | 10.0% |
 | Platform and quality | 4/10 | 5 | 1 | 40.0% |
@@ -850,7 +850,7 @@ Authoring tools: stage, vectors, text, selection and library.
 
 `editor-layer-organization` · **Partial**
 
-**Scope:** Compact left-aligned layer names with row dividers and inline rename. Layer context menus provide visibility/locks, insert/delete, document-local copy/cut/paste/duplicate, merge and layer/group-to-symbol conversion. Folders support child grouping, collapse, inherited visibility/locks and editable properties. Guides remain authoring-only; mask relationships use stable layer IDs. Per-layer colored squares toggle authoring outlines; an RGB dialog edits the saved outline color with one Undo. Outlined folders include descendants within the edited symbol; nested symbol outline preferences do not leak into parent artwork. Native transport and publication retain original fills and strokes. Layer-column width is draggable and saved as a workspace preference. Name dragging reorders a layer or its dependent folder/mask group with insertion feedback, cancellation and one Undo.
+**Scope:** Compact left-aligned layer names with row dividers and inline rename. Layer context menus provide visibility/locks, insert/delete, document-local copy/cut/paste/duplicate, merge and layer/group-to-symbol conversion. Folders support child grouping, collapse, inherited visibility/locks and editable properties. Guides remain authoring-only; mask relationships use stable layer IDs. Per-layer colored squares toggle authoring outlines; an RGB dialog edits the saved outline color with one Undo. Outlined folders include descendants within the edited symbol; nested symbol outline preferences do not leak into parent artwork. Native transport and publication retain original fills and strokes. Layer-column width is draggable and saved as a workspace preference. Name dragging reorders a layer or its dependent folder/mask group with insertion feedback, cancellation and one Undo. Upper sibling rows represent foreground layers; drag reordering and frame paste follow the visible order without reversing the serialized painter order.
 
 **Limitations:** Motion-path guides, arbitrary multi-row selection and drag-to-reparent remain unfinished. Reordering preserves existing parent/mask IDs. Layer clipboard stays within the current document. Merging tweened layers samples frames into keys.
 
@@ -866,7 +866,7 @@ Nested instances, frames, interpolation and safe authoring previews.
 
 **Scope:** F5/F6/F7 and moving/copying individual keyframes; insertion uses the visible interpolated pose. Held content and blank spans are drawn to the next chronological key or symbol end. Frame rows are separated from scrollbars; key dragging uses the original pressed frame, a destination preview and edge scrolling. Frame zoom and Fit change cell width with adaptive ruler labels and selected-frame recentering, without changing authored timing. Compact FPS and total-duration fields preserve frame count and set the nearest integer FPS when duration changes.
 
-**Limitations:** Frame-range selection/clipboard and independent layer lengths remain separate work. The last key holds content to the symbol end; use a blank key to stop that layer's visible content.
+**Limitations:** The last key holds content to the explicit layer end or symbol end. Blank keys stop visible content earlier. Range operations and their tween-baking boundaries are tracked separately.
 
 **Evidence:** [crates/neoflash-editor/src/app.rs](../../crates/neoflash-editor/src/app.rs), [crates/neoflash-editor/src/tests.rs](../../crates/neoflash-editor/src/tests.rs), [crates/neoflash-editor/src/panels.rs](../../crates/neoflash-editor/src/panels.rs), [crates/neoflash-editor/src/timeline_paint.rs](../../crates/neoflash-editor/src/timeline_paint.rs), [crates/neoflash-editor/src/panel_tests.rs](../../crates/neoflash-editor/src/panel_tests.rs), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs)
 
@@ -932,13 +932,13 @@ Nested instances, frames, interpolation and safe authoring previews.
 
 ### Frame-range operations
 
-`animation-frame-ranges` · **Planned**
+`animation-frame-ranges` · **Partial**
 
-**Scope:** Frame-range selection and clipboard, span drag/copy/reverse, editing multiple frames and pasting while preserving layer structure.
+**Scope:** Rectangular multi-layer selection; copy, cut, paste, move, clear, insert and remove time as atomic Undo operations. Explicit Include frame scripts transfers symbol-level code once and rejects destination collisions; object scripts travel with placements. Independent layer ends can be set numerically or dragged and stop exposure in native and HTML5 evaluation. macOS range clipboard and visible layer-order paste are supported.
 
-**Limitations:** Moving an individual keyframe does not provide range operations.
+**Limitations:** Reverse, simultaneous artwork editing across frames and creation of destination layer structure remain unfinished. Frame clips are session-local and require existing destination rows. Trimming deletes later keys with Undo recovery. Edits intersecting tweens bake the touched segment to integer-frame poses instead of retaining editable sliced easing curves.
 
-**Evidence:** [docs/BACKLOG.md](../../docs/BACKLOG.md), [docs/ROADMAP.md](../../docs/ROADMAP.md)
+**Evidence:** [crates/neoflash-core/src/timeline_edit.rs](../../crates/neoflash-core/src/timeline_edit.rs), [crates/neoflash-core/src/model.rs](../../crates/neoflash-core/src/model.rs), [crates/neoflash-editor/src/timeline_edit.rs](../../crates/neoflash-editor/src/timeline_edit.rs), [crates/neoflash-editor/src/properties.rs](../../crates/neoflash-editor/src/properties.rs), [crates/neoflash-editor/src/tests.rs](../../crates/neoflash-editor/src/tests.rs), [docs/COMPATIBILITY.md](../../docs/COMPATIBILITY.md)
 
 ### Complete Flash timeline lifecycle
 
