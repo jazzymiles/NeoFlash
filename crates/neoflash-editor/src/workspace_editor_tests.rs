@@ -83,12 +83,34 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
         .join("../../target/verification/graphic-import");
     std::fs::create_dir_all(&graphics_dir).unwrap();
     let vector_file = graphics_dir.join("solid.svg");
+    let png_file = graphics_dir.join("picture.png");
+    let pixels =
+        Project::from_json(include_str!("../../../examples/bitmap-pixels.nflash")).unwrap();
+    std::fs::write(&png_file, pixels.resources[0].decoded_bytes().unwrap()).unwrap();
     let rich_file = graphics_dir.join("gradient.svg");
     std::fs::write(&vector_file,r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><path fill="#e64b41" d="M10 10H90V90H10Z"/></svg>"##).unwrap();
     std::fs::write(&rich_file,r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><defs><linearGradient id="g"><stop stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient></defs><rect width="100" height="100" fill="url(#g)"/></svg>"##).unwrap();
     let graphics_ctx = egui::Context::default();
     let mut graphic_editor = Editor::from_project(&graphics_ctx, Project::blank());
     graphic_editor.library_panel.selected_folder = "Artwork/Imported".into();
+    // Import into a selected folder still creates visible artwork, in one Undo.
+    graphic_editor
+        .project
+        .symbol_mut(&graphic_editor.project.root.clone())
+        .unwrap()
+        .timeline
+        .layers[0]
+        .properties
+        .role = neoflash_core::LayerRole::Folder;
+    graphic_editor
+        .project
+        .symbol_mut(&graphic_editor.project.root.clone())
+        .unwrap()
+        .timeline
+        .layers[0]
+        .keyframes
+        .clear();
+    graphic_editor.project.format_version = 4;
     let before = graphic_editor.project.clone();
     let raw = egui::RawInput {
         screen_rect: Some(egui::Rect::from_min_size(
@@ -105,15 +127,25 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
                 path: Some(rich_file),
                 ..Default::default()
             },
+            egui::DroppedFile {
+                path: Some(png_file),
+                ..Default::default()
+            },
         ],
         ..Default::default()
     };
     let _ = graphics_ctx.run(raw, |ctx| graphic_editor.stage(ctx));
     graphic_editor.project.validate().unwrap();
-    assert_eq!(graphic_editor.selection.len(), 2);
+    assert_eq!(graphic_editor.selection.len(), 3);
+    assert_eq!(graphic_editor.symbol().timeline.layers.len(), 2);
+    assert_eq!(graphic_editor.layer, 1);
+    assert_eq!(
+        neoflash_core::evaluate(&graphic_editor.project, graphic_editor.symbol_id(), 0).len(),
+        3
+    );
     assert_eq!(
         graphic_editor.project.symbols.len(),
-        before.symbols.len() + 2
+        before.symbols.len() + 3
     );
     assert!(
         graphic_editor

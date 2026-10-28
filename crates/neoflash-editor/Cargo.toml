@@ -22,4 +22,4 @@ resvg = { version = "=0.49.0", default-features = false, features = ["text", "sy
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.3"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSScreen", "NSEvent"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSScreen", "NSEvent", "NSApplication", "NSWindow"] }

@@ -143,6 +143,7 @@ pub struct PanelSizes {
     pub timeline_height: f32,
     pub bottom_height: f32,
     pub library_width: f32,
+    pub layer_column_width: f32,
 }
 impl Default for PanelSizes {
     fn default() -> Self {
@@ -150,6 +151,7 @@ impl Default for PanelSizes {
             timeline_height: 207.,
             bottom_height: 190.,
             library_width: 228.,
+            layer_column_width: 210.,
         }
     }
 }
@@ -168,6 +170,12 @@ impl PanelSizes {
         self.timeline_height = size(self.timeline_height, default.timeline_height, 130., 380.);
         self.bottom_height = size(self.bottom_height, default.bottom_height, 145., 420.);
         self.library_width = size(self.library_width, default.library_width, 190., 480.);
+        self.layer_column_width = size(
+            self.layer_column_width,
+            default.layer_column_width,
+            170.,
+            600.,
+        );
     }
 }
 
@@ -238,6 +246,317 @@ pub enum DockDestination {
         group: u32,
         before: bool,
     },
+    FloatingTabs {
+        window: PanelId,
+        group: u32,
+        index: usize,
+    },
+    FloatingSplit {
+        window: PanelId,
+        group: Option<u32>,
+        edge: DockEdge,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DockSurface {
+    Main,
+    Floating(PanelId),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SplitAxis {
+    Horizontal,
+    Vertical,
+}
+
+/// Floating windows use the same tab groups as the main grid, with a small
+/// split tree so every side can accept a panel without reserving an empty Stage.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "content", rename_all = "snake_case")]
+pub enum FloatingNode {
+    Group(DockGroup),
+    Split {
+        axis: SplitAxis,
+        ratio: f32,
+        first: Box<Self>,
+        second: Box<Self>,
+    },
+}
+impl FloatingNode {
+    pub fn panels(&self, out: &mut Vec<PanelId>) {
+        match self {
+            Self::Group(group) => out.extend(&group.tabs),
+            Self::Split { first, second, .. } => {
+                first.panels(out);
+                second.panels(out);
+            }
+        }
+    }
+    pub fn group(&self, id: u32) -> Option<&DockGroup> {
+        match self {
+            Self::Group(group) => (group.id == id).then_some(group),
+            Self::Split { first, second, .. } => first.group(id).or_else(|| second.group(id)),
+        }
+    }
+    pub fn group_mut(&mut self, id: u32) -> Option<&mut DockGroup> {
+        match self {
+            Self::Group(group) => (group.id == id).then_some(group),
+            Self::Split { first, second, .. } => {
+                first.group_mut(id).or_else(|| second.group_mut(id))
+            }
+        }
+    }
+    fn location(&self, panel: PanelId) -> Option<(u32, usize)> {
+        match self {
+            Self::Group(group) => group
+                .tabs
+                .iter()
+                .position(|p| *p == panel)
+                .map(|index| (group.id, index)),
+            Self::Split { first, second, .. } => {
+                first.location(panel).or_else(|| second.location(panel))
+            }
+        }
+    }
+    fn remove(self, panel: PanelId, keep: Option<u32>) -> Option<Self> {
+        match self {
+            Self::Group(mut group) => {
+                group.tabs.retain(|p| *p != panel);
+                if !group.tabs.contains(&group.active)
+                    && let Some(first) = group.tabs.first()
+                {
+                    group.active = *first;
+                }
+                (!group.tabs.is_empty() || keep == Some(group.id)).then_some(Self::Group(group))
+            }
+            Self::Split {
+                axis,
+                ratio,
+                first,
+                second,
+            } => Self::join(
+                axis,
+                ratio,
+                first.remove(panel, keep),
+                second.remove(panel, keep),
+            ),
+        }
+    }
+    fn join(
+        axis: SplitAxis,
+        ratio: f32,
+        first: Option<Self>,
+        second: Option<Self>,
+    ) -> Option<Self> {
+        match (first, second) {
+            (Some(first), Some(second)) => Some(Self::Split {
+                axis,
+                ratio,
+                first: Box::new(first),
+                second: Box::new(second),
+            }),
+            (first, second) => first.or(second),
+        }
+    }
+    fn split(self, target: Option<u32>, edge: DockEdge, group: DockGroup) -> Self {
+        if target.is_none() || matches!(&self, Self::Group(old) if Some(old.id) == target) {
+            let axis = if edge.vertical() {
+                SplitAxis::Horizontal
+            } else {
+                SplitAxis::Vertical
+            };
+            let added = Box::new(Self::Group(group));
+            let existing = Box::new(self);
+            return if matches!(edge, DockEdge::Top | DockEdge::Left) {
+                Self::Split {
+                    axis,
+                    ratio: 0.5,
+                    first: added,
+                    second: existing,
+                }
+            } else {
+                Self::Split {
+                    axis,
+                    ratio: 0.5,
+                    first: existing,
+                    second: added,
+                }
+            };
+        }
+        match self {
+            Self::Split {
+                axis,
+                ratio,
+                first,
+                second,
+            } => {
+                if target.is_some_and(|id| first.group(id).is_some()) {
+                    Self::Split {
+                        axis,
+                        ratio,
+                        first: Box::new(first.split(target, edge, group)),
+                        second,
+                    }
+                } else {
+                    Self::Split {
+                        axis,
+                        ratio,
+                        first,
+                        second: Box::new(second.split(target, edge, group)),
+                    }
+                }
+            }
+            node => node.split(None, edge, group),
+        }
+    }
+    pub fn minimum_size(&self) -> [f32; 2] {
+        match self {
+            Self::Group(group) => group.tabs.iter().fold([80_f32, 80_f32], |size, p| {
+                let minimum = minimum_window_size(*p);
+                [size[0].max(minimum[0]), size[1].max(minimum[1])]
+            }),
+            Self::Split {
+                axis,
+                first,
+                second,
+                ..
+            } => {
+                let a = first.minimum_size();
+                let b = second.minimum_size();
+                match axis {
+                    SplitAxis::Horizontal => [a[0] + b[0] + 5., a[1].max(b[1])],
+                    SplitAxis::Vertical => [a[0].max(b[0]), a[1] + b[1] + 5.],
+                }
+            }
+        }
+    }
+    fn sanitize(
+        self,
+        seen: &mut std::collections::HashSet<PanelId>,
+        ids: &mut std::collections::HashSet<u32>,
+        next: &mut u32,
+        detached: DetachedPanels,
+    ) -> Option<Self> {
+        match self {
+            Self::Group(mut group) => {
+                group.tabs.retain(|p| {
+                    detached
+                        .get(*p)
+                        .is_some_and(|w| w.placement == PanelPlacement::Detached)
+                        && seen.insert(*p)
+                });
+                if group.tabs.is_empty() {
+                    return None;
+                }
+                if !group.tabs.contains(&group.active) {
+                    group.active = group.tabs[0];
+                }
+                group.weight = 1.;
+                if group.id == 0 || group.id > 1_000_000 || !ids.insert(group.id) {
+                    while ids.contains(next) {
+                        *next += 1;
+                    }
+                    group.id = *next;
+                    ids.insert(*next);
+                }
+                Some(Self::Group(group))
+            }
+            Self::Split {
+                axis,
+                ratio,
+                first,
+                second,
+            } => {
+                let ratio = if ratio.is_finite() {
+                    ratio.clamp(0.05, 0.95)
+                } else {
+                    0.5
+                };
+                let first = first.sanitize(seen, ids, next, detached);
+                let second = second.sanitize(seen, ids, next, detached);
+                Self::join(axis, ratio, first, second)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FloatingDock {
+    /// Identity belongs to the window, not its selected tab. At most seven
+    /// windows exist, so the panel-key pool gives stable native viewport IDs.
+    pub id: PanelId,
+    pub root: Option<FloatingNode>,
+    pub geometry: Option<WindowGeometry>,
+    next_group: u32,
+}
+impl FloatingDock {
+    fn new(id: PanelId, panel: PanelId, geometry: Option<WindowGeometry>) -> Self {
+        Self {
+            id,
+            root: Some(FloatingNode::Group(DockGroup {
+                id: 1,
+                tabs: vec![panel],
+                active: panel,
+                weight: 1.,
+            })),
+            geometry,
+            next_group: 2,
+        }
+    }
+    pub fn panels(&self) -> Vec<PanelId> {
+        let mut panels = Vec::new();
+        if let Some(root) = &self.root {
+            root.panels(&mut panels);
+        }
+        panels
+    }
+    pub fn contains(&self, panel: PanelId) -> bool {
+        self.root
+            .as_ref()
+            .is_some_and(|root| root.location(panel).is_some())
+    }
+    pub fn group(&self, id: u32) -> Option<&DockGroup> {
+        self.root.as_ref()?.group(id)
+    }
+    pub fn select(&mut self, panel: PanelId) -> bool {
+        let Some((id, _)) = self.root.as_ref().and_then(|root| root.location(panel)) else {
+            return false;
+        };
+        let group = self
+            .root
+            .as_mut()
+            .and_then(|root| root.group_mut(id))
+            .expect("located floating group");
+        let changed = group.active != panel;
+        group.active = panel;
+        changed
+    }
+    fn fresh_group(&mut self, panel: PanelId) -> DockGroup {
+        let id = self.next_group;
+        self.next_group += 1;
+        DockGroup {
+            id,
+            tabs: vec![panel],
+            active: panel,
+            weight: 1.,
+        }
+    }
+    pub fn set_ratio(&mut self, path: &[bool], value: f32) {
+        let Some(mut node) = self.root.as_mut() else {
+            return;
+        };
+        for side in path {
+            let FloatingNode::Split { first, second, .. } = node else {
+                return;
+            };
+            node = if *side { second } else { first };
+        }
+        if let FloatingNode::Split { ratio, .. } = node {
+            *ratio = value.clamp(0.05, 0.95);
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -380,7 +699,18 @@ impl DockLayout {
                         .insert(location.index.min(group.tabs.len()), panel);
                     group.active = panel;
                 } else {
-                    let group = self.fresh_group(panel);
+                    let mut group = self.fresh_group(panel);
+                    if location.group > 0
+                        && location.group <= 1_000_000
+                        && DockEdge::ALL.into_iter().all(|edge| {
+                            self.area(edge)
+                                .groups
+                                .iter()
+                                .all(|g| g.id != location.group)
+                        })
+                    {
+                        group.id = location.group;
+                    }
                     self.area_mut(location.edge).groups.push(group);
                 }
             }
@@ -416,6 +746,9 @@ impl DockLayout {
                 let area = self.area_mut(edge);
                 group.weight = area.groups.last().map_or(1., |g| g.weight);
                 area.groups.push(group);
+            }
+            DockDestination::FloatingTabs { .. } | DockDestination::FloatingSplit { .. } => {
+                unreachable!("floating destinations are routed by WorkspacePrefs")
             }
         }
     }
@@ -714,6 +1047,7 @@ pub struct WorkspacePrefs {
     pub sizes: PanelSizes,
     pub detached: DetachedPanels,
     pub dock: DockLayout,
+    pub floating: Vec<FloatingDock>,
 }
 impl Default for WorkspacePrefs {
     fn default() -> Self {
@@ -725,6 +1059,7 @@ impl Default for WorkspacePrefs {
             sizes: PanelSizes::default(),
             detached: DetachedPanels::default(),
             dock: DockLayout::default(),
+            floating: Vec::new(),
         }
     }
 }
@@ -776,6 +1111,38 @@ impl WorkspacePrefs {
         self.sizes.sanitize();
         self.detached.sanitize();
         self.dock.sanitize(self.detached);
+        let mut seen = std::collections::HashSet::new();
+        let mut windows = std::collections::HashSet::new();
+        self.floating.retain_mut(|window| {
+            if !windows.insert(window.id) {
+                return false;
+            }
+            let mut ids = std::collections::HashSet::new();
+            let mut next = 1;
+            window.root = window
+                .root
+                .take()
+                .and_then(|root| root.sanitize(&mut seen, &mut ids, &mut next, self.detached));
+            let minimum = ids.into_iter().max().unwrap_or(0) + 1;
+            window.next_group = window.next_group.clamp(minimum, 1_000_008);
+            if let Some(panel) = window.panels().first() {
+                window.geometry = window
+                    .geometry
+                    .and_then(|geometry| geometry.sanitized(*panel));
+            }
+            window.root.is_some()
+        });
+        // Old single-window preferences migrate into one floating tab group.
+        for panel in PanelId::DETACHABLE {
+            if self.placement(panel) == PanelPlacement::Detached
+                && self.floating_window(panel).is_none()
+            {
+                let geometry = self.detached.get(panel).and_then(|p| p.geometry);
+                let visible = self.is_panel_visible(panel);
+                self.float_panel(panel, geometry);
+                *self.panels.slot(panel) = visible;
+            }
+        }
         self.normalize_active_bottom();
     }
     pub fn is_panel_visible(&self, panel: PanelId) -> bool {
@@ -795,6 +1162,9 @@ impl WorkspacePrefs {
         let mut changed = !*self.panels.slot(panel);
         *self.panels.slot(panel) = true;
         changed |= self.dock.select(panel);
+        for window in &mut self.floating {
+            changed |= window.select(panel);
+        }
         if let Some(tab) = panel.bottom_tab().filter(|_| self.is_panel_docked(panel)) {
             changed |= self.active_bottom != tab;
             self.active_bottom = tab;
@@ -833,13 +1203,13 @@ impl WorkspacePrefs {
     /// retaining placement and geometry so Window/F9 can reopen the same panel.
     pub fn set_placement(&mut self, panel: PanelId, placement: PanelPlacement) -> bool {
         let old = self.placement(panel);
-        if old != placement {
+        let grouped = self
+            .floating_window(panel)
+            .is_some_and(|window| window.panels().len() > 1);
+        if old != placement || (grouped && placement == PanelPlacement::Detached) {
             if placement == PanelPlacement::Detached {
-                let location = self.dock.location(panel);
-                self.dock.remove(panel, None);
-                let window = self.detached.get_mut(panel).expect("known panel");
-                window.placement = placement;
-                window.last_dock = location;
+                let geometry = self.detached_geometry(panel);
+                self.float_panel(panel, geometry);
             } else {
                 let destination = self.detached.get(panel).and_then(|w| w.last_dock).map_or(
                     DockDestination::Edge(DockEdge::default_for(panel)),
@@ -850,9 +1220,85 @@ impl WorkspacePrefs {
         }
         let shown = self.show_panel(panel);
         self.normalize_active_bottom();
-        old != placement || shown
+        old != placement || grouped || shown
     }
     pub fn dock_panel(&mut self, panel: PanelId, destination: DockDestination) {
+        match destination {
+            DockDestination::FloatingTabs {
+                window,
+                group,
+                mut index,
+            } => {
+                let Some(target) = self.floating.iter().find(|w| w.id == window) else {
+                    return;
+                };
+                if target.group(group).is_none() {
+                    return;
+                }
+                if let Some((old_group, old_index)) =
+                    target.root.as_ref().and_then(|root| root.location(panel))
+                    && old_group == group
+                    && old_index < index
+                {
+                    index = index.saturating_sub(1);
+                }
+                self.leave_root_dock(panel);
+                self.remove_floating_panel(panel, Some((window, group)));
+                let target = self
+                    .floating
+                    .iter_mut()
+                    .find(|w| w.id == window)
+                    .expect("retained target window");
+                let group = target
+                    .root
+                    .as_mut()
+                    .and_then(|root| root.group_mut(group))
+                    .expect("retained target group");
+                group.tabs.insert(index.min(group.tabs.len()), panel);
+                group.active = panel;
+                self.detached.get_mut(panel).expect("known panel").placement =
+                    PanelPlacement::Detached;
+                self.show_panel(panel);
+                self.normalize_active_bottom();
+                return;
+            }
+            DockDestination::FloatingSplit {
+                window,
+                group,
+                edge,
+            } => {
+                let Some(target) = self.floating.iter().find(|w| w.id == window) else {
+                    return;
+                };
+                if group.is_some_and(|id| target.group(id).is_none()) {
+                    return;
+                }
+                if target.panels() == [panel]
+                    || group.is_some_and(|id| target.group(id).is_some_and(|g| g.tabs == [panel]))
+                {
+                    return;
+                }
+                self.leave_root_dock(panel);
+                self.remove_floating_panel(panel, None);
+                let target = self
+                    .floating
+                    .iter_mut()
+                    .find(|w| w.id == window)
+                    .expect("nonempty target window");
+                let new_group = target.fresh_group(panel);
+                target.root = target
+                    .root
+                    .take()
+                    .map(|root| root.split(group, edge, new_group));
+                self.detached.get_mut(panel).expect("known panel").placement =
+                    PanelPlacement::Detached;
+                self.show_panel(panel);
+                self.normalize_active_bottom();
+                return;
+            }
+            _ => {}
+        }
+        self.remove_floating_panel(panel, None);
         self.dock.insert(panel, destination);
         let location = self.dock.location(panel);
         let window = self.detached.get_mut(panel).expect("known panel");
@@ -862,10 +1308,89 @@ impl WorkspacePrefs {
         self.normalize_active_bottom();
     }
     pub fn detached_geometry(&self, panel: PanelId) -> Option<WindowGeometry> {
-        self.detached.get(panel).and_then(|p| p.geometry)
+        self.floating_window(panel)
+            .and_then(|window| window.geometry)
+            .or_else(|| self.detached.get(panel).and_then(|p| p.geometry))
+    }
+    pub fn floating_window(&self, panel: PanelId) -> Option<&FloatingDock> {
+        self.floating.iter().find(|window| window.contains(panel))
+    }
+    pub fn panel_surface(&self, panel: PanelId) -> DockSurface {
+        self.floating_window(panel)
+            .map_or(DockSurface::Main, |window| DockSurface::Floating(window.id))
+    }
+    fn leave_root_dock(&mut self, panel: PanelId) {
+        if let Some(location) = self.dock.location(panel) {
+            self.detached.get_mut(panel).expect("known panel").last_dock = Some(location);
+            self.dock.remove(panel, None);
+        }
+    }
+    fn remove_floating_panel(&mut self, panel: PanelId, keep: Option<(PanelId, u32)>) {
+        for window in &mut self.floating {
+            let keep_group = keep
+                .filter(|(id, _)| *id == window.id)
+                .map(|(_, group)| group);
+            window.root = window
+                .root
+                .take()
+                .and_then(|root| root.remove(panel, keep_group));
+        }
+        self.floating.retain(|window| window.root.is_some());
+    }
+    /// Tear one tab into its own native window. Existing standalone windows keep
+    /// identity and size; group membership never determines viewport identity.
+    pub fn float_panel(&mut self, panel: PanelId, geometry: Option<WindowGeometry>) -> PanelId {
+        if let Some(window) = self
+            .floating
+            .iter_mut()
+            .find(|window| window.panels() == [panel])
+        {
+            if let Some(geometry) = geometry.and_then(|geometry| geometry.sanitized(panel)) {
+                window.geometry = Some(geometry);
+            }
+            return window.id;
+        }
+        self.leave_root_dock(panel);
+        self.remove_floating_panel(panel, None);
+        let id = if self.floating.iter().all(|window| window.id != panel) {
+            panel
+        } else {
+            PanelId::DETACHABLE
+                .into_iter()
+                .find(|id| self.floating.iter().all(|window| window.id != *id))
+                .expect("at most seven windows")
+        };
+        let geometry = geometry.and_then(|geometry| geometry.sanitized(panel));
+        self.floating.push(FloatingDock::new(id, panel, geometry));
+        self.detached.get_mut(panel).expect("known panel").placement = PanelPlacement::Detached;
+        self.show_panel(panel);
+        self.normalize_active_bottom();
+        id
+    }
+    pub fn remember_floating_geometry(&mut self, id: PanelId, geometry: WindowGeometry) -> bool {
+        let Some(window) = self.floating.iter_mut().find(|window| window.id == id) else {
+            return false;
+        };
+        let panels = window.panels();
+        let Some(panel) = panels.first() else {
+            return false;
+        };
+        let Some(geometry) = geometry.sanitized(*panel) else {
+            return false;
+        };
+        let changed = window.geometry != Some(geometry);
+        window.geometry = Some(geometry);
+        for panel in panels {
+            self.detached.get_mut(panel).expect("known panel").geometry = Some(geometry);
+        }
+        changed
     }
     /// Minimized/missing/nonfinite native snapshots must not erase good geometry.
+    #[cfg(test)]
     pub fn remember_geometry(&mut self, panel: PanelId, geometry: WindowGeometry) -> bool {
+        if let Some(id) = self.floating_window(panel).map(|window| window.id) {
+            return self.remember_floating_geometry(id, geometry);
+        }
         let Some(geometry) = geometry.sanitized(panel) else {
             return false;
         };
@@ -991,6 +1516,7 @@ mod tests {
             timeline_height: 380.,
             bottom_height: 420.,
             library_width: 480.,
+            layer_column_width: 420.,
         };
         prefs.restore_layout();
         assert_eq!(
@@ -1008,6 +1534,7 @@ mod tests {
                 timeline_height: f32::NAN,
                 bottom_height: f32::INFINITY,
                 library_width: -100.,
+                layer_column_width: f32::NAN,
             },
             ..Default::default()
         };
@@ -1019,7 +1546,8 @@ mod tests {
             PanelSizes {
                 timeline_height: 207.,
                 bottom_height: 190.,
-                library_width: 190.
+                library_width: 190.,
+                layer_column_width: 210.,
             }
         );
         assert!(prefs.sizes.timeline_height.is_nan());
@@ -1031,7 +1559,8 @@ mod tests {
             PanelSizes {
                 timeline_height: 380.,
                 bottom_height: 145.,
-                library_width: 480.
+                library_width: 480.,
+                layer_column_width: 210.,
             }
         );
     }
@@ -1132,6 +1661,77 @@ mod tests {
             prefs.set_placement(panel, PanelPlacement::Detached);
             prefs.remember_geometry(panel, window([1800., -200.], default_window_size(panel)));
         }
+        // Native-window groups survive reordering, two-axis splitting, hiding,
+        // and moving the panel that originally supplied the window identity.
+        prefs.dock_panel(
+            PanelId::Properties,
+            DockDestination::FloatingTabs {
+                window: PanelId::Library,
+                group: 1,
+                index: 1,
+            },
+        );
+        prefs.dock_panel(
+            PanelId::Properties,
+            DockDestination::FloatingTabs {
+                window: PanelId::Library,
+                group: 1,
+                index: 0,
+            },
+        );
+        prefs.dock_panel(
+            PanelId::Actions,
+            DockDestination::FloatingSplit {
+                window: PanelId::Library,
+                group: None,
+                edge: DockEdge::Right,
+            },
+        );
+        prefs.dock_panel(
+            PanelId::Tools,
+            DockDestination::FloatingSplit {
+                window: PanelId::Library,
+                group: None,
+                edge: DockEdge::Top,
+            },
+        );
+        prefs.dock_panel(PanelId::Library, DockDestination::Edge(DockEdge::Left));
+        assert_eq!(
+            prefs.panel_surface(PanelId::Properties),
+            DockSurface::Floating(PanelId::Library)
+        );
+        prefs.dock_panel(
+            PanelId::Output,
+            DockDestination::FloatingTabs {
+                window: PanelId::Library,
+                group: 1,
+                index: 1,
+            },
+        );
+        prefs.set_panel_visible(PanelId::Properties, false);
+        let window = prefs
+            .floating
+            .iter_mut()
+            .find(|window| window.id == PanelId::Library)
+            .unwrap();
+        window.set_ratio(&[], 0.35);
+        assert_eq!(
+            window.group(1).unwrap().tabs,
+            [PanelId::Properties, PanelId::Output]
+        );
+        let all_panels: Vec<_> = prefs
+            .floating
+            .iter()
+            .flat_map(FloatingDock::panels)
+            .collect();
+        assert_eq!(
+            all_panels
+                .iter()
+                .copied()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            all_panels.len()
+        );
         let mut storage = Storage::default();
         prefs.save(&mut storage);
         assert_eq!(WorkspacePrefs::load(Some(&storage)), prefs);

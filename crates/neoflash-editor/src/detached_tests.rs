@@ -2,7 +2,7 @@
 //! OS move/resize and native clipboard acceptance remain live native checks.
 use crate::{
     app::{BottomTab, Editor},
-    workspace::{PanelId, PanelPlacement},
+    workspace::{DockSurface, PanelId, PanelPlacement},
 };
 use eframe::egui;
 use neoflash_core::Project;
@@ -162,6 +162,7 @@ fn immediate_panels_share_state_close_reopen_and_dock_without_duplicate_contents
             egui::CentralPanel::default().show(ctx, |ui| {
                 editor.panel_title(ui, PanelId::Library, "Library")
             });
+            editor.finalize_panel_drag(ctx);
         });
     };
     let gesture = |to| {
@@ -217,8 +218,78 @@ fn immediate_panels_share_state_close_reopen_and_dock_without_duplicate_contents
         egui::pos2(100., 100.),
         egui::vec2(1440., 960.),
     ));
-    let _ = ctx.run(input, |ctx| editor.continue_panel_drag(ctx));
+    let _ = ctx.run(input, |ctx| editor.finalize_panel_drag(ctx));
     assert!(editor.workspace.is_panel_docked(PanelId::Library));
+
+    // The same gesture moves a root tab into a native window and then between
+    // two windows. Native identities remain stable when their original panel
+    // is no longer the selected tab; each moved panel has exactly one owner.
+    editor.set_panel_placement(&ctx, PanelId::Properties, PanelPlacement::Detached);
+    render(&mut editor, vec![]);
+    header_frame(
+        &mut editor,
+        egui::ViewportId::ROOT,
+        egui::Pos2::ZERO,
+        vec![],
+    );
+    header_frame(
+        &mut editor,
+        egui::ViewportId::ROOT,
+        egui::Pos2::ZERO,
+        gesture(egui::pos2(510., 410.)),
+    );
+    assert_eq!(
+        editor.workspace.panel_surface(PanelId::Library),
+        DockSurface::Floating(PanelId::Properties)
+    );
+    editor.set_panel_placement(&ctx, PanelId::Actions, PanelPlacement::Detached);
+    render(&mut editor, vec![]);
+    let properties_id = egui::ViewportId::from_hash_of(PanelId::Properties.viewport_key().unwrap());
+    header_frame(&mut editor, properties_id, egui::pos2(60., 110.), vec![]);
+    header_frame(
+        &mut editor,
+        properties_id,
+        egui::pos2(60., 110.),
+        gesture(egui::pos2(450., 300.)),
+    );
+    assert_eq!(
+        editor.workspace.panel_surface(PanelId::Library),
+        DockSurface::Floating(PanelId::Actions)
+    );
+    assert_eq!(editor.workspace.floating.len(), 2);
+    let before_cancel = editor.workspace.clone();
+    header_frame(&mut editor, actions_id, egui::pos2(60., 110.), vec![]);
+    header_frame(
+        &mut editor,
+        actions_id,
+        egui::pos2(60., 110.),
+        vec![
+            egui::Event::PointerMoved(egui::pos2(20., 14.)),
+            crate::tests::primary_button(egui::pos2(20., 14.), true),
+            egui::Event::PointerMoved(egui::pos2(1300., 800.)),
+            egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    assert_eq!(editor.workspace, before_cancel);
+    *close.borrow_mut() = Some(actions_id);
+    render(&mut editor, vec![]);
+    assert!(!editor.workspace.is_panel_visible(PanelId::Actions));
+    assert!(!editor.workspace.is_panel_visible(PanelId::Library));
+    *close.borrow_mut() = None;
+    editor.show_panel(PanelId::Library);
+    seen.borrow_mut().clear();
+    render(&mut editor, vec![]);
+    assert!(seen.borrow().contains(&actions_id));
+    assert_eq!(
+        editor.workspace.panel_surface(PanelId::Library),
+        DockSurface::Floating(PanelId::Actions)
+    );
     assert_eq!(editor.project, original);
     assert_eq!(editor.selection, selection);
     assert_eq!(editor.frame, 7);

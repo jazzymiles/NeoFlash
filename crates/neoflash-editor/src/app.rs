@@ -55,6 +55,9 @@ pub struct Editor {
     pub pan: Vec2,
     pub shape_draft: Option<crate::stage_selection::ShapeDraft>,
     pub fill: Color,
+    pub stroke: Color,
+    pub stroke_width: f64,
+    pub(crate) property_edit: Option<crate::paint_controls::PropertyEdit>,
     pub bottom: BottomTab,
     pub script_target: ScriptTarget,
     pub script_event: ObjectEvent,
@@ -102,6 +105,7 @@ impl Editor {
         s
     }
     pub(crate) fn from_project(ctx: &egui::Context, project: Project) -> Self {
+        crate::theme::initialize_editor_style(ctx);
         WorkspacePrefs::default().theme.apply(ctx);
         let saved_project = Some(project.clone());
         let root = project.root.clone();
@@ -112,7 +116,8 @@ impl Editor {
             onion: false, onion_outlines: false, onion_before: 3, onion_after: 3,
             onion_anchor: false, anchored_range: (0, 6), onion_opacity: 0.3,
             zoom: 0.75, pan: Vec2::ZERO, shape_draft: None,
-            fill: [50, 117, 184, 255], bottom: BottomTab::Properties,
+            fill: [50, 117, 184, 255], stroke: [30, 50, 70, 255], stroke_width: 1.0,
+            property_edit: None, bottom: BottomTab::Properties,
             script_target: ScriptTarget::Frame, script_event: ObjectEvent::Click,
             selected_source: None, code_feedback: None,
             status: "Ready · F5 frame · F6 keyframe · F7 blank keyframe · ⌘↵ Test Movie".into(),
@@ -128,6 +133,7 @@ impl Editor {
             workspace: WorkspacePrefs::default(),
             detached: crate::detached::DetachedState::default(),
         };
+        s.fonts.install_ui(ctx);
         s.load_project_fonts(ctx);
         s.normalize_selection();
         s
@@ -211,6 +217,7 @@ impl Editor {
         self.output.push(self.status.clone());
     }
     pub fn transact(&mut self, f: impl FnOnce(&mut Self)) {
+        self.finish_property_edit();
         self.finish_selection_gesture();
         self.shape_draft = None;
         self.timeline_key_drag = None;
@@ -832,7 +839,7 @@ impl eframe::App for Editor {
     }
 }
 
-fn reaches(
+pub(crate) fn reaches(
     project: &Project,
     from: &str,
     to: &str,

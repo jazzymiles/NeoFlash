@@ -162,7 +162,7 @@ impl Editor {
             self.clipboard.view = Some((self.symbol_id().to_owned(), center));
         }
     }
-    fn paste_center(&self) -> [f64; 2] {
+    pub(crate) fn paste_center(&self) -> [f64; 2] {
         self.clipboard
             .view
             .as_ref()

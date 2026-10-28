@@ -26,7 +26,8 @@ impl crate::app::Editor {
         ui: &mut egui::Ui,
         ctx: &egui::Context,
         kind: &mut ElementKind,
-    ) {
+    ) -> Option<egui::Id> {
+        use crate::paint_controls::{PropertyChanges, numeric_row, property_row};
         let ElementKind::TextBox {
             text,
             width,
@@ -36,28 +37,34 @@ impl crate::app::Editor {
             multiline,
         } = kind
         else {
-            return;
+            return None;
         };
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Text box");
-            ui.label("Width");
-            ui.add(egui::DragValue::new(width).range(0.0..=10000.));
-            ui.label("Height");
-            ui.add(egui::DragValue::new(height).range(0.0..=10000.));
-            ui.checkbox(multiline, "Multiline");
-            ui.checkbox(word_wrap, "Word wrap");
-        });
-        ui.add(
-            egui::TextEdit::multiline(text)
-                .desired_rows(2)
-                .desired_width(f32::INFINITY),
-        );
-        ui.horizontal_wrapped(|ui| {
+        let mut changes = PropertyChanges::default();
+        ui.strong("Text box");
+        changes.note(numeric_row(ui, "Width", width, 0. ..=10000., 1.));
+        changes.note(numeric_row(ui, "Height", height, 0. ..=10000., 1.));
+        changes.note(ui.checkbox(multiline, "Multiline"));
+        changes.note(ui.checkbox(word_wrap, "Word wrap"));
+        egui::ScrollArea::vertical()
+            .id_salt("text-box-content")
+            .max_height(120.)
+            .show(ui, |ui| {
+                changes.note(ui.add_sized(
+                    [ui.available_width(), 74.],
+                    egui::TextEdit::multiline(text).desired_rows(3),
+                ));
+            });
+        let before_font = format.font.clone();
+        let mut response = property_row(ui, "Font", |ui| {
             egui::ComboBox::from_id_salt("text_box_font")
                 .selected_text(&format.font)
-                .width(180.)
+                .width(ui.available_width())
                 .show_ui(ui, |ui| {
-                    ui.text_edit_singleline(&mut self.font_filter);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.font_filter)
+                            .hint_text("Find font")
+                            .desired_width(220.),
+                    );
                     for family in &self.fonts.families {
                         if self.font_filter.is_empty()
                             || family
@@ -67,29 +74,50 @@ impl crate::app::Editor {
                             ui.selectable_value(&mut format.font, family.clone(), family);
                         }
                     }
-                });
-            ui.label("Size");
-            let size_changed = ui
-                .add(egui::DragValue::new(&mut format.size).range(0.1..=10000.))
-                .changed();
-            ui.checkbox(&mut format.bold, "Bold");
-            ui.checkbox(&mut format.italic, "Italic");
+                })
+                .response
+        });
+        if format.font != before_font {
+            response.mark_changed();
+        }
+        changes.note(response);
+        let size_response = numeric_row(ui, "Size", &mut format.size, 0.1..=10000., 1.);
+        let min_leading = (-format.size * 1.2 + 0.1).max(-10000.);
+        if size_response.changed() && format.leading < min_leading {
+            format.leading = min_leading;
+        }
+        changes.note(size_response);
+        changes.note(ui.checkbox(&mut format.bold, "Bold"));
+        changes.note(ui.checkbox(&mut format.italic, "Italic"));
+        changes.note(property_row(ui, "Color", |ui| {
             let mut rgb = [
                 (format.color >> 16) as u8,
                 (format.color >> 8) as u8,
                 format.color as u8,
             ];
-            if ui.color_edit_button_srgb(&mut rgb).changed() {
+            let response = ui.color_edit_button_srgb(&mut rgb);
+            if response.changed() {
                 format.color = u32::from_be_bytes([0, rgb[0], rgb[1], rgb[2]]);
             }
-            ui.label("Leading");
-            let min_leading = (-format.size * 1.2 + 0.1).max(-10000.);
-            if size_changed && format.leading < min_leading {
-                format.leading = min_leading;
-            }
-            ui.add(egui::DragValue::new(&mut format.leading).range(min_leading..=10000.));
+            ui.label(
+                egui::RichText::new(format!("#{:06X}", format.color))
+                    .monospace()
+                    .size(11.),
+            );
+            response
+        }));
+        changes.note(numeric_row(
+            ui,
+            "Leading",
+            &mut format.leading,
+            min_leading..=10000.,
+            0.25,
+        ));
+        let before_align = format.align;
+        let mut response = property_row(ui, "Alignment", |ui| {
             egui::ComboBox::from_id_salt("text_box_align")
                 .selected_text(format!("{:?}", format.align))
+                .width(ui.available_width())
                 .show_ui(ui, |ui| {
                     for (value, label) in [
                         (neoflash_core::TextAlign::Left, "Left"),
@@ -98,14 +126,20 @@ impl crate::app::Editor {
                     ] {
                         ui.selectable_value(&mut format.align, value, label);
                     }
-                });
+                })
+                .response
         });
+        if format.align != before_align {
+            response.mark_changed();
+        }
+        changes.note(response);
         if let Err(error) = self
             .fonts
             .load_style(ctx, &format.font, format.bold, format.italic)
         {
             ui.colored_label(crate::theme::UiPalette::current(ctx).error_text, error);
         }
+        changes.control
     }
 }
 

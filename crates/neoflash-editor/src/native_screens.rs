@@ -27,6 +27,46 @@ pub fn pointer_state() -> Option<(eframe::egui::Pos2, bool)> {
     None
 }
 
+/// Frontmost native content rectangle under a desktop point. `None` means the
+/// platform cannot answer; `Some(None)` means desktop or another application.
+/// This prevents a drop from going through a floating window into the root.
+#[cfg(all(target_os = "macos", not(test)))]
+pub fn front_window_at(position: eframe::egui::Pos2) -> Option<Option<eframe::egui::Rect>> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSApplication, NSEvent, NSScreen, NSWindow};
+    let main_thread = MainThreadMarker::new()?;
+    let screens = NSScreen::screens(main_thread);
+    let primary = screens.iter().next()?.frame();
+    let primary_top = primary.origin.y + primary.size.height;
+    let mut cocoa_point = NSEvent::mouseLocation();
+    cocoa_point.x = f64::from(position.x);
+    cocoa_point.y = primary_top - f64::from(position.y);
+    let number =
+        NSWindow::windowNumberAtPoint_belowWindowWithWindowNumber(cocoa_point, 0, main_thread);
+    let app = NSApplication::sharedApplication(main_thread);
+    let Some(window) = app.windowWithWindowNumber(number) else {
+        return Some(None);
+    };
+    if !window.isVisible() || window.isMiniaturized() {
+        return Some(None);
+    }
+    let content = window.contentRectForFrameRect(window.frame());
+    let area = cocoa_work_area(
+        primary_top,
+        [content.origin.x, content.origin.y],
+        [content.size.width, content.size.height],
+    )?;
+    Some(Some(eframe::egui::Rect::from_min_size(
+        eframe::egui::pos2(area.origin[0], area.origin[1]),
+        eframe::egui::vec2(area.size[0], area.size[1]),
+    )))
+}
+
+#[cfg(any(not(target_os = "macos"), test))]
+pub fn front_window_at(_position: eframe::egui::Pos2) -> Option<Option<eframe::egui::Rect>> {
+    None
+}
+
 /// Empty means the caller must use its known root-window rectangle as fallback.
 /// Cocoa screens use global OS logical points, regardless of Retina scale.
 #[cfg(target_os = "macos")]

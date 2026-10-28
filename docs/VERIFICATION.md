@@ -221,7 +221,9 @@ The strict solid-contour adapter accepted a small subset of inspected Flash 3 sh
 
 Native checks observed persistent detached Actions/Dark theme, accessible Check Script controls, F9 reopening/focus, docking, readable Light theme, compact Timeline footer reachability and synchronized scrolling in a large authored fixture. Detached tool choice and text selection/clipboard state survived docking in their checked build.
 
-Headless checks cover preferences/recovery, visibility/focus, contrast, clipboard viewport routing and stable layout. A child-window startup panic was corrected by initializing accessibility before showing the child. Physical monitor relocation/disconnect, VoiceOver speech, IME and complete desktop accessibility remain unverified. Later dock/tab/split implementations do not inherit these earlier observations.
+Native authoring checks also observed importing a local PNG onto the Stage, drawing with separate fill/stroke alpha and stroke width, layer-column resizing, drag reordering, custom layer-outline color, resizing the docked Timeline by its edge, and detaching Library by its header. A saved project reopened with its reordered layers and outline setting. Its ordinary HTML5 export displayed the embedded PNG and translucent drawing with solid artwork despite editor outlines, advanced frames and paused without runtime errors. Font fallback and embedded-resource notices remained visible.
+
+Headless checks cover preferences/recovery, visibility/focus, contrast, clipboard viewport routing, native-window tab/split models and stable layout. Finder-to-Stage dragging and every cross-window docking destination still need direct native acceptance. A child-window startup panic was corrected by initializing accessibility before showing the child. Physical monitor relocation/disconnect, VoiceOver speech, IME and complete desktop accessibility remain unverified. Later dock/tab/split implementations do not inherit these earlier observations.
 
 <a id="observed-html5-checks"></a>
 <a id="vector-path-increment"></a>

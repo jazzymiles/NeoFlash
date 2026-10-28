@@ -1,5 +1,9 @@
 //! Project code editing shares the existing Actions workspace and Undo history.
-use crate::app::Editor;
+use crate::{
+    app::Editor,
+    paint_controls::{property_row, text_row},
+    theme::CONTROL_HEIGHT,
+};
 use eframe::egui;
 use neoflash_core::{Script, ScriptLanguage, SourceUnit, SymbolKind, new_id};
 use std::hash::{Hash, Hasher};
@@ -94,14 +98,31 @@ impl Editor {
         {
             self.selected_source = self.project.sources.first().map(|source| source.id.clone());
         }
-        ui.horizontal_wrapped(|ui| {
+        property_row(ui, "Source file", |ui| {
             egui::ComboBox::from_id_salt("project_source_file")
-                .selected_text(self.project.sources.iter().find(|s| Some(&s.id) == self.selected_source.as_ref()).map_or("No source files", |s| s.path.as_str()))
+                .width(ui.available_width())
+                .truncate()
+                .selected_text(
+                    self.project
+                        .sources
+                        .iter()
+                        .find(|s| Some(&s.id) == self.selected_source.as_ref())
+                        .map_or("No source files", |s| s.path.as_str()),
+                )
                 .show_ui(ui, |ui| {
                     for unit in &self.project.sources {
-                        ui.selectable_value(&mut self.selected_source, Some(unit.id.clone()), &unit.path);
+                        ui.selectable_value(
+                            &mut self.selected_source,
+                            Some(unit.id.clone()),
+                            &unit.path,
+                        );
                     }
                 });
+        });
+        ui.horizontal(|ui| {
+            let button_width=((ui.available_width()-2.*ui.spacing().item_spacing.x)/3.).max(1.);
+            ui.allocate_ui_with_layout(egui::vec2(button_width,CONTROL_HEIGHT),egui::Layout::left_to_right(egui::Align::Center),|ui| {
+                ui.menu_button("New…", |ui| {
             for (label, language) in [("New AS2 class", ScriptLanguage::ActionScript2), ("New AS3 class", ScriptLanguage::ActionScript3)] {
               if ui.button(label).clicked() {
                 let mut index = 1;
@@ -115,9 +136,12 @@ impl Editor {
                 let unit = SourceUnit {id:new_id("source"), path:format!("{name}.as"), language, source};
                 self.selected_source = Some(unit.id.clone());
                 self.transact(|editor| {editor.project.enable_program();editor.project.sources.push(unit);});
+                ui.close();
               }
             }
-            if ui.button("Import source…").clicked()
+                });
+            });
+            if ui.add_sized([button_width,CONTROL_HEIGHT],egui::Button::new("Import…")).on_hover_text("Import source file").clicked()
                 && let Some(path) = rfd::FileDialog::new().add_filter("Project source", &["as", "js", "ts"]).pick_file() {
                 match std::fs::read_to_string(&path) {
                     Ok(source) if source.len() <= 1_048_576 => {
@@ -135,7 +159,7 @@ impl Editor {
                     Err(error) => self.message(format!("Could not read source: {error}")),
                 }
             }
-            if ui.add_enabled(self.selected_source.is_some(), egui::Button::new("Remove file")).clicked() {
+            if ui.add_enabled(self.selected_source.is_some(), egui::Button::new("Remove").min_size(egui::vec2(button_width,CONTROL_HEIGHT))).clicked() {
                 let selected=self.selected_source.clone();
                 self.transact(|editor|editor.project.sources.retain(|source|Some(&source.id)!=selected.as_ref()));
                 self.selected_source=None;
@@ -144,27 +168,31 @@ impl Editor {
         let mut document_class = self.project.document_class.clone().unwrap_or_default();
         let mut symbol_class = self.symbol().class_name.clone().unwrap_or_default();
         let mut linkage_id = self.symbol().linkage_id.clone().unwrap_or_default();
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Document class");
-            ui.add(
-                egui::TextEdit::singleline(&mut document_class)
-                    .desired_width(180.)
-                    .hint_text("app.Main"),
-            );
+        ui.add_space(4.);
+        ui.collapsing("Class linkage", |ui| {
+            property_row(ui, "Document", |ui| {
+                ui.add_sized(
+                    [ui.available_width(), CONTROL_HEIGHT],
+                    egui::TextEdit::singleline(&mut document_class).hint_text("app.Main"),
+                )
+                .on_hover_text("Document class");
+            });
             if self.symbol_id() != self.project.root {
-                ui.label("Symbol class");
-                ui.add(
-                    egui::TextEdit::singleline(&mut symbol_class)
-                        .desired_width(180.)
-                        .hint_text("ui.Component"),
-                );
-                if self.symbol().kind == SymbolKind::MovieClip {
-                    ui.label("Export identifier");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut linkage_id)
-                            .desired_width(160.)
-                            .hint_text("card-library-id"),
+                property_row(ui, "Symbol class", |ui| {
+                    ui.add_sized(
+                        [ui.available_width(), CONTROL_HEIGHT],
+                        egui::TextEdit::singleline(&mut symbol_class).hint_text("ui.Component"),
                     );
+                });
+                if self.symbol().kind == SymbolKind::MovieClip {
+                    property_row(ui, "Export ID", |ui| {
+                        ui.add_sized(
+                            [ui.available_width(), CONTROL_HEIGHT],
+                            egui::TextEdit::singleline(&mut linkage_id)
+                                .hint_text("card-library-id"),
+                        )
+                        .on_hover_text("Export identifier");
+                    });
                 }
             }
         });
@@ -195,11 +223,13 @@ impl Editor {
         };
         let original = self.project.sources[index].clone();
         let mut unit = original.clone();
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Path");
-            ui.add(egui::TextEdit::singleline(&mut unit.path).desired_width(240.));
+        ui.separator();
+        text_row(ui, "Path", &mut unit.path);
+        property_row(ui, "Language", |ui| {
             egui::ComboBox::from_id_salt("source_language")
-                .selected_text(format!("{:?}", unit.language))
+                .width(ui.available_width())
+                .truncate()
+                .selected_text(source_language_name(unit.language))
                 .show_ui(ui, |ui| {
                     for language in [
                         ScriptLanguage::ActionScript3,
@@ -207,10 +237,22 @@ impl Editor {
                         ScriptLanguage::TypeScript,
                         ScriptLanguage::JavaScript,
                     ] {
-                        ui.selectable_value(&mut unit.language, language, format!("{language:?}"));
+                        ui.selectable_value(
+                            &mut unit.language,
+                            language,
+                            source_language_name(language),
+                        );
                     }
                 });
-            if ui.button("Check project").clicked() {
+        });
+        ui.horizontal(|ui| {
+            if ui
+                .add_sized(
+                    [ui.available_width(), CONTROL_HEIGHT],
+                    egui::Button::new("Check project"),
+                )
+                .clicked()
+            {
                 let result = neoflash_script::compile_project(&self.project).map(|_| ());
                 self.record_code_check(
                     &Script {
@@ -246,5 +288,14 @@ impl Editor {
         if unit != original {
             self.transact(|editor| editor.project.sources[index] = unit);
         }
+    }
+}
+
+fn source_language_name(language: ScriptLanguage) -> &'static str {
+    match language {
+        ScriptLanguage::ActionScript2 => "ActionScript 2",
+        ScriptLanguage::ActionScript3 => "ActionScript 3",
+        ScriptLanguage::JavaScript => "JavaScript",
+        ScriptLanguage::TypeScript => "TypeScript",
     }
 }

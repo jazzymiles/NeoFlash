@@ -181,6 +181,10 @@ pub struct LayerProperties {
     pub mask: Option<Id>,
     #[serde(default)]
     pub outline: bool,
+    /// Authoring-only RGB; None uses the stable layer palette without changing
+    /// older documents or published artwork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline_color: Option<[u8; 3]>,
     #[serde(default)]
     pub collapsed: bool,
 }

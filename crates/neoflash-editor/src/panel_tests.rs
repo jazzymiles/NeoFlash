@@ -183,6 +183,7 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
 fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
     for theme in [ThemeMode::Light, ThemeMode::Dark] {
         let ctx = egui::Context::default();
+        ctx.enable_accesskit();
         let mut project = Project::demo();
         let root = project.root.clone();
         let template = project.symbol(&root).unwrap().timeline.layers[0].clone();
@@ -204,13 +205,31 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
             .collect();
         let mut editor = Editor::from_project(&ctx, project);
         editor.set_theme(&ctx, theme);
-        frame(&mut editor, &ctx, Vec2::new(1024., 720.), 0.1, vec![]);
+        let initial = frame(&mut editor, &ctx, Vec2::new(1024., 720.), 0.1, vec![]);
+        // Native font metrics and dock headers determine where the rows begin.
+        // Scroll over a painted key, rather than a fixed window coordinate that
+        // can land on the ruler or header after a legitimate layout change.
+        let rows_point = initial
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Circle(circle)
+                    if circle.radius == 3.
+                        && circle.fill == UiPalette::current(&ctx).timeline_key
+                        && shape.clip_rect.contains(circle.center) =>
+                {
+                    Some(circle.center)
+                }
+                _ => None,
+            })
+            .min_by(|a, b| a.y.total_cmp(&b.y))
+            .expect("the timeline must paint a visible key before scrolling");
         frame(
             &mut editor,
             &ctx,
             Vec2::new(1024., 720.),
             0.2,
-            wheel(Pos2::new(400., 130.), Vec2::new(0., -260.)),
+            wheel(rows_point, Vec2::new(0., -260.)),
         );
         let mut out = frame(&mut editor, &ctx, Vec2::new(1024., 720.), 0.3, vec![]);
         for step in 1..8 {
@@ -260,7 +279,10 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
                         first_row = row;
                         first_label = Some(Pos2::new(text.pos.x + 2., y));
                     }
-                    assert!(text.pos.x < 24., "layer names must align at the left edge");
+                    assert!(
+                        text.pos.x < 40.,
+                        "layer names must align beside the role icon"
+                    );
                     assert!(
                         keys.iter().any(|key| (*key - y).abs() < 1.),
                         "unaligned label at {y}, keys {keys:?}"
@@ -360,6 +382,96 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
         );
         editor.undo();
         assert_eq!(editor.project, before);
+        assert!(!editor.history.can_undo());
+
+        // Column sizing is a workspace preference, while layer moves are one
+        // document edit; both use actual rendered control geometry.
+        let layout = frame(&mut editor, &ctx, Vec2::new(1024., 720.), 1.3, vec![]);
+        let divider = named_bounds(&layout, "Resize layer column")
+            .expect("layer divider is accessible")
+            .center();
+        let width = editor.workspace.sizes.layer_column_width;
+        frame(
+            &mut editor,
+            &ctx,
+            Vec2::new(1024., 720.),
+            1.4,
+            vec![
+                Event::PointerMoved(divider),
+                primary_button(divider, true),
+                Event::PointerMoved(divider + Vec2::new(60., 0.)),
+                primary_button(divider + Vec2::new(60., 0.), false),
+            ],
+        );
+        assert!((editor.workspace.sizes.layer_column_width - width - 60.).abs() < 1.);
+        assert_eq!(editor.project, before);
+        assert!(!editor.history.can_undo());
+        let layout = frame(&mut editor, &ctx, Vec2::new(1024., 720.), 1.5, vec![]);
+        let row = named_bounds(&layout, &format!("Row {first_row:02}"))
+            .expect("scrolled layer remains visible")
+            .center();
+        let moved_id = editor.symbol().timeline.layers[first_row].id.clone();
+        let destination = row + Vec2::new(0., crate::timeline_paint::ROW_HEIGHT * 1.1);
+        frame(
+            &mut editor,
+            &ctx,
+            Vec2::new(1024., 720.),
+            1.6,
+            vec![
+                Event::PointerMoved(row),
+                primary_button(row, true),
+                Event::PointerMoved(destination),
+                primary_button(destination, false),
+            ],
+        );
+        assert_eq!(editor.symbol().timeline.layers[first_row + 1].id, moved_id);
+        editor.undo();
+        assert_eq!(editor.project, before);
+        assert!(!editor.history.can_undo());
+
+        // A moved folder carries its mask and masked child without rewriting
+        // their relationships or losing authored frames.
+        editor.project.format_version = 4;
+        let ids: Vec<_> = editor
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .take(5)
+            .map(|layer| layer.id.clone())
+            .collect();
+        let layers = &mut editor.symbol_mut().timeline.layers;
+        layers[0].properties.role = LayerRole::Folder;
+        layers[0].keyframes.clear();
+        layers[1].properties.parent = Some(ids[0].clone());
+        layers[1].properties.role = LayerRole::Mask;
+        for element in layers[1]
+            .keyframes
+            .iter_mut()
+            .flat_map(|key| &mut key.elements)
+        {
+            element.kind = ElementKind::Rectangle {
+                width: 10.,
+                height: 10.,
+                fill: [0, 0, 0, 255],
+                stroke: [0; 4],
+                stroke_width: 0.,
+            };
+        }
+        layers[2].properties.parent = Some(ids[0].clone());
+        layers[2].properties.mask = Some(ids[1].clone());
+        let grouped = editor.project.clone();
+        editor.reorder_timeline_layer(&ids[0], Some(&ids[4]));
+        assert_eq!(
+            editor.symbol().timeline.layers[1..4]
+                .iter()
+                .map(|layer| layer.id.clone())
+                .collect::<Vec<_>>(),
+            ids[..3]
+        );
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, grouped);
         assert!(!editor.history.can_undo());
     }
 }
@@ -658,6 +770,7 @@ fn detached_timeline_minimum_width_scrolls_to_working_opacity_control() {
 #[test]
 fn bounded_timeline_footer_preserves_stage_at_minimum_root_window() {
     let ctx = egui::Context::default();
+    ctx.enable_accesskit();
     let mut editor = Editor::from_project(&ctx, Project::demo());
     editor.set_theme(&ctx, ThemeMode::Light);
     let size = Vec2::new(1024., 720.);
@@ -688,5 +801,43 @@ fn bounded_timeline_footer_preserves_stage_at_minimum_root_window() {
             editor.workspace.sizes.timeline_height
         );
     }
+    // Native input can batch press, movement and release between paints. The
+    // saved height must survive that gesture and leave a usable Stage.
+    let output = frame(&mut editor, &ctx, size, 1., vec![]);
+    let grip = named_bounds(&output, "Resize top dock").expect("Timeline height grip");
+    assert!(grip.height() >= 8.);
+    let start = grip.center();
+    let initial_height = editor.workspace.dock.top.size;
+    let end = start + Vec2::new(0., 60.);
+    frame(
+        &mut editor,
+        &ctx,
+        size,
+        1.1,
+        vec![
+            Event::PointerMoved(start),
+            primary_button(start, true),
+            Event::PointerMoved(end),
+            primary_button(end, false),
+        ],
+    );
+    assert!((editor.workspace.dock.top.size - initial_height - 60.).abs() < 1.);
+    let saved_height = editor.workspace.dock.top.size;
+    let mut stage = Rect::NOTHING;
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(viewport),
+            time: Some(1.4),
+            ..Default::default()
+        },
+        |ctx| {
+            editor.menu(ctx);
+            editor.dock_grid(ctx);
+            stage = ctx.available_rect();
+            editor.stage(ctx);
+        },
+    );
+    assert_eq!(editor.workspace.dock.top.size, saved_height);
+    assert!(stage.height() >= 160., "{stage:?}");
     assert!(!editor.dirty());
 }

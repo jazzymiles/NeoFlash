@@ -1,6 +1,8 @@
 use eframe::egui::{Painter, Pos2, Rect, Stroke};
 pub(crate) const ROW_HEIGHT: f32 = 25.;
 pub(crate) const RULER_HEIGHT: f32 = 25.;
+pub(crate) const LAYER_CONTROL_WIDTH: f32 = 24.;
+pub(crate) const LAYER_COLUMN_GAP: f32 = 4.;
 
 /// Use 1/2/5 intervals so labels remain legible from dense overview to wide cells.
 pub(crate) fn ruler_label_step(cell_width: f32, frame_count: u32) -> u32 {

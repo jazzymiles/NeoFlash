@@ -739,16 +739,16 @@ impl Editor {
                                     width: bounds.width() as f64,
                                     height: bounds.height() as f64,
                                     fill: self.fill,
-                                    stroke: [30, 50, 70, 255],
-                                    stroke_width: 0.,
+                                    stroke: self.stroke,
+                                    stroke_width: self.stroke_width,
                                 }
                             } else {
                                 ElementKind::Ellipse {
                                     width: bounds.width() as f64,
                                     height: bounds.height() as f64,
                                     fill: self.fill,
-                                    stroke: [30, 50, 70, 255],
-                                    stroke_width: 0.,
+                                    stroke: self.stroke,
+                                    stroke_width: self.stroke_width,
                                 }
                             };
                             self.add_element(kind, bounds.min.x as f64, bounds.min.y as f64);

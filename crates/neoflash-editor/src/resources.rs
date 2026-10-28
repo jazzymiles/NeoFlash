@@ -2,8 +2,7 @@
 use crate::app::Editor;
 use eframe::egui;
 use neoflash_core::{
-    ElementKind, MAX_RESOURCE_BYTES, MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES, ResourceUnit,
-    Transform, new_id,
+    MAX_RESOURCE_BYTES, MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES, ResourceUnit, new_id,
 };
 use std::{io::Read, path::Path};
 
@@ -54,11 +53,20 @@ impl Editor {
     }
 
     pub(crate) fn resource_library(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(18.);
-        ui.strong("Resource files");
-        ui.separator();
-        ui.small("Stored in the project. Load by path or place PNG, JPEG and SVG graphics.");
-        if ui.button("Import files…").clicked()
+        let count = self.project.resources.len();
+        egui::CollapsingHeader::new(format!("Resource files ({count})"))
+            .id_salt("library-resources")
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("resource-files")
+                    .max_height(200.)
+                    .show(ui, |ui| self.resource_files_body(ui));
+            });
+    }
+
+    fn resource_files_body(&mut self, ui: &mut egui::Ui) {
+        ui.small("Project data and media. Select an image to place it.");
+        if ui.button("Add resource files…").clicked()
             && let Some(paths) = rfd::FileDialog::new().pick_files()
         {
             match self.import_resource_paths(&paths) {
@@ -76,11 +84,27 @@ impl Editor {
         }
         for unit in &self.project.resources {
             let selected = self.resource_panel.selected.as_ref() == Some(&unit.id);
-            if ui
-                .selectable_label(selected, &unit.path)
-                .on_hover_text(&unit.media_type)
-                .clicked()
+            let response = ui
+                .add_sized(
+                    [ui.available_width(), crate::theme::CONTROL_HEIGHT],
+                    egui::Button::new(&unit.path)
+                        .truncate()
+                        .selected(selected)
+                        .frame(false)
+                        .sense(egui::Sense::click_and_drag()),
+                )
+                .on_hover_text(format!("{}\n{}", unit.path, unit.media_type));
+            if response.drag_started()
+                && matches!(
+                    unit.media_type.as_str(),
+                    "image/png" | "image/jpeg" | "image/svg+xml"
+                )
             {
+                self.library_panel.drag =
+                    Some(crate::library::LibraryDrag::Resource(unit.id.clone()));
+                ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
+            }
+            if response.clicked() {
                 self.resource_panel.selected = Some(unit.id.clone());
                 self.resource_panel.baseline = None;
                 self.library_selected = None;
@@ -105,42 +129,14 @@ impl Editor {
             self.resource_panel.baseline = Some(metadata);
         }
         ui.small(format!("{} bytes", unit.byte_len()));
-        let svg_to_place = (unit.media_type == "image/svg+xml"
-            && ui.button("Place SVG on Stage").clicked())
-        .then(|| unit.id.clone());
-        if matches!(unit.media_type.as_str(), "image/png" | "image/jpeg")
-            && ui.button("Place image").clicked()
+        if matches!(
+            unit.media_type.as_str(),
+            "image/svg+xml" | "image/png" | "image/jpeg"
+        ) && ui.button("Place on Stage").clicked()
         {
-            match unit.decode_image() {
-                Ok(image) => {
-                    let width = image.width;
-                    let height = image.height;
-                    let kind = ElementKind::Bitmap {
-                        resource_id: unit.id.clone(),
-                        width,
-                        height,
-                        smoothing: false,
-                    };
-                    let scale = (self.project.width as f64 * 0.8 / width as f64)
-                        .min(self.project.height as f64 * 0.8 / height as f64)
-                        .min(1.);
-                    self.add_element_transformed(
-                        kind,
-                        Transform {
-                            x: (self.project.width as f64 - width as f64 * scale) / 2.,
-                            y: (self.project.height as f64 - height as f64 * scale) / 2.,
-                            scale_x: scale,
-                            scale_y: scale,
-                            ..Default::default()
-                        },
-                    );
-                }
-                Err(error) => self.message(format!("Cannot place image: {error}")),
-            }
-        }
-        if let Some(id) = svg_to_place {
-            if let Err(error) = self.place_svg_resource(&id) {
-                self.message(format!("Cannot place SVG: {error}"));
+            let id = unit.id.clone();
+            if let Err(error) = self.place_graphic_resource(&id, None) {
+                self.message(format!("Cannot place image: {error}"));
             }
             return;
         }

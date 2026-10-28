@@ -1,5 +1,9 @@
 use crate::app::{Editor, ScriptTarget};
-use crate::{theme::UiPalette, workspace::PanelId};
+use crate::{
+    paint_controls::property_row,
+    theme::{CONTROL_HEIGHT, UiPalette},
+    workspace::PanelId,
+};
 use eframe::egui;
 use neoflash_core::*;
 
@@ -34,48 +38,52 @@ impl Editor {
             return;
         };
         let mut metadata = element.accessibility.clone();
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("accessibility_form").auto_shrink([false, false]).show(ui, |ui| {
+            ui.set_max_width(ui.available_width());
             ui.add_enabled_ui(self.selected_editable(), |ui| {
                 let mut enabled = metadata.is_some();
-                if ui.checkbox(&mut enabled, "Expose this object to assistive technology").changed() {
+                if ui.checkbox(&mut enabled, "Expose object in HTML5").on_hover_text("Expose this object to assistive technology").changed() {
                     metadata = enabled.then(|| Accessibility {
                         name: if element.name.trim().is_empty() { "Button".into() } else { element.name.chars().take(256).collect() },
                         description: String::new(), role: AccessibleRole::Button, tab_order: 0, disabled: false,
                     });
                 }
                 if let Some(data) = &mut metadata {
-                    ui.horizontal_wrapped(|ui| {
-                        let label = ui.label("Name");
-                        ui.add(egui::TextEdit::singleline(&mut data.name).char_limit(256).desired_width(240.)).labelled_by(label.id);
-                        ui.label("Role");
-                        egui::ComboBox::from_id_salt("accessible_role").selected_text(match data.role {
+                    ui.add_space(4.);
+                    property_row(ui, "Name", |ui| {
+                        ui.add_sized([ui.available_width(), CONTROL_HEIGHT], egui::TextEdit::singleline(&mut data.name).char_limit(256).hint_text("Accessible name"));
+                    });
+                    property_row(ui, "Role", |ui| {
+                        egui::ComboBox::from_id_salt("accessible_role").width(ui.available_width()).truncate().selected_text(match data.role {
                             AccessibleRole::Button => "Button", AccessibleRole::Image => "Image",
                         }).show_ui(ui, |ui| {
                             ui.selectable_value(&mut data.role, AccessibleRole::Button, "Button");
                             ui.selectable_value(&mut data.role, AccessibleRole::Image, "Image");
                         });
-                        let label = ui.label("Reading / focus order");
-                        ui.add(egui::DragValue::new(&mut data.tab_order).range(0..=10000)).labelled_by(label.id);
-                        if data.role == AccessibleRole::Button { ui.checkbox(&mut data.disabled, "Disabled"); }
                     });
-                    ui.horizontal_wrapped(|ui| {
-                        let label = ui.label("Description");
-                        ui.add(egui::TextEdit::singleline(&mut data.description).char_limit(4096).desired_width(ui.available_width().min(600.))).labelled_by(label.id);
+                    property_row(ui, "Read order", |ui| {
+                        ui.add_sized([ui.available_width(), CONTROL_HEIGHT], egui::DragValue::new(&mut data.tab_order).range(0..=10000)).on_hover_text("Reading and keyboard focus order");
+                    });
+                    if data.role == AccessibleRole::Button {
+                        property_row(ui, "State", |ui| {ui.checkbox(&mut data.disabled, "Disabled");});
+                    }
+                    property_row(ui, "Description", |ui| {
+                        ui.add_sized([ui.available_width(), CONTROL_HEIGHT * 2.], egui::TextEdit::multiline(&mut data.description).char_limit(4096).desired_rows(2).hint_text("Optional description"));
                     });
                     if data.name.trim().is_empty() { ui.colored_label(UiPalette::current(ui.ctx()).error_text, "Enter a name before saving or publishing."); }
+                    ui.add_space(4.);
+                    ui.separator();
                     if data.role == AccessibleRole::Button {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.small("Tab focuses the button; Enter or Space runs its Click action in HTML5.");
-                            if ui.button("Edit Click action").clicked() {
-                                self.set_playing(false);
-                                self.select_single_id(element.id.clone());
-                                self.show_panel(PanelId::Actions);
-                                self.script_target = ScriptTarget::Object;
-                                self.script_event = ObjectEvent::Click;
-                            }
-                        });
+                        if ui.add_sized([ui.available_width(), CONTROL_HEIGHT], egui::Button::new("Edit Click action")).clicked() {
+                            self.set_playing(false);
+                            self.select_single_id(element.id.clone());
+                            self.show_panel(PanelId::Actions);
+                            self.script_target = ScriptTarget::Object;
+                            self.script_event = ObjectEvent::Click;
+                        }
+                        ui.small("Tab focuses this button. Enter or Space runs its Click action.");
                     } else {
-                        ui.small("Images are described to assistive technology and do not enter the keyboard focus order.");
+                        ui.small("Images expose their name and description without entering the keyboard focus order.");
                     }
                 }
             });

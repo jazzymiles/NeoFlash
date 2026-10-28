@@ -3,6 +3,70 @@ use eframe::egui::{self, Color32, Stroke};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
+pub(crate) const PANEL_FONT: f32 = 12.;
+pub(crate) const CONTROL_HEIGHT: f32 = 24.;
+pub(crate) const LABEL_WIDTH: f32 = 76.;
+
+/// Give small timeline controls clear rails, handles and check marks without
+/// changing the rest of the panel or adding any layout padding.
+pub(crate) fn timeline_controls<R>(
+    ui: &mut egui::Ui,
+    content: impl FnOnce(&mut egui::Ui) -> R,
+) -> egui::InnerResponse<R> {
+    ui.scope(|ui| {
+        let p = UiPalette::current(ui.ctx());
+        let rail = if ui.visuals().dark_mode {
+            Color32::from_rgb(84, 101, 123)
+        } else {
+            Color32::from_rgb(145, 156, 171)
+        };
+        ui.spacing_mut().slider_rail_height = 6.;
+        let visuals = ui.visuals_mut();
+        visuals.slider_trailing_fill = true;
+        visuals.selection.bg_fill = p.accent;
+        visuals.widgets.inactive.bg_fill = rail;
+        visuals.widgets.inactive.bg_stroke = Stroke::new(1.5_f32, p.text);
+        // Slider handles use fg_stroke for their outline; checkboxes use it
+        // for the check. Keep both readable even before hover or focus.
+        visuals.widgets.inactive.fg_stroke = Stroke::new(1.5_f32, p.text);
+        for widget in [
+            &mut visuals.widgets.hovered,
+            &mut visuals.widgets.active,
+            &mut visuals.widgets.open,
+        ] {
+            widget.bg_fill = p.input_fill;
+            widget.bg_stroke = Stroke::new(1.5_f32, p.accent);
+            widget.fg_stroke = Stroke::new(2.0_f32, p.text);
+        }
+        content(ui)
+    })
+}
+
+/// Install the editor's initial layout once. Later theme changes only update
+/// colors and preserve any customized typography and widget state.
+pub(crate) fn initialize_editor_style(ctx: &egui::Context) {
+    ctx.all_styles_mut(|style| {
+        style.spacing.item_spacing = egui::vec2(6., 5.);
+        style.spacing.button_padding = egui::vec2(6., 3.);
+        style.spacing.interact_size = egui::vec2(36., CONTROL_HEIGHT);
+        style.spacing.combo_width = 120.;
+        style.text_styles.insert(
+            egui::TextStyle::Body,
+            egui::FontId::proportional(PANEL_FONT),
+        );
+        style.text_styles.insert(
+            egui::TextStyle::Button,
+            egui::FontId::proportional(PANEL_FONT),
+        );
+        style
+            .text_styles
+            .insert(egui::TextStyle::Small, egui::FontId::proportional(11.));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Heading, egui::FontId::proportional(14.));
+    });
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemeMode {
@@ -29,8 +93,6 @@ impl ThemeMode {
             };
             ctx.style_mut_of(theme, |style| {
                 style.visuals = mode.visuals();
-                style.spacing.item_spacing = egui::vec2(6., 5.);
-                style.spacing.button_padding = egui::vec2(7., 4.);
             });
         }
         ctx.set_theme(match self {
@@ -160,13 +222,13 @@ static LIGHT: LazyLock<UiPalette> = LazyLock::new(|| {
         selection_stroke: c(17, 64, 111),
         timeline_fill: c(249, 249, 249),
         timeline_cell: c(248, 248, 248),
-        timeline_major: c(234, 236, 239),
-        timeline_grid: c(204, 210, 218),
-        timeline_row_separator: c(171, 180, 192),
-        timeline_active_frame: c(174, 206, 235),
+        timeline_major: c(210, 217, 225),
+        timeline_grid: c(137, 149, 164),
+        timeline_row_separator: c(113, 128, 146),
+        timeline_active_frame: c(143, 189, 231),
         timeline_active_layer: Color32::from_rgba_unmultiplied(54, 118, 190, 28),
-        timeline_tween: c(203, 204, 238),
-        timeline_tween_stroke: c(63, 56, 102),
+        timeline_tween: c(190, 190, 232),
+        timeline_tween_stroke: c(51, 45, 91),
         timeline_key: c(40, 47, 57),
         timeline_blank_key: Color32::WHITE,
         timeline_label: c(133, 32, 38),
@@ -202,12 +264,12 @@ static DARK: LazyLock<UiPalette> = LazyLock::new(|| {
         selection_stroke: c(224, 237, 255),
         timeline_fill: c(31, 35, 42),
         timeline_cell: c(34, 39, 47),
-        timeline_major: c(43, 49, 59),
-        timeline_grid: c(66, 75, 89),
-        timeline_row_separator: c(83, 95, 113),
-        timeline_active_frame: c(43, 73, 112),
+        timeline_major: c(67, 76, 89),
+        timeline_grid: c(116, 132, 151),
+        timeline_row_separator: c(137, 153, 173),
+        timeline_active_frame: c(53, 94, 139),
         timeline_active_layer: Color32::from_rgba_unmultiplied(113, 180, 255, 32),
-        timeline_tween: c(67, 65, 98),
+        timeline_tween: c(80, 76, 124),
         timeline_tween_stroke: c(220, 214, 255),
         timeline_key: c(231, 237, 247),
         timeline_blank_key: c(28, 32, 39),
@@ -262,6 +324,7 @@ mod tests {
                 ("selected text", p.selection_stroke, p.selection_fill),
                 ("timeline text", p.text, p.timeline_cell),
                 ("key", p.timeline_key, p.timeline_active_frame),
+                ("held key and end marker", p.timeline_key, p.timeline_major),
                 ("blank key", p.timeline_key, p.timeline_blank_key),
                 ("tween", p.timeline_tween_stroke, p.timeline_tween),
                 ("label", p.timeline_label, p.timeline_cell),
@@ -269,6 +332,22 @@ mod tests {
                 ("stage title", p.stage_title, p.pasteboard),
             ] {
                 assert!(contrast(a, b) >= 4.5, "{mode:?} {name}: {}", contrast(a, b));
+            }
+            for (name, a, b, minimum) in [
+                ("empty frame grid", p.timeline_grid, p.timeline_cell, 2.5),
+                ("held frame grid", p.timeline_grid, p.timeline_major, 2.),
+                (
+                    "layer separator",
+                    p.timeline_row_separator,
+                    p.timeline_cell,
+                    3.,
+                ),
+            ] {
+                assert!(
+                    contrast(a, b) >= minimum,
+                    "{mode:?} {name}: {}",
+                    contrast(a, b)
+                );
             }
             for background in (0..=255).map(Color32::from_gray).chain([p.pasteboard]) {
                 let ratio =

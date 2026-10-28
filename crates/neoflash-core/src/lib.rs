@@ -49,8 +49,8 @@ mod validation;
 mod xml;
 
 pub use authored_layers::{
-    AuthoredDraw, AuthoredScene, evaluate_scene, layer_effectively_locked,
-    layer_effectively_visible,
+    AuthoredDraw, AuthoredScene, evaluate_scene, layer_effective_outline_color,
+    layer_effectively_locked, layer_effectively_visible, layer_outline_color,
 };
 pub use clipboard::{
     CLIPBOARD_PREFIX, ClipboardError, ClipboardPayload, MAX_CLIPBOARD_BYTES, PasteResult,

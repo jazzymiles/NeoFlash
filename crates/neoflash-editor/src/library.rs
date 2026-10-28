@@ -5,7 +5,7 @@ use crate::{
     workspace::PanelId,
 };
 use eframe::egui::{self, Align2, FontId, Pos2, Rect, Sense, Stroke, Vec2};
-use neoflash_core::{ElementKind, InstancePlayback, SymbolKind};
+use neoflash_core::SymbolKind;
 use std::collections::HashSet;
 
 #[derive(Default)]
@@ -16,6 +16,13 @@ pub(crate) struct LibraryPanel {
     descending: bool,
     collapsed: HashSet<String>,
     editing: Option<LibraryEdit>,
+    pub(crate) drag: Option<LibraryDrag>,
+}
+
+#[derive(Clone)]
+pub(crate) enum LibraryDrag {
+    Symbol(String),
+    Resource(String),
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -74,21 +81,72 @@ enum Action {
 
 impl Editor {
     pub(crate) fn library_body(&mut self, ui: &mut egui::Ui) {
+        if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+            self.library_panel.drag = None;
+        }
         ui.add_space(4.);
         self.panel_title(ui, PanelId::Library, "Library");
         ui.separator();
         let height = ui.available_height();
-        let compact = height < 330.;
-        let tree_height = (height * 0.45).clamp(90., 360.);
-        // A short split pane must still expose its complete contents. The
-        // preview can be expanded explicitly; overflow scrolls the whole form.
+        let selected = self
+            .library_selected
+            .as_deref()
+            .and_then(|id| self.project.symbol(id))
+            .map(|symbol| LibrarySymbol {
+                id: symbol.id.clone(),
+                name: symbol.name.clone(),
+                folder: symbol.folder.clone(),
+                kind: symbol.kind,
+                linkage: symbol.linkage_id.clone().unwrap_or_default(),
+                class: symbol.class_name.clone().unwrap_or_default(),
+                frames: symbol.timeline.frame_count,
+            });
+        egui::CollapsingHeader::new("Preview")
+            .id_salt("library-preview")
+            .default_open(height >= 330.)
+            .show(ui, |ui| {
+                if let Some(symbol) = selected {
+                    self.paint_library_preview(ui, &symbol.id);
+                    ui.add(egui::Label::new(egui::RichText::new(&symbol.name).strong()).truncate())
+                        .on_hover_text(&symbol.name);
+                    ui.small(format!(
+                        "{} · {} frame{}",
+                        kind_label(symbol.kind),
+                        symbol.frames,
+                        if symbol.frames == 1 { "" } else { "s" }
+                    ));
+                    if !symbol.linkage.is_empty() {
+                        ui.add(egui::Label::new(format!("Linkage: {}", symbol.linkage)).truncate())
+                            .on_hover_text(&symbol.linkage);
+                    }
+                    if !symbol.class.is_empty() {
+                        ui.add(egui::Label::new(format!("Class: {}", symbol.class)).truncate())
+                            .on_hover_text(&symbol.class);
+                    }
+                } else {
+                    let (rect, _) = ui
+                        .allocate_exact_size(Vec2::new(ui.available_width(), 72.), Sense::hover());
+                    ui.painter()
+                        .rect_filled(rect, 2., ui.visuals().extreme_bg_color);
+                    ui.painter().text(
+                        rect.center(),
+                        Align2::CENTER_CENTER,
+                        "Select a symbol",
+                        FontId::proportional(12.),
+                        ui.visuals().weak_text_color(),
+                    );
+                }
+            });
+        ui.separator();
+        // Preview stays anchored. Only the controls/tree below it can overflow.
+        let body_height = ui.available_height();
         egui::ScrollArea::vertical()
             .id_salt("library-body")
             .auto_shrink([false, false])
-            .show(ui, |ui| self.library_browser(ui, compact, tree_height));
+            .show(ui, |ui| self.library_browser(ui, body_height));
     }
 
-    fn library_browser(&mut self, ui: &mut egui::Ui, compact: bool, tree_height: f32) {
+    fn library_browser(&mut self, ui: &mut egui::Ui, body_height: f32) {
         let folders = self.project.library_folder_paths();
         if !self.library_panel.selected_folder.is_empty()
             && !folders.contains(&self.library_panel.selected_folder)
@@ -115,52 +173,28 @@ impl Editor {
             .as_ref()
             .and_then(|id| symbols.iter().find(|symbol| &symbol.id == id))
             .cloned();
-        egui::CollapsingHeader::new("Preview")
-            .id_salt("library-preview")
-            .default_open(!compact)
-            .show(ui, |ui| {
-                if let Some(symbol) = &selected {
-                    self.paint_library_preview(ui, &symbol.id);
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(&symbol.name).strong());
-                        ui.label(egui::RichText::new(kind_label(symbol.kind)).small().weak());
-                    });
-                    ui.small(format!(
-                        "{} frame{}",
-                        symbol.frames,
-                        if symbol.frames == 1 { "" } else { "s" }
-                    ));
-                    if !symbol.linkage.is_empty() {
-                        ui.small(format!("Linkage: {}", symbol.linkage));
-                    }
-                    if !symbol.class.is_empty() {
-                        ui.small(format!("Class: {}", symbol.class));
-                    }
-                } else {
-                    let (rect, _) = ui
-                        .allocate_exact_size(Vec2::new(ui.available_width(), 120.), Sense::hover());
-                    ui.painter()
-                        .rect_filled(rect, 2., ui.visuals().extreme_bg_color);
-                    ui.painter().text(
-                        rect.center(),
-                        Align2::CENTER_CENTER,
-                        "Select a symbol to preview",
-                        FontId::proportional(11.),
-                        ui.visuals().weak_text_color(),
-                    );
-                }
-            });
-        ui.separator();
         ui.add(
             egui::TextEdit::singleline(&mut self.library_panel.search)
                 .hint_text("Search symbols, folders, linkage")
                 .desired_width(ui.available_width()),
         );
+        if ui
+            .add_sized(
+                [ui.available_width(), 24.],
+                egui::Button::new("Import graphics…"),
+            )
+            .on_hover_text("Place SVG, PNG or JPEG on the Stage")
+            .clicked()
+        {
+            self.import_graphics_dialog();
+        }
         let mut new_folder = false;
-        ui.horizontal_wrapped(|ui| {
-            new_folder = ui.small_button("New folder").clicked();
+        ui.horizontal(|ui| {
+            new_folder = ui
+                .add_sized([78., 24.], egui::Button::new("New folder"))
+                .clicked();
             egui::ComboBox::from_id_salt("library-sort")
-                .width(70.)
+                .width((ui.available_width() - 46.).max(50.))
                 .selected_text(self.library_panel.sort.label())
                 .show_ui(ui, |ui| {
                     for sort in [LibrarySort::Name, LibrarySort::Type, LibrarySort::Linkage] {
@@ -168,11 +202,14 @@ impl Editor {
                     }
                 });
             if ui
-                .small_button(if self.library_panel.descending {
-                    "Z–A"
-                } else {
-                    "A–Z"
-                })
+                .add_sized(
+                    [34., 24.],
+                    egui::Button::new(if self.library_panel.descending {
+                        "Z–A"
+                    } else {
+                        "A–Z"
+                    }),
+                )
                 .on_hover_text("Reverse sort order")
                 .clicked()
             {
@@ -199,6 +236,7 @@ impl Editor {
             &mut rows,
         );
         let mut action = None;
+        let tree_height = (body_height - 220.).max(50.);
         egui::ScrollArea::vertical()
             .id_salt("library-tree")
             .auto_shrink([false, false])
@@ -284,6 +322,11 @@ impl Editor {
                                     &symbol.folder
                                 }
                             ));
+                            if response.drag_started() {
+                                self.library_panel.drag =
+                                    Some(LibraryDrag::Symbol(symbol.id.clone()));
+                                ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
+                            }
                             if response.clicked() {
                                 action = Some(Action::SelectSymbol(
                                     symbol.id.clone(),
@@ -350,31 +393,26 @@ impl Editor {
                 folders.len()
             ));
             if let Some(symbol) = selected {
-                ui.horizontal_wrapped(|ui| {
-                    if ui.button("Place instance").clicked() {
-                        if symbol.id == self.symbol_id() {
-                            self.message("A symbol cannot contain itself.");
-                        } else {
-                            self.finish_edits();
-                            let playback = match symbol.kind {
-                                SymbolKind::MovieClip => InstancePlayback::Independent,
-                                SymbolKind::Graphic => InstancePlayback::Loop,
-                                SymbolKind::Button => InstancePlayback::SingleFrame(0),
-                            };
-                            self.add_element(
-                                ElementKind::Instance {
-                                    symbol_id: symbol.id.clone(),
-                                    playback,
-                                },
-                                120.,
-                                120.,
-                            );
-                        }
+                ui.horizontal(|ui| {
+                    let width = ((ui.available_width() - 12.) / 3.).max(40.);
+                    if ui
+                        .add_sized([width, 24.], egui::Button::new("Place"))
+                        .on_hover_text("Place instance on Stage")
+                        .clicked()
+                        && let Err(error) = self.place_library_symbol(ui.ctx(), &symbol.id, None)
+                    {
+                        self.message(error);
                     }
-                    if ui.button("Edit").clicked() {
+                    if ui
+                        .add_sized([width, 24.], egui::Button::new("Edit"))
+                        .clicked()
+                    {
                         self.enter_symbol(symbol.id.clone());
                     }
-                    if ui.button("Organize…").clicked() {
+                    if ui
+                        .add_sized([width, 24.], egui::Button::new("Organize"))
+                        .clicked()
+                    {
                         self.start_library_edit(EditTarget::Symbol(symbol.id.clone()), "");
                     }
                 });
@@ -447,16 +485,11 @@ impl Editor {
                 EditTarget::Folder(_) => "Organize folder",
                 EditTarget::Symbol(_) => "Organize symbol",
             });
-            let response = ui.add(
-                egui::TextEdit::singleline(&mut edit.name)
-                    .hint_text("Name")
-                    .desired_width(ui.available_width()),
-            );
+            let response = crate::paint_controls::text_row(ui, "Name", &mut edit.name);
             if std::mem::take(&mut edit.focus) {
                 response.request_focus();
             }
-            ui.horizontal(|ui| {
-                ui.label("Folder");
+            crate::paint_controls::property_row(ui, "Folder", |ui| {
                 let excluded = match &edit.target {
                     EditTarget::Folder(path) => Some(path.as_str()),
                     _ => None,
@@ -545,6 +578,7 @@ pub(crate) fn folder_picker(
     excluded: Option<&str>,
 ) {
     egui::ComboBox::from_id_salt(salt)
+        .truncate()
         .selected_text(if value.is_empty() {
             "Library root"
         } else {
@@ -663,8 +697,14 @@ fn library_row(
     expanded: bool,
 ) -> egui::Response {
     let height = if linkage.is_empty() { 23. } else { 36. };
-    let (rect, response) =
-        ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(
+        Vec2::new(ui.available_width(), height),
+        if folder {
+            Sense::click()
+        } else {
+            Sense::click_and_drag()
+        },
+    );
     let visuals = ui.style().interact_selectable(&response, selected);
     let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
     if selected || response.hovered() {

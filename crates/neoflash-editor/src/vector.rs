@@ -409,6 +409,7 @@ impl Editor {
         }
     }
     pub(crate) fn finish_edits(&mut self) {
+        self.finish_property_edit();
         self.finish_selection_gesture();
         self.shape_draft = None;
         self.finish_point_drag();
@@ -428,6 +429,7 @@ impl Editor {
         self.vector = Default::default();
     }
     pub(crate) fn cancel_edits(&mut self) {
+        self.finish_property_edit();
         self.cancel_selection_gesture();
         self.cancel_vector();
         self.shape_draft = None;
@@ -497,8 +499,8 @@ impl Editor {
                 commands,
                 fill_rule: FillRule::NonZero,
                 fill: if closed { self.fill } else { [0, 0, 0, 0] },
-                stroke: self.fill,
-                stroke_width: 2.,
+                stroke: self.stroke,
+                stroke_width: self.stroke_width,
             },
             0.,
             0.,

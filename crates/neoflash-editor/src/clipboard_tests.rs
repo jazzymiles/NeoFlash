@@ -502,14 +502,7 @@ fn edit_menu_copy_and_cut_preserve_the_text_recipient_after_focus_is_lost() {
             Modifiers::NONE,
             Some(&mut text),
         );
-        let item = text_center(
-            &output,
-            if cut {
-                "Cut       ⌘X"
-            } else {
-                "Copy      ⌘C"
-            },
-        );
+        let item = text_center(&output, if cut { "Cut" } else { "Copy" });
         frame(
             &mut editor,
             &ctx,

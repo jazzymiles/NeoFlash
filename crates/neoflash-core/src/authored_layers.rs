@@ -12,12 +12,52 @@ pub(crate) struct LayerMaskPlan {
 pub struct AuthoredDraw {
     pub item: DrawItem,
     pub clip_ids: Vec<String>,
-    pub outline: bool,
+    pub outline_color: Option<Color>,
 }
 #[derive(Clone, Debug, Default)]
 pub struct AuthoredScene {
     pub draws: Vec<AuthoredDraw>,
     pub clips: Vec<RuntimeClip>,
+}
+
+/// A stable, opaque editor color. Explicit colors survive renaming/reordering;
+/// legacy layers need no serialized field until the author changes their color.
+pub fn layer_outline_color(layer: &Layer) -> Color {
+    let rgb = layer.properties.outline_color.unwrap_or_else(|| {
+        const PALETTE: [[u8; 3]; 8] = [
+            [62, 153, 235],
+            [212, 95, 193],
+            [45, 182, 150],
+            [229, 137, 54],
+            [135, 120, 225],
+            [225, 100, 107],
+            [68, 171, 185],
+            [165, 162, 64],
+        ];
+        let hash = layer.id.bytes().fold(2_166_136_261u32, |hash, byte| {
+            (hash ^ byte as u32).wrapping_mul(16_777_619)
+        });
+        PALETTE[hash as usize % PALETTE.len()]
+    });
+    [rgb[0], rgb[1], rgb[2], 255]
+}
+pub fn layer_effective_outline_color(timeline: &Timeline, layer: &Layer) -> Option<Color> {
+    let mut current = Some(layer);
+    let mut color = None;
+    for _ in 0..=timeline.layers.len() {
+        let Some(node) = current else {
+            return color;
+        };
+        if node.properties.outline {
+            color = Some(layer_outline_color(node));
+        }
+        current = node
+            .properties
+            .parent
+            .as_ref()
+            .and_then(|id| timeline.layers.iter().find(|l| &l.id == id));
+    }
+    color
 }
 
 pub fn layer_effectively_visible(timeline: &Timeline, layer: &Layer) -> bool {
@@ -153,21 +193,31 @@ pub fn evaluate_scene(
         &|_| None,
         include_guides,
     );
+    // Every placement along an instance path contributes its owning layer's
+    // editor mode. The outermost outlined layer/folder colors the whole subtree.
+    let mut outlines = HashMap::new();
+    for symbol in &project.symbols {
+        for layer in &symbol.timeline.layers {
+            if let Some(color) = layer_effective_outline_color(&symbol.timeline, layer) {
+                for element in layer.keyframes.iter().flat_map(|key| &key.elements) {
+                    outlines.insert(element.id.as_str(), color);
+                }
+            }
+        }
+    }
     let mut scene = AuthoredScene {
         draws: evaluation
             .items
             .into_iter()
             .map(|item| {
-                let outline = project
-                    .symbols
+                let outline_color = item
+                    .instance_path
                     .iter()
-                    .flat_map(|s| &s.timeline.layers)
-                    .find(|l| l.id == item.layer_id)
-                    .is_some_and(|l| l.properties.outline);
+                    .find_map(|id| outlines.get(id.as_str()).copied());
                 AuthoredDraw {
                     item,
                     clip_ids: vec![],
-                    outline,
+                    outline_color,
                 }
             })
             .collect(),

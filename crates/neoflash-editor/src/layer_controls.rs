@@ -84,37 +84,297 @@ pub(crate) fn visible_layer_indices(timeline: &Timeline) -> Vec<usize> {
         })
         .collect()
 }
-pub(crate) fn layer_label(layer: &Layer) -> String {
-    let prefix = match layer.properties.role {
-        LayerRole::Normal => {
-            if layer.properties.mask.is_some() {
-                "↳ "
-            } else {
-                ""
-            }
-        }
-        LayerRole::Guide => "◇ ",
-        LayerRole::Mask => "◉ ",
-        LayerRole::Folder => {
-            if layer.properties.collapsed {
-                "▸ "
-            } else {
-                "▾ "
-            }
-        }
+/// Role icons are vector geometry, independent of installed glyph coverage.
+pub(crate) fn paint_layer_role(
+    p: &egui::Painter,
+    rect: egui::Rect,
+    layer: &Layer,
+    color: egui::Color32,
+) {
+    let center = rect.center();
+    let stroke = egui::Stroke::new(1.0_f32, color);
+    let line = |a, b| {
+        p.line_segment([a, b], stroke);
     };
-    format!(
-        "{}{}{}",
-        if layer.properties.parent.is_some() {
-            "   "
-        } else {
-            ""
-        },
-        prefix,
-        layer.name
-    )
+    match layer.properties.role {
+        LayerRole::Normal => {
+            let back =
+                egui::Rect::from_center_size(center - egui::vec2(1.5, 1.5), egui::vec2(8., 8.));
+            p.rect_stroke(back, 0, stroke, egui::StrokeKind::Inside);
+            p.rect_stroke(
+                back.translate(egui::vec2(3., 3.)),
+                0,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            if layer.properties.mask.is_some() {
+                line(
+                    rect.left_top() + egui::vec2(1., 2.),
+                    rect.left_bottom() - egui::vec2(-1., 3.),
+                );
+            }
+        }
+        LayerRole::Guide => {
+            line(center - egui::vec2(6., 0.), center + egui::vec2(6., 0.));
+            line(center - egui::vec2(0., 6.), center + egui::vec2(0., 6.));
+            p.circle_stroke(center, 3.5, stroke);
+        }
+        LayerRole::Mask => {
+            p.circle_stroke(center, 5., stroke);
+            p.circle_filled(center, 2.4, color);
+        }
+        LayerRole::Folder => {
+            let points = if layer.properties.collapsed {
+                vec![
+                    center + egui::vec2(-3., -5.),
+                    center + egui::vec2(3., 0.),
+                    center + egui::vec2(-3., 5.),
+                ]
+            } else {
+                vec![
+                    center + egui::vec2(-5., -3.),
+                    center + egui::vec2(5., -3.),
+                    center + egui::vec2(0., 3.),
+                ]
+            };
+            p.add(egui::Shape::convex_polygon(
+                points,
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+    }
 }
+
+#[derive(Clone)]
+struct LayerOutlineDraft {
+    symbol: Id,
+    layer: Id,
+    name: String,
+    color: egui::Color32,
+}
+
 impl Editor {
+    fn outline_draft_id(&self) -> egui::Id {
+        egui::Id::new(("layer-outline-color", &self.clipboard.session))
+    }
+    fn begin_layer_outline_color(&self, ctx: &egui::Context, layer: &Layer) {
+        let color = layer_outline_color(layer);
+        ctx.data_mut(|data| {
+            data.insert_temp(
+                self.outline_draft_id(),
+                LayerOutlineDraft {
+                    symbol: self.symbol_id().to_owned(),
+                    layer: layer.id.clone(),
+                    name: layer.name.clone(),
+                    color: egui::Color32::from_rgb(color[0], color[1], color[2]),
+                },
+            )
+        });
+    }
+    pub(crate) fn toggle_layer_folder(&mut self, index: usize) {
+        self.layer_change(|project, symbol| {
+            let layer = &mut project.symbol_mut(symbol).unwrap().timeline.layers[index];
+            if layer.properties.role == LayerRole::Folder {
+                layer.properties.collapsed = !layer.properties.collapsed;
+            }
+        });
+    }
+    fn apply_layer_outline(
+        &mut self,
+        symbol: &str,
+        layer_id: &str,
+        outline: Option<bool>,
+        color: Option<[u8; 3]>,
+    ) {
+        let Some(layer) = self.project.symbol(symbol).and_then(|symbol| {
+            symbol
+                .timeline
+                .layers
+                .iter()
+                .find(|layer| layer.id == layer_id)
+        }) else {
+            return;
+        };
+        let mut properties = layer.properties.clone();
+        if let Some(outline) = outline {
+            properties.outline = outline;
+        }
+        if let Some(color) = color
+            && layer_outline_color(layer)[..3] != color
+        {
+            properties.outline_color = Some(color);
+        }
+        if properties == layer.properties {
+            return;
+        }
+        let symbol = symbol.to_owned();
+        let layer_id = layer_id.to_owned();
+        self.finish_edits();
+        self.transact(move |editor| {
+            editor.project.format_version = editor.project.format_version.max(4);
+            if let Some(layer) = editor.project.symbol_mut(&symbol).and_then(|symbol| {
+                symbol
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|layer| layer.id == layer_id)
+            }) {
+                layer.properties = properties;
+            }
+        });
+    }
+    pub(crate) fn layer_outline_control(&mut self, ui: &mut egui::Ui, layer: &Layer) {
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(
+                crate::timeline_paint::LAYER_CONTROL_WIDTH,
+                crate::timeline_paint::ROW_HEIGHT,
+            ),
+            egui::Sense::click(),
+        );
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(
+                egui::WidgetType::Button,
+                ui.is_enabled(),
+                layer.properties.outline,
+                format!("Outline layer {}", layer.name),
+            )
+        });
+        let color = layer_outline_color(layer);
+        let color = egui::Color32::from_rgb(color[0], color[1], color[2]);
+        let square = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(10.));
+        if response.hovered() || response.has_focus() {
+            ui.painter()
+                .rect_filled(rect.shrink(2.), 2., ui.visuals().widgets.hovered.bg_fill);
+        }
+        if layer.properties.outline {
+            ui.painter().rect_stroke(
+                square,
+                0,
+                egui::Stroke::new(2.0_f32, color),
+                egui::StrokeKind::Inside,
+            );
+        } else {
+            ui.painter().rect_filled(square, 0, color);
+        }
+        if response.clicked() {
+            let symbol_id = self.symbol_id().to_owned();
+            self.apply_layer_outline(&symbol_id, &layer.id, Some(!layer.properties.outline), None);
+        }
+        response
+            .on_hover_text(
+                "Click to toggle this layer's outlines. Right-click to change its color.",
+            )
+            .context_menu(|ui| {
+                ui.label(&layer.name);
+                if ui.button("Outline color…").clicked() {
+                    self.begin_layer_outline_color(ui.ctx(), layer);
+                    ui.close();
+                }
+            });
+    }
+    pub(crate) fn layer_outline_color_dialog(&mut self, ctx: &egui::Context) {
+        let id = self.outline_draft_id();
+        let Some(mut draft) = ctx.data(|data| data.get_temp::<LayerOutlineDraft>(id)) else {
+            return;
+        };
+        if self.project.symbol(&draft.symbol).is_none_or(|symbol| {
+            !symbol
+                .timeline
+                .layers
+                .iter()
+                .any(|layer| layer.id == draft.layer)
+        }) {
+            ctx.data_mut(|data| data.remove::<LayerOutlineDraft>(id));
+            return;
+        }
+        let mut open = true;
+        let mut apply = false;
+        let mut cancel = false;
+        egui::Window::new("Layer Outline Color")
+            .id(id)
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(&draft.name);
+                egui::color_picker::color_picker_color32(
+                    ui,
+                    &mut draft.color,
+                    egui::color_picker::Alpha::Opaque,
+                );
+                ui.horizontal(|ui| {
+                    apply = ui.button("Apply").clicked();
+                    cancel = ui.button("Cancel").clicked();
+                });
+            });
+        if ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
+            cancel = true;
+        }
+        if apply {
+            let color = [draft.color.r(), draft.color.g(), draft.color.b()];
+            self.apply_layer_outline(&draft.symbol, &draft.layer, None, Some(color));
+        }
+        ctx.data_mut(|data| {
+            if open && !apply && !cancel {
+                data.insert_temp(id, draft);
+            } else {
+                data.remove::<LayerOutlineDraft>(id);
+            }
+        });
+    }
+    /// Reorder document rows in painter order. A folder carries descendants;
+    /// a mask carries its targets. Explicit parent/mask IDs are preserved.
+    pub(crate) fn reorder_timeline_layer(&mut self, layer_id: &str, before: Option<&str>) {
+        let layers = &self.symbol().timeline.layers;
+        let Some(index) = layers.iter().position(|layer| layer.id == layer_id) else {
+            return;
+        };
+        let group = group_indices(layers, index);
+        let moved_ids: HashSet<_> = group
+            .iter()
+            .map(|index| layers[*index].id.clone())
+            .collect();
+        if before.is_some_and(|id| moved_ids.contains(id)) {
+            return;
+        }
+        let moving: Vec<_> = layers
+            .iter()
+            .filter(|layer| moved_ids.contains(&layer.id))
+            .cloned()
+            .collect();
+        let mut remaining: Vec<_> = layers
+            .iter()
+            .filter(|layer| !moved_ids.contains(&layer.id))
+            .cloned()
+            .collect();
+        let insertion = if let Some(id) = before {
+            let Some(index) = remaining.iter().position(|layer| layer.id == id) else {
+                return;
+            };
+            index
+        } else {
+            remaining.len()
+        };
+        remaining.splice(insertion..insertion, moving);
+        if &remaining == layers {
+            return;
+        }
+        let selected = layer_id.to_owned();
+        self.layer_change(move |project, symbol| {
+            project.symbol_mut(symbol).unwrap().timeline.layers = remaining
+        });
+        if let Some(index) = self
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .position(|layer| layer.id == selected)
+        {
+            self.layer = index;
+        }
+    }
+
     fn layer_clipboard_id(&self) -> egui::Id {
         egui::Id::new(("layer-clipboard", &self.clipboard.session))
     }
@@ -313,18 +573,18 @@ impl Editor {
                 }
             })
         );
+        if ui.button("Outline color…").clicked() {
+            self.begin_layer_outline_color(&ctx, &layer);
+            ui.close();
+        }
         action!(
             "Others Transparent",
             self.layer_change(|p, id| {
-                for (i, l) in p
-                    .symbol_mut(id)
-                    .unwrap()
-                    .timeline
-                    .layers
-                    .iter_mut()
-                    .enumerate()
-                {
-                    l.properties.outline = i != index;
+                let layers = &mut p.symbol_mut(id).unwrap().timeline.layers;
+                let selected = group_indices(layers, index);
+                for (i, layer) in layers.iter_mut().enumerate() {
+                    layer.properties.outline =
+                        layer.properties.role != LayerRole::Folder && !selected.contains(&i);
                 }
             })
         );

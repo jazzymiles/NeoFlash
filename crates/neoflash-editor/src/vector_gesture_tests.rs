@@ -87,7 +87,7 @@ fn edit_menu_undo_cancels_an_open_pen_path_with_empty_history() {
         vec![egui::Event::PointerMoved(edit), primary_button(edit, true)],
     );
     menu_frame(&mut editor, &ctx, 0.5, vec![primary_button(edit, false)]);
-    let undo = text_center(&menu_frame(&mut editor, &ctx, 0.6, vec![]), "Undo     ⌘Z");
+    let undo = text_center(&menu_frame(&mut editor, &ctx, 0.6, vec![]), "Undo");
     menu_frame(
         &mut editor,
         &ctx,

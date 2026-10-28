@@ -2,9 +2,14 @@
 
 ## 2026-10-28 — Layers and configurable authoring workspace
 
+- Keep graphic imports visible on the page, including Finder drops and placement while a hidden, locked or special layer is selected. Add Library-to-Stage dragging and a direct Import graphics control.
+- Add per-layer outline switches with editable colors, preserved in the document and excluded from HTML5 appearance.
+- Separate fill/stroke RGB and alpha editing, apply drawing defaults consistently and group property gestures into one Undo. Align panel forms and use a compact macOS UI font.
+
 - Add vector mask layers shared by the native stage and HTML5, editor-only guide layers, layer folders and a full layer context menu with grouped editing operations.
-- Add compact timeline controls, smaller left-aligned layer names, row dividers, inline rename and frame zoom while retaining seconds, numeric onion ranges and opacity.
-- Replace fixed panel locations with four-sided docks, resizable groups, tabs and native floating panels. Add a compact symbol dialog and a library with preview, folders, search, sorting and visible linkage.
+- Add compact timeline controls, stronger grid/control contrast, smaller left-aligned layer names, row dividers, inline rename and frame zoom while retaining seconds, numeric onion ranges and opacity. Layer columns resize by dragging; layer reordering preserves folders and mask relationships.
+- Give dock areas visible resize grips and align menu shortcuts in a separate right-hand column.
+- Replace fixed panel locations with four-sided docks, resizable groups, tabs and native floating panels. Support transfer between windows and tab/split groups inside floating windows. Add a compact symbol dialog and a library with preview, folders, search, sorting and visible linkage.
 - Import SVG/PNG/JPEG through the File menu or by dropping files onto the stage as one Undo step. Solid SVG paths stay editable; richer paint is rendered with the original SVG retained.
 
 See the [compatibility matrix](docs/COMPATIBILITY.md) for current support and limitations, and the [declaration audit](docs/progress/ACTIONSCRIPT.md) for ActionScript coverage. Runtime features below have partial support unless explicitly stated otherwise.

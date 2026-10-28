@@ -2,15 +2,29 @@
 //! groups, tab selection and split weights live in WorkspacePrefs.
 use crate::{
     app::Editor,
-    workspace::{DockDestination, DockEdge, DockGroup, DockLocation, PanelId, PanelPlacement},
+    workspace::{
+        DockDestination, DockEdge, DockGroup, DockLocation, DockSurface, FloatingNode, PanelId,
+        PanelPlacement, SplitAxis,
+    },
 };
 use eframe::egui;
 
 const HEADER: f32 = 26.;
 const SPLITTER: f32 = 5.;
+const AREA_GRIP: f32 = 9.;
+const MIN_STAGE_HEIGHT: f32 = 160.;
+const MIN_STAGE_WIDTH: f32 = 160.;
+
+#[derive(Clone, Copy)]
+struct AreaResize {
+    size: f32,
+    preference: f32,
+    origin: egui::Pos2,
+}
 
 #[derive(Clone)]
 pub(crate) struct DockGroupTarget {
+    pub surface: DockSurface,
     pub edge: DockEdge,
     pub group: u32,
     pub rect: egui::Rect,
@@ -20,17 +34,41 @@ pub(crate) struct DockGroupTarget {
 
 #[derive(Clone)]
 pub(crate) struct DockHit {
+    pub surface: DockSurface,
     pub destination: DockDestination,
     pub rect: egui::Rect,
     pub caption: String,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct DockViewportTarget {
+    pub surface: DockSurface,
+    pub viewport: egui::ViewportId,
+    pub inner: egui::Rect,
+    pub content: egui::Rect,
+    pub zoom: f32,
+    pub order: u64,
+}
+
+pub(crate) fn surface_viewport(surface: DockSurface) -> egui::ViewportId {
+    match surface {
+        DockSurface::Main => egui::ViewportId::ROOT,
+        DockSurface::Floating(id) => {
+            egui::ViewportId::from_hash_of(id.viewport_key().expect("window key"))
+        }
+    }
+}
+
 /// Large edge targets remain available even when an area is empty. Existing
 /// tab headers take precedence, allowing reordering along a window edge.
 pub(crate) fn edge_targets(root: egui::Rect, zoom: f32) -> [(DockEdge, egui::Rect); 4] {
-    let x = (root.width() * 0.055).clamp(44. * zoom, 80. * zoom);
-    let y = (root.height() * 0.055).clamp(36. * zoom, 66. * zoom);
-    let top = root.top() + 32. * zoom;
+    let x = (root.width() * 0.055)
+        .clamp(44. * zoom, 80. * zoom)
+        .min(root.width() * 0.22);
+    let y = (root.height() * 0.055)
+        .clamp(36. * zoom, 66. * zoom)
+        .min(root.height() * 0.22);
+    let top = root.top();
     [
         (
             DockEdge::Top,
@@ -62,6 +100,10 @@ pub(crate) fn edge_targets(root: egui::Rect, zoom: f32) -> [(DockEdge, egui::Rec
 
 impl Editor {
     pub(crate) fn dock_grid(&mut self, ctx: &egui::Context) {
+        let mut content = ctx.viewport_rect();
+        content.min.y += 32.;
+        self.register_dock_viewport(ctx, DockSurface::Main, content);
+        self.continue_panel_drag(ctx);
         // Side columns span alongside the bottom editors so a Library preview
         // and Properties remain usable together on smaller windows.
         for edge in [
@@ -77,7 +119,7 @@ impl Editor {
     pub(crate) fn dock_edge(&mut self, ctx: &egui::Context, edge: DockEdge) {
         self.detached
             .dock_groups
-            .retain(|target| target.edge != edge);
+            .retain(|target| target.surface != DockSurface::Main || target.edge != edge);
         let groups: Vec<_> = self
             .workspace
             .dock
@@ -102,50 +144,105 @@ impl Editor {
         let size = self.workspace.dock.area(edge).size;
         let tools_only = groups.len() == 1 && groups[0].tabs == [PanelId::Tools];
         let available = ctx.available_rect();
-        let rect = if edge.vertical() {
+        let (minimum, maximum) = if edge.vertical() {
             let min = if tools_only { 56. } else { 170. };
-            let max = (available.width() - 160.).clamp(min, 1000.);
+            let reserve = if edge == DockEdge::Left && self.dock_edge_visible(DockEdge::Right) {
+                self.workspace
+                    .dock
+                    .right
+                    .size
+                    .clamp(170., (available.width() - MIN_STAGE_WIDTH - min).max(170.))
+            } else {
+                0.
+            };
+            (
+                min,
+                (available.width() - MIN_STAGE_WIDTH - reserve).clamp(min, 1000.),
+            )
+        } else {
+            let min = 110.;
+            let reserve = if edge == DockEdge::Top && self.dock_edge_visible(DockEdge::Bottom) {
+                self.workspace.dock.bottom.size.clamp(
+                    110.,
+                    (available.height() - MIN_STAGE_HEIGHT - min).max(110.),
+                )
+            } else {
+                0.
+            };
+            (
+                min,
+                (available.height() - MIN_STAGE_HEIGHT - reserve).clamp(min, 800.),
+            )
+        };
+        let effective = size.clamp(minimum, maximum);
+        if edge.vertical() {
             let panel = if edge == DockEdge::Left {
                 egui::SidePanel::left(edge.panel_id())
             } else {
                 egui::SidePanel::right(edge.panel_id())
             };
             panel
-                .default_width(size.clamp(min, max))
-                .min_width(min)
-                .max_width(max)
-                .resizable(true)
+                .exact_width(effective)
+                .resizable(false)
                 .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(0.))
-                .show(ctx, |ui| self.dock_area_contents(ui, edge, &groups))
-                .response
-                .rect
+                .show(ctx, |ui| {
+                    self.dock_area_contents(ui, edge, &groups, effective, minimum, maximum)
+                });
         } else {
-            let min = 110.;
-            let max = (available.height() - 130.).clamp(min, 800.);
             let panel = if edge == DockEdge::Top {
                 egui::TopBottomPanel::top(edge.panel_id())
             } else {
                 egui::TopBottomPanel::bottom(edge.panel_id())
             };
             panel
-                .default_height(size.clamp(min, max))
-                .min_height(min)
-                .max_height(max)
-                .resizable(true)
+                .exact_height(effective)
+                .resizable(false)
                 .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(0.))
-                .show(ctx, |ui| self.dock_area_contents(ui, edge, &groups))
-                .response
-                .rect
-        };
-        self.workspace.dock.area_mut(edge).size = if edge.vertical() {
-            rect.width()
-        } else {
-            rect.height()
-        };
+                .show(ctx, |ui| {
+                    self.dock_area_contents(ui, edge, &groups, effective, minimum, maximum)
+                });
+        }
     }
 
-    fn dock_area_contents(&mut self, ui: &mut egui::Ui, edge: DockEdge, groups: &[DockGroup]) {
-        let rect = ui.max_rect();
+    fn dock_edge_visible(&self, edge: DockEdge) -> bool {
+        self.workspace.dock.area(edge).groups.iter().any(|group| {
+            group
+                .tabs
+                .iter()
+                .any(|panel| self.workspace.is_panel_visible(*panel))
+        })
+    }
+
+    fn dock_area_contents(
+        &mut self,
+        ui: &mut egui::Ui,
+        edge: DockEdge,
+        groups: &[DockGroup],
+        effective: f32,
+        minimum: f32,
+        maximum: f32,
+    ) {
+        let full_rect = ui.max_rect();
+        let mut rect = full_rect;
+        let mut grip = full_rect;
+        match edge {
+            DockEdge::Top => {
+                rect.max.y -= AREA_GRIP;
+                grip.min.y = rect.max.y;
+            }
+            DockEdge::Bottom => {
+                rect.min.y += AREA_GRIP;
+                grip.max.y = rect.min.y;
+            }
+            DockEdge::Left => {
+                rect.max.x -= AREA_GRIP;
+                grip.min.x = rect.max.x;
+            }
+            DockEdge::Right => {
+                rect.min.x += AREA_GRIP;
+                grip.max.x = rect.min.x;
+            }
+        }
         let vertical = edge.vertical();
         let length = if vertical {
             rect.height()
@@ -176,7 +273,7 @@ impl Editor {
                     egui::pos2(end, rect.bottom()),
                 )
             };
-            self.dock_group_contents(ui, edge, group, group_rect);
+            self.dock_group_contents(ui, DockSurface::Main, edge, group, group_rect);
             if let Some(next) = groups.get(index + 1) {
                 let separator = if vertical {
                     egui::Rect::from_min_max(
@@ -229,12 +326,166 @@ impl Editor {
             }
             cursor = end + SPLITTER;
         }
-        ui.allocate_rect(rect, egui::Sense::hover());
+        self.dock_area_resize_grip(ui, edge, grip, effective, minimum, maximum);
+        ui.expand_to_include_rect(full_rect);
+    }
+
+    /// The complete grab strip belongs to this dock, with content clipped
+    /// away from it. A neighbouring Stage/ScrollArea cannot steal half of it.
+    fn dock_area_resize_grip(
+        &mut self,
+        ui: &mut egui::Ui,
+        edge: DockEdge,
+        grip: egui::Rect,
+        effective: f32,
+        minimum: f32,
+        maximum: f32,
+    ) {
+        let id = egui::Id::new(("dock-area-resize", edge));
+        let response = ui.interact(grip, id, egui::Sense::drag());
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Button,
+                ui.is_enabled(),
+                format!("Resize {} dock", edge.title().to_lowercase()),
+            )
+        });
+        let state_id = id.with("origin");
+        let mut saved = ui.ctx().data(|data| data.get_temp::<AreaResize>(state_id));
+        let (press, release, mut pointer, escape) = ui.input(|input| {
+            let mut press = None;
+            let mut release = None;
+            let mut pointer = input.pointer.latest_pos();
+            for event in &input.events {
+                match event {
+                    egui::Event::PointerMoved(pos) => pointer = Some(*pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        ..
+                    } => {
+                        pointer = Some(*pos);
+                        if *pressed {
+                            press = Some(*pos);
+                        } else {
+                            release = Some(*pos);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            (
+                press,
+                release,
+                pointer,
+                input.key_pressed(egui::Key::Escape),
+            )
+        });
+        // A complete native drag can arrive between two paints. Its press
+        // event remains authoritative after egui clears pointer.press_origin.
+        if let Some(origin) = press.filter(|origin| {
+            ui.is_enabled()
+                && self.symbol_conversion.is_none()
+                && grip.contains(*origin)
+                && ui.clip_rect().contains(*origin)
+                && ui.ctx().layer_id_at(*origin) == Some(ui.layer_id())
+        }) {
+            saved = Some(AreaResize {
+                size: effective,
+                preference: self.workspace.dock.area(edge).size,
+                origin,
+            });
+        }
+        let mut released = release.is_some();
+        if saved.is_some()
+            && let Some((global, down)) = crate::native_screens::pointer_state()
+            && (release.is_none() || down)
+        {
+            let inner = ui
+                .ctx()
+                .input(|input| input.viewport().inner_rect)
+                .unwrap_or_else(|| ui.ctx().viewport_rect());
+            pointer = Some(global / ui.ctx().zoom_factor() - inner.min.to_vec2());
+            released = !down;
+        }
+        if escape || self.symbol_conversion.is_some() {
+            if let Some(saved) = saved {
+                self.workspace.dock.area_mut(edge).size = saved.preference;
+            }
+            saved = None;
+        } else if let Some((saved, pointer)) = saved.zip(release.filter(|_| released).or(pointer)) {
+            let delta = if edge.vertical() {
+                pointer.x - saved.origin.x
+            } else {
+                pointer.y - saved.origin.y
+            };
+            let direction = if matches!(edge, DockEdge::Top | DockEdge::Left) {
+                1.
+            } else {
+                -1.
+            };
+            self.workspace.dock.area_mut(edge).size =
+                (saved.size + delta * direction).clamp(minimum, maximum);
+            ui.ctx().request_repaint();
+        }
+        if released {
+            saved = None;
+        }
+        ui.ctx().data_mut(|data| {
+            if let Some(saved) = saved {
+                data.insert_temp(state_id, saved);
+            } else {
+                data.remove::<AreaResize>(state_id);
+            }
+        });
+        let active = response.hovered() || saved.is_some();
+        if active {
+            ui.ctx().set_cursor_icon(if edge.vertical() {
+                egui::CursorIcon::ResizeHorizontal
+            } else {
+                egui::CursorIcon::ResizeVertical
+            });
+        }
+        let visuals = ui.visuals();
+        let fill = if active {
+            visuals.selection.bg_fill.gamma_multiply(0.35)
+        } else {
+            visuals.widgets.noninteractive.bg_fill
+        };
+        ui.painter().rect_filled(grip, 0., fill);
+        let stroke = egui::Stroke::new(
+            1.0_f32,
+            if active {
+                visuals.text_color()
+            } else {
+                visuals.weak_text_color()
+            },
+        );
+        if edge.vertical() {
+            ui.painter().vline(
+                grip.center().x,
+                grip.center().y - 15. ..=grip.center().y + 15.,
+                stroke,
+            );
+        } else {
+            ui.painter().hline(
+                grip.center().x - 15. ..=grip.center().x + 15.,
+                grip.center().y,
+                stroke,
+            );
+        }
+        response.on_hover_text(if edge.vertical() {
+            "Drag to change panel width"
+        } else {
+            "Drag to change panel height"
+        });
     }
 
     fn dock_group_contents(
         &mut self,
         parent: &mut egui::Ui,
+        surface: DockSurface,
         edge: DockEdge,
         group: &DockGroup,
         rect: egui::Rect,
@@ -250,9 +501,12 @@ impl Editor {
         let inner = ctx
             .input(|i| i.viewport().inner_rect)
             .unwrap_or_else(|| ctx.viewport_rect());
-        self.detached.root_inner = Some(inner * zoom);
+        if surface == DockSurface::Main {
+            self.detached.root_inner = Some(inner * zoom);
+        }
         let global = |r: egui::Rect| r.translate(inner.min.to_vec2()) * zoom;
         let mut target = DockGroupTarget {
+            surface,
             edge,
             group: group.id,
             rect: global(rect),
@@ -261,8 +515,8 @@ impl Editor {
         };
         let mut header_ui = parent.new_child(
             egui::UiBuilder::new()
-                .id(("dock-tabs", group.id))
-                .max_rect(header)
+                .id(("dock-tabs", surface, group.id))
+                .max_rect(header.shrink2(egui::vec2(3., 1.)))
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
         header_ui.set_clip_rect(parent.clip_rect().intersect(header));
@@ -273,7 +527,7 @@ impl Editor {
             .painter()
             .rect_filled(header, 0., header_ui.visuals().faint_bg_color);
         egui::ScrollArea::horizontal()
-            .id_salt(("dock-tab-scroll", group.id))
+            .id_salt(("dock-tab-scroll", surface, group.id))
             .auto_shrink([false, false])
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
             .show(&mut header_ui, |ui| {
@@ -284,11 +538,19 @@ impl Editor {
                             egui::Button::new(egui::RichText::new(panel.title()).size(12.))
                                 .selected(group.active == *panel)
                                 .frame(true)
+                                .min_size(egui::vec2(34., 22.))
                                 .sense(egui::Sense::click_and_drag()),
                         );
                         let visible_rect = response.rect.intersect(header);
                         if visible_rect.is_positive() {
                             target.tabs.push((*panel, global(visible_rect)));
+                            if group.active == *panel {
+                                ui.painter().hline(
+                                    visible_rect.x_range(),
+                                    header.bottom() - 1.,
+                                    egui::Stroke::new(2.0_f32, ui.visuals().selection.bg_fill),
+                                );
+                            }
                         }
                         if response.clicked() {
                             self.show_panel(*panel);
@@ -320,12 +582,7 @@ impl Editor {
         // A tab drag may have moved this group during the header callback.
         // Its new owner renders it on the next frame, never a second copy here.
         let active = self
-            .workspace
-            .dock
-            .area(edge)
-            .groups
-            .iter()
-            .find(|g| g.id == group.id)
+            .current_dock_group(surface, edge, group.id)
             .and_then(|g| {
                 g.tabs
                     .iter()
@@ -349,6 +606,209 @@ impl Editor {
             content.set_clip_rect(parent.clip_rect().intersect(body));
             content.set_min_size(body.size());
             self.dock_panel_contents(&mut content, panel);
+        }
+    }
+
+    pub(crate) fn register_dock_viewport(
+        &mut self,
+        ctx: &egui::Context,
+        surface: DockSurface,
+        local_content: egui::Rect,
+    ) {
+        let zoom = ctx.zoom_factor();
+        let inner = ctx
+            .input(|i| i.viewport().inner_rect)
+            .unwrap_or_else(|| ctx.viewport_rect());
+        if surface == DockSurface::Main {
+            self.detached.root_inner = Some(inner * zoom);
+        }
+        let previous = self
+            .detached
+            .dock_viewports
+            .iter()
+            .find(|v| v.surface == surface)
+            .map_or(0, |v| v.order);
+        let order = if ctx.input(|i| i.viewport().focused == Some(true) || i.pointer.any_pressed())
+        {
+            self.detached.activation += 1;
+            self.detached.activation
+        } else {
+            previous
+        };
+        self.detached
+            .dock_viewports
+            .retain(|v| v.surface != surface);
+        self.detached.dock_viewports.push(DockViewportTarget {
+            surface,
+            viewport: ctx.viewport_id(),
+            inner: inner * zoom,
+            content: local_content.translate(inner.min.to_vec2()) * zoom,
+            zoom,
+            order,
+        });
+    }
+
+    fn current_dock_group(
+        &self,
+        surface: DockSurface,
+        edge: DockEdge,
+        group: u32,
+    ) -> Option<&DockGroup> {
+        match surface {
+            DockSurface::Main => self
+                .workspace
+                .dock
+                .area(edge)
+                .groups
+                .iter()
+                .find(|g| g.id == group),
+            DockSurface::Floating(id) => self
+                .workspace
+                .floating
+                .iter()
+                .find(|w| w.id == id)?
+                .group(group),
+        }
+    }
+
+    pub(crate) fn floating_dock_contents(&mut self, ui: &mut egui::Ui, window: PanelId) {
+        let surface = DockSurface::Floating(window);
+        self.register_dock_viewport(ui.ctx(), surface, ui.max_rect());
+        self.detached.dock_groups.retain(|g| g.surface != surface);
+        let root = self
+            .workspace
+            .floating
+            .iter()
+            .find(|w| w.id == window)
+            .and_then(|w| w.root.clone());
+        if let Some(root) = root {
+            self.floating_node_contents(ui, window, &root, ui.max_rect(), &mut Vec::new());
+        }
+    }
+
+    fn floating_node_visible(&self, node: &FloatingNode) -> bool {
+        match node {
+            FloatingNode::Group(group) => group
+                .tabs
+                .iter()
+                .any(|p| self.workspace.is_panel_visible(*p)),
+            FloatingNode::Split { first, second, .. } => {
+                self.floating_node_visible(first) || self.floating_node_visible(second)
+            }
+        }
+    }
+
+    fn floating_node_contents(
+        &mut self,
+        ui: &mut egui::Ui,
+        window: PanelId,
+        node: &FloatingNode,
+        rect: egui::Rect,
+        path: &mut Vec<bool>,
+    ) {
+        match node {
+            FloatingNode::Group(group) => {
+                let mut visible = group.clone();
+                visible.tabs.retain(|p| self.workspace.is_panel_visible(*p));
+                if visible.tabs.is_empty() {
+                    return;
+                }
+                if !visible.tabs.contains(&visible.active) {
+                    visible.active = visible.tabs[0];
+                }
+                self.dock_group_contents(
+                    ui,
+                    DockSurface::Floating(window),
+                    DockEdge::Left,
+                    &visible,
+                    rect,
+                );
+            }
+            FloatingNode::Split {
+                axis,
+                ratio,
+                first,
+                second,
+            } => {
+                let a = self.floating_node_visible(first);
+                let b = self.floating_node_visible(second);
+                if !a || !b {
+                    if a || b {
+                        path.push(b);
+                        self.floating_node_contents(
+                            ui,
+                            window,
+                            if a { first } else { second },
+                            rect,
+                            path,
+                        );
+                        path.pop();
+                    }
+                    return;
+                }
+                let vertical = *axis == SplitAxis::Vertical;
+                let extent = if vertical {
+                    rect.height()
+                } else {
+                    rect.width()
+                };
+                let space = (extent - SPLITTER).max(1.);
+                let minimum = (48. / space).clamp(0.05, 0.45);
+                let ratio = ratio.clamp(minimum, 1. - minimum);
+                let coordinate = if vertical { rect.top() } else { rect.left() } + space * ratio;
+                let mut first_rect = rect;
+                let mut second_rect = rect;
+                let mut divider = rect;
+                if vertical {
+                    first_rect.max.y = coordinate;
+                    second_rect.min.y = coordinate + SPLITTER;
+                    divider.min.y = coordinate;
+                    divider.max.y = coordinate + SPLITTER;
+                } else {
+                    first_rect.max.x = coordinate;
+                    second_rect.min.x = coordinate + SPLITTER;
+                    divider.min.x = coordinate;
+                    divider.max.x = coordinate + SPLITTER;
+                }
+                path.push(false);
+                self.floating_node_contents(ui, window, first, first_rect, path);
+                path.pop();
+                path.push(true);
+                self.floating_node_contents(ui, window, second, second_rect, path);
+                path.pop();
+                let response = ui.interact(
+                    divider,
+                    egui::Id::new(("floating-divider", window, path.clone())),
+                    egui::Sense::drag(),
+                );
+                ui.painter().rect_filled(
+                    divider,
+                    0.,
+                    ui.visuals().widgets.noninteractive.bg_stroke.color,
+                );
+                if response.hovered() || response.dragged() {
+                    ui.ctx().set_cursor_icon(if vertical {
+                        egui::CursorIcon::ResizeVertical
+                    } else {
+                        egui::CursorIcon::ResizeHorizontal
+                    });
+                }
+                if response.dragged() {
+                    let delta = ui.input(|i| {
+                        if vertical {
+                            i.pointer.delta().y
+                        } else {
+                            i.pointer.delta().x
+                        }
+                    });
+                    if let Some(window) =
+                        self.workspace.floating.iter_mut().find(|w| w.id == window)
+                    {
+                        window
+                            .set_ratio(path, (ratio + delta / space).clamp(minimum, 1. - minimum));
+                    }
+                }
+            }
         }
     }
 
@@ -385,9 +845,70 @@ impl Editor {
         }
     }
 
+    pub(crate) fn dock_surface_at(&self, pointer: egui::Pos2) -> Option<DockViewportTarget> {
+        let candidates: Vec<_> = self
+            .detached
+            .dock_viewports
+            .iter()
+            .copied()
+            .filter(|target| {
+                target.inner.contains(pointer)
+                    && match target.surface {
+                        DockSurface::Main => true,
+                        DockSurface::Floating(id) => self.workspace.floating.iter().any(|window| {
+                            window.id == id
+                                && window
+                                    .panels()
+                                    .iter()
+                                    .any(|panel| self.workspace.is_panel_visible(*panel))
+                        }),
+                    }
+            })
+            .collect();
+        match crate::native_screens::front_window_at(pointer) {
+            Some(Some(native)) => candidates
+                .into_iter()
+                .filter(|target| {
+                    target.inner.min.distance(native.min) < 6.
+                        && target.inner.max.distance(native.max) < 6.
+                })
+                .max_by_key(|target| {
+                    (
+                        target.order,
+                        u8::from(matches!(target.surface, DockSurface::Floating(_))),
+                    )
+                }),
+            Some(None) => None,
+            None => candidates.into_iter().max_by_key(|target| {
+                (
+                    target.order,
+                    u8::from(matches!(target.surface, DockSurface::Floating(_))),
+                )
+            }),
+        }
+    }
+
     pub(crate) fn dock_hit(&self, pointer: egui::Pos2, zoom: f32) -> Option<DockHit> {
-        let root = self.detached.root_inner?;
-        if !root.contains(pointer) {
+        let view = self.dock_surface_at(pointer).or_else(|| {
+            // Standalone header harnesses and an initial frame may precede a
+            // complete grid paint. Native viewports otherwise own their targets.
+            if !self.detached.dock_viewports.is_empty() {
+                return None;
+            }
+            let inner = self.detached.root_inner?;
+            inner.contains(pointer).then_some(DockViewportTarget {
+                surface: DockSurface::Main,
+                viewport: egui::ViewportId::ROOT,
+                inner,
+                content: egui::Rect::from_min_max(
+                    inner.min + egui::vec2(0., 32. * zoom),
+                    inner.max,
+                ),
+                zoom,
+                order: 0,
+            })
+        })?;
+        if !view.content.contains(pointer) {
             return None;
         }
         let groups: Vec<_> = self
@@ -395,23 +916,26 @@ impl Editor {
             .dock_groups
             .iter()
             .filter(|target| {
-                self.workspace
-                    .dock
-                    .area(target.edge)
-                    .groups
-                    .iter()
-                    .any(|g| g.id == target.group)
+                target.surface == view.surface
+                    && self
+                        .current_dock_group(target.surface, target.edge, target.group)
+                        .is_some()
             })
             .collect();
-        // Exact tab insertion is independent of edge/split hot zones.
+        let tabs_destination = |target: &DockGroupTarget, index| match target.surface {
+            DockSurface::Main => DockDestination::Tabs(DockLocation {
+                edge: target.edge,
+                group: target.group,
+                index,
+            }),
+            DockSurface::Floating(window) => DockDestination::FloatingTabs {
+                window,
+                group: target.group,
+                index,
+            },
+        };
         if let Some(target) = groups.iter().find(|g| g.header.contains(pointer)) {
-            let group = self
-                .workspace
-                .dock
-                .area(target.edge)
-                .groups
-                .iter()
-                .find(|g| g.id == target.group)?;
+            let group = self.current_dock_group(target.surface, target.edge, target.group)?;
             let before = target
                 .tabs
                 .iter()
@@ -429,84 +953,103 @@ impl Editor {
                 |(_, r)| r.left(),
             );
             return Some(DockHit {
-                destination: DockDestination::Tabs(DockLocation {
-                    edge: target.edge,
-                    group: target.group,
-                    index,
-                }),
+                surface: view.surface,
+                destination: tabs_destination(target, index),
                 rect: egui::Rect::from_min_max(
-                    egui::pos2(x - 3. * zoom, target.header.top()),
-                    egui::pos2(x + 3. * zoom, target.header.bottom()),
+                    egui::pos2(x - 3. * view.zoom, target.header.top()),
+                    egui::pos2(x + 3. * view.zoom, target.header.bottom()),
                 ),
                 caption: "Place tab".into(),
             });
         }
-        for (edge, rect) in edge_targets(root, zoom) {
+        for (edge, rect) in edge_targets(view.content, view.zoom) {
             if rect.contains(pointer) {
+                let destination = match view.surface {
+                    DockSurface::Main => DockDestination::Edge(edge),
+                    DockSurface::Floating(window) => DockDestination::FloatingSplit {
+                        window,
+                        group: None,
+                        edge,
+                    },
+                };
                 return Some(DockHit {
-                    destination: DockDestination::Edge(edge),
+                    surface: view.surface,
+                    destination,
                     rect,
                     caption: format!("Dock {}", edge.title()),
                 });
             }
         }
         let target = groups.iter().find(|g| g.rect.contains(pointer))?;
-        let vertical = target.edge.vertical();
-        let length = if vertical {
-            target.rect.height()
-        } else {
-            target.rect.width()
-        };
-        let distance = if vertical {
-            pointer.y - target.rect.top()
-        } else {
-            pointer.x - target.rect.left()
-        };
-        let relative = distance / length;
-        if !(0.25..=0.75).contains(&relative) {
-            let before = relative < 0.5;
-            let mut rect = target.rect;
-            if vertical {
-                if before {
-                    rect.max.y = rect.center().y;
+        let split = match view.surface {
+            DockSurface::Main => {
+                let relative = if target.edge.vertical() {
+                    (pointer.y - target.rect.top()) / target.rect.height()
                 } else {
-                    rect.min.y = rect.center().y;
+                    (pointer.x - target.rect.left()) / target.rect.width()
+                };
+                if !(0.25..=0.75).contains(&relative) {
+                    Some(if target.edge.vertical() {
+                        if relative < 0.5 {
+                            DockEdge::Top
+                        } else {
+                            DockEdge::Bottom
+                        }
+                    } else if relative < 0.5 {
+                        DockEdge::Left
+                    } else {
+                        DockEdge::Right
+                    })
+                } else {
+                    None
                 }
-            } else if before {
-                rect.max.x = rect.center().x;
-            } else {
-                rect.min.x = rect.center().x;
             }
-            return Some(DockHit {
-                destination: DockDestination::Split {
+            DockSurface::Floating(_) => {
+                let x = (pointer.x - target.rect.left()) / target.rect.width();
+                let y = (pointer.y - target.rect.top()) / target.rect.height();
+                [
+                    (DockEdge::Left, x),
+                    (DockEdge::Right, 1. - x),
+                    (DockEdge::Top, y),
+                    (DockEdge::Bottom, 1. - y),
+                ]
+                .into_iter()
+                .filter(|(_, distance)| *distance < 0.24)
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(edge, _)| edge)
+            }
+        };
+        if let Some(edge) = split {
+            let mut rect = target.rect;
+            match edge {
+                DockEdge::Top => rect.max.y = rect.center().y,
+                DockEdge::Bottom => rect.min.y = rect.center().y,
+                DockEdge::Left => rect.max.x = rect.center().x,
+                DockEdge::Right => rect.min.x = rect.center().x,
+            }
+            let destination = match view.surface {
+                DockSurface::Main => DockDestination::Split {
                     edge: target.edge,
                     group: target.group,
-                    before,
+                    before: matches!(edge, DockEdge::Top | DockEdge::Left),
                 },
+                DockSurface::Floating(window) => DockDestination::FloatingSplit {
+                    window,
+                    group: Some(target.group),
+                    edge,
+                },
+            };
+            return Some(DockHit {
+                surface: view.surface,
+                destination,
                 rect,
-                caption: if vertical {
-                    if before { "Split above" } else { "Split below" }
-                } else if before {
-                    "Split left"
-                } else {
-                    "Split right"
-                }
-                .into(),
+                caption: format!("Split {}", edge.title().to_lowercase()),
             });
         }
-        let group = self
-            .workspace
-            .dock
-            .area(target.edge)
-            .groups
-            .iter()
-            .find(|g| g.id == target.group)?;
+        let group = self.current_dock_group(target.surface, target.edge, target.group)?;
         Some(DockHit {
-            destination: DockDestination::Tabs(DockLocation {
-                edge: target.edge,
-                group: target.group,
-                index: group.tabs.len(),
-            }),
+            surface: view.surface,
+            destination: tabs_destination(target, group.tabs.len()),
             rect: target.rect,
             caption: "Add as tab".into(),
         })

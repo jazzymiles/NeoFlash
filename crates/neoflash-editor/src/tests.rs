@@ -552,6 +552,9 @@ pub(crate) fn rectangle_stage() -> (Editor, egui::Context, egui::Rect) {
 #[test]
 fn rectangle_tool_uses_pointer_press_origin_and_release_to_create_undoable_shape() {
     let (mut editor, ctx, page) = rectangle_stage();
+    editor.fill = [120, 80, 40, 96];
+    editor.stroke = [10, 20, 30, 176];
+    editor.stroke_width = 2.5;
     let before = editor.project.clone();
     let start = page.min + egui::vec2(50., 60.);
     let end = page.min + egui::vec2(170., 140.);
@@ -578,13 +581,38 @@ fn rectangle_tool_uses_pointer_press_origin_and_release_to_create_undoable_shape
     let shape = &elements[0];
     assert_eq!(shape.transform.x, 50.);
     assert_eq!(shape.transform.y, 60.);
-    let ElementKind::Rectangle { width, height, .. } = shape.kind else {
+    let ElementKind::Rectangle {
+        width,
+        height,
+        fill,
+        stroke,
+        stroke_width,
+    } = shape.kind
+    else {
         panic!("rectangle tool created a different primitive");
     };
     assert_eq!((width, height), (120., 80.));
+    assert_eq!(
+        (fill, stroke, stroke_width),
+        (editor.fill, editor.stroke, 2.5)
+    );
     assert!(editor.shape_draft.is_none());
     editor.project.validate().unwrap();
 
+    // A continuous property interaction retains its initial snapshot.
+    let drawn = editor.project.clone();
+    let scope = egui::Id::new("shape-properties");
+    let control = egui::Id::new("opacity-control");
+    editor.begin_property_edit(scope, control);
+    editor.selected_element_mut().unwrap().transform.alpha = 0.75;
+    editor.begin_property_edit(scope, control);
+    editor.selected_element_mut().unwrap().transform.alpha = 0.25;
+    editor.finish_property_edit();
+    editor.undo();
+    assert_eq!(
+        editor.project, drawn,
+        "one Undo restores the whole property interaction"
+    );
     editor.undo();
     assert_eq!(editor.project, before);
     assert!(
@@ -717,6 +745,8 @@ fn pen_drag_creates_cubic_closed_path_as_one_undo_step() {
 fn pencil_captures_a_batched_gesture_and_simplifies_collinear_samples() {
     let (mut editor, ctx, page) = rectangle_stage();
     editor.tool = crate::app::Tool::Pencil;
+    editor.stroke = [70, 110, 150, 80];
+    editor.stroke_width = 3.5;
     let a = page.min + egui::vec2(100., 100.);
     let b = page.min + egui::vec2(180., 200.);
     stage_input_frame(
@@ -735,6 +765,7 @@ fn pencil_captures_a_batched_gesture_and_simplifies_collinear_samples() {
     let ElementKind::Path {
         commands,
         fill,
+        stroke,
         stroke_width,
         ..
     } = &editor.selected_element().unwrap().kind
@@ -747,7 +778,8 @@ fn pencil_captures_a_batched_gesture_and_simplifies_collinear_samples() {
         "collinear samples should be simplified, corner retained"
     );
     assert_eq!(fill[3], 0);
-    assert_eq!(*stroke_width, 2.);
+    assert_eq!(*stroke_width, 3.5);
+    assert_eq!(*stroke, editor.stroke);
     assert!(matches!(
         commands[2],
         PathCommand::LineTo { x: 180., y: 200. }

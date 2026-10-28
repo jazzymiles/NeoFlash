@@ -107,6 +107,68 @@ fn nested_affine_composition_and_opacity() {
     near(items[0].transform[5], 30.);
     near(items[0].alpha, 0.2);
 
+    // Outline colors apply through both instance and folder ancestry, while the
+    // runtime snapshot retains the original artwork and colors.
+    assert!(!p.to_json().unwrap().contains("outline_color"));
+    let mut outlined = p.clone();
+    outlined.format_version = 4;
+    outlined.symbols[0].timeline.layers[0].properties.outline = true;
+    outlined.symbols[0].timeline.layers[0]
+        .properties
+        .outline_color = Some([30, 150, 220]);
+    outlined.symbols[1].timeline.layers[0].properties.outline = true;
+    outlined.symbols[1].timeline.layers[0]
+        .properties
+        .outline_color = Some([230, 80, 40]);
+    assert_eq!(
+        evaluate_scene(&outlined, "root", 0, true, true).draws[0].outline_color,
+        Some([30, 150, 220, 255])
+    );
+    assert_eq!(
+        evaluate_scene(&outlined, "child", 0, true, true).draws[0].outline_color,
+        Some([230, 80, 40, 255])
+    );
+    outlined.symbols[0].timeline.layers[0].properties.parent = Some("outline-folder".into());
+    outlined.symbols[0].timeline.layers.push(Layer {
+        id: "outline-folder".into(),
+        name: "Folder".into(),
+        visible: true,
+        locked: false,
+        keyframes: vec![],
+        properties: LayerProperties {
+            role: LayerRole::Folder,
+            outline: true,
+            outline_color: Some([70, 180, 90]),
+            ..Default::default()
+        },
+    });
+    assert_eq!(
+        evaluate_scene(&outlined, "root", 0, true, true).draws[0].outline_color,
+        Some([70, 180, 90, 255])
+    );
+    assert_eq!(
+        Project::from_json(&outlined.to_json().unwrap()).unwrap(),
+        outlined
+    );
+    let player = Player::new(&outlined);
+    let published = serde_json::to_value(player.runtime_snapshot(&outlined)).unwrap();
+    for layer in outlined
+        .symbols
+        .iter_mut()
+        .flat_map(|symbol| &mut symbol.timeline.layers)
+    {
+        layer.properties.outline = false;
+        layer.properties.outline_color = None;
+    }
+    assert_eq!(
+        serde_json::to_value(player.runtime_snapshot(&outlined)).unwrap(),
+        published
+    );
+    assert_eq!(
+        evaluate_scene(&outlined, "root", 0, true, true).draws[0].outline_color,
+        None
+    );
+
     // Authored layers share their clip plan between scrubbing and the browser
     // runtime; guides never become live display objects or dispatch scripts.
     let mut authored = project(vec![symbol(

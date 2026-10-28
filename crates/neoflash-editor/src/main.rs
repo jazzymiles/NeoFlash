@@ -9,6 +9,7 @@ mod graphic_import;
 mod layer_controls;
 mod library;
 mod native_screens;
+mod paint_controls;
 mod panels;
 mod resources;
 mod selection;

@@ -499,6 +499,7 @@ impl Editor {
                 let page = Rect::from_center_size(rect.center() + self.pan, size * self.zoom);
                 let origin = if nested { page.center() } else { page.min };
                 self.stage_file_drop(ui, rect, origin);
+                self.stage_library_drop(ui, rect, origin);
                 let visible_page = page.intersect(rect);
                 let center = if visible_page.is_positive() {
                     visible_page.center()
@@ -682,8 +683,11 @@ impl Editor {
                         origin,
                         zoom,
                         opacity,
-                        tint,
-                        outlines: outlines || draw.outline,
+                        tint: tint.or_else(|| {
+                            draw.outline_color
+                                .map(|color| Color32::from_rgb(color[0], color[1], color[2]))
+                        }),
+                        outlines: outlines || draw.outline_color.is_some(),
                         bitmap_texture,
                     },
                 )
@@ -695,8 +699,13 @@ impl Editor {
         }
     }
     pub(crate) fn paint_library_preview(&mut self, ui: &mut egui::Ui, symbol_id: &str) {
-        let (rect, _) =
-            ui.allocate_exact_size(Vec2::new(ui.available_width(), 130.), Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(
+            Vec2::new(
+                ui.available_width(),
+                (ui.available_height() * 0.24).clamp(48., 120.),
+            ),
+            Sense::hover(),
+        );
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 2., UiPalette::current(ui.ctx()).window_fill);
         let scene = evaluate_scene(&self.project, symbol_id, 0, false, true);

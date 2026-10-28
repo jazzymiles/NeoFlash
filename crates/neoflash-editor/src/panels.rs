@@ -19,11 +19,17 @@ impl Editor {
                     ui.strong("NeoFlash");
                     ui.separator();
                     ui.menu_button("File", |ui| {
-                        if ui.button("New                         ⌘N").clicked() {
+                        if ui
+                            .add(egui::Button::new("New").shortcut_text("⌘N"))
+                            .clicked()
+                        {
                             self.request(Pending::New, ctx);
                             ui.close();
                         }
-                        if ui.button("Open…                      ⌘O").clicked() {
+                        if ui
+                            .add(egui::Button::new("Open…").shortcut_text("⌘O"))
+                            .clicked()
+                        {
                             self.request(Pending::Open, ctx);
                             ui.close();
                         }
@@ -35,7 +41,10 @@ impl Editor {
                             self.import_graphics_dialog();
                             ui.close();
                         }
-                        if ui.button("Save                         ⌘S").clicked() {
+                        if ui
+                            .add(egui::Button::new("Save").shortcut_text("⌘S"))
+                            .clicked()
+                        {
                             self.save(false);
                             ui.close();
                         }
@@ -63,7 +72,7 @@ impl Editor {
                         if ui
                             .add_enabled(
                                 self.history.can_undo() || self.vector.draft.is_some(),
-                                egui::Button::new("Undo     ⌘Z"),
+                                egui::Button::new("Undo").shortcut_text("⌘Z"),
                             )
                             .clicked()
                         {
@@ -71,7 +80,10 @@ impl Editor {
                             ui.close();
                         }
                         if ui
-                            .add_enabled(self.history.can_redo(), egui::Button::new("Redo     ⇧⌘Z"))
+                            .add_enabled(
+                                self.history.can_redo(),
+                                egui::Button::new("Redo").shortcut_text("⇧⌘Z"),
+                            )
                             .clicked()
                         {
                             self.redo();
@@ -85,35 +97,48 @@ impl Editor {
                             .is_some_and(|target| target.is_text());
                         let can_copy = text_target || !self.selection.is_empty();
                         let can_paste = text_target || self.layer_editable();
-                        for (label, command, enabled) in [
+                        for (label, shortcut, command, enabled) in [
                             (
-                                "Cut       ⌘X",
+                                "Cut",
+                                "⌘X",
                                 crate::clipboard::ClipboardCommand::Cut,
                                 can_copy,
                             ),
                             (
-                                "Copy      ⌘C",
+                                "Copy",
+                                "⌘C",
                                 crate::clipboard::ClipboardCommand::Copy,
                                 can_copy,
                             ),
                             (
-                                "Paste     ⌘V",
+                                "Paste",
+                                "⌘V",
                                 crate::clipboard::ClipboardCommand::Paste,
                                 can_paste,
                             ),
                             (
-                                "Paste in Place     ⇧⌘V",
+                                "Paste in Place",
+                                "⇧⌘V",
                                 crate::clipboard::ClipboardCommand::PasteInPlace,
                                 !text_target && self.layer_editable(),
                             ),
                         ] {
-                            if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+                            if ui
+                                .add_enabled(
+                                    enabled,
+                                    egui::Button::new(label).shortcut_text(shortcut),
+                                )
+                                .clicked()
+                            {
                                 self.request_clipboard(ctx, command);
                                 ui.close();
                             }
                         }
                         ui.separator();
-                        if ui.button("Select All     ⌘A").clicked() {
+                        if ui
+                            .add(egui::Button::new("Select All").shortcut_text("⌘A"))
+                            .clicked()
+                        {
                             self.select_all();
                             ui.close();
                         }
@@ -128,7 +153,7 @@ impl Editor {
                         if ui
                             .add_enabled(
                                 !self.selection.is_empty(),
-                                egui::Button::new("Duplicate     ⌘D"),
+                                egui::Button::new("Duplicate").shortcut_text("⌘D"),
                             )
                             .clicked()
                         {
@@ -163,17 +188,26 @@ impl Editor {
                             ui.close();
                         }
                         ui.separator();
-                        if ui.button("Frame                  F5").clicked() {
+                        if ui
+                            .add(egui::Button::new("Frame").shortcut_text("F5"))
+                            .clicked()
+                        {
                             self.finish_edits();
                             self.insert_frame();
                             ui.close();
                         }
-                        if ui.button("Keyframe             F6").clicked() {
+                        if ui
+                            .add(egui::Button::new("Keyframe").shortcut_text("F6"))
+                            .clicked()
+                        {
                             self.finish_edits();
                             self.make_key(false);
                             ui.close();
                         }
-                        if ui.button("Blank Keyframe   F7").clicked() {
+                        if ui
+                            .add(egui::Button::new("Blank Keyframe").shortcut_text("F7"))
+                            .clicked()
+                        {
                             self.finish_edits();
                             self.make_key(true);
                             ui.close();
@@ -181,7 +215,7 @@ impl Editor {
                         if ui
                             .add_enabled(
                                 self.can_convert_selection(),
-                                egui::Button::new("Convert to Symbol…  F8"),
+                                egui::Button::new("Convert to Symbol…").shortcut_text("F8"),
                             )
                             .clicked()
                         {
@@ -191,17 +225,19 @@ impl Editor {
                     });
                     ui.menu_button("Control", |ui| {
                         if ui
-                            .button(if self.playing {
-                                "Stop    Enter"
-                            } else {
-                                "Play    Enter"
-                            })
+                            .add(
+                                egui::Button::new(if self.playing { "Stop" } else { "Play" })
+                                    .shortcut_text("Enter"),
+                            )
                             .clicked()
                         {
                             self.set_playing(!self.playing);
                             ui.close();
                         }
-                        if ui.button("Test Movie    ⌘Enter").clicked() {
+                        if ui
+                            .add(egui::Button::new("Test Movie").shortcut_text("⌘Enter"))
+                            .clicked()
+                        {
                             self.export(true);
                             ui.close();
                         }
@@ -218,12 +254,29 @@ impl Editor {
                             ("Tools", PanelId::Tools),
                             ("Library", PanelId::Library),
                             ("Properties", PanelId::Properties),
-                            ("Actions    F9", PanelId::Actions),
+                            ("Actions", PanelId::Actions),
                             ("Accessibility", PanelId::Accessibility),
                             ("Output", PanelId::Output),
                         ] {
                             let mut visible = self.workspace.is_panel_visible(panel);
-                            if ui.checkbox(&mut visible, name).changed() {
+                            let response = ui
+                                .horizontal(|ui| {
+                                    let response = ui.checkbox(&mut visible, name);
+                                    if panel == PanelId::Actions {
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                ui.label(
+                                                    egui::RichText::new("F9")
+                                                        .color(ui.visuals().weak_text_color()),
+                                                );
+                                            },
+                                        );
+                                    }
+                                    response
+                                })
+                                .inner;
+                            if response.changed() {
                                 self.set_panel_visible(panel, visible);
                                 ui.close();
                             }
@@ -323,12 +376,70 @@ impl Editor {
             text: String,
             focus: bool,
         }
+        #[derive(Clone)]
+        struct LayerReorder {
+            symbol: String,
+            layer: String,
+            start: Pos2,
+            moved: bool,
+        }
+        #[derive(Clone)]
+        struct ColumnResize {
+            start: Pos2,
+            width: f32,
+            saved: f32,
+            moved: bool,
+        }
+        let reorder_id = egui::Id::new((&id, "layer-reorder"));
+        let resize_id = egui::Id::new((&id, "layer-column-resize"));
+        let mut reorder = ctx.data(|data| data.get_temp::<LayerReorder>(reorder_id));
+        let mut resize = ctx.data(|data| data.get_temp::<ColumnResize>(resize_id));
+        let mut commit_reorder = None;
+        let (pressed, released, pointer, down, cancelled) = ctx.input(|input| {
+            let mut pressed = None;
+            let mut released = None;
+            for event in &input.events {
+                if let egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: held,
+                    ..
+                } = event
+                {
+                    if *held {
+                        pressed = Some(*pos);
+                        released = None;
+                    } else {
+                        released = Some(*pos);
+                    }
+                }
+            }
+            (
+                pressed,
+                released,
+                input.pointer.latest_pos().or(released),
+                input.pointer.primary_down(),
+                input.key_pressed(egui::Key::Escape) || !input.focused,
+            )
+        });
+        if cancelled {
+            if let Some(resize) = resize.take() {
+                self.workspace.sizes.layer_column_width = resize.saved;
+            }
+            reorder = None;
+        }
         let rename_id = egui::Id::new((&id, "layer-rename"));
         let mut rename = ctx.data(|data| data.get_temp::<LayerRename>(rename_id));
         let mut commit_rename = None;
         let mut cancel_rename = false;
         let previous_cell = self.timeline_cell;
         let timeline_width = ui.available_width();
+        let maximum_layer_width = (timeline_width - 100.).clamp(170., 600.);
+        let mut layer_column_width = self
+            .workspace
+            .sizes
+            .layer_column_width
+            .clamp(170., maximum_layer_width);
         ui.scope_builder(egui::UiBuilder::new().id(id), |ui| {
             // Keep a usable frame canvas and footer even in the smallest native
             // Timeline window. Overflowing header controls remain scrollable.
@@ -370,7 +481,7 @@ impl Editor {
                     self.frame as f64 / self.project.fps as f64
                 ));
                 ui.separator();
-                ui.scope(|ui| {
+                crate::theme::timeline_controls(ui, |ui| {
                     ui.spacing_mut().slider_width = 84.;
                     if ui.small_button("−").on_hover_text("Show more frames").clicked() {
                         self.timeline_cell = (self.timeline_cell / 1.4).max(3.);
@@ -382,7 +493,7 @@ impl Editor {
                         self.timeline_cell = (self.timeline_cell * 1.4).min(52.);
                     }
                     if ui.small_button("Fit").on_hover_text("Fit the whole timeline").clicked() {
-                        self.timeline_cell = ((timeline_width - 240.).max(1.)
+                        self.timeline_cell = ((timeline_width - layer_column_width - 30.).max(1.)
                             / self.symbol().timeline.frame_count.max(1) as f32).clamp(3., 52.);
                     }
                 });
@@ -407,6 +518,25 @@ impl Editor {
                 Vec2::new(ui.available_width(), RULER_HEIGHT),
                 Sense::hover(),
             );
+            let divider_x = header.left() + layer_column_width + ui.spacing().item_spacing.x / 2.;
+            let divider_rect = Rect::from_min_max(Pos2::new(divider_x - 3., header.top()), Pos2::new(divider_x + 3., header.bottom() + height));
+            let divider = ui.interact(divider_rect.intersect(ui.clip_rect()), ui.id().with("layer-column-divider"), Sense::click_and_drag());
+            divider.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Resize layer column"));
+            if !cancelled && let Some(start)=pressed.filter(|point| divider_rect.contains(*point) && ui.clip_rect().contains(*point) && ui.is_enabled() && ctx.layer_id_at(*point)==Some(ui.layer_id())) {
+                resize=Some(ColumnResize {start,width:layer_column_width,saved:self.workspace.sizes.layer_column_width,moved:false});
+                reorder=None;
+                self.timeline_key_drag=None;
+            }
+            if divider.hovered() || resize.is_some() {ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);}
+            if let Some(drag)=&mut resize && let Some(position)=pointer {
+                drag.moved |= (position.x-drag.start.x).abs()>0.5;
+                if drag.moved {
+                    layer_column_width=(drag.width + position.x - drag.start.x).clamp(170.,maximum_layer_width);
+                    self.workspace.sizes.layer_column_width=layer_column_width;
+                    ctx.request_repaint();
+                }
+            }
+            let layer_name_width = layer_column_width - 3. * (crate::timeline_paint::LAYER_CONTROL_WIDTH + crate::timeline_paint::LAYER_COLUMN_GAP);
             // Frame exposures are ordered by their frame, independent of JSON order.
             let layer_indices = crate::layer_controls::visible_layer_indices(&self.symbol().timeline);
             if !layer_indices.contains(&self.layer) {
@@ -426,7 +556,7 @@ impl Editor {
                 | egui::scroll_area::ScrollSource::MOUSE_WHEEL;
             let mut grid_rect = Rect::NOTHING;
             let mut grid_clip = Rect::NOTHING;
-            egui::ScrollArea::vertical()
+            let rows = egui::ScrollArea::vertical()
                 .id_salt("timeline_rows")
                 .scroll_source(scroll_source)
                 .min_scrolled_height(25.)
@@ -436,15 +566,15 @@ impl Editor {
                     ui.spacing_mut().item_spacing.y = 0.;
                     ui.horizontal_top(|ui| {
                         ui.allocate_ui_with_layout(
-                            Vec2::new(210., content_height),
+                            Vec2::new(layer_column_width, content_height),
                             egui::Layout::top_down(egui::Align::Min),
                             |ui| {
-                                ui.set_width(210.);
+                                ui.set_width(layer_column_width);
                                 ui.spacing_mut().item_spacing.y = 0.;
                                 for (row_index, layer) in layers.iter().enumerate() {
                                     let idx = layer_indices[row_index];
                                     let (row_rect, _) = ui.allocate_exact_size(
-                                        Vec2::new(210., ROW_HEIGHT),
+                                        Vec2::new(layer_column_width, ROW_HEIGHT),
                                         Sense::hover(),
                                     );
                                     ui.scope_builder(
@@ -456,8 +586,10 @@ impl Editor {
                                             if idx == self.layer {
                                                 ui.painter().rect_filled(row_rect, 0, palette.timeline_active_layer);
                                             }
+                                            ui.spacing_mut().item_spacing.x = crate::timeline_paint::LAYER_COLUMN_GAP;
+                                            let (name_rect, _) = ui.allocate_exact_size(Vec2::new(layer_name_width, ROW_HEIGHT), Sense::hover());
                                             if let Some(draft) = rename.as_mut().filter(|draft| draft.layer == layer.id) {
-                                                let field = ui.add_sized([146., ROW_HEIGHT],
+                                                let field = ui.put(name_rect,
                                                     egui::TextEdit::singleline(&mut draft.text)
                                                         .id(ui.id().with(("layer-name", &layer.id)))
                                                         .font(FontId::proportional(11.))
@@ -483,9 +615,22 @@ impl Editor {
                                                     field.surrender_focus();
                                                 }
                                             } else {
-                                                let response = ui.add_sized([146., ROW_HEIGHT],
-                                                    egui::Button::new((egui::RichText::new(crate::layer_controls::layer_label(layer)).size(11.), egui::Atom::grow()))
-                                                        .truncate().selected(idx == self.layer).frame(false));
+                                                let indent = if layer.properties.parent.is_some() { 8. } else { 0. };
+                                                let role_rect = Rect::from_center_size(Pos2::new(name_rect.left() + 7. + indent, name_rect.center().y), Vec2::splat(14.));
+                                                crate::layer_controls::paint_layer_role(ui.painter(), role_rect, layer, palette.muted_text);
+                                                if layer.properties.role == LayerRole::Folder {
+                                                    let role = ui.interact(role_rect, ui.id().with(("folder-fold", &layer.id)), Sense::click());
+                                                    role.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), if layer.properties.collapsed { "Expand folder" } else { "Collapse folder" }));
+                                                    if role.clicked() { self.toggle_layer_folder(idx); }
+                                                }
+                                                let label_rect = Rect::from_min_max(name_rect.min + Vec2::new(15. + indent, 0.), name_rect.max);
+                                                let response = ui.put(label_rect,
+                                                    egui::Button::new((egui::RichText::new(&layer.name).size(11.), egui::Atom::grow()))
+                                                        .min_size(label_rect.size()).truncate().selected(idx == self.layer).frame(false).sense(Sense::click_and_drag()));
+                                                if !cancelled && resize.is_none() && let Some(start)=pressed.filter(|point| label_rect.contains(*point) && ui.clip_rect().contains(*point) && ui.is_enabled() && ctx.layer_id_at(*point)==Some(ui.layer_id())) {
+                                                    self.finish_edits();self.timeline_key_drag=None;self.layer=idx;self.clear_selection();
+                                                    reorder=Some(LayerReorder {symbol:self.symbol_id().to_owned(),layer:layer.id.clone(),start,moved:false});
+                                                }
                                                 if response.clicked() || response.secondary_clicked() {
                                                     self.finish_edits();
                                                     self.timeline_key_drag = None;
@@ -493,10 +638,11 @@ impl Editor {
                                                     self.clear_selection();
                                                 }
                                                 if response.double_clicked() {
+                                                    reorder=None;
                                                     rename = Some(LayerRename { layer: layer.id.clone(), text: layer.name.clone(), focus: true });
                                                     ui.ctx().request_repaint();
                                                 }
-                                                response.on_hover_text("Double-click to rename layer").context_menu(|ui| {
+                                                response.on_hover_text("Drag to reorder. Double-click to rename layer").context_menu(|ui| {
                                                     if self.timeline_layer_menu(ui, idx) {
                                                         rename = Some(LayerRename { layer: layer.id.clone(), text: layer.name.clone(), focus: true });
                                                         ui.ctx().request_repaint();
@@ -517,7 +663,7 @@ impl Editor {
                                                             "Lock layer"
                                                         },
                                                     )
-                                                    .size(Vec2::splat(24.))
+                                                    .size(Vec2::new(crate::timeline_paint::LAYER_CONTROL_WIDTH, ROW_HEIGHT))
                                                     .flat(),
                                                 )
                                                 .clicked()
@@ -542,7 +688,7 @@ impl Editor {
                                                             "Show layer"
                                                         },
                                                     )
-                                                    .size(Vec2::splat(24.))
+                                                    .size(Vec2::new(crate::timeline_paint::LAYER_CONTROL_WIDTH, ROW_HEIGHT))
                                                     .flat(),
                                                 )
                                                 .clicked()
@@ -553,6 +699,7 @@ impl Editor {
                                                         !layer.visible
                                                 });
                                             }
+                                            self.layer_outline_control(ui, layer);
                                         },
                                     );
                                     ui.painter().line_segment(
@@ -595,7 +742,7 @@ impl Editor {
                                     (response.drag_started_by(egui::PointerButton::Primary) && self.timeline_key_drag.is_none())
                                         .then(|| ui.input(|i| i.pointer.press_origin())).flatten()
                                 }).filter(|pos| {
-                                    ui.is_enabled() && grid_clip.contains(*pos)
+                                    resize.is_none() && reorder.is_none() && ui.is_enabled() && grid_clip.contains(*pos)
                                         && !response.context_menu_opened()
                                         && ui.ctx().layer_id_at(*pos) == Some(ui.layer_id())
                                 });
@@ -854,12 +1001,12 @@ impl Editor {
                                 response.context_menu(|ui| {
                                     ui.label(format!("{} · Frame {}", self.symbol().timeline.layers[self.layer].name, self.frame + 1));
                                     ui.separator();
-                                    if ui.add_enabled(self.layer_editable(), egui::Button::new("Insert Keyframe   F6")).clicked() {
+                                    if ui.add_enabled(self.layer_editable(), egui::Button::new("Insert Keyframe").shortcut_text("F6")).clicked() {
                                         self.finish_edits();
                                         self.make_key(false);
                                         ui.close();
                                     }
-                                    if ui.add_enabled(self.layer_editable(), egui::Button::new("Insert Blank Keyframe   F7")).clicked() {
+                                    if ui.add_enabled(self.layer_editable(), egui::Button::new("Insert Blank Keyframe").shortcut_text("F7")).clicked() {
                                         self.finish_edits();
                                         self.make_key(true);
                                         ui.close();
@@ -883,7 +1030,7 @@ impl Editor {
                                         });
                                         ui.close();
                                     }
-                                    if ui.button("Actions   F9").clicked() {
+                                    if ui.add(egui::Button::new("Actions").shortcut_text("F9")).clicked() {
                                         self.open_frame_actions();
                                         ui.close();
                                     }
@@ -922,6 +1069,37 @@ impl Editor {
                         }
                     });
                 });
+            let divider_x = header.left() + layer_column_width + ui.spacing().item_spacing.x / 2.;
+            ui.painter().line_segment([Pos2::new(divider_x, header.top()), Pos2::new(divider_x, rows.inner_rect.bottom())], Stroke::new(if resize.is_some() {2.0_f32} else {1.0_f32}, if resize.is_some() {palette.accent} else {palette.border}));
+            if let Some(drag)=&mut reorder {
+                if drag.symbol!=self.symbol_id() || !layers.iter().any(|layer| layer.id==drag.layer) {reorder=None;}
+                else if let Some(position)=pointer {
+                    drag.moved |= position.distance(drag.start)>=6.;
+                    if drag.moved {
+                        let names_view=Rect::from_min_max(Pos2::new(header.left(),rows.inner_rect.top()),Pos2::new(header.left()+layer_column_width,rows.inner_rect.bottom()));
+                        let within=names_view.contains(position);
+                        ctx.set_cursor_icon(if within {egui::CursorIcon::Grabbing} else {egui::CursorIcon::NotAllowed});
+                        if within {
+                            let boundary=(((position.y-grid_rect.top())/ROW_HEIGHT).round().max(0.) as usize).min(layers.len());
+                            let y=(grid_rect.top()+boundary as f32*ROW_HEIGHT).clamp(names_view.top(),names_view.bottom());
+                            ui.painter().line_segment([Pos2::new(names_view.left(),y),Pos2::new(rows.inner_rect.right(),y)],Stroke::new(2.0_f32,palette.accent));
+                            if released.is_some() {commit_reorder=Some((drag.layer.clone(),layers.get(boundary).map(|layer|layer.id.clone())));}
+                            if down {
+                                let direction=if position.y<names_view.top()+18. {-1.} else if position.y>names_view.bottom()-18. {1.} else {0.};
+                                if direction!=0. {
+                                    let mut state=rows.state;
+                                    let maximum=(rows.content_size.y-rows.inner_rect.height()).max(0.);
+                                    state.offset.y=(state.offset.y+direction*220.*ui.input(|input|input.stable_dt).min(0.05)).clamp(0.,maximum);
+                                    state.store(ui.ctx(),rows.id);
+                                    ctx.request_repaint();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if divider.hovered() || resize.is_some() {ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);}
+            if released.is_some() || !down {reorder=None;resize=None;}
             // Paint the fixed ruler after scrolling, using the same current X
             // origin as the frame canvas. Layer and grid rows share one Y scroll.
             if grid_rect.is_finite() {
@@ -938,6 +1116,18 @@ impl Editor {
                     FontId::proportional(12.),
                     palette.muted_text,
                 );
+                for (column, icon, label) in [(0, Icon::Lock, "Layer lock"), (1, Icon::Visible, "Layer visibility")] {
+                    let center = Pos2::new(header.left() + layer_name_width
+                        + crate::timeline_paint::LAYER_COLUMN_GAP
+                        + crate::timeline_paint::LAYER_CONTROL_WIDTH / 2.
+                        + column as f32 * (crate::timeline_paint::LAYER_CONTROL_WIDTH + crate::timeline_paint::LAYER_COLUMN_GAP), header.center().y);
+                    let rect = Rect::from_center_size(center, Vec2::splat(14.));
+                    crate::ui_icons::paint_icon(ui.painter(), rect, icon, Stroke::new(1.0_f32, palette.muted_text));
+                    ui.interact(rect, ui.id().with(("layer-column", column)), Sense::hover()).on_hover_text(label);
+                }
+                let outline_header = Rect::from_center_size(Pos2::new(header.left() + layer_column_width - crate::timeline_paint::LAYER_CONTROL_WIDTH / 2., header.center().y), Vec2::splat(10.));
+                ui.painter().rect_stroke(outline_header, 0, Stroke::new(1.0_f32, palette.muted_text), egui::StrokeKind::Inside);
+                ui.interact(outline_header, ui.id().with("layer-outline-column"), Sense::hover()).on_hover_text("Layer outline and color");
                 let first = (((ruler.left() - grid_rect.left()) / self.timeline_cell).max(0.)
                     as u32)
                     .min(count);
@@ -1143,7 +1333,9 @@ impl Editor {
                                         );
                                     },
                                 );
-                                if ui.checkbox(&mut self.onion_anchor, "Anchor").changed() {
+                                if crate::theme::timeline_controls(ui, |ui| {
+                                    ui.checkbox(&mut self.onion_anchor, "Anchor")
+                                }).inner.changed() {
                                     self.anchored_range = (
                                         self.frame.saturating_sub(self.onion_before),
                                         (self.frame + self.onion_after)
@@ -1156,18 +1348,35 @@ impl Editor {
                                     Vec2::new(140., 24.),
                                     egui::Layout::left_to_right(egui::Align::Center),
                                     |ui| {
-                                        ui.spacing_mut().slider_width = 76.;
-                                        ui.add(
-                                            egui::Slider::new(&mut self.onion_opacity, 0.05..=0.7)
-                                                .text("Opacity")
-                                                .show_value(false),
-                                        );
+                                        crate::theme::timeline_controls(ui, |ui| {
+                                            ui.spacing_mut().slider_width = 76.;
+                                            ui.add(
+                                                egui::Slider::new(&mut self.onion_opacity, 0.05..=0.7)
+                                                    .text("Opacity")
+                                                    .show_value(false),
+                                            );
+                                        });
                                     },
                                 );
                             });
                         });
                 },
             );
+        });
+        if let Some((layer, before)) = commit_reorder {
+            self.reorder_timeline_layer(&layer, before.as_deref());
+        }
+        ctx.data_mut(|data| {
+            if let Some(drag) = reorder {
+                data.insert_temp(reorder_id, drag);
+            } else {
+                data.remove::<LayerReorder>(reorder_id);
+            }
+            if let Some(drag) = resize {
+                data.insert_temp(resize_id, drag);
+            } else {
+                data.remove::<ColumnResize>(resize_id);
+            }
         });
         if cancel_rename {
             rename = None;
@@ -1199,6 +1408,7 @@ impl Editor {
                 data.remove::<LayerRename>(rename_id);
             }
         });
+        self.layer_outline_color_dialog(&ctx);
     }
     pub fn onion_range(&self) -> (u32, u32) {
         if self.onion_anchor {
@@ -1227,7 +1437,7 @@ impl Editor {
                 .id_salt("tool_controls")
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    for (tool, icon, hint) in [
+                    let tools = [
                         (Tool::Select, Icon::Select, "Selection (V)"),
                         (Tool::Transform, Icon::Transform, "Free Transform (Q)"),
                         (Tool::Subselect, Icon::Subselect, "Subselection (A)"),
@@ -1236,21 +1446,66 @@ impl Editor {
                         (Tool::Rectangle, Icon::Rectangle, "Rectangle (R)"),
                         (Tool::Ellipse, Icon::Ellipse, "Oval (O)"),
                         (Tool::Text, Icon::Text, "Text (T)"),
-                    ] {
-                        if ui
-                            .add(
-                                IconButton::new(icon, hint)
-                                    .selected(self.tool == tool)
-                                    .size(Vec2::new(36., 34.)),
-                            )
-                            .clicked()
-                        {
-                            self.set_tool(tool);
-                        }
+                    ];
+                    let columns =
+                        ((ui.available_width() + 4.) / 36.).floor().clamp(1., 4.) as usize;
+                    for row in tools.chunks(columns) {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 4.;
+                            for &(tool, icon, hint) in row {
+                                if ui
+                                    .add(
+                                        IconButton::new(icon, hint)
+                                            .selected(self.tool == tool)
+                                            .size(Vec2::new(32., 30.)),
+                                    )
+                                    .clicked()
+                                {
+                                    self.set_tool(tool);
+                                }
+                            }
+                        });
                     }
                     ui.separator();
-                    ui.small("Fill");
-                    ui.color_edit_button_srgba_unmultiplied(&mut self.fill);
+                    if ui.available_width() >= 170. {
+                        crate::paint_controls::paint_row(ui, "tool-fill", "Fill", &mut self.fill);
+                        crate::paint_controls::paint_row(
+                            ui,
+                            "tool-stroke",
+                            "Stroke",
+                            &mut self.stroke,
+                        );
+                        crate::paint_controls::numeric_row(
+                            ui,
+                            "Stroke width",
+                            &mut self.stroke_width,
+                            0. ..=100.,
+                            0.25,
+                        );
+                    } else {
+                        crate::paint_controls::compact_paint(
+                            ui,
+                            "tool-fill",
+                            "Fill",
+                            &mut self.fill,
+                        );
+                        crate::paint_controls::compact_paint(
+                            ui,
+                            "tool-stroke",
+                            "Stroke",
+                            &mut self.stroke,
+                        );
+                        ui.small("Width");
+                        ui.add_sized(
+                            [ui.available_width(), crate::theme::CONTROL_HEIGHT],
+                            egui::DragValue::new(&mut self.stroke_width)
+                                .range(0. ..=100.)
+                                .speed(0.25)
+                                .max_decimals(2)
+                                .suffix("px"),
+                        )
+                        .on_hover_text("Stroke width; 0 disables the stroke");
+                    }
                     ui.add_space(8.);
                     ui.small("View");
                     if ui.add(IconButton::new(Icon::ZoomIn, "Zoom in")).clicked() {
@@ -1297,7 +1552,8 @@ impl Editor {
                     .show(ui, |ui| self.accessibility_panel(ui));
             }
             PanelId::Output => {
-                egui::ScrollArea::vertical()
+                egui::ScrollArea::both()
+                    .auto_shrink([false, false])
                     .id_salt("output_contents")
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
@@ -1310,394 +1566,200 @@ impl Editor {
         }
     }
     fn properties(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        use crate::paint_controls::{
+            PropertyChanges, numeric_row, paint_row, percent_row, property_row, text_row,
+        };
         if self.selection.len() > 1 {
+            self.finish_property_edit();
             ui.strong(format!("{} objects selected", self.selection.len()));
             ui.label("Select one object to edit its properties.");
-            ui.small("V: move the selection · Q: scale and rotate · Shift-click: add or remove an object");
+            ui.small("V: move · Q: scale / rotate · Shift-click: add or remove");
             return;
         }
-        if let Some(mut element) = self.selected_sampled() {
-            let original = element.clone();
-            let mut edit_symbol = None;
-            let mut convert_text = false;
-            ui.add_enabled_ui(self.selected_editable(), |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.strong("Instance / object");
-                    ui.label("Name");
-                    ui.add(egui::TextEdit::singleline(&mut element.name).desired_width(180.));
+        let object = self.selected_sampled();
+        let scope = egui::Id::new((
+            "object-properties",
+            &self.clipboard.session,
+            self.symbol_id(),
+            self.frame,
+            self.layer,
+            object.as_ref().map(|e| e.id.as_str()),
+        ));
+        self.property_edit_scope(scope);
+        let mut changes = PropertyChanges::default();
+        ui.push_id(scope, |ui| {
+            if let Some(mut element) = object {
+                let original = element.clone();
+                let mut edit_symbol = None;
+                let mut convert_text = false;
+                ui.add_enabled_ui(self.selected_editable(), |ui| {
+                    ui.strong("Object");
+                    changes.note(text_row(ui, "Name", &mut element.name));
+                    changes.note(percent_row(ui, "Opacity", &mut element.transform.alpha));
                     ui.separator();
-                    ui.label("Opacity");
-                    ui.add(
-                        egui::DragValue::new(&mut element.transform.alpha)
-                            .range(0.0..=1.0)
-                            .speed(0.01),
-                    );
-                });
-                ui.horizontal_wrapped(|ui| {
-                    for (name, value) in [
-                        ("X", &mut element.transform.x),
-                        ("Y", &mut element.transform.y),
-                        ("Scale X", &mut element.transform.scale_x),
-                        ("Scale Y", &mut element.transform.scale_y),
-                        ("Rotation", &mut element.transform.rotation),
-                    ] {
-                        ui.label(name);
-                        ui.add(
-                            egui::DragValue::new(value)
-                                .speed(if name.starts_with("Scale") { 0.01 } else { 1. })
-                                .max_decimals(2),
-                        );
+                    ui.strong("Transform");
+                    for (name, value) in [("X", &mut element.transform.x), ("Y", &mut element.transform.y), ("Scale X", &mut element.transform.scale_x), ("Scale Y", &mut element.transform.scale_y), ("Rotation", &mut element.transform.rotation)] {
+                        changes.note(numeric_row(ui, name, value, -1_000_000. ..=1_000_000., if name.starts_with("Scale") { 0.01 } else { 1. }));
                     }
-                });
-                match &mut element.kind {
-                    ElementKind::Rectangle {
-                        width,
-                        height,
-                        fill,
-                        stroke,
-                        stroke_width,
-                    }
-                    | ElementKind::Ellipse {
-                        width,
-                        height,
-                        fill,
-                        stroke,
-                        stroke_width,
-                    } => {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label("Width");
-                            ui.add(egui::DragValue::new(width).range(1.0..=10000.));
-                            ui.label("Height");
-                            ui.add(egui::DragValue::new(height).range(1.0..=10000.));
-                            ui.label("Fill");
-                            ui.color_edit_button_srgba_unmultiplied(fill);
-                            ui.label("Stroke");
-                            ui.color_edit_button_srgba_unmultiplied(stroke);
-                            ui.add(egui::DragValue::new(stroke_width).range(0.0..=100.));
-                        });
-                    }
-                    ElementKind::Text {
-                        text,
-                        font_family,
-                        font_size,
-                        color,
-                    } => {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label("Text");
-                            ui.add(egui::TextEdit::singleline(text).desired_width(220.));
-                            ui.label("Size");
-                            ui.add(egui::DragValue::new(font_size).range(4.0..=512.));
-                            ui.color_edit_button_srgba_unmultiplied(color);
-                            egui::ComboBox::from_id_salt("font_family")
-                                .selected_text(font_family.as_str())
-                                .width(180.)
-                                .show_ui(ui, |ui| {
-                                    ui.text_edit_singleline(&mut self.font_filter);
+                    ui.separator();
+                    match &mut element.kind {
+                        ElementKind::Rectangle { width, height, fill, stroke, stroke_width }
+                        | ElementKind::Ellipse { width, height, fill, stroke, stroke_width } => {
+                            ui.strong("Shape");
+                            changes.note(numeric_row(ui, "Width", width, 1. ..=10000., 1.));
+                            changes.note(numeric_row(ui, "Height", height, 1. ..=10000., 1.));
+                            changes.note(paint_row(ui, "shape-fill", "Fill", fill));
+                            changes.note(paint_row(ui, "shape-stroke", "Stroke", stroke));
+                            changes.note(numeric_row(ui, "Stroke width", stroke_width, 0. ..=100., 0.25));
+                        }
+                        ElementKind::Text { text, font_family, font_size, color } => {
+                            ui.strong("Text");
+                            changes.note(text_row(ui, "Text", text));
+                            changes.note(numeric_row(ui, "Size", font_size, 4. ..=512., 1.));
+                            changes.note(paint_row(ui, "text-color", "Color", color));
+                            let before = font_family.clone();
+                            let mut response = property_row(ui, "Font", |ui| {
+                                egui::ComboBox::from_id_salt("font_family").selected_text(font_family.as_str()).width(ui.available_width()).show_ui(ui, |ui| {
+                                    ui.add(egui::TextEdit::singleline(&mut self.font_filter).hint_text("Find font").desired_width(220.));
                                     for family in &self.fonts.families {
-                                        if self.font_filter.is_empty()
-                                            || family
-                                                .to_lowercase()
-                                                .contains(&self.font_filter.to_lowercase())
-                                        {
-                                            ui.selectable_value(
-                                                font_family,
-                                                family.clone(),
-                                                family,
-                                            );
-                                        }
+                                        if self.font_filter.is_empty() || family.to_lowercase().contains(&self.font_filter.to_lowercase()) { ui.selectable_value(font_family, family.clone(), family); }
                                     }
-                                });
-                        });
-                        if let Err(e) = self.fonts.load(ctx, font_family) {
-                            ui.colored_label(UiPalette::current(ctx).error_text, e);
+                                }).response
+                            });
+                            if *font_family != before { response.mark_changed(); }
+                            changes.note(response);
+                            if let Err(error) = self.fonts.load(ctx, font_family) { ui.colored_label(UiPalette::current(ctx).error_text, error); }
+                            let response = ui.button("Use text box");
+                            if response.clicked() { convert_text = true; changes.control = Some(response.id); }
                         }
-                        if ui.button("Use text box").clicked() {
-                            convert_text = true;
+                        kind @ ElementKind::TextBox { .. } => {
+                            if let Some(control) = self.text_box_properties(ui, ctx, kind) { changes.control = Some(control); }
                         }
-                    }
-                    kind @ ElementKind::TextBox { .. } => self.text_box_properties(ui, ctx, kind),
-                    ElementKind::Video { width, height } => {
-                        ui.label("Video viewport · playback is available in the HTML5 preview.");
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label("Width");
-                            ui.add(egui::DragValue::new(width).range(0. ..=8192.));
-                            ui.label("Height");
-                            ui.add(egui::DragValue::new(height).range(0. ..=8192.));
-                        });
-                        ui.small("Attach a NetStream from ActionScript. The editor displays a placeholder.");
-                    }
-                    ElementKind::Bitmap {
-                        resource_id,
-                        width,
-                        height,
-                        smoothing,
-                    } => {
-                        ui.horizontal_wrapped(|ui| {
-                            let path = self
-                                .project
-                                .resources
-                                .iter()
-                                .find(|resource| resource.id == *resource_id)
-                                .map(|resource| resource.path.as_str())
-                                .unwrap_or("Missing image");
-                            ui.label(format!("{path} · {width} × {height} px"));
-                            ui.checkbox(smoothing, "Smoothing");
-                        });
-                    }
-                    ElementKind::Path {
-                        commands,
-                        fill_rule,
-                        fill,
-                        stroke,
-                        stroke_width,
-                    } => {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(format!("Vector path · {} commands", commands.len()));
-                            ui.label("Fill");
-                            ui.color_edit_button_srgba_unmultiplied(fill);
-                            ui.label("Stroke");
-                            ui.color_edit_button_srgba_unmultiplied(stroke);
-                            ui.add(egui::DragValue::new(stroke_width).range(0.0..=100.));
-                            egui::ComboBox::from_id_salt("fill_rule")
-                                .selected_text(if *fill_rule == FillRule::EvenOdd {
-                                    "Even–odd"
-                                } else {
-                                    "Nonzero"
-                                })
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(fill_rule, FillRule::NonZero, "Nonzero");
-                                    ui.selectable_value(fill_rule, FillRule::EvenOdd, "Even–odd");
-                                });
-                            if ui.button("Edit points (A)").clicked() {
-                                self.set_tool(Tool::Subselect);
-                                self.select_single_id(original.id.clone());
+                        ElementKind::Video { width, height } => {
+                            ui.strong("Video");
+                            changes.note(numeric_row(ui, "Width", width, 0. ..=8192., 1.));
+                            changes.note(numeric_row(ui, "Height", height, 0. ..=8192., 1.));
+                            ui.small("Attach a NetStream from ActionScript. Playback runs in the HTML5 preview.");
+                        }
+                        ElementKind::Bitmap { resource_id, width, height, smoothing } => {
+                            ui.strong("Bitmap");
+                            let path = self.project.resources.iter().find(|r| r.id == *resource_id).map(|r| r.path.as_str()).unwrap_or("Missing image");
+                            ui.add(egui::Label::new(path).truncate()).on_hover_text(path);
+                            ui.small(format!("{width} × {height} px"));
+                            changes.note(ui.checkbox(smoothing, "Smoothing"));
+                        }
+                        ElementKind::Path { commands, fill_rule, fill, stroke, stroke_width } => {
+                            ui.strong("Vector path");
+                            ui.small(format!("{} commands", commands.len()));
+                            changes.note(paint_row(ui, "path-fill", "Fill", fill));
+                            changes.note(paint_row(ui, "path-stroke", "Stroke", stroke));
+                            changes.note(numeric_row(ui, "Stroke width", stroke_width, 0. ..=100., 0.25));
+                            let before = *fill_rule;
+                            let mut response = property_row(ui, "Fill rule", |ui| egui::ComboBox::from_id_salt("fill_rule").width(ui.available_width()).selected_text(if *fill_rule == FillRule::EvenOdd { "Even–odd" } else { "Nonzero" }).show_ui(ui, |ui| {
+                                ui.selectable_value(fill_rule, FillRule::NonZero, "Nonzero");
+                                ui.selectable_value(fill_rule, FillRule::EvenOdd, "Even–odd");
+                            }).response);
+                            if *fill_rule != before { response.mark_changed(); }
+                            changes.note(response);
+                            if ui.button("Edit points (A)").clicked() { self.set_tool(Tool::Subselect); self.select_single_id(original.id.clone()); }
+                        }
+                        ElementKind::Instance { symbol_id, playback } => {
+                            ui.strong("Instance");
+                            let name = self.project.symbol(symbol_id).map(|s| s.name.as_str()).unwrap_or("Missing");
+                            property_row(ui, "Symbol", |ui| { ui.add(egui::Label::new(name).truncate()).on_hover_text(name); });
+                            let before = *playback;
+                            let title = match playback { InstancePlayback::Independent => "Independent", InstancePlayback::Loop => "Loop", InstancePlayback::PlayOnce => "Play once", InstancePlayback::SingleFrame(_) => "Single frame" };
+                            let mut response = property_row(ui, "Playback", |ui| egui::ComboBox::from_id_salt("playback").width(ui.available_width()).selected_text(title).show_ui(ui, |ui| {
+                                for (value, label) in [(InstancePlayback::Independent,"Independent"), (InstancePlayback::Loop,"Loop"), (InstancePlayback::PlayOnce,"Play once"), (InstancePlayback::SingleFrame(0),"Single frame")] { ui.selectable_value(playback, value, label); }
+                            }).response);
+                            if *playback != before { response.mark_changed(); }
+                            changes.note(response);
+                            if let InstancePlayback::SingleFrame(frame) = playback {
+                                let mut displayed = frame.saturating_add(1);
+                                let max = self.project.symbol(symbol_id).map(|s| s.timeline.frame_count).unwrap_or(1);
+                                let response = property_row(ui, "Frame", |ui| ui.add_sized([ui.available_width(), crate::theme::CONTROL_HEIGHT], egui::DragValue::new(&mut displayed).range(1..=max)));
+                                if response.changed() { *frame = displayed - 1; }
+                                changes.note(response);
                             }
-                        });
-                    }
-                    ElementKind::Instance {
-                        symbol_id,
-                        playback,
-                    } => {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(format!(
-                                "Symbol: {}",
-                                self.project
-                                    .symbol(symbol_id)
-                                    .map(|s| s.name.as_str())
-                                    .unwrap_or("Missing")
-                            ));
-                            egui::ComboBox::from_id_salt("playback")
-                                .selected_text(format!("{playback:?}"))
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(
-                                        playback,
-                                        InstancePlayback::Independent,
-                                        "MovieClip · independent",
-                                    );
-                                    ui.selectable_value(
-                                        playback,
-                                        InstancePlayback::Loop,
-                                        "Graphic · loop",
-                                    );
-                                    ui.selectable_value(
-                                        playback,
-                                        InstancePlayback::PlayOnce,
-                                        "Graphic · play once",
-                                    );
-                                    ui.selectable_value(
-                                        playback,
-                                        InstancePlayback::SingleFrame(0),
-                                        "Graphic · single frame",
-                                    );
-                                });
-                            if ui.button("Edit").clicked() {
-                                edit_symbol = Some(symbol_id.clone());
-                            }
-                        });
-                    }
-                }
-            });
-            if convert_text
-                && let ElementKind::Text {
-                    text,
-                    font_family,
-                    font_size,
-                    color,
-                } = &element.kind
-            {
-                let named = crate::fonts::styled_family(font_family, false, false);
-                let family = if ctx.fonts(|fonts| fonts.families().contains(&named)) {
-                    named
-                } else {
-                    egui::FontFamily::Proportional
-                };
-                let galley = ui.painter().layout_no_wrap(
-                    text.clone(),
-                    egui::FontId::new(*font_size as f32, family),
-                    egui::Color32::WHITE,
-                );
-                let kind = ElementKind::TextBox {
-                    text: text.clone(),
-                    width: (galley.size().x as f64 + 4.).clamp(100., 1000000.),
-                    height: (galley.size().y as f64 + 4.).clamp(100., 1000000.),
-                    format: TextFormat {
-                        font: font_family.clone(),
-                        size: *font_size,
-                        color: u32::from_be_bytes([0, color[0], color[1], color[2]]),
-                        ..Default::default()
-                    },
-                    word_wrap: true,
-                    multiline: true,
-                };
-                element.transform.alpha *= color[3] as f64 / 255.;
-                element.kind = kind;
-            }
-            if original != element {
-                if matches!(element.kind, ElementKind::TextBox { .. })
-                    && let Some(field) = TextFieldState::from_kind(&element.kind)
-                    && let Err(error) = field.validate()
-                {
-                    self.message(format!("Text box edit rejected: {error}"));
-                    return;
-                }
-                self.finish_edits();
-                self.select_single_id(original.id.clone());
-                self.transact(|s| {
-                    s.ensure_selected_key();
-                    if let Some(e) = s.selected_element_mut() {
-                        *e = element
+                            if ui.button("Edit symbol").clicked() { edit_symbol = Some(symbol_id.clone()); }
+                        }
                     }
                 });
-            }
-            if let Some(id) = edit_symbol {
-                self.enter_symbol(id);
-            }
-        } else {
-            // Edit a draft so finishing an active gesture precedes any document mutation.
-            // Apply only these fields: finishing a pen path can add new elements and keys.
-            let mut document = self.project.clone();
-            let symbol_id = self.symbol_id().to_owned();
-            let layer_id = self.symbol().timeline.layers[self.layer].id.clone();
-            let layer = self.layer;
-            let frame = self.frame;
-            ui.horizontal_wrapped(|ui| {
+                if convert_text && let ElementKind::Text { text, font_family, font_size, color } = &element.kind {
+                    let named = crate::fonts::styled_family(font_family, false, false);
+                    let family = if ctx.fonts(|fonts| fonts.families().contains(&named)) { named } else { egui::FontFamily::Proportional };
+                    let galley = ui.painter().layout_no_wrap(text.clone(), egui::FontId::new(*font_size as f32, family), egui::Color32::WHITE);
+                    let kind = ElementKind::TextBox {
+                        text: text.clone(), width: (galley.size().x as f64 + 4.).clamp(100., 1000000.), height: (galley.size().y as f64 + 4.).clamp(100., 1000000.),
+                        format: TextFormat { font: font_family.clone(), size: *font_size, color: u32::from_be_bytes([0,color[0],color[1],color[2]]), ..Default::default() }, word_wrap: true, multiline: true,
+                    };
+                    element.transform.alpha *= color[3] as f64 / 255.;
+                    element.kind = kind;
+                }
+                if original != element && let Some(control) = changes.control {
+                    if let Some(field) = TextFieldState::from_kind(&element.kind) && let Err(error) = field.validate() { self.message(format!("Text box edit rejected: {error}")); return; }
+                    self.begin_property_edit(scope, control);
+                    self.select_single_id(original.id.clone());
+                    self.ensure_selected_key();
+                    if let Some(current) = self.selected_element_mut() {
+                        current.name = element.name;
+                        current.transform = element.transform;
+                        current.kind = element.kind;
+                    }
+                }
+                if let Some(id) = edit_symbol { self.enter_symbol(id); }
+            } else {
+                let mut document = self.project.clone();
+                let symbol_id = self.symbol_id().to_owned();
+                let layer_id = self.symbol().timeline.layers[self.layer].id.clone();
+                let layer = self.layer;
+                let frame = self.frame;
                 ui.strong("Document");
-                ui.add(egui::TextEdit::singleline(&mut document.name).desired_width(180.));
-                ui.label("Size");
-                ui.add(egui::DragValue::new(&mut document.width).range(1..=8192));
-                ui.label("×");
-                ui.add(egui::DragValue::new(&mut document.height).range(1..=8192));
-                ui.label("FPS");
-                ui.add(egui::DragValue::new(&mut document.fps).range(1..=120));
-                ui.label("Background");
-                ui.color_edit_button_srgba_unmultiplied(&mut document.background);
-            });
-            let timeline = &mut document.symbol_mut(&symbol_id).unwrap().timeline;
-            ui.horizontal_wrapped(|ui| {
-                ui.label("Layer");
-                ui.add(
-                    egui::TextEdit::singleline(&mut timeline.layers[layer].name)
-                        .desired_width(160.),
-                );
-                let min = timeline
-                    .layers
-                    .iter()
-                    .flat_map(|l| &l.keyframes)
-                    .map(|k| k.frame + 1)
-                    .chain(timeline.scripts.iter().map(|s| s.frame + 1))
-                    .max()
-                    .unwrap_or(1);
-                ui.label("Frames");
-                ui.add(egui::DragValue::new(&mut timeline.frame_count).range(min..=10000));
+                changes.note(text_row(ui, "Name", &mut document.name));
+                for (label, value, max) in [("Width", &mut document.width,8192), ("Height", &mut document.height,8192), ("FPS", &mut document.fps,120)] {
+                    changes.note(property_row(ui, label, |ui| ui.add_sized([ui.available_width(),crate::theme::CONTROL_HEIGHT],egui::DragValue::new(value).range(1..=max))));
+                }
+                changes.note(paint_row(ui, "background", "Background", &mut document.background));
+                ui.separator();
+                ui.strong("Timeline");
+                let timeline = &mut document.symbol_mut(&symbol_id).unwrap().timeline;
+                changes.note(text_row(ui, "Layer", &mut timeline.layers[layer].name));
+                let min = timeline.layers.iter().flat_map(|l| &l.keyframes).map(|k| k.frame+1).chain(timeline.scripts.iter().map(|s|s.frame+1)).max().unwrap_or(1);
+                changes.note(property_row(ui,"Frames",|ui|ui.add_sized([ui.available_width(),crate::theme::CONTROL_HEIGHT],egui::DragValue::new(&mut timeline.frame_count).range(min..=10000))));
                 ui.add_enabled_ui(self.layer_editable(), |ui| {
                     if let Some(key) = timeline.layers[layer].key_at_mut(frame) {
-                        ui.label("Label");
-                        ui.add(egui::TextEdit::singleline(&mut key.label).desired_width(140.));
-                        egui::ComboBox::from_id_salt("tween")
-                            .selected_text(match key.tween {
-                                None => "No tween",
-                                Some(Easing::Linear) => "Linear",
-                                Some(Easing::EaseIn) => "Ease in",
-                                Some(Easing::EaseOut) => "Ease out",
-                                Some(Easing::EaseInOut) => "Ease in/out",
-                                Some(Easing::CubicBezier { .. }) => "Custom curve",
-                            })
-                            .show_ui(ui, |ui| {
-                                for (label, value) in [
-                                    ("No tween", None),
-                                    ("Linear", Some(Easing::Linear)),
-                                    ("Ease in", Some(Easing::EaseIn)),
-                                    ("Ease out", Some(Easing::EaseOut)),
-                                    ("Ease in/out", Some(Easing::EaseInOut)),
-                                    (
-                                        "Custom curve",
-                                        Some(Easing::CubicBezier {
-                                            x1: 0.25,
-                                            y1: 0.1,
-                                            x2: 0.25,
-                                            y2: 1.,
-                                        }),
-                                    ),
-                                ] {
-                                    ui.selectable_value(&mut key.tween, value, label);
-                                }
-                            });
+                        changes.note(text_row(ui, "Frame label", &mut key.label));
+                        let before = key.tween;
+                        let mut response = property_row(ui, "Tween", |ui| egui::ComboBox::from_id_salt("tween").width(ui.available_width()).selected_text(match key.tween { None=>"No tween",Some(Easing::Linear)=>"Linear",Some(Easing::EaseIn)=>"Ease in",Some(Easing::EaseOut)=>"Ease out",Some(Easing::EaseInOut)=>"Ease in/out",Some(Easing::CubicBezier{..})=>"Custom curve" }).show_ui(ui, |ui| {
+                            for (label,value) in [("No tween",None),("Linear",Some(Easing::Linear)),("Ease in",Some(Easing::EaseIn)),("Ease out",Some(Easing::EaseOut)),("Ease in/out",Some(Easing::EaseInOut)),("Custom curve",Some(Easing::CubicBezier{x1:0.25,y1:0.1,x2:0.25,y2:1.}))] { ui.selectable_value(&mut key.tween,value,label); }
+                        }).response);
+                        if key.tween != before { response.mark_changed(); }
+                        changes.note(response);
+                        if let Some(Easing::CubicBezier{x1,y1,x2,y2})=&mut key.tween {
+                            for (label,value) in [("Curve X1",x1),("Curve Y1",y1),("Curve X2",x2),("Curve Y2",y2)] { changes.note(numeric_row(ui,label,value,0. ..=1.,0.01)); }
+                        }
                     }
                 });
-            });
-            ui.add_enabled_ui(self.layer_editable(), |ui| {
-                if let Some(key) = timeline.layers[layer].key_at_mut(frame)
-                    && let Some(Easing::CubicBezier { x1, y1, x2, y2 }) = &mut key.tween
-                {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label("Bezier control points");
-                        for v in [x1, y1, x2, y2] {
-                            ui.add(egui::DragValue::new(v).range(0.0..=1.0).speed(0.01));
+                if document != self.project && let Some(control) = changes.control {
+                    self.begin_property_edit(scope, control);
+                    // Copy only changed authoring fields, never the cloned document.
+                    self.project.name=document.name.clone(); self.project.width=document.width; self.project.height=document.height;
+                    self.project.fps=document.fps; self.project.background=document.background;
+                    let draft=&document.symbol(&symbol_id).unwrap().timeline;
+                    if let Some(symbol)=self.project.symbol_mut(&symbol_id) {
+                        let timeline=&mut symbol.timeline;
+                        let min=timeline.layers.iter().flat_map(|l|&l.keyframes).map(|k|k.frame+1).chain(timeline.scripts.iter().map(|s|s.frame+1)).max().unwrap_or(1);
+                        timeline.frame_count=draft.frame_count.max(min);
+                        if let Some(target)=timeline.layers.iter_mut().find(|l|l.id==layer_id) {
+                            target.name=draft.layers[layer].name.clone();
+                            if target.visible && !target.locked && let Some(changed)=draft.layers[layer].key_at(frame) && let Some(key)=target.keyframes.iter_mut().find(|k|k.frame==changed.frame) { key.label=changed.label.clone(); key.tween=changed.tween; }
                         }
-                    });
+                    }
+                    self.normalize_selection();
                 }
-            });
-            if document != self.project {
-                self.finish_edits();
-                self.clear_selection();
-                self.transact(|editor| {
-                    editor.project.name = document.name.clone();
-                    editor.project.width = document.width;
-                    editor.project.height = document.height;
-                    editor.project.fps = document.fps;
-                    editor.project.background = document.background;
-                    let draft = &document.symbol(&symbol_id).unwrap().timeline;
-                    if let Some(symbol) = editor.project.symbol_mut(&symbol_id) {
-                        let timeline = &mut symbol.timeline;
-                        let min = timeline
-                            .layers
-                            .iter()
-                            .flat_map(|l| &l.keyframes)
-                            .map(|k| k.frame + 1)
-                            .chain(timeline.scripts.iter().map(|s| s.frame + 1))
-                            .max()
-                            .unwrap_or(1);
-                        timeline.frame_count = draft.frame_count.max(min);
-                        if let Some(target) = timeline.layers.iter_mut().find(|l| l.id == layer_id)
-                        {
-                            target.name = draft.layers[layer].name.clone();
-                            if target.visible
-                                && !target.locked
-                                && let Some(changed) = draft.layers[layer].key_at(frame)
-                                && let Some(key) = target
-                                    .keyframes
-                                    .iter_mut()
-                                    .find(|k| k.frame == changed.frame)
-                            {
-                                key.label = changed.label.clone();
-                                key.tween = changed.tween;
-                            }
-                        }
-                    }
-                    editor.normalize_selection();
-                });
             }
-        }
+        });
+        self.end_property_interaction(ctx);
     }
     pub(crate) fn actions_editor_id(&self) -> egui::Id {
         if self.script_target == ScriptTarget::Source {
@@ -1735,50 +1797,65 @@ impl Editor {
         ui.scope_builder(egui::UiBuilder::new().id(id), |ui| self.actions_body(ui));
     }
     fn actions_body(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            ui.strong(&self.symbol().name);
-            ui.separator();
-            let has_frame_script = self.symbol().timeline.scripts.iter().any(|script| {
+        ui.add(
+            egui::Label::new(egui::RichText::new(&self.symbol().name).strong())
+                .halign(egui::Align::Min)
+                .truncate(),
+        )
+        .on_hover_text(&self.symbol().name);
+        let has_frame_script =
+            self.symbol().timeline.scripts.iter().any(|script| {
                 script.frame == self.frame && !script.script.source.trim().is_empty()
             });
-            ui.selectable_value(
-                &mut self.script_target,
-                ScriptTarget::Frame,
-                format!(
-                    "Frame {}{}",
-                    self.frame + 1,
-                    if has_frame_script { " · script" } else { "" }
-                ),
-            )
-            .on_hover_text(
-                "Edit this symbol's frame script. Frame scripts are shared across its layers.",
-            );
-            ui.add_enabled_ui(self.selected_editable(), |ui| {
-                ui.selectable_value(
-                    &mut self.script_target,
-                    ScriptTarget::Object,
-                    "Selected object",
-                );
+        egui::ScrollArea::horizontal()
+            .id_salt("actions-targets")
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(
+                        &mut self.script_target,
+                        ScriptTarget::Frame,
+                        format!(
+                            "Frame {}{}",
+                            self.frame + 1,
+                            if has_frame_script { " · script" } else { "" }
+                        ),
+                    )
+                    .on_hover_text("Frame scripts are shared across this symbol's layers.");
+                    ui.add_enabled_ui(self.selected_editable(), |ui| {
+                        ui.selectable_value(
+                            &mut self.script_target,
+                            ScriptTarget::Object,
+                            "Object",
+                        );
+                    });
+                    ui.selectable_value(
+                        &mut self.script_target,
+                        ScriptTarget::Source,
+                        "Project files",
+                    );
+                });
             });
-            ui.selectable_value(
-                &mut self.script_target,
-                ScriptTarget::Source,
-                "Project files",
-            );
-            if self.script_target == ScriptTarget::Object {
+        if self.script_target == ScriptTarget::Object {
+            crate::paint_controls::property_row(ui, "Event", |ui| {
                 egui::ComboBox::from_id_salt("event")
+                    .width(ui.available_width())
                     .selected_text(format!("{:?}", self.script_event))
                     .show_ui(ui, |ui| {
-                        for e in [
+                        for event in [
                             ObjectEvent::Click,
                             ObjectEvent::Load,
                             ObjectEvent::EnterFrame,
                         ] {
-                            ui.selectable_value(&mut self.script_event, e, format!("{e:?}"));
+                            ui.selectable_value(
+                                &mut self.script_event,
+                                event,
+                                format!("{event:?}"),
+                            );
                         }
                     });
-            }
-        });
+            });
+        }
         if self.script_target == ScriptTarget::Source {
             self.project_sources(ui);
             return;
@@ -1807,24 +1884,38 @@ impl Editor {
         }
         .unwrap_or_default();
         let mut script = original.clone();
-        ui.horizontal_wrapped(|ui| {
+        ui.horizontal(|ui| {
+            let language_width = (ui.available_width() - 88.).clamp(64., 160.);
+            let label = match script.language {
+                ScriptLanguage::JavaScript => "JavaScript",
+                ScriptLanguage::TypeScript => "TypeScript",
+                ScriptLanguage::ActionScript2 => "AS2",
+                ScriptLanguage::ActionScript3 => "AS3",
+            };
             egui::ComboBox::from_id_salt("language")
-                .selected_text(format!("{:?}", script.language))
+                .width(language_width)
+                .selected_text(label)
                 .show_ui(ui, |ui| {
                     for (language, label) in [
                         (ScriptLanguage::JavaScript, "JavaScript"),
                         (ScriptLanguage::TypeScript, "TypeScript"),
-                        (ScriptLanguage::ActionScript2, "AS2 · initial subset"),
-                        (ScriptLanguage::ActionScript3, "AS3 · initial subset"),
+                        (ScriptLanguage::ActionScript2, "AS2"),
+                        (ScriptLanguage::ActionScript3, "AS3"),
                     ] {
                         ui.selectable_value(&mut script.language, language, label);
                     }
                 });
-            if ui.button("Check script").clicked() {
+            if ui
+                .add_sized(
+                    [82., crate::theme::CONTROL_HEIGHT],
+                    egui::Button::new("Check script"),
+                )
+                .clicked()
+            {
                 self.check_action_source(&script);
             }
-            ui.small("Test Movie runs code. Timeline preview does not.");
         });
+        ui.small("Test Movie runs scripts in the browser.");
         self.show_code_feedback(ui, &script);
         let editable = self.script_target == ScriptTarget::Frame || self.selected_editable();
         let editor_id = self.actions_editor_id();
