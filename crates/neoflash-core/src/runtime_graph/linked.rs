@@ -93,13 +93,13 @@ impl Player {
             .filter(|symbol| symbol.linkage_id.as_deref() == Some(linkage_id));
         let symbol = matches
             .next()
-            .ok_or_else(|| error("No MovieClip is exported with this exact linkage identifier"))?;
+            .ok_or_else(|| error("No symbol is exported with this exact linkage identifier"))?;
         if matches.next().is_some()
-            || symbol.kind != SymbolKind::MovieClip
+            || !matches!(symbol.kind, SymbolKind::MovieClip | SymbolKind::Button)
             || symbol.id == project.root
         {
             return Err(error(
-                "Library linkage must identify one exported non-root MovieClip",
+                "Library linkage must identify one exported non-root MovieClip or Button",
             ));
         }
         let (nodes, depth) = symbol_budget(

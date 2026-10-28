@@ -1,10 +1,10 @@
-//! Snapshot-based TRS gestures. Points and bounds use the edited symbol's coordinates.
+//! Snapshot-based affine gestures. Points and bounds use the edited symbol's coordinates.
 //!
-//! A single resize works in the placement's rotated axes; it never decomposes a
+//! A single resize works in the placement's own axes, including skew; it never decomposes a
 //! world AABB. Multi-selection supports only uniform scale and rotation, which
-//! can be composed with every existing TRS without introducing shear.
+//! can be composed with every existing affine pose without changing its skew.
 
-use neoflash_core::Transform;
+use neoflash_core::{Transform, transform_matrix};
 
 pub(crate) type Point = [f64; 2];
 const EPSILON: f64 = 1e-12;
@@ -124,7 +124,7 @@ fn finite_point(point: Point) -> bool {
 /// Mirrors the document's numeric transform limits, so a gesture cannot produce
 /// a pose that its eventual project commit would reject.
 fn valid_transform(t: Transform) -> bool {
-    [t.x, t.y, t.scale_x, t.scale_y, t.rotation, t.alpha]
+    [t.x, t.y, t.scale_x, t.scale_y, t.rotation, t.skew, t.alpha]
         .iter()
         .all(|x| x.is_finite())
         && t.x.abs() <= 1e12
@@ -132,11 +132,15 @@ fn valid_transform(t: Transform) -> bool {
         && t.scale_x.abs() <= 1e4
         && t.scale_y.abs() <= 1e4
         && t.rotation.abs() <= 1e9
+        && t.skew.abs() <= 1e9
         && (0.0..=1.0).contains(&t.alpha)
 }
 
 fn nonsingular(t: Transform) -> bool {
-    t.scale_x.abs() > EPSILON && t.scale_y.abs() > EPSILON
+    let [a, b, c, d, _, _] = transform_matrix(t);
+    t.scale_x.abs() > EPSILON
+        && t.scale_y.abs() > EPSILON
+        && (a * d - b * c).abs() > EPSILON * t.scale_x.abs() * t.scale_y.abs()
 }
 
 fn add(a: Point, b: Point) -> Point {
@@ -152,13 +156,14 @@ fn rotate_vector(v: Point, degrees: f64) -> Point {
     [cos * v[0] - sin * v[1], sin * v[0] + cos * v[1]]
 }
 
-/// Same T*R*S convention as the core. Gesture functions validate inputs/results;
+/// Uses the core's complete affine transform. Gesture functions validate inputs/results;
 /// this elementary helper deliberately leaves validation to its caller.
 pub(crate) fn transformed_point(t: Transform, local: Point) -> Point {
-    add(
-        [t.x, t.y],
-        rotate_vector([local[0] * t.scale_x, local[1] * t.scale_y], t.rotation),
-    )
+    let [a, b, c, d, x, y] = transform_matrix(t);
+    [
+        a * local[0] + c * local[1] + x,
+        b * local[0] + d * local[1] + y,
+    ]
 }
 
 /// Signed least-squares uniform scale. Normalizing first avoids squaring large
@@ -207,25 +212,30 @@ pub(crate) fn resize_single(
         handle.opposite().point(bounds)
     };
     let local_span = subtract(handle.point(bounds), anchor);
-    let span = [
-        local_span[0] * initial.scale_x,
-        local_span[1] * initial.scale_y,
-    ];
-    let delta = rotate_vector(subtract(current, press), -initial.rotation);
+    let [a, b, c, d, _, _] = transform_matrix(initial);
+    let delta = subtract(current, press);
     let axes = handle.axes();
     let mut factors = [1.0; 2];
     if options.preserve_aspect {
-        // For side handles the inactive coordinate has zero span, so its
-        // pointer movement has no influence on the uniform scale.
+        // Project in world space, where a skewed local basis is not orthogonal.
+        let span = [
+            a * local_span[0] + c * local_span[1],
+            b * local_span[0] + d * local_span[1],
+        ];
         let factor = projected_ratio(span, add(span, delta))?;
         factors = [factor; 2];
     } else {
+        let determinant = a * d - b * c;
+        let local_delta = [
+            (d * delta[0] - c * delta[1]) / determinant,
+            (a * delta[1] - b * delta[0]) / determinant,
+        ];
         for i in 0..2 {
             if axes[i] != 0 {
-                if span[i].abs() <= EPSILON {
+                if local_span[i].abs() <= EPSILON {
                     return None;
                 }
-                factors[i] = 1.0 + delta[i] / span[i];
+                factors[i] = 1.0 + local_delta[i] / local_span[i];
             }
         }
     }
@@ -235,9 +245,13 @@ pub(crate) fn resize_single(
     // Recover translation by enforcing the frozen anchor, including a local
     // bounds origin that is different from the symbol registration point.
     let fixed = transformed_point(initial, anchor);
-    let offset = rotate_vector(
-        [anchor[0] * result.scale_x, anchor[1] * result.scale_y],
-        result.rotation,
+    let offset = transformed_point(
+        Transform {
+            x: 0.,
+            y: 0.,
+            ..result
+        },
+        anchor,
     );
     [result.x, result.y] = subtract(fixed, offset);
     valid_transform(result).then_some(result)
@@ -430,52 +444,67 @@ mod tests {
             scale_y: 0.7,
             rotation: 37.,
             alpha: 0.6,
+            ..Default::default()
         }
     }
 
     fn pointer_delta(initial: Transform, local_axes_delta: Point) -> Point {
-        rotate_vector(local_axes_delta, initial.rotation)
+        transformed_point(
+            Transform {
+                x: 0.,
+                y: 0.,
+                scale_x: 1.,
+                scale_y: 1.,
+                ..initial
+            },
+            local_axes_delta,
+        )
     }
 
     #[test]
     fn all_eight_handles_keep_opposite_anchor_for_rotated_nonuniform_mirror() {
-        let initial = pose();
-        for handle in ResizeHandle::ALL {
-            let press = add(transformed_point(initial, handle.point(BOUNDS)), [2., -3.]);
-            let current = add(press, pointer_delta(initial, [19., -11.]));
-            let result = resize_single(
-                initial,
-                BOUNDS,
-                handle,
-                press,
-                current,
-                ResizeOptions::default(),
-            )
-            .unwrap();
-            let anchor = handle.opposite().point(BOUNDS);
-            point_close(
-                transformed_point(initial, anchor),
-                transformed_point(result, anchor),
-            );
-            close(result.rotation, initial.rotation);
-            close(result.alpha, initial.alpha);
-            let axes = handle.axes();
-            let old_handle = transformed_point(initial, handle.point(BOUNDS));
-            let mut used_delta = [19., -11.];
-            for i in 0..2 {
-                if axes[i] == 0 {
-                    used_delta[i] = 0.;
+        for initial in [
+            pose(),
+            Transform::from_matrix([-1.8, 0.4, 0.7, 1.2, 312., -125.]).unwrap(),
+        ] {
+            for handle in ResizeHandle::ALL {
+                let press = add(transformed_point(initial, handle.point(BOUNDS)), [2., -3.]);
+                let current = add(press, pointer_delta(initial, [19., -11.]));
+                let result = resize_single(
+                    initial,
+                    BOUNDS,
+                    handle,
+                    press,
+                    current,
+                    ResizeOptions::default(),
+                )
+                .unwrap();
+                let anchor = handle.opposite().point(BOUNDS);
+                point_close(
+                    transformed_point(initial, anchor),
+                    transformed_point(result, anchor),
+                );
+                close(result.rotation, initial.rotation);
+                close(result.skew, initial.skew);
+                close(result.alpha, initial.alpha);
+                let axes = handle.axes();
+                let old_handle = transformed_point(initial, handle.point(BOUNDS));
+                let mut used_delta = [19., -11.];
+                for i in 0..2 {
+                    if axes[i] == 0 {
+                        used_delta[i] = 0.;
+                    }
                 }
-            }
-            point_close(
-                transformed_point(result, handle.point(BOUNDS)),
-                add(old_handle, pointer_delta(initial, used_delta)),
-            );
-            if axes[0] == 0 {
-                close(result.scale_x, initial.scale_x);
-            }
-            if axes[1] == 0 {
-                close(result.scale_y, initial.scale_y);
+                point_close(
+                    transformed_point(result, handle.point(BOUNDS)),
+                    add(old_handle, pointer_delta(initial, used_delta)),
+                );
+                if axes[0] == 0 {
+                    close(result.scale_x, initial.scale_x);
+                }
+                if axes[1] == 0 {
+                    close(result.scale_y, initial.scale_y);
+                }
             }
         }
     }
@@ -562,48 +591,52 @@ mod tests {
 
     #[test]
     fn crossing_fixed_anchor_can_pass_through_zero_then_reflect() {
-        let initial = pose();
-        let handle = ResizeHandle::East;
-        let span = subtract(
-            transformed_point(initial, handle.point(BOUNDS)),
-            transformed_point(initial, handle.opposite().point(BOUNDS)),
-        );
-        let zero = resize_single(
-            initial,
-            BOUNDS,
-            handle,
-            [0., 0.],
-            [-span[0], -span[1]],
-            ResizeOptions::default(),
-        )
-        .unwrap();
-        close(zero.scale_x, 0.);
-        let crossed = resize_single(
-            initial,
-            BOUNDS,
-            handle,
-            [0., 0.],
-            [-2. * span[0], -2. * span[1]],
-            ResizeOptions::default(),
-        )
-        .unwrap();
-        close(crossed.scale_x, -initial.scale_x);
-        close(crossed.scale_y, initial.scale_y);
-        point_close(
-            transformed_point(crossed, handle.opposite().point(BOUNDS)),
-            transformed_point(initial, handle.opposite().point(BOUNDS)),
-        );
-        assert!(
-            resize_single(
-                zero,
+        for initial in [
+            pose(),
+            Transform::from_matrix([-1.8, 0.4, 0.7, 1.2, 312., -125.]).unwrap(),
+        ] {
+            let handle = ResizeHandle::East;
+            let span = subtract(
+                transformed_point(initial, handle.point(BOUNDS)),
+                transformed_point(initial, handle.opposite().point(BOUNDS)),
+            );
+            let zero = resize_single(
+                initial,
                 BOUNDS,
                 handle,
                 [0., 0.],
-                [1., 0.],
-                ResizeOptions::default()
+                [-span[0], -span[1]],
+                ResizeOptions::default(),
             )
-            .is_none()
-        );
+            .unwrap();
+            close(zero.scale_x, 0.);
+            let crossed = resize_single(
+                initial,
+                BOUNDS,
+                handle,
+                [0., 0.],
+                [-2. * span[0], -2. * span[1]],
+                ResizeOptions::default(),
+            )
+            .unwrap();
+            close(crossed.scale_x, -initial.scale_x);
+            close(crossed.scale_y, initial.scale_y);
+            point_close(
+                transformed_point(crossed, handle.opposite().point(BOUNDS)),
+                transformed_point(initial, handle.opposite().point(BOUNDS)),
+            );
+            assert!(
+                resize_single(
+                    zero,
+                    BOUNDS,
+                    handle,
+                    [0., 0.],
+                    [1., 0.],
+                    ResizeOptions::default()
+                )
+                .is_none()
+            );
+        }
     }
 
     #[test]

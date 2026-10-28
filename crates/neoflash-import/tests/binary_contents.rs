@@ -382,13 +382,15 @@ fn four_revision_prefixes_preserve_identity_raw_settings_and_exact_suffix() {
         let prefix = document.contents;
         if v == 0x14 {
             assert!(prefix.stop.is_none(), "{:?}", prefix.stop);
+        } else if v == 0x29 {
+            assert_eq!(prefix.stop.as_ref().unwrap().code, "fla_truncated_record");
         } else {
             assert_eq!(
                 prefix.stop.as_ref().unwrap().code,
                 "fla_contents_suffix_unsupported"
             );
         }
-        assert_eq!(prefix.bytes_consumed, end);
+        assert_eq!(prefix.bytes_consumed, end + if v == 0x29 { 2 } else { 0 });
         assert_eq!(prefix.original_bytes, bytes);
         assert_eq!(prefix.scenes, vec![2]);
         assert_eq!(prefix.selected_scene, Some(2));
@@ -966,4 +968,195 @@ fn f3_suffix_unknown_tail_and_work_limits_are_explicit() {
             .code,
         "fla_contents_budget"
     );
+}
+
+fn wide_string(out: &mut Vec<u8>, value: &str) {
+    let words: Vec<_> = value.encode_utf16().collect();
+    assert!(words.len() < 255);
+    out.extend([255, 254, 255, words.len() as u8]);
+    for word in words {
+        u16b(out, word);
+    }
+}
+fn modern_extensions(out: &mut Vec<u8>, version: u8) {
+    if version >= 0x2d {
+        u16b(out, 0);
+        u32b(out, 1);
+    }
+    u16b(out, 3);
+    for (key, value) in [
+        ("Vector::ActionScriptVersion", "2"),
+        ("Vector::Version", "10"),
+        ("Vector::Invisible Layer", "1"),
+    ] {
+        wide_string(out, key);
+        wide_string(out, value);
+    }
+    u32b(out, 0);
+    string(out, "");
+    string(out, "");
+    u32b(out, 0);
+    u16b(out, 0);
+    // A swatch, an identity reference to it, and an empty nested color list.
+    u16b(out, 2);
+    u16b(out, 0xffff);
+    u16b(out, 0);
+    u16b(out, 9);
+    out.extend(b"CColorDef");
+    out.push(4);
+    u32b(out, 0xff123456);
+    out.extend([0; 8]);
+    u16b(out, 5);
+    out.extend([1, 1]);
+    u16b(out, 0);
+    out.push(0);
+    u16b(out, 0);
+    out.push(0);
+    u32b(out, 3);
+    out.extend([0; 40]);
+    u32b(out, 0);
+    u32b(out, 1);
+    u32b(out, 4);
+    wide_string(out, "Папка");
+    out.extend(rich_metadata());
+    if version >= 0x2d {
+        u16b(out, 0);
+    }
+    u16b(out, 1);
+    string(out, "QuickTime::Audio");
+    class(out, "CQTAudioSettings");
+    u32b(out, 3);
+    out.extend([1, 2, 3]);
+    u16b(out, 10);
+    out.extend([0; 7]);
+    u32b(out, 0);
+    u32b(out, 0);
+    string(out, "");
+    out.extend([0; 14]);
+    string(out, "");
+    string(out, "");
+    out.extend([0; 12]);
+    u32b(out, 0);
+    u32b(out, 20);
+    if version >= 0x2e {
+        out.extend([0; 16]);
+    }
+    if version >= 0x30 {
+        out.push(0);
+    }
+    if version >= 0x32 {
+        out.push(0);
+    }
+    if version >= 0x33 {
+        u32b(out, 0);
+    }
+    if version >= 0x34 {
+        u32b(out, 3);
+    }
+    if version >= 0x35 {
+        u32b(out, 1);
+        out.extend((-1_i32).to_le_bytes());
+        string(out, "");
+        u32b(out, 1);
+        string(out, "");
+    }
+    if version >= 0x36 {
+        u32b(out, 0);
+    }
+    if version >= 0x38 {
+        u32b(out, 0);
+    }
+    if version >= 0x3a {
+        wide_string(out, "<metadata>Пример</metadata>");
+    }
+    if version >= 0x3c {
+        string(out, "");
+    }
+    if version >= 0x3d {
+        u32b(out, 0);
+    }
+    if version >= 0x3e {
+        u32b(out, 0);
+    }
+    if version >= 0x3f {
+        out.extend([0; 8]);
+    }
+    // Native tail for CS4, compatibility writer tail for MX.
+    out.push(0);
+    u32b(out, 0);
+    for word in [1, 2, 3, 4, 3] {
+        u16b(out, word);
+    }
+    out.extend([31, 32, 33]);
+    if version >= 0x45 {
+        out.extend(55_f64.to_le_bytes());
+    }
+    if version >= 0x46 {
+        out.extend([0; 8]);
+    }
+    if version >= 0x47 {
+        u32b(out, 1);
+    }
+}
+
+#[test]
+fn mx_and_cs4_document_extensions_preserve_publish_folders_linkage_and_auxiliary_identity() {
+    let archive = Archive::new();
+    for (version, page_revision) in [(0x29, 17), (0x47, 25)] {
+        let (mut bytes, suffix) = fixture(version, page_revision, false);
+        bytes.truncate(suffix);
+        modern_extensions(&mut bytes, version);
+        let document = archive.read(&bytes, &["Page 1", "Symbol 1"]);
+        assert!(document.stop.is_none(), "{:?}", document.stop);
+        assert_eq!(document.bytes_consumed, bytes.len());
+        assert_eq!(document.original_bytes, bytes);
+        assert_eq!(document.descriptors.len(), 2);
+        assert_eq!(
+            document
+                .publish_property(0, "Vector::ActionScriptVersion")
+                .as_deref(),
+            Some("2")
+        );
+        assert_eq!(
+            document.publish_property(0, "Vector::Version").as_deref(),
+            Some("10")
+        );
+        assert_eq!(
+            document
+                .publish_property(0, "Vector::Invisible Layer")
+                .as_deref(),
+            Some("1")
+        );
+        let extensions = document.extensions.as_ref().unwrap();
+        assert_eq!(extensions.encoded.start, suffix);
+        assert_eq!(extensions.encoded.end, bytes.len());
+        assert_eq!(extensions.folders.len(), 1);
+        let folder = &extensions.folders[0];
+        assert_eq!(document.string_text(&folder.name).as_deref(), Some("Папка"));
+        assert_eq!(folder.metadata.parent, Some([0x10203040, 0x50607080]));
+        assert_eq!(folder.metadata.item, Some([0x90a0b0c0, 0xd0e0f000]));
+        let linkage = folder.metadata.linkage.as_ref().unwrap();
+        assert_eq!(
+            document.string_text(&linkage.identifier).as_deref(),
+            Some("id")
+        );
+        assert_eq!(extensions.document_type, (version == 0x47).then_some(3));
+        assert_eq!(
+            document.compatibility_tail.as_ref().unwrap().writer_words,
+            [1, 2, 3, 4]
+        );
+        assert_eq!(
+            document
+                .references
+                .iter()
+                .filter(|r| matches!(r, ContentsReference::AuxiliaryObject { .. }))
+                .count(),
+            2
+        );
+        for end in [suffix, suffix + 1, folder.encoded.end - 1, bytes.len() - 1] {
+            let partial = archive.read(&bytes[..end], &["Page 1", "Symbol 1"]);
+            assert!(partial.stop.is_some());
+            assert!(partial.bytes_consumed <= end);
+        }
+    }
 }

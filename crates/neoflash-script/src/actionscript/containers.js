@@ -8,7 +8,54 @@ function __nfContainerKey(key){
     if(typeof key==='symbol'||typeof key==='bigint')throw new __nfTypeError('ActionScript property keys do not support Symbol or BigInt in this profile.');
     const name=__nfString(key);if(name.length>__nfContainerLimit)throw new __nfTypeError('Property key exceeds 1000000 UTF-16 units.');return name;
 }
+function __nfLegacyKey(receiver,key,as3){
+    const name=__nfContainerKey(key);
+    if(as3||typeof __nfLegacyCase==='undefined'||!__nfLegacyCase)return name;
+    if(typeof __nfLegacy==='undefined'||typeof __nfLegacy.caseKey!=='function')throw new __nfTypeError('ActionScript 1 requires the SWF6 case-name service; rebuild and re-export this project.');
+    return __nfLegacy.caseKey(receiver,name);
+}
 function __nfContainerProgram(){return typeof __nfProgram!=='undefined'?__nfProgram:null;}
+const __nfObjectPropertyMethods=Object.freeze({hasOwnProperty:Object.prototype.hasOwnProperty,propertyIsEnumerable:Object.prototype.propertyIsEnumerable});
+const __nfObjectStringMethods=Object.freeze({toString:Object.prototype.toString,toLocaleString:Object.prototype.toLocaleString});
+function __nfObjectDefaultMethod(receiver,name,value,program){
+    if(name!=='toString'&&name!=='toLocaleString')return null;
+    const method=program?.defaultObjectMethod?.(receiver,name,value);
+    if(method)return method;
+    if(value!==__nfObjectStringMethods[name]||receiver===null||typeof receiver!=='object')return null;
+    const prototype=Object.getPrototypeOf(receiver);
+    if(prototype!==null&&prototype!==Object.prototype)return null;
+    return function(...args){
+        if(this===null||typeof this!=='object')return __nfApply(value,this,args);
+        const actualPrototype=Object.getPrototypeOf(this);
+        if(actualPrototype!==null&&actualPrototype!==Object.prototype)return __nfApply(value,this,args);
+        const execute=typeof __nfLegacy!=='undefined'?__nfLegacy?.objects3?.execute:null;
+        if(typeof execute!=='function')throw new __nfTypeError('Rust Object string services are unavailable; rebuild and re-export this project.');
+        try{return execute({op:'default_string',name:'Object',class_object:false});}
+        catch(error){throw new __nfTypeError(String(error?.message??error));}
+    };
+}
+function __nfObjectPropertyDescriptor(receiver,name){
+    const project=__nfContainerProgram()?.objectDescriptor?.(receiver,name);
+    if(project)return project;
+    if(receiver===null||typeof receiver!=='object')return {supported:false};
+    const prototype=Object.getPrototypeOf(receiver);
+    if(prototype!==null&&prototype!==Object.prototype)return {supported:false};
+    const descriptor=Object.getOwnPropertyDescriptor(receiver,name);
+    return {supported:true,fixed:false,own:!!descriptor,enumerable:!!descriptor?.enumerable,configurable:!!descriptor?.configurable};
+}
+function __nfObjectPropertyMethod(receiver,method){
+    return (...args)=>{
+        if(args.length<1||args.length>(method==='setPropertyIsEnumerable'?2:1))throw new __nfTypeError(`Object.${method} received an unsupported argument count.`);
+        const name=__nfContainerKey(args[0]),descriptor=__nfObjectPropertyDescriptor(receiver,name);
+        const execute=typeof __nfLegacy!=='undefined'?__nfLegacy?.objects3?.execute:null;
+        if(typeof execute!=='function')throw new __nfTypeError('Rust Object property services are unavailable; rebuild and re-export this project.');
+        let result;
+        try{result=execute({op:'property',method,name,...descriptor,is_enum:args.length<2?true:!!args[1]});}
+        catch(error){throw new __nfTypeError(String(error?.message??error));}
+        if(result.change_enumerable!==null)Object.defineProperty(receiver,name,{enumerable:result.change_enumerable});
+        return method==='setPropertyIsEnumerable'?undefined:result.value;
+    };
+}
 function __nfContainerRef(receiver,key,as3,caller){
     if(receiver==null)throw new __nfTypeError('Cannot access a property on null or undefined.');
     if(typeof __nfXML!=='undefined'&&__nfXML?.is(receiver))return __nfXML.ref(receiver,key,as3);
@@ -22,14 +69,20 @@ function __nfContainerRef(receiver,key,as3,caller){
     // has run. Compound updates can therefore convert an object key twice.
     return {
         get(){
-            const name=__nfContainerKey(key),scoped=scopedRef(name),read=()=>scoped?scoped.get():receiver[name];
+            const name=__nfLegacyKey(receiver,key,as3);
+            if(as3&&name==='setPropertyIsEnumerable'&&!(name in object))return __nfObjectPropertyMethod(receiver,name);
+            if(as3&&__nfArrayIsArray(receiver)&&(name==='insertAt'||name==='removeAt')&&!(name in object))return __nfArrayMethod(receiver,name,true);
+            const scoped=scopedRef(name),read=()=>scoped?scoped.get():receiver[name];
             const value=legacy?.objects?legacy.objects.get(receiver,name,read,()=>scoped?scoped.has():Reflect.has(object,name)):read();
+            if(as3&&typeof receiver==='number')return __nfNumericMethodValue(receiver,value);
+            if(as3&&Object.hasOwn(__nfObjectPropertyMethods,name)&&value===__nfObjectPropertyMethods[name])return __nfObjectPropertyMethod(receiver,name);
+            if(as3){const method=__nfObjectDefaultMethod(receiver,name,value,program);if(method)return method;}
             // AVM1 exposes an absent native scrollRect as undefined; AS3 and
             // the public JS facade use null. Never rewrite ordinary user fields.
             return !as3&&name==='scrollRect'&&value===null&&typeof __nfDisplay!=='undefined'&&__nfDisplay?.alive(receiver)?undefined:value;
         },
         set(value){
-            const name=__nfContainerKey(key);
+            const name=__nfLegacyKey(receiver,key,as3);
             const scoped=scopedRef(name);
             if(__nfArrayIsArray(receiver)){
                 if(name==='length')__nfArrayBound(value);
@@ -38,8 +91,8 @@ function __nfContainerRef(receiver,key,as3,caller){
             const write=next=>{if(scoped)return scoped.set(next);if((typeof receiver!=='object'&&typeof receiver!=='function')||!Reflect.set(object,name,next,receiver))throw new __nfTypeError('Cannot write this property.');return next;};
             return legacy?.objects?legacy.objects.set(receiver,name,value,()=>scoped?scoped.get():receiver[name],write):write(value);
         },
-        delete(){const name=__nfContainerKey(key),scoped=scopedRef(name),removed=scoped?scoped.delete():Reflect.deleteProperty(object,name);if(removed)legacy?.objects?.deleted(receiver,name);return removed;},
-        has(){const name=__nfContainerKey(key),scoped=scopedRef(name);return scoped?scoped.has():Reflect.has(object,name);},
+        delete(){const name=__nfLegacyKey(receiver,key,as3),scoped=scopedRef(name),removed=scoped?scoped.delete():Reflect.deleteProperty(object,name);if(removed)legacy?.objects?.deleted(receiver,name);return removed;},
+        has(){const name=__nfLegacyKey(receiver,key,as3),scoped=scopedRef(name);return scoped?scoped.has():Reflect.has(object,name);},
     };
 }
 function __nfContainerMethod(receiver,key,as3,caller){
@@ -48,12 +101,13 @@ function __nfContainerMethod(receiver,key,as3,caller){
         const method=__nfContainerRef(receiver,key,as3).get();
         return (...args)=>__nfApply(method,receiver,args);
     }
-    key=__nfContainerKey(key);
+    key=__nfLegacyKey(receiver,key,as3);
     if(__nfArrayIsArray(receiver))return __nfArrayMethod(receiver,key,as3);
     if(typeof receiver==='string')return __nfStringMethod(receiver,key,as3);
     if(__nfDateIs(receiver))return __nfDateMethod(receiver,key,as3);
     if(as3&&key==='toFixed')return __nfFixedMethod(receiver);
     if(key==='toExponential'||key==='toPrecision')return __nfNumberFormatMethod(receiver,key,as3);
+    if(as3&&typeof receiver==='number'&&(key==='toString'||key==='valueOf'))return __nfNumericMethod(receiver,key);
     const method=__nfContainerRef(receiver,key,as3,caller).get();
     if(key==='call'||key==='apply')return __nfFunctionMethod(receiver,key,as3,method);
     return (...args)=>__nfApply(method,receiver,args);

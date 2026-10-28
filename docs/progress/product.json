@@ -33,7 +33,7 @@
       "category": "editor",
       "title": "Classic workspace",
       "status": "partial",
-      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility and Output with Light/Dark themes. All seven panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs and native floating windows. Header drag supports docking, tab merging/reordering, splits and undocking. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns.",
+      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output, Align, Transform and Color with Light/Dark themes. All ten panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs and native floating windows. Header drag supports docking, tab merging/reordering, splits and undocking. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub.",
       "limitations": "Main-window side groups remain stacked rows/columns; arbitrary recursive main-window splits, named workspace presets and multiple open documents remain unfinished. VoiceOver/IME and mixed-DPI monitors need broader platform acceptance.",
       "evidence": [
         "crates/neoflash-editor/src/panels.rs",
@@ -111,7 +111,7 @@
       "category": "editor",
       "title": "Free Transform",
       "status": "partial",
-      "scope": "Move, scale and rotate individual objects; uniformly scale and rotate a group of selected objects.",
+      "scope": "Move, scale and rotate individual objects; uniformly scale and rotate a group of selected objects. Transform panel adds exact position/dimensions, linked size, rotation/skew, flips and reset. Skew-aware handle resizing preserves its fixed anchor and authored reflection.",
       "limitations": "Custom pivots, skew and nonuniform scaling of multiple objects are missing.",
       "evidence": [
         "crates/neoflash-editor/src/stage_selection.rs",
@@ -144,8 +144,8 @@
       "category": "editor",
       "title": "Library and nested editing",
       "status": "implemented",
-      "scope": "Reusable instances and nested editing preserve authored identity and scripts. Convert to Symbol offers aligned name/type/folder, nine-point registration and export identifier/existing-class fields. The Library shows a real first-frame preview, persistent folders, inline organization, search by name/path/linkage/class, Name/Type/Linkage sorting and visible linkage. Folder paths survive symbol clipboard transfers; conflicts reject before mutation.",
-      "limitations": "Button state authoring, 9-slice guides and legacy shared libraries remain unsupported. Multi-object conversion requires a contiguous stack on one layer. Preview is the first frame; folder organization uses controls, not drag-and-drop. Resource files remain outside the symbol-folder tree.",
+      "scope": "Reusable instances and nested editing preserve authored identity and scripts. Convert to Symbol offers aligned name/type/folder, nine-point registration and export identifier/existing-class fields. The Library shows a real first-frame preview, persistent folders, inline organization, search by name/path/linkage/class, Name/Type/Linkage sorting and visible linkage. Folder paths survive symbol clipboard transfers; conflicts reject before mutation. Empty symbol creation opens nested editing. Buttons expose Up/Over/Down/Hit, instance actions and authored/export-linked SimpleButton typing. Library Properties changes kind across references while preserving keys/scripts and refusing incompatible class linkage.",
+      "limitations": "Arbitrary runtime state-object assignment, empty SimpleButton construction, 9-slice guides and legacy shared libraries remain unsupported. Multi-object conversion requires a contiguous stack on one layer. Preview is the first frame; folder organization uses controls, not drag-and-drop. Resource files remain outside the symbol-folder tree.",
       "evidence": [
         "crates/neoflash-editor/src/app.rs",
         "crates/neoflash-editor/src/tests.rs",
@@ -156,7 +156,9 @@
         "examples/linked-movieclips.nflash",
         "crates/neoflash-editor/src/symbol_dialog.rs",
         "crates/neoflash-editor/src/library.rs",
-        "crates/neoflash-core/src/library_folders.rs"
+        "crates/neoflash-core/src/library_folders.rs",
+        "crates/neoflash-editor/src/authoring_symbols.rs",
+        "examples/authoring-workspace.nflash"
       ]
     },
     {
@@ -199,12 +201,17 @@
       "id": "editor-advanced-drawing",
       "category": "editor",
       "title": "Advanced vector tools",
-      "status": "planned",
-      "scope": "Pressure-sensitive brush, point insertion/deletion, splines, shape splitting/merging, snapping and groups.",
-      "limitations": "These remain in the backlog; the Pen tool does not establish support for this set.",
+      "status": "partial",
+      "scope": "Line, round vector brush, closed-vector bucket, ink bottle, eyedropper, object/fill/stroke eraser, contact/enclosed whole-object lasso, hand/temporary Space pan, zoom and existing fill gradient transform. Authoring groups preserve runtime identities; Modify provides arrange, safe static Break Apart, transforms and group-aware alignment/distribution with exact gaps.",
+      "limitations": "Pressure, geometric eraser cuts, gap closing, gradient focal handles, point insertion/deletion, general shape splitting/merging, snapping and nested group editing remain unfinished.",
       "evidence": [
         "docs/BACKLOG.md",
-        "docs/ROADMAP.md"
+        "docs/ROADMAP.md",
+        "crates/neoflash-editor/src/authoring_tools.rs",
+        "crates/neoflash-editor/src/authoring_modify.rs",
+        "crates/neoflash-editor/src/vector_gesture_tests.rs",
+        "crates/neoflash-editor/src/selection_tests.rs",
+        "docs/WORKSPACE.md"
       ]
     },
     {
@@ -263,7 +270,7 @@
       "category": "animation",
       "title": "Keyframes, blank frames and holds",
       "status": "implemented",
-      "scope": "F5/F6/F7 and moving/copying individual keyframes; insertion uses the visible interpolated pose. Held content and blank spans are drawn to the next chronological key or symbol end. Frame rows are separated from scrollbars; key dragging uses the original pressed frame, a destination preview and edge scrolling. Frame zoom and Fit change cell width with adaptive ruler labels and selected-frame recentering, without changing authored timing.",
+      "scope": "F5/F6/F7 and moving/copying individual keyframes; insertion uses the visible interpolated pose. Held content and blank spans are drawn to the next chronological key or symbol end. Frame rows are separated from scrollbars; key dragging uses the original pressed frame, a destination preview and edge scrolling. Frame zoom and Fit change cell width with adaptive ruler labels and selected-frame recentering, without changing authored timing. Compact FPS and total-duration fields preserve frame count and set the nearest integer FPS when duration changes.",
       "limitations": "Frame-range selection/clipboard and independent layer lengths remain separate work. The last key holds content to the symbol end; use a blank key to stop that layer's visible content.",
       "evidence": [
         "crates/neoflash-editor/src/app.rs",
@@ -292,7 +299,7 @@
       "category": "animation",
       "title": "Graphic synchronization",
       "status": "implemented",
-      "scope": "Graphic supports loop, play-once and single-frame modes relative to the authored timeline.",
+      "scope": "Graphic supports loop, play-once and single-frame modes relative to the authored timeline. Loop and Play once accept a placement-specific First frame; Single frame retains its direct frame selector.",
       "limitations": "Exact compatibility with every mode in source Flash projects requires separate fixtures.",
       "evidence": [
         "crates/neoflash-core/src/model.rs",
@@ -305,7 +312,7 @@
       "category": "animation",
       "title": "Pose interpolation",
       "status": "implemented",
-      "scope": "Tweens match stable object identities and interpolate position, scale, rotation, alpha and supported geometry/color properties.",
+      "scope": "Tweens match stable object identities and interpolate position, scale, rotation, alpha and supported geometry/color properties. Format 5 also interpolates affine skew and color transforms, with classic Flash acceleration and single global cubic easing.",
       "limitations": "Independent property-level motion curves and complete Flash motion tween support are missing.",
       "evidence": [
         "crates/neoflash-core/src/evaluate.rs",
@@ -729,13 +736,15 @@
       "category": "imports",
       "title": "Imported source preservation",
       "status": "partial",
-      "scope": "Supported XFL preserves frame source and language, including text/CDATA fragments; nine original AS2 scripts from one CS6 FLA were checked against an exact 17-line HTML5 trace.",
-      "limitations": "Document class/linkage and active external script configuration block import; retaining arbitrary source does not prove execution.",
+      "scope": "Supported XFL and binary FLA retain source language and exact frame/object source. The existing CS6 AS2 trace remains verified; Clock retains AS1 with bounded case-insensitive dynamic timeline/property lookup, and the CS4 banner retains AS2 frame and release handlers.",
+      "limitations": "Retention is distinct from runtime coverage. AS1 is a bounded dynamic AVM1 profile, not full lexical/class conformance; unsupported compiled/historical actions reject. External variables such as banner link1 remain host inputs.",
       "evidence": [
         "crates/neoflash-import/src/xfl.rs",
         "crates/neoflash-import/tests/xfl_semantic_guards.rs",
         "web/tests/real-fla-frame-labels.test.cjs",
-        "docs/IMPORTS.md"
+        "docs/IMPORTS.md",
+        "crates/neoflash-script/tests/legacy-import.mjs",
+        "crates/neoflash-import/tests/legacy_samples.rs"
       ]
     },
     {
@@ -743,13 +752,14 @@
       "category": "imports",
       "title": "Container reading and limits",
       "status": "implemented",
-      "scope": "Format detection, bounded ZIP/CFB readers, path/size/integrity checks and explicit refusal without overwriting the source.",
+      "scope": "Format detection, bounded ZIP/CFB readers, path/size/integrity checks and explicit refusal without overwriting the source. A narrow in-memory CFB timestamp/color compatibility view is strictly revalidated and compared against every original logical stream; original source bytes remain unchanged.",
       "limitations": "Respecting container boundaries does not establish support for its contents.",
       "evidence": [
         "crates/neoflash-import/src/source.rs",
         "crates/neoflash-import/src/legacy.rs",
         "crates/neoflash-import/tests/binary.rs",
-        "crates/neoflash-import/tests/import.rs"
+        "crates/neoflash-import/tests/import.rs",
+        "crates/neoflash-import/src/legacy/container_compat.rs"
       ]
     },
     {
@@ -757,13 +767,16 @@
       "category": "imports",
       "title": "Binary FLA structure",
       "status": "partial",
-      "scope": "CFB/MFC inventory, bounded Contents preservation, an identity graph and typed timeline records with exact unread boundaries.",
-      "limitations": "Later Contents suffixes, many object classes, media and historical actions are not fully readable yet.",
+      "scope": "Bounded CFB/MFC reading preserves Contents publishing/folders/linkage, shared layer identities, instances, static-text runs, source actions and global custom-ease curves. MX/CS4 sample Contents and all timelines reach exact EOF; unsupported layouts retain explicit stop boundaries.",
+      "limitations": "Unknown classes/revisions, historical action bytecode and several media/component records remain unsupported. Recognition of a complete structure does not alone establish editable semantics.",
       "evidence": [
         "crates/neoflash-import/src/legacy/contents.rs",
         "crates/neoflash-import/src/legacy/timeline.rs",
         "crates/neoflash-import/tests/binary_timeline.rs",
-        "docs/IMPORTS.md"
+        "docs/IMPORTS.md",
+        "crates/neoflash-import/src/legacy/contents/extensions.rs",
+        "crates/neoflash-import/src/legacy/mfc/instances.rs",
+        "crates/neoflash-import/src/legacy/mfc/text.rs"
       ]
     },
     {
@@ -771,24 +784,29 @@
       "category": "imports",
       "title": "Binary FLA geometry",
       "status": "partial",
-      "scope": "Preserve bounded shape/style/edge records and original bytes; a strict adapter maps some Flash 3 solid contours to core Path.",
-      "limitations": "Supported revisions, paints and topology are limited; successful contour conversion does not create an editable document.",
+      "scope": "Preserves binary shapes/styles/edges verbatim. Native MX/CS4 conversion assembles directed fill contours, quadratic curves, solid/gradient paints and ordinary strokes with full affine placement. The independent bounded Flash 3 solid adapter remains available.",
+      "limitations": "Procedural strokes, bitmap fills, spread/interpolation extensions and unresolved paint encodings reject. Auxiliary editing handles remain in embedded source; stroke-cap and text-metric differences have diagnostics.",
       "evidence": [
         "crates/neoflash-import/src/legacy/geometry.rs",
         "crates/neoflash-import/src/legacy/contours.rs",
-        "crates/neoflash-import/tests/binary_contours.rs"
+        "crates/neoflash-import/tests/binary_contours.rs",
+        "crates/neoflash-import/src/legacy/convert/shape.rs",
+        "crates/neoflash-core/tests/legacy_authoring.rs"
       ]
     },
     {
       "id": "imports-binary-document",
       "category": "imports",
       "title": "Binary FLA to editable document",
-      "status": "planned",
-      "scope": "Complete document conversion with layer order, placement identity, text, linkage, media, metadata and supported actions.",
-      "limitations": "All binary documents in the current corpus remain can_import=false; structural reading does not count as document import.",
+      "status": "partial",
+      "scope": "Native MX/CS4 conversion preserves one scene, library folders and symbols, ordered layers and masks, held keys, nested instances, classic motion and global cubic easing, static text, PNG bitmap resources and original AS1/AS2 source. Original FLA bytes and source-to-model provenance are embedded. Clock and 300x600 local-source integration and actual-WASM workflows pass.",
+      "limitations": "A bounded profile, not general legacy FLA compatibility. Groups become editable one-frame graphics. Nonuniform text runs, motion paths/IK, shape tweens, 3D/effects, historical bytecode, audio/video and ambiguous publishing profiles reject. Font metrics may differ; missing fonts are nonblocking. Native UI acceptance remains pending.",
       "evidence": [
         "docs/IMPORTS.md",
-        "docs/BACKLOG.md"
+        "docs/BACKLOG.md",
+        "crates/neoflash-import/src/legacy/convert.rs",
+        "crates/neoflash-import/tests/legacy_samples.rs",
+        "crates/neoflash-script/tests/legacy-import.mjs"
       ]
     },
     {
@@ -833,8 +851,8 @@
       "category": "imports",
       "title": "Compatibility corpus and fidelity",
       "status": "partial",
-      "scope": "Synthetic fixtures and the private corpus are supplemented by 15 unchanged, licensed FLA files: one exported to HTML5 with an exact reference trace and 14 explicit refusals; 21 input cases are checked reproducibly.",
-      "limitations": "Complete per-file visual/behavioral comparison across Flash generations is missing. One real example does not establish general import support; private artwork is not published.",
+      "scope": "Synthetic fixtures and local historical samples are supplemented by 15 unchanged licensed FLA files: one XFL source has an exact browser reference trace, two MX sources have native semantic regressions, and 12 external files retain explicit refusals. All 21 input forms pass the corpus checker with nine imports and 12 refusals.",
+      "limitations": "Complete per-file visual/behavioral comparison across Flash generations remains unfinished. Source retention and native regression evidence do not imply original-player parity; private Clock/banner artwork stays outside public fixtures.",
       "evidence": [
         "examples/fla-corpus/manifest.json",
         "examples/fla-corpus/VERIFICATION.md",
@@ -848,7 +866,7 @@
       "category": "platform",
       "title": "Independent project format",
       "status": "implemented",
-      "scope": "Versioned JSON stores stable symbols/placements/frames/scripts; version 2 adds logical project source units and document/symbol linkage with path, size and reference validation. Existing version-1 projects remain supported. Version 3 adds portable resource bytes, normalized logical paths/types, strict base64/size validation and shared immutable storage across native snapshots; versions 1 and 2 remain readable. Authored Bitmap elements reference portable PNG/JPEG resource IDs with validated intrinsic dimensions; mutable runtime pixels stay outside the document. TextBox stores explicit layout dimensions and uniform formatting; legacy Text remains readable without conversion, and runtime insertion defaults stay outside authored state. Format 4 adds authored layer roles/relationships and logical library folders with backward-compatible defaults.",
+      "scope": "Versioned JSON stores stable symbols/placements/frames/scripts; version 2 adds logical project source units and document/symbol linkage with path, size and reference validation. Existing version-1 projects remain supported. Version 3 adds portable resource bytes, normalized logical paths/types, strict base64/size validation and shared immutable storage across native snapshots; versions 1 and 2 remain readable. Authored Bitmap elements reference portable PNG/JPEG resource IDs with validated intrinsic dimensions; mutable runtime pixels stay outside the document. TextBox stores explicit layout dimensions and uniform formatting; legacy Text remains readable without conversion, and runtime insertion defaults stay outside authored state. Format 4 adds authored layer roles/relationships and logical library folders with backward-compatible defaults. Format 5 adds affine skew, inherited color transforms, authored gradient paths, Flash easing and an explicit AS1 script identity.",
       "limitations": "Additional media consumers, embedded font layout and broader asset dependency authoring remain separate work. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass.",
       "evidence": [
         "crates/neoflash-core/src/model.rs",
@@ -865,7 +883,9 @@
         "crates/neoflash-core/src/text.rs",
         "docs/decisions/0015-text-fields-and-layout.md",
         "crates/neoflash-core/src/authored_layers.rs",
-        "crates/neoflash-core/src/library_folders.rs"
+        "crates/neoflash-core/src/library_folders.rs",
+        "crates/neoflash-core/tests/legacy_authoring.rs",
+        "docs/decisions/0008-real-fla-acceptance.md"
       ]
     },
     {

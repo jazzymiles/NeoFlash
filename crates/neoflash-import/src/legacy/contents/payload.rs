@@ -1,7 +1,8 @@
 //! Versioned descriptor payload boundaries. All nested bytes remain in the
 //! enclosing descriptor span; interpreting their authoring semantics is separate.
 use super::{
-    ContentsByteSpan, ContentsDescriptor, ContentsDescriptorClass as Class, Reader, Result,
+    ContentsBitmapSettings, ContentsByteSpan, ContentsDescriptor, ContentsDescriptorClass as Class,
+    ContentsLibraryMetadata, ContentsLinkage, Reader, Result,
 };
 
 impl Reader<'_> {
@@ -29,6 +30,9 @@ impl Reader<'_> {
             library_id: None,
             symbol_type: None,
             media_id: None,
+            library_metadata: None,
+            linkage: None,
+            bitmap: None,
         };
         if page {
             if revision >= 2 {
@@ -44,7 +48,7 @@ impl Reader<'_> {
                 self.take(4)?;
             }
             if revision >= 5 {
-                self.library_metadata()?;
+                result.library_metadata = Some(self.library_metadata()?);
             }
             if revision >= 8 {
                 self.take(4)?;
@@ -61,7 +65,7 @@ impl Reader<'_> {
                 self.take(4)?;
             }
             if revision >= 12 {
-                self.linkage()?;
+                result.linkage = Some(self.linkage()?);
             }
             if (14..=17).contains(&revision) {
                 self.string()?;
@@ -107,7 +111,7 @@ impl Reader<'_> {
                 self.take(4)?;
             }
             if revision >= 4 {
-                self.library_metadata()?;
+                result.library_metadata = Some(self.library_metadata()?);
             }
             if revision >= 5 {
                 self.take(4)?;
@@ -119,18 +123,21 @@ impl Reader<'_> {
                     if v < 2 {
                         self.string()?;
                     }
+                    let mut bitmap = ContentsBitmapSettings::default();
                     if v >= 1 {
-                        self.take(2)?;
+                        bitmap.compression = Some(self.u8()?);
+                        bitmap.quality = Some(self.u8()?);
                     }
                     if v >= 2 {
-                        self.take(1)?;
+                        bitmap.smoothing = self.u8()? != 0;
                     }
                     if v >= 3 {
-                        self.take(4)?;
+                        bitmap.encoded_byte_count = self.i32()?;
                     }
                     if v >= 4 {
-                        self.take(1)?;
+                        bitmap.deblocking = self.u8()? != 0;
                     }
+                    result.bitmap = Some(bitmap);
                 }
                 Class::Sound => {
                     let v = self.revision(10)?;
@@ -156,56 +163,61 @@ impl Reader<'_> {
                     }
                 }
                 Class::Media | Class::Video => {}
-                Class::DocumentPage => unreachable!(),
+                Class::DocumentPage
+                | Class::Color
+                | Class::ColorList
+                | Class::QuickTimeAudioSettings => unreachable!(),
             }
         }
         Ok(result)
     }
-    fn item_id(&mut self) -> Result<()> {
+    pub(super) fn item_id(&mut self) -> Result<Option<[u32; 2]>> {
         if self.u32()? != 0 {
-            self.take(8)?;
+            Ok(Some([self.u32()?, self.u32()?]))
+        } else {
+            Ok(None)
         }
-        Ok(())
     }
-    fn library_metadata(&mut self) -> Result<()> {
+    pub(super) fn library_metadata(&mut self) -> Result<ContentsLibraryMetadata> {
         let v = self.u32()?;
         if v > 7 {
             return self.unsupported("Library metadata revision is unsupported.");
         }
-        if v <= 3 {
-            self.take(4)?;
-        } else {
-            self.item_id()?;
-        }
-        if v > 1 {
-            if v <= 3 {
-                self.take(4)?;
+        let mut result = ContentsLibraryMetadata {
+            parent: if v <= 3 {
+                let id = self.u32()?;
+                (id != 0).then_some([0, id])
             } else {
-                self.item_id()?;
-            }
+                self.item_id()?
+            },
+            ..Default::default()
+        };
+        if v > 1 {
+            result.item = if v <= 3 {
+                let id = self.u32()?;
+                (id != 0).then_some([0, id])
+            } else {
+                self.item_id()?
+            };
         }
         if v > 2 {
-            self.take(4)?;
+            result.attributes = Some(self.u32()?);
         }
         if v >= 5 {
-            self.linkage()?;
+            result.linkage = Some(self.linkage()?);
         }
         if v >= 6 && self.u8()? != 0 {
             self.persistent_data()?;
         }
-        Ok(())
+        Ok(result)
     }
-    fn linkage(&mut self) -> Result<()> {
+    fn linkage(&mut self) -> Result<ContentsLinkage> {
         let v = self.revision(7)?;
-        self.take(4)?;
-        self.string()?;
-        self.string()?;
-        if v >= 5 {
-            self.string()?;
-        }
-        if v >= 1 {
-            self.take(1)?;
-        }
+        let flags = self.u32()?;
+        let identifier = self.string()?;
+        let url = self.string()?;
+        let class_name = if v >= 5 { Some(self.string()?) } else { None };
+        let export_flags = if v >= 1 { Some(self.u8()?) } else { None };
         if v >= 2 {
             let aux = self.u32()?;
             if aux > 3 {
@@ -222,10 +234,15 @@ impl Reader<'_> {
         if v >= 6 {
             self.take(1)?;
         }
-        if v >= 7 {
-            self.string()?;
-        }
-        Ok(())
+        let base_class = if v >= 7 { Some(self.string()?) } else { None };
+        Ok(ContentsLinkage {
+            flags,
+            identifier,
+            url,
+            class_name,
+            export_flags,
+            base_class,
+        })
     }
     fn smart_movie(&mut self) -> Result<()> {
         let v = self.revision(3)?;
@@ -280,7 +297,7 @@ impl Reader<'_> {
         }
         Ok(())
     }
-    fn persistent_data(&mut self) -> Result<()> {
+    pub(super) fn persistent_data(&mut self) -> Result<()> {
         self.take(4)?;
         let count = self.i32()?.max(0) as usize;
         self.count_value(count, 1)?;

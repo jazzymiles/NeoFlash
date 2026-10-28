@@ -19,7 +19,9 @@ mod as2_text;
 mod as2_transitions;
 mod as2_variables;
 mod as2d_geom;
+mod as3_collections;
 mod as3_geom;
+mod as3_object;
 mod as3_strings;
 mod as_binary;
 mod as_broadcaster;
@@ -30,7 +32,7 @@ mod as_math;
 mod as_number_format;
 mod as_timers;
 
-pub use as2_strings::as2_string_json;
+pub use as2_strings::{as2_string_json, legacy_case_name_json};
 
 use neoflash_core::{
     ColorTransform, DisplayMutation, DynamicKind, GraphicsOp, ObjectRef, PixelRef, PixelSnapping,
@@ -949,6 +951,11 @@ impl WebPlayer {
         self.player
             .graphics_copy_from(&object_ref(target)?, &object_ref(source)?)
             .map_err(display_error)
+    }
+    pub fn object_button_state(&mut self, target: &str, state: u32) -> Result<bool, JsValue> {
+        Ok(self
+            .player
+            .object_button_state(&self.project, &object_ref(target)?, state))
     }
     pub fn object_set_property(
         &mut self,

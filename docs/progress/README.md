@@ -24,6 +24,16 @@ Independent follow-up runs can override explicitly reviewed declaration IDs whil
 
 The report is a dated audit, not a fresh test run. The page compares its published implementation with the baseline source fingerprints, showing when that implementation has changed. Documentation-only differences are separate. Original Flash differential testing was not performed. Later unshipped working-tree reviews in the original audit are not counted as shipped behavior or assigned baseline test passes.
 
+## AS3 adaptation priorities
+
+The existing [declaration report](ACTIONSCRIPT.md#as3-adaptation-priorities), README summary and coverage page separate the AS3 catalogue into Flash Player foundations, subsequent local media, deferred Player services/advanced features, AIR-only APIs, external libraries and unresolved availability. The [roadmap](../ROADMAP.md#as3-flash-player-foundations-first) defines the remaining work: mathematics, objects/language, MovieClip, display/events, graphics and text, before media, cameras and networking.
+
+[as3-priorities.json](as3-priorities.json) preserves the classification and its reference provenance independently of implementation decisions. Player availability is read at declaration level, including AIR-only members of mixed classes. A `flash.*` name or the old `runtime` scope alone does not establish Player availability. Conversely, a library's Flash runtime label does not make its classes built in: Flash components, Flex, TLF and other libraries stay separate. Flash Builder is an IDE; JSFL is authoring automation outside this AS3 catalogue. Unresolved metadata stays visible rather than being silently assigned to Player or AIR. Player support can have version, sandbox, debug/standalone or operation-specific restrictions.
+
+Every AS3 declaration belongs to exactly one priority group; Player declarations additionally belong to one ordered stage. Both partitions preserve the four audited statuses and reconcile to the unchanged complete AS3 total. **Audit missing** is the dated implementation decision, **partial** means remaining behavior on an existing path, and **needs review** is an evidence gap. None is a count of equal-sized engineering tasks. Existing implementations are not scheduled again solely because an older audit says missing. Priority classification does not promote statuses, certify the current source or change the language coverage denominator.
+
+The classifier and report checks validate exact ID coverage, metadata provenance and balanced counts. Public builds read the classification at the same Git revision as the audit and page; revisions predating this classification retain their original reporting. Raw reference downloads are not required for a normal report build. To revise the priority assignment, update its manifest, preserve provenance and regenerate the existing reports; semantic implementation decisions still use the separate review workflow below.
+
 ## Product capability groups
 
 `product.json` tracks bounded capabilities in editor, animation, HTML5, imports and platform. **Implemented** means the explicit scope is implemented; **partial** contributes zero to the completed numerator; **planned** remains in the denominator. Percentage = implemented / total × 100, displayed to one decimal place. This is not test line coverage or overall product completion.

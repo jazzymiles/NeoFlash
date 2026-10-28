@@ -2135,6 +2135,8 @@ name = "neoflash-import"
 version = "0.1.0"
 dependencies = [
  "cfb",
+ "flate2",
+ "image",
  "neoflash-core",
  "roxmltree 0.21.2",
  "serde",

@@ -409,6 +409,7 @@ impl Editor {
         }
     }
     pub(crate) fn finish_edits(&mut self) {
+        self.authoring_tools.cancel();
         self.finish_property_edit();
         self.finish_selection_gesture();
         self.shape_draft = None;
@@ -429,6 +430,7 @@ impl Editor {
         self.vector = Default::default();
     }
     pub(crate) fn cancel_edits(&mut self) {
+        self.authoring_tools.cancel();
         self.finish_property_edit();
         self.cancel_selection_gesture();
         self.cancel_vector();
@@ -714,7 +716,9 @@ impl Editor {
         let Some(element) = self.selected_sampled() else {
             return;
         };
-        let ElementKind::Path { ref commands, .. } = element.kind else {
+        let (ElementKind::Path { ref commands, .. }
+        | ElementKind::PaintedPath { ref commands, .. }) = element.kind
+        else {
             return;
         };
         let matrix = transform_matrix(element.transform);
@@ -878,6 +882,10 @@ impl Editor {
                     ElementKind::Path {
                         commands: destination,
                         ..
+                    }
+                    | ElementKind::PaintedPath {
+                        commands: destination,
+                        ..
                     },
                 ..
             }) = self.selected_element_mut()
@@ -895,5 +903,98 @@ impl Editor {
                 .single()
                 .is_some_and(|target| target.layer == drag.layer && target.element == drag.element)
             && self.selected_editable()
+    }
+}
+
+/// Gradient geometry stays authored; native preview samples the shared brush on
+/// a bounded adaptive mesh. HTML5 uses Canvas gradients on the original path.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn paint_gradient_path(
+    painter: &egui::Painter,
+    commands: &[PathCommand],
+    rule: FillRule,
+    width: f64,
+    fill: (&Color, Option<&GradientPaint>),
+    stroke: (&Color, Option<&GradientPaint>),
+    screen: impl Fn(Pos2) -> Pos2,
+    color: impl Fn(Color) -> Color32,
+) {
+    let mut limited = false;
+    for ((solid, gradient), width) in [(fill, None), (stroke, Some(width))] {
+        if width.is_some_and(|w| w <= 0.)
+            || gradient.map_or(solid[3] == 0, |g| g.stops.iter().all(|s| s.color[3] == 0))
+        {
+            continue;
+        }
+        let geometry = match tessellate(commands, rule, width, 0.1) {
+            Ok(value) => value,
+            Err(error) => {
+                painter.text(
+                    screen(Pos2::ZERO),
+                    egui::Align2::LEFT_TOP,
+                    error,
+                    egui::FontId::monospace(12.),
+                    UiPalette::current(painter.ctx()).error_text,
+                );
+                continue;
+            }
+        };
+        let mut mesh = egui::Mesh::default();
+        let sample = |p: Pos2| color(gradient.map_or(*solid, |g| g.sample(p.x as f64, p.y as f64)));
+        for indices in geometry.indices.as_chunks::<3>().0 {
+            let points = [indices[0], indices[1], indices[2]].map(|i| {
+                let p = geometry.vertices[i as usize];
+                Pos2::new(p.x, p.y)
+            });
+            let mut pending = vec![(points, 0u8)];
+            while let Some(([a, b, c], depth)) = pending.pop() {
+                let center = (a.to_vec2() + b.to_vec2() + c.to_vec2()) / 3.;
+                let colors = [sample(a), sample(b), sample(c)];
+                let mid = sample(center.to_pos2());
+                let error = (0..4)
+                    .map(|i| {
+                        ((u16::from(colors[0][i])
+                            + u16::from(colors[1][i])
+                            + u16::from(colors[2][i])) as f32
+                            / 3.
+                            - f32::from(mid[i]))
+                        .abs()
+                    })
+                    .fold(0f32, f32::max);
+                let extent = (screen(a) - screen(b))
+                    .length()
+                    .max((screen(a) - screen(c)).length())
+                    .max((screen(b) - screen(c)).length());
+                let refine = gradient.is_some() && (error > 2. || extent > 24.);
+                if refine && depth < 7 && mesh.vertices.len() + pending.len() * 3 < 150_000 {
+                    let ab = a + (b - a) * 0.5;
+                    let ac = a + (c - a) * 0.5;
+                    let bc = b + (c - b) * 0.5;
+                    pending.extend([
+                        ([a, ab, ac], depth + 1),
+                        ([ab, b, bc], depth + 1),
+                        ([ac, bc, c], depth + 1),
+                        ([ab, bc, ac], depth + 1),
+                    ]);
+                    continue;
+                }
+                limited |= refine && depth < 7;
+                let index = mesh.vertices.len() as u32;
+                for (p, c) in [a, b, c].into_iter().zip(colors) {
+                    mesh.colored_vertex(screen(p), c);
+                }
+                mesh.indices.extend([index, index + 1, index + 2]);
+            }
+        }
+        painter.add(Shape::mesh(mesh));
+    }
+    if limited {
+        painter.text(
+            screen(Pos2::ZERO),
+            egui::Align2::LEFT_TOP,
+            "Gradient preview mesh limit",
+            egui::FontId::monospace(12.),
+            UiPalette::current(painter.ctx()).error_text,
+        );
     }
 }

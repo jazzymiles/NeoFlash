@@ -140,12 +140,10 @@ fn analyze(path: &Path) -> Result<(ImportReport, Option<Project>), ImportError> 
         ImportFormat::XflDirectory | ImportFormat::XflArchive => {
             xfl::convert(&source.files, &mut report)
         }
-        ImportFormat::LegacyBinaryFla => {
-            if let Some(binary) = source.binary {
-                legacy::report(binary, &mut report);
-            }
-            None
-        }
+        ImportFormat::LegacyBinaryFla => source
+            .binary
+            .as_ref()
+            .and_then(|binary| legacy::convert::convert(binary, &mut report)),
         ImportFormat::Swf => {
             report.error("swf_not_implemented",path.display().to_string(),"SWF header inspected only. Playback, bytecode import and editable source recovery are not implemented.");
             None

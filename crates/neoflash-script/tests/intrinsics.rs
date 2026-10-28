@@ -11,11 +11,13 @@ fn compile(
 }
 
 #[test]
-fn fixed_method_values_use_a_runtime_identity_check() {
+fn numeric_method_values_and_declared_class_aliases_compile_with_bounded_runtime_dispatch() {
     for source in [
         "var callback = (1).toFixed; callback(21);",
         "var callback = (1)['toFixed']; callback(21);",
         "var callback = (1)['to\\u0046ixed']; callback(21);",
+        "var numeric:Class=int; var value=new numeric('42'); var bound=int.MAX_VALUE;",
+        "function construct(numeric:Class):Number {return new numeric('42');} result=construct(Number);",
     ] {
         assert!(
             compile(source, ScriptLanguage::ActionScript3).is_ok(),

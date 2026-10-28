@@ -68,6 +68,21 @@ pub fn compile(script: &Script) -> Result<String, Vec<Diagnostic>> {
         )]);
     }
     match script.language {
+        ScriptLanguage::ActionScript1 => {
+            // Keep original source/identity while reusing the bounded AVM1 syntax
+            // frontend. Case behavior is captured in the generated unit, including
+            // callbacks, and never changes AS2/AS3 execution in the same project.
+            let legacy = Script {
+                language: ScriptLanguage::ActionScript2,
+                source: script.source.clone(),
+            };
+            actionscript::compile_legacy(&legacy)
+                .map(|body| format!("const __nfLegacyCase = true;\n{body}"))
+                .map_err(|mut error| {
+                    error.language = ScriptLanguage::ActionScript1;
+                    vec![error]
+                })
+        }
         ScriptLanguage::JavaScript => compile_web(script, false),
         ScriptLanguage::TypeScript => compile_web(script, true),
         ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript3 => {

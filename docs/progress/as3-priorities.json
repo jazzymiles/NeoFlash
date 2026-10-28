@@ -1,0 +1,3769 @@
+{
+  "schemaVersion": 1,
+  "title": "AS3 adaptation priorities",
+  "description": "Planning partitions of the complete declaration audit. Existing subset and partial evidence is retained; only missing behavior is an adaptation gap.",
+  "source": {
+    "referenceFile": "as3.json",
+    "referenceSha256": "7a1ce0fab0fe38149605148054c585ce1af11467aaceb901f7010c09ad813775",
+    "referenceGeneration": "2018-12-06",
+    "entryCount": 43740,
+    "identitySha256": "cb974446d36a9e772bae503b688e903d5a10ba50898471af8d9f2790bea283c4",
+    "url": "https://help.adobe.com/en_US/FlashPlatform/reference/actionscript/3/index.html"
+  },
+  "classificationPolicy": "Library scopes are separated first. Explicit AS3 operators, statements and special types belong to the Player language foundation. For other declarations use detail_availability, then index availability; Flash means Player reference, AIR without Flash means AIR-documented, and no label stays unresolved. Owner defaults are compressed per-entry decisions, not class availability inherited by members. Exceptions preserve every differing member decision.",
+  "buckets": [
+    {
+      "id": "player",
+      "title": "Flash Player reference",
+      "purpose": "AS3 language, core and Player APIs; member and runtime-profile limits still apply."
+    },
+    {
+      "id": "air",
+      "title": "Far future: AIR extensions",
+      "purpose": "Declarations documented for AIR without Player availability. Far-future backlog, with no scheduled adaptation; revisit only after an explicit priority change."
+    },
+    {
+      "id": "library",
+      "title": "Far future: libraries and platform extensions",
+      "purpose": "Flash components, Flex/Spark, TLF and other supplied libraries. Far-future backlog, with no scheduled adaptation; executing on Player does not make them built-in APIs."
+    },
+    {
+      "id": "unresolved",
+      "title": "Platform not resolved",
+      "purpose": "The reference does not establish Player or AIR availability; review before assigning an adaptation target."
+    }
+  ],
+  "groups": [
+    {
+      "id": "foundation",
+      "title": "Important now: classic foundation",
+      "purpose": "Stages 1–6: mathematics, objects, MovieClip, display, drawing and text, in that order."
+    },
+    {
+      "id": "media",
+      "title": "Next: file audio and video",
+      "purpose": "Stage 7: ordinary audio/video playback after the classic foundation."
+    },
+    {
+      "id": "later",
+      "title": "Later: services and advanced Player APIs",
+      "purpose": "Stage 8: capture, networking, files, platform integration, storage, 3D, workers and specialized APIs."
+    },
+    {
+      "id": "air",
+      "title": "Far future: AIR extensions",
+      "purpose": "Declarations documented for AIR without Player availability. Far-future backlog, with no scheduled adaptation; revisit only after an explicit priority change."
+    },
+    {
+      "id": "library",
+      "title": "Far future: libraries and platform extensions",
+      "purpose": "Flash components, Flex/Spark, TLF and other supplied libraries. Far-future backlog, with no scheduled adaptation; executing on Player does not make them built-in APIs."
+    },
+    {
+      "id": "unresolved",
+      "title": "Platform not resolved",
+      "purpose": "The reference does not establish Player or AIR availability; review before assigning an adaptation target."
+    }
+  ],
+  "stages": [
+    {
+      "id": "math-geometry",
+      "order": 1,
+      "title": "Mathematics and 2D geometry",
+      "group": "foundation",
+      "purpose": "Numbers, mathematical operations, points, rectangles, matrices and color transforms."
+    },
+    {
+      "id": "objects-language",
+      "order": 2,
+      "title": "Objects, language and collections",
+      "group": "foundation",
+      "purpose": "Object and class semantics, functions, collections, strings, errors, dates, regular expressions, XML and binary data."
+    },
+    {
+      "id": "timeline",
+      "order": 3,
+      "title": "MovieClip and timeline",
+      "group": "foundation",
+      "purpose": "MovieClip playback, frame labels, scenes and frame lifecycle events."
+    },
+    {
+      "id": "display-events",
+      "order": 4,
+      "title": "Display, events and basic input",
+      "group": "foundation",
+      "purpose": "Display trees, stage behavior, event dispatch, keyboard/mouse input and timers."
+    },
+    {
+      "id": "graphics-bitmap",
+      "order": 5,
+      "title": "Graphics, bitmaps and filters",
+      "group": "foundation",
+      "purpose": "2D drawing, bitmap pixels, image encoding and conventional visual filters."
+    },
+    {
+      "id": "text-fonts",
+      "order": 6,
+      "title": "Text and fonts",
+      "group": "foundation",
+      "purpose": "Classic text fields, text formatting, stylesheets, font access and text metrics."
+    },
+    {
+      "id": "audio-video",
+      "order": 7,
+      "title": "File audio and video playback",
+      "group": "media",
+      "purpose": "Sound channels and transforms, video display and the file-playback part of NetStream."
+    },
+    {
+      "id": "services-advanced",
+      "order": 8,
+      "title": "Services and advanced Player APIs",
+      "group": "later",
+      "purpose": "Camera/microphone capture, network/files/platform/storage, loading, 3D, workers, Flash Text Engine and specialized profiles."
+    }
+  ],
+  "libraryScopes": [
+    "component",
+    "framework",
+    "platform_extension"
+  ],
+  "ownerDefaults": {
+    "<global>": [
+      "player",
+      "objects-language"
+    ],
+    "<language>": [
+      "player",
+      "objects-language"
+    ],
+    "ArgumentError": [
+      "player",
+      "objects-language"
+    ],
+    "Array": [
+      "player",
+      "objects-language"
+    ],
+    "Boolean": [
+      "player",
+      "objects-language"
+    ],
+    "Class": [
+      "player",
+      "objects-language"
+    ],
+    "Date": [
+      "player",
+      "objects-language"
+    ],
+    "DefinitionError": [
+      "player",
+      "objects-language"
+    ],
+    "Error": [
+      "player",
+      "objects-language"
+    ],
+    "EvalError": [
+      "player",
+      "objects-language"
+    ],
+    "Function": [
+      "player",
+      "objects-language"
+    ],
+    "JSON": [
+      "player",
+      "objects-language"
+    ],
+    "Math": [
+      "player",
+      "math-geometry"
+    ],
+    "Namespace": [
+      "player",
+      "objects-language"
+    ],
+    "Number": [
+      "player",
+      "math-geometry"
+    ],
+    "Object": [
+      "player",
+      "objects-language"
+    ],
+    "QName": [
+      "player",
+      "objects-language"
+    ],
+    "RangeError": [
+      "player",
+      "objects-language"
+    ],
+    "ReferenceError": [
+      "player",
+      "objects-language"
+    ],
+    "RegExp": [
+      "player",
+      "objects-language"
+    ],
+    "SecurityError": [
+      "player",
+      "objects-language"
+    ],
+    "String": [
+      "player",
+      "objects-language"
+    ],
+    "SyntaxError": [
+      "player",
+      "objects-language"
+    ],
+    "Top Level": [
+      "unresolved",
+      null
+    ],
+    "TypeError": [
+      "player",
+      "objects-language"
+    ],
+    "URIError": [
+      "player",
+      "objects-language"
+    ],
+    "Vector": [
+      "player",
+      "objects-language"
+    ],
+    "VerifyError": [
+      "player",
+      "objects-language"
+    ],
+    "XML": [
+      "player",
+      "objects-language"
+    ],
+    "XMLList": [
+      "player",
+      "objects-language"
+    ],
+    "arguments": [
+      "player",
+      "objects-language"
+    ],
+    "flash.accessibility": [
+      "unresolved",
+      null
+    ],
+    "flash.accessibility.Accessibility": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.accessibility.AccessibilityImplementation": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.accessibility.AccessibilityProperties": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.accessibility.ISearchableText": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.accessibility.ISimpleTextSelection": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.concurrent": [
+      "unresolved",
+      null
+    ],
+    "flash.concurrent.Condition": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.concurrent.Mutex": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.crypto": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.data": [
+      "unresolved",
+      null
+    ],
+    "flash.data.EncryptedLocalStore": [
+      "air",
+      null
+    ],
+    "flash.data.SQLCollationType": [
+      "air",
+      null
+    ],
+    "flash.data.SQLColumnNameStyle": [
+      "air",
+      null
+    ],
+    "flash.data.SQLColumnSchema": [
+      "air",
+      null
+    ],
+    "flash.data.SQLConnection": [
+      "air",
+      null
+    ],
+    "flash.data.SQLIndexSchema": [
+      "air",
+      null
+    ],
+    "flash.data.SQLMode": [
+      "air",
+      null
+    ],
+    "flash.data.SQLResult": [
+      "air",
+      null
+    ],
+    "flash.data.SQLSchema": [
+      "air",
+      null
+    ],
+    "flash.data.SQLSchemaResult": [
+      "air",
+      null
+    ],
+    "flash.data.SQLStatement": [
+      "air",
+      null
+    ],
+    "flash.data.SQLTableSchema": [
+      "air",
+      null
+    ],
+    "flash.data.SQLTransactionLockType": [
+      "air",
+      null
+    ],
+    "flash.data.SQLTriggerSchema": [
+      "air",
+      null
+    ],
+    "flash.data.SQLViewSchema": [
+      "air",
+      null
+    ],
+    "flash.desktop": [
+      "unresolved",
+      null
+    ],
+    "flash.desktop.Clipboard": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.desktop.ClipboardFormats": [
+      "air",
+      null
+    ],
+    "flash.desktop.ClipboardTransferMode": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.desktop.DockIcon": [
+      "air",
+      null
+    ],
+    "flash.desktop.IFilePromise": [
+      "air",
+      null
+    ],
+    "flash.desktop.Icon": [
+      "air",
+      null
+    ],
+    "flash.desktop.InteractiveIcon": [
+      "air",
+      null
+    ],
+    "flash.desktop.InvokeEventReason": [
+      "air",
+      null
+    ],
+    "flash.desktop.NativeApplication": [
+      "air",
+      null
+    ],
+    "flash.desktop.NativeDragActions": [
+      "air",
+      null
+    ],
+    "flash.desktop.NativeDragManager": [
+      "air",
+      null
+    ],
+    "flash.desktop.NativeDragOptions": [
+      "air",
+      null
+    ],
+    "flash.desktop.NativeProcess": [
+      "air",
+      null
+    ],
+    "flash.desktop.NativeProcessStartupInfo": [
+      "air",
+      null
+    ],
+    "flash.desktop.NotificationType": [
+      "air",
+      null
+    ],
+    "flash.desktop.SystemIdleMode": [
+      "air",
+      null
+    ],
+    "flash.desktop.SystemTrayIcon": [
+      "air",
+      null
+    ],
+    "flash.desktop.Updater": [
+      "air",
+      null
+    ],
+    "flash.display": [
+      "unresolved",
+      null
+    ],
+    "flash.display.AVLoader": [
+      "unresolved",
+      null
+    ],
+    "flash.display.AVM1Movie": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.ActionScriptVersion": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.Bitmap": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.BitmapData": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.BitmapDataChannel": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.BitmapEncodingColorSpace": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.BlendMode": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.CapsStyle": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.ColorCorrection": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.ColorCorrectionSupport": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.DisplayObject": [
+      "player",
+      "display-events"
+    ],
+    "flash.display.DisplayObjectContainer": [
+      "player",
+      "display-events"
+    ],
+    "flash.display.FocusDirection": [
+      "air",
+      null
+    ],
+    "flash.display.FrameLabel": [
+      "player",
+      "timeline"
+    ],
+    "flash.display.GradientType": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.Graphics": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.GraphicsBitmapFill": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.GraphicsEndFill": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.GraphicsGradientFill": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.GraphicsPath": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.GraphicsPathCommand": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.GraphicsPathWinding": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.GraphicsShaderFill": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.GraphicsSolidFill": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.GraphicsStroke": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.GraphicsTrianglePath": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.IBitmapDrawable": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.IGraphicsData": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.IGraphicsFill": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.IGraphicsPath": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.IGraphicsStroke": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.InteractiveObject": [
+      "player",
+      "display-events"
+    ],
+    "flash.display.InterpolationMethod": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.JPEGEncoderOptions": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.JPEGXREncoderOptions": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.JointStyle": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.LineScaleMode": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.Loader": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.LoaderInfo": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.MorphShape": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.MovieClip": [
+      "player",
+      "timeline"
+    ],
+    "flash.display.NativeMenu": [
+      "air",
+      null
+    ],
+    "flash.display.NativeMenuItem": [
+      "air",
+      null
+    ],
+    "flash.display.NativeWindow": [
+      "air",
+      null
+    ],
+    "flash.display.NativeWindowDisplayState": [
+      "air",
+      null
+    ],
+    "flash.display.NativeWindowInitOptions": [
+      "air",
+      null
+    ],
+    "flash.display.NativeWindowRenderMode": [
+      "air",
+      null
+    ],
+    "flash.display.NativeWindowResize": [
+      "air",
+      null
+    ],
+    "flash.display.NativeWindowSystemChrome": [
+      "air",
+      null
+    ],
+    "flash.display.NativeWindowType": [
+      "air",
+      null
+    ],
+    "flash.display.PNGEncoderOptions": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.PixelSnapping": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.SWFVersion": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.Scene": [
+      "player",
+      "timeline"
+    ],
+    "flash.display.Screen": [
+      "air",
+      null
+    ],
+    "flash.display.ScreenMode": [
+      "air",
+      null
+    ],
+    "flash.display.Shader": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.ShaderData": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.ShaderInput": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.ShaderJob": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.ShaderParameter": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.ShaderParameterType": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.ShaderPrecision": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.Shape": [
+      "player",
+      "display-events"
+    ],
+    "flash.display.SimpleButton": [
+      "player",
+      "display-events"
+    ],
+    "flash.display.SpreadMethod": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.display.Sprite": [
+      "player",
+      "display-events"
+    ],
+    "flash.display.Stage": [
+      "player",
+      "display-events"
+    ],
+    "flash.display.Stage3D": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display.StageAlign": [
+      "player",
+      "display-events"
+    ],
+    "flash.display.StageAspectRatio": [
+      "air",
+      null
+    ],
+    "flash.display.StageDisplayState": [
+      "player",
+      "display-events"
+    ],
+    "flash.display.StageOrientation": [
+      "air",
+      null
+    ],
+    "flash.display.StageQuality": [
+      "player",
+      "display-events"
+    ],
+    "flash.display.StageScaleMode": [
+      "player",
+      "display-events"
+    ],
+    "flash.display.TriangleCulling": [
+      "unresolved",
+      null
+    ],
+    "flash.display3D": [
+      "unresolved",
+      null
+    ],
+    "flash.display3D.Context3D": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.Context3DBlendFactor": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.Context3DBufferUsage": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.Context3DClearMask": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.Context3DCompareMode": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.Context3DFillMode": [
+      "air",
+      null
+    ],
+    "flash.display3D.Context3DMipFilter": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.Context3DProfile": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.Context3DProgramType": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.Context3DRenderMode": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.Context3DStencilAction": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.Context3DTextureFilter": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.Context3DTextureFormat": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.Context3DTriangleFace": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.Context3DVertexBufferFormat": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.Context3DWrapMode": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.IndexBuffer3D": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.Program3D": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.VertexBuffer3D": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.textures": [
+      "unresolved",
+      null
+    ],
+    "flash.display3D.textures.CubeTexture": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.textures.RectangleTexture": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.textures.Texture": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.textures.TextureBase": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.display3D.textures.VideoTexture": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.errors": [
+      "unresolved",
+      null
+    ],
+    "flash.errors.DRMManagerError": [
+      "air",
+      null
+    ],
+    "flash.errors.EOFError": [
+      "player",
+      "objects-language"
+    ],
+    "flash.errors.IOError": [
+      "player",
+      "objects-language"
+    ],
+    "flash.errors.IllegalOperationError": [
+      "player",
+      "objects-language"
+    ],
+    "flash.errors.InvalidSWFError": [
+      "player",
+      "objects-language"
+    ],
+    "flash.errors.MemoryError": [
+      "player",
+      "objects-language"
+    ],
+    "flash.errors.PermissionError": [
+      "air",
+      null
+    ],
+    "flash.errors.SQLError": [
+      "air",
+      null
+    ],
+    "flash.errors.SQLErrorOperation": [
+      "air",
+      null
+    ],
+    "flash.errors.ScriptTimeoutError": [
+      "player",
+      "objects-language"
+    ],
+    "flash.errors.StackOverflowError": [
+      "player",
+      "objects-language"
+    ],
+    "flash.events": [
+      "unresolved",
+      null
+    ],
+    "flash.events.AVDictionaryDataEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.AVHTTPStatusEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.AVPauseAtPeriodEndEvent": [
+      "unresolved",
+      null
+    ],
+    "flash.events.AccelerometerEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.ActivityEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.AsyncErrorEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.AudioOutputChangeEvent": [
+      "unresolved",
+      null
+    ],
+    "flash.events.BrowserInvokeEvent": [
+      "air",
+      null
+    ],
+    "flash.events.ContextMenuEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.DNSResolverEvent": [
+      "air",
+      null
+    ],
+    "flash.events.DRMAuthenticateEvent": [
+      "air",
+      null
+    ],
+    "flash.events.DRMAuthenticationCompleteEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.DRMAuthenticationErrorEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.DRMDeviceGroupErrorEvent": [
+      "unresolved",
+      null
+    ],
+    "flash.events.DRMDeviceGroupEvent": [
+      "unresolved",
+      null
+    ],
+    "flash.events.DRMErrorEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.DRMLicenseRequestEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.DRMMetadataEvent": [
+      "unresolved",
+      null
+    ],
+    "flash.events.DRMReturnVoucherCompleteEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.DRMReturnVoucherErrorEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.DRMStatusEvent": [
+      "air",
+      null
+    ],
+    "flash.events.DataEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.DatagramSocketDataEvent": [
+      "air",
+      null
+    ],
+    "flash.events.DeviceRotationEvent": [
+      "air",
+      null
+    ],
+    "flash.events.ErrorEvent": [
+      "player",
+      "display-events"
+    ],
+    "flash.events.Event": [
+      "player",
+      "display-events"
+    ],
+    "flash.events.EventDispatcher": [
+      "player",
+      "display-events"
+    ],
+    "flash.events.EventPhase": [
+      "player",
+      "display-events"
+    ],
+    "flash.events.FileListEvent": [
+      "air",
+      null
+    ],
+    "flash.events.FocusEvent": [
+      "player",
+      "display-events"
+    ],
+    "flash.events.FullScreenEvent": [
+      "player",
+      "display-events"
+    ],
+    "flash.events.GameInputEvent": [
+      "air",
+      null
+    ],
+    "flash.events.GeolocationEvent": [
+      "air",
+      null
+    ],
+    "flash.events.GestureEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.GesturePhase": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.HTMLUncaughtScriptExceptionEvent": [
+      "air",
+      null
+    ],
+    "flash.events.HTTPStatusEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.IEventDispatcher": [
+      "player",
+      "display-events"
+    ],
+    "flash.events.IMEEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.IOErrorEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.InvokeEvent": [
+      "air",
+      null
+    ],
+    "flash.events.KeyboardEvent": [
+      "player",
+      "display-events"
+    ],
+    "flash.events.LocationChangeEvent": [
+      "air",
+      null
+    ],
+    "flash.events.MediaEvent": [
+      "air",
+      null
+    ],
+    "flash.events.MouseEvent": [
+      "player",
+      "display-events"
+    ],
+    "flash.events.NativeDragEvent": [
+      "air",
+      null
+    ],
+    "flash.events.NativeProcessExitEvent": [
+      "air",
+      null
+    ],
+    "flash.events.NativeWindowBoundsEvent": [
+      "air",
+      null
+    ],
+    "flash.events.NativeWindowDisplayStateEvent": [
+      "air",
+      null
+    ],
+    "flash.events.NetDataEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.NetMonitorEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.NetStatusEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.OutputProgressEvent": [
+      "air",
+      null
+    ],
+    "flash.events.PermissionEvent": [
+      "air",
+      null
+    ],
+    "flash.events.PressAndTapGestureEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.ProgressEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.RemoteNotificationEvent": [
+      "air",
+      null
+    ],
+    "flash.events.SQLErrorEvent": [
+      "air",
+      null
+    ],
+    "flash.events.SQLEvent": [
+      "air",
+      null
+    ],
+    "flash.events.SQLUpdateEvent": [
+      "air",
+      null
+    ],
+    "flash.events.SampleDataEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.ScreenMouseEvent": [
+      "air",
+      null
+    ],
+    "flash.events.SecurityErrorEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.ServerSocketConnectEvent": [
+      "air",
+      null
+    ],
+    "flash.events.ShaderEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.SoftKeyboardEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.SoftKeyboardTrigger": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.StageOrientationEvent": [
+      "air",
+      null
+    ],
+    "flash.events.StageVideoAvailabilityEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.StageVideoEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.StatusEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.StorageVolumeChangeEvent": [
+      "air",
+      null
+    ],
+    "flash.events.SyncEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.TextEvent": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.events.ThrottleEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.ThrottleType": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.TimerEvent": [
+      "player",
+      "display-events"
+    ],
+    "flash.events.TouchEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.TouchEventIntent": [
+      "air",
+      null
+    ],
+    "flash.events.TransformGestureEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.UncaughtErrorEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.UncaughtErrorEvents": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.VideoEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.VideoTextureEvent": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.events.VsyncStateChangeAvailabilityEvent": [
+      "air",
+      null
+    ],
+    "flash.external": [
+      "unresolved",
+      null
+    ],
+    "flash.external.ExtensionContext": [
+      "air",
+      null
+    ],
+    "flash.external.ExternalInterface": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.filesystem": [
+      "unresolved",
+      null
+    ],
+    "flash.filesystem.File": [
+      "air",
+      null
+    ],
+    "flash.filesystem.FileMode": [
+      "air",
+      null
+    ],
+    "flash.filesystem.FileStream": [
+      "air",
+      null
+    ],
+    "flash.filesystem.StorageVolume": [
+      "air",
+      null
+    ],
+    "flash.filesystem.StorageVolumeInfo": [
+      "air",
+      null
+    ],
+    "flash.filters": [
+      "unresolved",
+      null
+    ],
+    "flash.filters.BevelFilter": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.filters.BitmapFilter": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.filters.BitmapFilterQuality": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.filters.BitmapFilterType": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.filters.BlurFilter": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.filters.ColorMatrixFilter": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.filters.ConvolutionFilter": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.filters.DisplacementMapFilter": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.filters.DisplacementMapFilterMode": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.filters.DropShadowFilter": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.filters.GlowFilter": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.filters.GradientBevelFilter": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.filters.GradientGlowFilter": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "flash.filters.ShaderFilter": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.geom": [
+      "unresolved",
+      null
+    ],
+    "flash.geom.ColorTransform": [
+      "player",
+      "math-geometry"
+    ],
+    "flash.geom.Matrix": [
+      "player",
+      "math-geometry"
+    ],
+    "flash.geom.Matrix3D": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.geom.Orientation3D": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.geom.PerspectiveProjection": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.geom.Point": [
+      "player",
+      "math-geometry"
+    ],
+    "flash.geom.Rectangle": [
+      "player",
+      "math-geometry"
+    ],
+    "flash.geom.Transform": [
+      "player",
+      "math-geometry"
+    ],
+    "flash.geom.Utils3D": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.geom.Vector3D": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.globalization": [
+      "unresolved",
+      null
+    ],
+    "flash.globalization.Collator": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.globalization.CollatorMode": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.globalization.CurrencyFormatter": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.globalization.CurrencyParseResult": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.globalization.DateTimeFormatter": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.globalization.DateTimeNameContext": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.globalization.DateTimeNameStyle": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.globalization.DateTimeStyle": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.globalization.LastOperationStatus": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.globalization.LocaleID": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.globalization.NationalDigitsType": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.globalization.NumberFormatter": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.globalization.NumberParseResult": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.globalization.StringTools": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.html": [
+      "unresolved",
+      null
+    ],
+    "flash.html.HTMLHistoryItem": [
+      "air",
+      null
+    ],
+    "flash.html.HTMLHost": [
+      "air",
+      null
+    ],
+    "flash.html.HTMLLoader": [
+      "air",
+      null
+    ],
+    "flash.html.HTMLPDFCapability": [
+      "air",
+      null
+    ],
+    "flash.html.HTMLSWFCapability": [
+      "air",
+      null
+    ],
+    "flash.html.HTMLWindowCreateOptions": [
+      "air",
+      null
+    ],
+    "flash.media": [
+      "unresolved",
+      null
+    ],
+    "flash.media.AVNetworkingParams": [
+      "unresolved",
+      null
+    ],
+    "flash.media.AVTagData": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.AVURLLoader": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.AVURLStream": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.AudioDecoder": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.AudioDeviceManager": [
+      "unresolved",
+      null
+    ],
+    "flash.media.AudioOutputChangeReason": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.AudioPlaybackMode": [
+      "air",
+      null
+    ],
+    "flash.media.Camera": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.CameraPosition": [
+      "air",
+      null
+    ],
+    "flash.media.CameraRoll": [
+      "air",
+      null
+    ],
+    "flash.media.CameraRollBrowseOptions": [
+      "air",
+      null
+    ],
+    "flash.media.CameraUI": [
+      "air",
+      null
+    ],
+    "flash.media.H264Level": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.H264Profile": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.H264VideoStreamSettings": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.ID3Info": [
+      "player",
+      "audio-video"
+    ],
+    "flash.media.MediaPromise": [
+      "air",
+      null
+    ],
+    "flash.media.MediaType": [
+      "air",
+      null
+    ],
+    "flash.media.Microphone": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.MicrophoneEnhancedMode": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.MicrophoneEnhancedOptions": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.Sound": [
+      "player",
+      "audio-video"
+    ],
+    "flash.media.SoundChannel": [
+      "player",
+      "audio-video"
+    ],
+    "flash.media.SoundCodec": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.SoundLoaderContext": [
+      "player",
+      "audio-video"
+    ],
+    "flash.media.SoundMixer": [
+      "player",
+      "audio-video"
+    ],
+    "flash.media.SoundTransform": [
+      "player",
+      "audio-video"
+    ],
+    "flash.media.StageVideo": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.StageVideoAvailability": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.StageVideoAvailabilityReason": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.StageWebView": [
+      "air",
+      null
+    ],
+    "flash.media.VP6VideoStreamSettings": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.Video": [
+      "player",
+      "audio-video"
+    ],
+    "flash.media.VideoCodec": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.media.VideoStatus": [
+      "player",
+      "audio-video"
+    ],
+    "flash.media.VideoStreamSettings": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net": [
+      "player",
+      "objects-language"
+    ],
+    "flash.net.DatagramSocket": [
+      "air",
+      null
+    ],
+    "flash.net.FileFilter": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.FileReference": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.FileReferenceList": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.GroupSpecifier": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.IPVersion": [
+      "air",
+      null
+    ],
+    "flash.net.InterfaceAddress": [
+      "air",
+      null
+    ],
+    "flash.net.LocalConnection": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.NetConnection": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.NetGroup": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.NetGroupInfo": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.NetGroupReceiveMode": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.NetGroupReplicationStrategy": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.NetGroupSendMode": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.NetGroupSendResult": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.NetMonitor": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.NetStream": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.NetStreamAppendBytesAction": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.NetStreamInfo": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.NetStreamMulticastInfo": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.NetStreamPlayOptions": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.NetStreamPlayTransitions": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.NetworkInfo": [
+      "air",
+      null
+    ],
+    "flash.net.NetworkInterface": [
+      "air",
+      null
+    ],
+    "flash.net.ObjectEncoding": [
+      "player",
+      "objects-language"
+    ],
+    "flash.net.Responder": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.SecureSocket": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.ServerSocket": [
+      "air",
+      null
+    ],
+    "flash.net.SharedObject": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.SharedObjectFlushStatus": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.Socket": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.URLLoader": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.URLLoaderDataFormat": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.URLRequest": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.URLRequestDefaults": [
+      "air",
+      null
+    ],
+    "flash.net.URLRequestHeader": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.URLRequestMethod": [
+      "air",
+      null
+    ],
+    "flash.net.URLStream": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.URLVariables": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.XMLSocket": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.dns": [
+      "unresolved",
+      null
+    ],
+    "flash.net.dns.AAAARecord": [
+      "air",
+      null
+    ],
+    "flash.net.dns.ARecord": [
+      "air",
+      null
+    ],
+    "flash.net.dns.DNSResolver": [
+      "air",
+      null
+    ],
+    "flash.net.dns.MXRecord": [
+      "air",
+      null
+    ],
+    "flash.net.dns.PTRRecord": [
+      "air",
+      null
+    ],
+    "flash.net.dns.ResourceRecord": [
+      "air",
+      null
+    ],
+    "flash.net.dns.SRVRecord": [
+      "air",
+      null
+    ],
+    "flash.net.drm": [
+      "unresolved",
+      null
+    ],
+    "flash.net.drm.AuthenticationMethod": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.drm.DRMContentData": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.drm.DRMDeviceGroup": [
+      "air",
+      null
+    ],
+    "flash.net.drm.DRMManager": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.drm.DRMPlaybackTimeWindow": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.drm.DRMVoucher": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.drm.LoadVoucherSetting": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.net.drm.VoucherAccessInfo": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.notifications": [
+      "unresolved",
+      null
+    ],
+    "flash.notifications.NotificationStyle": [
+      "air",
+      null
+    ],
+    "flash.notifications.RemoteNotifier": [
+      "air",
+      null
+    ],
+    "flash.notifications.RemoteNotifierSubscribeOptions": [
+      "air",
+      null
+    ],
+    "flash.permissions": [
+      "unresolved",
+      null
+    ],
+    "flash.permissions.PermissionStatus": [
+      "air",
+      null
+    ],
+    "flash.printing": [
+      "unresolved",
+      null
+    ],
+    "flash.printing.PaperSize": [
+      "air",
+      null
+    ],
+    "flash.printing.PrintJob": [
+      "air",
+      null
+    ],
+    "flash.printing.PrintJobOptions": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.printing.PrintJobOrientation": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.printing.PrintMethod": [
+      "air",
+      null
+    ],
+    "flash.printing.PrintUIOptions": [
+      "air",
+      null
+    ],
+    "flash.profiler": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.profiler.Telemetry": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.sampler": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.sampler.DeleteObjectSample": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.sampler.NewObjectSample": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.sampler.Sample": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.sampler.StackFrame": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.security": [
+      "unresolved",
+      null
+    ],
+    "flash.security.CertificateStatus": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.security.IURIDereferencer": [
+      "air",
+      null
+    ],
+    "flash.security.ReferencesValidationSetting": [
+      "air",
+      null
+    ],
+    "flash.security.RevocationCheckSettings": [
+      "air",
+      null
+    ],
+    "flash.security.SignatureStatus": [
+      "air",
+      null
+    ],
+    "flash.security.SignerTrustSettings": [
+      "air",
+      null
+    ],
+    "flash.security.X500DistinguishedName": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.security.X509Certificate": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.security.XMLSignatureValidator": [
+      "air",
+      null
+    ],
+    "flash.sensors": [
+      "unresolved",
+      null
+    ],
+    "flash.sensors.Accelerometer": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.sensors.DeviceRotation": [
+      "air",
+      null
+    ],
+    "flash.sensors.Geolocation": [
+      "air",
+      null
+    ],
+    "flash.system": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.ApplicationDomain": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.Capabilities": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.IME": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.IMEConversionMode": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.ImageDecodingPolicy": [
+      "air",
+      null
+    ],
+    "flash.system.JPEGLoaderContext": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.LoaderContext": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.MessageChannel": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.MessageChannelState": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.Security": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.SecurityDomain": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.SecurityPanel": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.System": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.SystemUpdater": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.SystemUpdaterType": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.TouchscreenType": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.Worker": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.WorkerDomain": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.system.WorkerState": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text": [
+      "unresolved",
+      null
+    ],
+    "flash.text.AntiAliasType": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.AutoCapitalize": [
+      "air",
+      null
+    ],
+    "flash.text.CSMSettings": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.Font": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.FontStyle": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.FontType": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.GridFitType": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.ReturnKeyLabel": [
+      "air",
+      null
+    ],
+    "flash.text.SoftKeyboardType": [
+      "air",
+      null
+    ],
+    "flash.text.StageText": [
+      "air",
+      null
+    ],
+    "flash.text.StageTextClearButtonMode": [
+      "air",
+      null
+    ],
+    "flash.text.StageTextInitOptions": [
+      "air",
+      null
+    ],
+    "flash.text.StaticText": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.StyleSheet": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.TextColorType": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.TextDisplayMode": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.TextField": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.TextFieldAutoSize": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.TextFieldType": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.TextFormat": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.TextFormatAlign": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.TextInteractionMode": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.TextLineMetrics": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.TextRenderer": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.TextSnapshot": [
+      "player",
+      "text-fonts"
+    ],
+    "flash.text.engine": [
+      "unresolved",
+      null
+    ],
+    "flash.text.engine.BreakOpportunity": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.CFFHinting": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.ContentElement": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.DigitCase": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.DigitWidth": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.EastAsianJustifier": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.ElementFormat": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.FontDescription": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.FontLookup": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.FontMetrics": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.FontPosture": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.FontWeight": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.GraphicElement": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.GroupElement": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.JustificationStyle": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.Kerning": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.LigatureLevel": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.LineJustification": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.RenderingMode": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.SpaceJustifier": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.TabAlignment": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.TabStop": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.TextBaseline": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.TextBlock": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.TextElement": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.TextJustifier": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.TextLine": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.TextLineCreationResult": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.TextLineMirrorRegion": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.TextLineValidity": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.TextRotation": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.engine.TypographicCase": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.ime": [
+      "unresolved",
+      null
+    ],
+    "flash.text.ime.CompositionAttributeRange": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.text.ime.IIMEClient": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.ui": [
+      "unresolved",
+      null
+    ],
+    "flash.ui.ContextMenu": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.ui.ContextMenuBuiltInItems": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.ui.ContextMenuClipboardItems": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.ui.ContextMenuItem": [
+      "unresolved",
+      null
+    ],
+    "flash.ui.GameInput": [
+      "air",
+      null
+    ],
+    "flash.ui.GameInputControl": [
+      "air",
+      null
+    ],
+    "flash.ui.GameInputDevice": [
+      "air",
+      null
+    ],
+    "flash.ui.KeyLocation": [
+      "player",
+      "display-events"
+    ],
+    "flash.ui.Keyboard": [
+      "player",
+      "display-events"
+    ],
+    "flash.ui.KeyboardType": [
+      "player",
+      "display-events"
+    ],
+    "flash.ui.Mouse": [
+      "player",
+      "display-events"
+    ],
+    "flash.ui.MouseCursor": [
+      "player",
+      "display-events"
+    ],
+    "flash.ui.MouseCursorData": [
+      "player",
+      "display-events"
+    ],
+    "flash.ui.Multitouch": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.ui.MultitouchInputMode": [
+      "player",
+      "services-advanced"
+    ],
+    "flash.utils": [
+      "player",
+      "objects-language"
+    ],
+    "flash.utils.ByteArray": [
+      "player",
+      "objects-language"
+    ],
+    "flash.utils.CompressionAlgorithm": [
+      "player",
+      "objects-language"
+    ],
+    "flash.utils.Dictionary": [
+      "player",
+      "objects-language"
+    ],
+    "flash.utils.Endian": [
+      "player",
+      "objects-language"
+    ],
+    "flash.utils.IDataInput": [
+      "player",
+      "objects-language"
+    ],
+    "flash.utils.IDataOutput": [
+      "player",
+      "objects-language"
+    ],
+    "flash.utils.Timer": [
+      "player",
+      "display-events"
+    ],
+    "flash.xml": [
+      "unresolved",
+      null
+    ],
+    "flash.xml.XMLDocument": [
+      "player",
+      "objects-language"
+    ],
+    "flash.xml.XMLNode": [
+      "player",
+      "objects-language"
+    ],
+    "flash.xml.XMLNodeType": [
+      "player",
+      "objects-language"
+    ],
+    "int": [
+      "player",
+      "math-geometry"
+    ],
+    "uint": [
+      "player",
+      "math-geometry"
+    ]
+  },
+  "entryExceptions": {
+    "AS3:class:flash/desktop/ClipboardFormats.html#": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:class:flash/display/TriangleCulling.html#": [
+      "player",
+      "graphics-bitmap"
+    ],
+    "AS3:class:flash/events/AudioOutputChangeEvent.html#": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:class:flash/events/DRMDeviceGroupErrorEvent.html#": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:class:flash/events/DRMDeviceGroupEvent.html#": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:class:flash/events/DRMMetadataEvent.html#": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:class:flash/events/DRMStatusEvent.html#": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:class:flash/media/AudioDeviceManager.html#": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:class:flash/media/VP6VideoStreamSettings.html#": [
+      "unresolved",
+      null
+    ],
+    "AS3:class:flash/net/NetStream.html#": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:class:flash/net/URLRequestMethod.html#": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:class:flash/net/drm/DRMDeviceGroup.html#": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:class:flash/printing/PrintJob.html#": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:class:flash/ui/ContextMenuItem.html#": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:constant:flash/desktop/ClipboardFormats.html#HTML_FORMAT": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:constant:flash/desktop/ClipboardFormats.html#RICH_TEXT_FORMAT": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:constant:flash/desktop/ClipboardFormats.html#TEXT_FORMAT": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:constant:flash/display3D/Context3DProfile.html#ENHANCED": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/display3D/Context3DWrapMode.html#CLAMP_U_REPEAT_V": [
+      "unresolved",
+      null
+    ],
+    "AS3:constant:flash/display3D/Context3DWrapMode.html#REPEAT_U_CLAMP_V": [
+      "unresolved",
+      null
+    ],
+    "AS3:constant:flash/events/AVDictionaryDataEvent.html#AV_DICTIONARY_DATA": [
+      "unresolved",
+      null
+    ],
+    "AS3:constant:flash/events/AVHTTPStatusEvent.html#AV_HTTP_RESPONSE_STATUS": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/DRMErrorEvent.html#DRM_LOAD_DEVICEID_ERROR": [
+      "unresolved",
+      null
+    ],
+    "AS3:constant:flash/events/DRMStatusEvent.html#DRM_STATUS": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:constant:flash/events/Event.html#CHANNEL_MESSAGE": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:constant:flash/events/Event.html#CHANNEL_STATE": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:constant:flash/events/Event.html#CLOSING": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/Event.html#CONTEXT3D_CREATE": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:constant:flash/events/Event.html#DISPLAYING": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/Event.html#ENTER_FRAME": [
+      "player",
+      "timeline"
+    ],
+    "AS3:constant:flash/events/Event.html#EXITING": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/Event.html#EXIT_FRAME": [
+      "player",
+      "timeline"
+    ],
+    "AS3:constant:flash/events/Event.html#FRAME_CONSTRUCTED": [
+      "player",
+      "timeline"
+    ],
+    "AS3:constant:flash/events/Event.html#FRAME_LABEL": [
+      "player",
+      "timeline"
+    ],
+    "AS3:constant:flash/events/Event.html#HTML_BOUNDS_CHANGE": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/Event.html#HTML_DOM_INITIALIZE": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/Event.html#HTML_RENDER": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/Event.html#ID3": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:constant:flash/events/Event.html#LOCATION_CHANGE": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/Event.html#NETWORK_CHANGE": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/Event.html#PREPARING": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/Event.html#SOUND_COMPLETE": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:constant:flash/events/Event.html#STANDARD_ERROR_CLOSE": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/Event.html#STANDARD_INPUT_CLOSE": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/Event.html#STANDARD_OUTPUT_CLOSE": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/Event.html#SUSPEND": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/Event.html#TEXTURE_READY": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:constant:flash/events/Event.html#USER_IDLE": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/Event.html#USER_PRESENT": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/Event.html#VIDEO_FRAME": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:constant:flash/events/Event.html#WORKER_STATE": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:constant:flash/events/HTTPStatusEvent.html#HTTP_RESPONSE_STATUS": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/IOErrorEvent.html#STANDARD_ERROR_IO_ERROR": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/IOErrorEvent.html#STANDARD_INPUT_IO_ERROR": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/IOErrorEvent.html#STANDARD_OUTPUT_IO_ERROR": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/MouseEvent.html#CONTEXT_MENU": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/PermissionEvent.html#PERMISSION_STATUS": [
+      "unresolved",
+      null
+    ],
+    "AS3:constant:flash/events/ProgressEvent.html#STANDARD_ERROR_DATA": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/ProgressEvent.html#STANDARD_INPUT_PROGRESS": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/ProgressEvent.html#STANDARD_OUTPUT_DATA": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/StageVideoAvailabilityEvent.html#driver": [
+      "unresolved",
+      null
+    ],
+    "AS3:constant:flash/events/StageVideoAvailabilityEvent.html#reason": [
+      "unresolved",
+      null
+    ],
+    "AS3:constant:flash/events/StageVideoEvent.html#RENDER_STATUS_ACCELERATED": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/StageVideoEvent.html#RENDER_STATUS_SOFTWARE": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/StageVideoEvent.html#RENDER_STATUS_UNAVAILABLE": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/StageVideoEvent.html#codecInfo": [
+      "unresolved",
+      null
+    ],
+    "AS3:constant:flash/events/TouchEvent.html#PROXIMITY_BEGIN": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/TouchEvent.html#PROXIMITY_END": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/TouchEvent.html#PROXIMITY_MOVE": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/TouchEvent.html#PROXIMITY_OUT": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/TouchEvent.html#PROXIMITY_OVER": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/TouchEvent.html#PROXIMITY_ROLL_OUT": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/TouchEvent.html#PROXIMITY_ROLL_OVER": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/TransformGestureEvent.html#GESTURE_DIRECTIONAL_TAP": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/events/VideoEvent.html#codecInfo": [
+      "unresolved",
+      null
+    ],
+    "AS3:constant:flash/media/VideoCodec.html#VP6": [
+      "unresolved",
+      null
+    ],
+    "AS3:constant:flash/net/URLRequestMethod.html#GET": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:constant:flash/net/URLRequestMethod.html#POST": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:constant:flash/sampler/StackFrame.html#scriptID": [
+      "unresolved",
+      null
+    ],
+    "AS3:constant:flash/system/Security.html#APPLICATION": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/text/TextFormatAlign.html#END": [
+      "unresolved",
+      null
+    ],
+    "AS3:constant:flash/text/TextFormatAlign.html#START": [
+      "unresolved",
+      null
+    ],
+    "AS3:constant:flash/ui/KeyLocation.html#D_PAD": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/ui/Keyboard.html#PLAY_PAUSE": [
+      "air",
+      null
+    ],
+    "AS3:constant:flash/utils/CompressionAlgorithm.html#DEFLATE": [
+      "air",
+      null
+    ],
+    "AS3:constant:package.html#Infinity": [
+      "player",
+      "math-geometry"
+    ],
+    "AS3:constant:package.html#NaN": [
+      "player",
+      "math-geometry"
+    ],
+    "AS3:constructor:flash/display/Stage3D.html#Stage3D()": [
+      "unresolved",
+      null
+    ],
+    "AS3:constructor:flash/events/AVDictionaryDataEvent.html#AVDictionaryDataEvent()": [
+      "unresolved",
+      null
+    ],
+    "AS3:constructor:flash/events/DRMStatusEvent.html#DRMStatusEvent()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:constructor:flash/events/VideoTextureEvent.html#VideoTextureEvent()": [
+      "unresolved",
+      null
+    ],
+    "AS3:constructor:flash/media/MicrophoneEnhancedOptions.html#MicrophoneEnhancedOptions()": [
+      "unresolved",
+      null
+    ],
+    "AS3:constructor:flash/net/NetStream.html#NetStream()": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:constructor:flash/printing/PrintJob.html#PrintJob()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:constructor:flash/ui/ContextMenuItem.html#ContextMenuItem()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:event:flash/display/DisplayObject.html#event:enterFrame": [
+      "player",
+      "timeline"
+    ],
+    "AS3:event:flash/display/DisplayObject.html#event:exitFrame": [
+      "player",
+      "timeline"
+    ],
+    "AS3:event:flash/display/DisplayObject.html#event:frameConstructed": [
+      "player",
+      "timeline"
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:contextMenu": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:gestureDirectionalTap": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:imeStartComposition": [
+      "unresolved",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:middleClick": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:middleMouseDown": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:middleMouseUp": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:nativeDragComplete": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:nativeDragDrop": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:nativeDragEnter": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:nativeDragExit": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:nativeDragOver": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:nativeDragStart": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:nativeDragUpdate": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:proximityBegin": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:proximityEnd": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:proximityMove": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:proximityOut": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:proximityOver": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:proximityRollOut": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:proximityRollOver": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:rightClick": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:rightMouseDown": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/InteractiveObject.html#event:rightMouseUp": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/Stage.html#event:VsyncStateChangeAvailability": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/Stage.html#event:orientationChange": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display/Stage.html#event:orientationChanging": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/display3D/textures/VideoTexture.html#event:renderState": [
+      "unresolved",
+      null
+    ],
+    "AS3:event:flash/media/AVURLLoader.html#event:httpResponseStatus": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/media/AudioDeviceManager.html#event:audioOutputChange": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:event:flash/media/Camera.html#event:permissionStatus": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/net/FileReference.html#event:httpResponseStatus": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/net/FileReference.html#event:permissionStatus": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/net/NetStream.html#event:asyncError": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:event:flash/net/NetStream.html#event:drmAuthenticate": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/net/NetStream.html#event:ioError": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:event:flash/net/NetStream.html#event:netStatus": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:event:flash/net/NetStream.html#event:onCuePoint": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:event:flash/net/NetStream.html#event:onDRMContentData": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/net/NetStream.html#event:onMetaData": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:event:flash/net/NetStream.html#event:onPlayStatus": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:event:flash/net/Socket.html#event:outputProgress": [
+      "unresolved",
+      null
+    ],
+    "AS3:event:flash/net/URLLoader.html#event:httpResponseStatus": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/net/URLStream.html#event:httpResponseStatus": [
+      "air",
+      null
+    ],
+    "AS3:event:flash/sensors/Geolocation.html#event:permissionStatus": [
+      "unresolved",
+      null
+    ],
+    "AS3:event:flash/ui/ContextMenuItem.html#event:menuItemSelect": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:event:flash/ui/GameInput.html#event:deviceAdded": [
+      "unresolved",
+      null
+    ],
+    "AS3:event:flash/ui/GameInput.html#event:deviceRemoved": [
+      "unresolved",
+      null
+    ],
+    "AS3:event:flash/ui/GameInput.html#event:deviceUnusable": [
+      "unresolved",
+      null
+    ],
+    "AS3:event:flash/ui/GameInputControl.html#event:change": [
+      "unresolved",
+      null
+    ],
+    "AS3:function:flash/media/package.html#scanHardware()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:function:flash/net/package.html#navigateToURL()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:function:flash/net/package.html#sendToURL()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:function:flash/sampler/package.html#getLexicalScopes()": [
+      "unresolved",
+      null
+    ],
+    "AS3:function:flash/sampler/package.html#getMasterString()": [
+      "unresolved",
+      null
+    ],
+    "AS3:function:flash/sampler/package.html#getSavedThis()": [
+      "unresolved",
+      null
+    ],
+    "AS3:function:flash/sampler/package.html#sampleInternalAllocs()": [
+      "unresolved",
+      null
+    ],
+    "AS3:function:flash/sampler/package.html#setSamplerCallback()": [
+      "unresolved",
+      null
+    ],
+    "AS3:function:flash/utils/package.html#clearInterval()": [
+      "player",
+      "display-events"
+    ],
+    "AS3:function:flash/utils/package.html#clearTimeout()": [
+      "player",
+      "display-events"
+    ],
+    "AS3:function:flash/utils/package.html#getTimer()": [
+      "player",
+      "display-events"
+    ],
+    "AS3:function:flash/utils/package.html#setInterval()": [
+      "player",
+      "display-events"
+    ],
+    "AS3:function:flash/utils/package.html#setTimeout()": [
+      "player",
+      "display-events"
+    ],
+    "AS3:function:package.html#isFinite()": [
+      "player",
+      "math-geometry"
+    ],
+    "AS3:function:package.html#isNaN()": [
+      "player",
+      "math-geometry"
+    ],
+    "AS3:function:package.html#parseFloat()": [
+      "player",
+      "math-geometry"
+    ],
+    "AS3:function:package.html#parseInt()": [
+      "player",
+      "math-geometry"
+    ],
+    "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_selectionActiveIndex()": [
+      "unresolved",
+      null
+    ],
+    "AS3:method:flash/accessibility/AccessibilityImplementation.html#get_selectionAnchorIndex()": [
+      "unresolved",
+      null
+    ],
+    "AS3:method:flash/display/DisplayObject.html#globalToLocal3D()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:method:flash/display/DisplayObject.html#local3DToGlobal()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:method:flash/display/Graphics.html#beginShaderFill()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:method:flash/display/Graphics.html#lineShaderStyle()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:method:flash/display/InteractiveObject.html#requestSoftKeyboard()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:method:flash/display/Loader.html#loadFilePromise()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/display/Stage.html#assignFocus()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/display/Stage.html#setAspectRatio()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/display/Stage.html#setOrientation()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/display3D/Context3D.html#createVertexBufferForInstances()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/display3D/Context3D.html#drawToBitmapData()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/display3D/Context3D.html#drawTrianglesInstanced()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/display3D/Context3D.html#setFillMode()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/display3D/textures/RectangleTexture.html#uploadFromBitmapDataAsync()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/display3D/textures/RectangleTexture.html#uploadFromByteArrayAsync()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/display3D/textures/Texture.html#uploadFromBitmapDataAsync()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/display3D/textures/Texture.html#uploadFromByteArrayAsync()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/errors/DRMManagerError.html#toString()": [
+      "unresolved",
+      null
+    ],
+    "AS3:method:flash/errors/PermissionError.html#toString()": [
+      "unresolved",
+      null
+    ],
+    "AS3:method:flash/events/DRMAuthenticationCompleteEvent.html#clone()": [
+      "unresolved",
+      null
+    ],
+    "AS3:method:flash/events/DRMAuthenticationErrorEvent.html#clone()": [
+      "unresolved",
+      null
+    ],
+    "AS3:method:flash/events/DRMLicenseRequestEvent.html#clone()": [
+      "unresolved",
+      null
+    ],
+    "AS3:method:flash/events/DRMReturnVoucherCompleteEvent.html#clone()": [
+      "unresolved",
+      null
+    ],
+    "AS3:method:flash/events/DRMReturnVoucherErrorEvent.html#clone()": [
+      "unresolved",
+      null
+    ],
+    "AS3:method:flash/events/TouchEvent.html#getSamples()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/events/TouchEvent.html#isToolButtonDown()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/geom/Matrix3D.html#copyToMatrix3D()": [
+      "unresolved",
+      null
+    ],
+    "AS3:method:flash/geom/Transform.html#getRelativeMatrix3D()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:method:flash/media/AVURLLoader.html#addEventListener()": [
+      "unresolved",
+      null
+    ],
+    "AS3:method:flash/media/Camera.html#requestPermission()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/media/Microphone.html#requestPermission()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/media/SoundMixer.html#areSoundsInaccessible()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:method:flash/media/Video.html#attachCamera()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:method:flash/net/FileReference.html#requestPermission()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/net/FileReference.html#uploadUnencoded()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/net/NetStream.html#close()": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:method:flash/net/NetStream.html#dispose()": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:method:flash/net/NetStream.html#pause()": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:method:flash/net/NetStream.html#play()": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:method:flash/net/NetStream.html#preloadEmbeddedData()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/net/NetStream.html#resume()": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:method:flash/net/NetStream.html#seek()": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:method:flash/net/NetStream.html#setDRMAuthenticationCredentials()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/net/NetStream.html#togglePause()": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:method:flash/net/drm/DRMVoucher.html#toByteArray()": [
+      "unresolved",
+      null
+    ],
+    "AS3:method:flash/printing/PrintJob.html#addPage()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:method:flash/printing/PrintJob.html#send()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:method:flash/printing/PrintJob.html#start()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:method:flash/profiler/Telemetry.html#unregisterCommandHandler()": [
+      "unresolved",
+      null
+    ],
+    "AS3:method:flash/sensors/Geolocation.html#requestPermission()": [
+      "unresolved",
+      null
+    ],
+    "AS3:method:flash/ui/ContextMenu.html#addItemAt()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/ui/ContextMenu.html#containsItem()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/ui/ContextMenu.html#display()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/ui/ContextMenu.html#getItemAt()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/ui/ContextMenu.html#getItemIndex()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/ui/ContextMenu.html#removeAllItems()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/ui/ContextMenu.html#removeItemAt()": [
+      "air",
+      null
+    ],
+    "AS3:method:flash/utils/ByteArray.html#atomicCompareAndSwapIntAt()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:method:flash/utils/ByteArray.html#atomicCompareAndSwapLength()": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:package:flash/crypto/package-detail.html#": [
+      "unresolved",
+      null
+    ],
+    "AS3:package:flash/net/package-detail.html#": [
+      "unresolved",
+      null
+    ],
+    "AS3:package:flash/profiler/package-detail.html#": [
+      "unresolved",
+      null
+    ],
+    "AS3:package:flash/sampler/package-detail.html#": [
+      "unresolved",
+      null
+    ],
+    "AS3:package:flash/system/package-detail.html#": [
+      "unresolved",
+      null
+    ],
+    "AS3:package:flash/utils/package-detail.html#": [
+      "unresolved",
+      null
+    ],
+    "AS3:property:flash/desktop/Clipboard.html#supportsFilePromise": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/display/DisplayObject.html#blendShader": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/display/DisplayObject.html#cacheAsBitmapMatrix": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/display/DisplayObject.html#metaData": [
+      "unresolved",
+      null
+    ],
+    "AS3:property:flash/display/DisplayObject.html#rotationX": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/display/DisplayObject.html#rotationY": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/display/DisplayObject.html#rotationZ": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/display/DisplayObject.html#scaleZ": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/display/DisplayObject.html#z": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/display/InteractiveObject.html#accessibilityImplementation": [
+      "unresolved",
+      null
+    ],
+    "AS3:property:flash/display/InteractiveObject.html#needsSoftKeyboard": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/display/InteractiveObject.html#softKeyboard": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/display/InteractiveObject.html#softKeyboardInputAreaOfInterest": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/display/Stage.html#autoOrients": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/display/Stage.html#constructor": [
+      "unresolved",
+      null
+    ],
+    "AS3:property:flash/display/Stage.html#deviceOrientation": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/display/Stage.html#nativeWindow": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/display/Stage.html#orientation": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/display/Stage.html#softKeyboardRect": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/display/Stage.html#stage3Ds": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/display/Stage.html#stageVideos": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/display/Stage.html#supportedOrientations": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/display/Stage.html#supportsOrientationChange": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/display/Stage.html#vsyncEnabled": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/AVHTTPStatusEvent.html#responseHeaders": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/AVHTTPStatusEvent.html#responseURL": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/DRMDeviceGroupErrorEvent.html#deviceGroup": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/DRMDeviceGroupEvent.html#deviceGroup": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/DRMStatusEvent.html#contentData": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/events/DRMStatusEvent.html#isLocal": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/events/DRMStatusEvent.html#voucher": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/events/FocusEvent.html#direction": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/GestureEvent.html#commandKey": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/HTTPStatusEvent.html#responseHeaders": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/HTTPStatusEvent.html#responseURL": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/KeyboardEvent.html#commandKey": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/KeyboardEvent.html#controlKey": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/MouseEvent.html#clickCount": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/MouseEvent.html#commandKey": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/MouseEvent.html#controlKey": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/TouchEvent.html#isTouchPointCanceled": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/TouchEvent.html#timestamp": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/TouchEvent.html#touchIntent": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/events/TransformGestureEvent.html#velocity": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/geom/Transform.html#matrix3D": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/geom/Transform.html#perspectiveProjection": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/media/AVURLLoader.html#cookieHeader": [
+      "unresolved",
+      null
+    ],
+    "AS3:property:flash/media/AVURLStream.html#cookieHeader": [
+      "unresolved",
+      null
+    ],
+    "AS3:property:flash/media/Camera.html#permissionStatus": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/media/Camera.html#position": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/media/Microphone.html#permissionStatus": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/media/SoundMixer.html#audioPlaybackMode": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/media/SoundMixer.html#useSpeakerphoneForVoice": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/FileReference.html#extension": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/FileReference.html#permissionStatus": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/NetConnection.html#httpIdleTimeout": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/NetStream.html#bufferLength": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:property:flash/net/NetStream.html#bufferTime": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:property:flash/net/NetStream.html#bytesLoaded": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:property:flash/net/NetStream.html#bytesTotal": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:property:flash/net/NetStream.html#checkPolicyFile": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:property:flash/net/NetStream.html#client": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:property:flash/net/NetStream.html#soundTransform": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:property:flash/net/NetStream.html#time": [
+      "player",
+      "audio-video"
+    ],
+    "AS3:property:flash/net/SharedObject.html#preventBackup": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/Socket.html#localAddress": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/Socket.html#localPort": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/Socket.html#remoteAddress": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/Socket.html#remotePort": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/URLRequest.html#authenticate": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/URLRequest.html#cacheResponse": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/URLRequest.html#followRedirects": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/URLRequest.html#idleTimeout": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/URLRequest.html#manageCookies": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/URLRequest.html#useCache": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/URLRequest.html#userAgent": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/net/drm/DRMDeviceGroup.html#name": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/net/drm/DRMManager.html#networkIdleTimeout": [
+      "unresolved",
+      null
+    ],
+    "AS3:property:flash/net/drm/VoucherAccessInfo.html#deviceGroup": [
+      "unresolved",
+      null
+    ],
+    "AS3:property:flash/printing/PrintJob.html#isSupported": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/printing/PrintJob.html#orientation": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/printing/PrintJob.html#pageHeight": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/printing/PrintJob.html#pageWidth": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/printing/PrintJob.html#paperHeight": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/printing/PrintJob.html#paperWidth": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/printing/PrintJobOptions.html#pixelsPerInch": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/printing/PrintJobOptions.html#printMethod": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/sensors/Geolocation.html#permissionStatus": [
+      "unresolved",
+      null
+    ],
+    "AS3:property:flash/system/Capabilities.html#languages": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/system/LoaderContext.html#allowLoadBytesCodeExecution": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/ui/ContextMenu.html#items": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/ui/ContextMenu.html#numItems": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/ui/ContextMenuItem.html#caption": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/ui/ContextMenuItem.html#separatorBefore": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/ui/ContextMenuItem.html#visible": [
+      "player",
+      "services-advanced"
+    ],
+    "AS3:property:flash/ui/Multitouch.html#mapTouchToMouse": [
+      "air",
+      null
+    ],
+    "AS3:property:flash/utils/ByteArray.html#shareable": [
+      "player",
+      "services-advanced"
+    ]
+  },
+  "profileRestrictions": {
+    "AS3:constructor:flash/desktop/Clipboard.html#Clipboard()": {
+      "note": "The constructor is listed for Player but throws there; only generalClipboard is usable. This is a profile restriction, not a missing useful constructor.",
+      "sourceUrl": "https://help.adobe.com/en_US/FlashPlatform/reference/actionscript/3/flash/desktop/Clipboard.html#Clipboard()"
+    }
+  },
+  "limitations": [
+    "Counts cover declarations of all kinds, not only functions, and are not a Flash compatibility percentage.",
+    "Player labels retain version, sandbox and profile limits; the list is not a promise of unrestricted HTML5 behavior.",
+    "AIR-documented without a Player label is a separate documentation bucket, not proof that every unlabeled historical runtime is incompatible.",
+    "Foundation priority is not an implementation status. implemented_subset and partial remain bounded; needs_review is neither implemented nor missing.",
+    "The audit is a dated evidence snapshot. This classification does not run tests or promote current source conformance.",
+    "A stage includes only its declared members: advanced members of shared classes may be deferred to stage 8."
+  ]
+}

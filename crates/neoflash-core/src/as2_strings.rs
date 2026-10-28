@@ -483,6 +483,30 @@ fn unescape_internal(source: &[u16]) -> Result<Vec<u16>, As2StringError> {
     Ok(output.encode_utf16().collect())
 }
 
+/// Resolve SWF6 dynamic property/instance spelling with the pinned Flash case
+/// table. Candidates arrive in host lookup order; no authored name is rewritten.
+pub fn legacy_case_name(name: &str, candidates: &[String]) -> Result<String, As2StringError> {
+    if name.len() > MAX_AS2_STRING_UNITS
+        || candidates.len() > 100_000
+        || candidates.iter().map(String::len).sum::<usize>() > 4_000_000
+    {
+        return Err(error(
+            "legacy property lookup exceeds its bounded name budget",
+        ));
+    }
+    let folded: Vec<_> = name.encode_utf16().map(swf_to_lowercase).collect();
+    Ok(candidates
+        .iter()
+        .find(|candidate| {
+            candidate
+                .encode_utf16()
+                .map(swf_to_lowercase)
+                .eq(folded.iter().copied())
+        })
+        .cloned()
+        .unwrap_or_else(|| name.into()))
+}
+
 // Directly reused from Ruffle wstr/src/utils.rs, with local table visibility.
 pub(crate) fn swf_to_lowercase(c: u16) -> u16 {
     if c < 0x80 {

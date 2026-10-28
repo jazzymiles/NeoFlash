@@ -96,6 +96,7 @@ impl Editor {
         let mut seen = HashSet::new();
         let unique: Vec<_> = targets
             .into_iter()
+            .flat_map(|target| self.grouped_targets(&target))
             .filter(|target| allowed.contains(target) && seen.insert(target.clone()))
             .collect();
         if let Some(primary) = unique.last()
@@ -107,6 +108,52 @@ impl Editor {
             symbol: self.symbol_id().to_owned(),
             targets: unique,
         };
+    }
+    pub(crate) fn grouped_targets(&self, target: &SelectionTarget) -> Vec<SelectionTarget> {
+        let Some(layer) = self
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .find(|layer| layer.id == target.layer)
+        else {
+            return vec![target.clone()];
+        };
+        let Some(group) = layer
+            .properties
+            .groups
+            .iter()
+            .find(|group| group.members.contains(&target.element))
+        else {
+            return vec![target.clone()];
+        };
+        group
+            .members
+            .iter()
+            .map(|element| SelectionTarget {
+                layer: target.layer.clone(),
+                element: element.clone(),
+            })
+            .filter(|target| self.target_editable(target))
+            .collect()
+    }
+
+    pub(crate) fn prune_authoring_groups(&mut self) {
+        for layer in &mut self.symbol_mut().timeline.layers {
+            let existing: HashSet<_> = layer
+                .keyframes
+                .iter()
+                .flat_map(|key| &key.elements)
+                .map(|element| element.id.clone())
+                .collect();
+            for group in &mut layer.properties.groups {
+                group.members.retain(|id| existing.contains(id));
+            }
+            layer
+                .properties
+                .groups
+                .retain(|group| group.members.len() >= 2);
+        }
     }
     pub(crate) fn select_single_id(&mut self, id: Id) {
         self.set_selection(self.target_for_id(&id).into_iter().collect());
@@ -125,9 +172,14 @@ impl Editor {
         }
         let allowed: HashSet<_> = self.editable_targets().into_iter().collect();
         // Active timeline layer remains an insertion target; normalization must not move it.
-        self.selection
+        let mut seen = HashSet::new();
+        self.selection.targets = self
+            .selection
             .targets
-            .retain(|target| allowed.contains(target));
+            .iter()
+            .flat_map(|target| self.grouped_targets(target))
+            .filter(|target| allowed.contains(target) && seen.insert(target.clone()))
+            .collect();
     }
     pub(crate) fn selected_editable(&self) -> bool {
         self.selection.symbol == self.symbol_id()
@@ -265,6 +317,7 @@ impl Editor {
                     .elements
                     .retain(|element| element.id != target.element);
             }
+            editor.prune_authoring_groups();
             editor.clear_selection();
         });
     }
@@ -277,9 +330,14 @@ impl Editor {
         self.playing = false;
         self.transact(|editor| {
             let mut copies = Vec::new();
+            let mut remap = std::collections::HashMap::new();
             for (target, mut element) in targets {
                 editor.ensure_key_for(&target.layer, false);
                 element.id = new_id("object");
+                remap.insert(
+                    (target.layer.clone(), target.element.clone()),
+                    element.id.clone(),
+                );
                 element.name = format!(
                     "{}_copy_{}",
                     element.name,
@@ -298,6 +356,26 @@ impl Editor {
                     .unwrap()
                     .elements
                     .push(element);
+            }
+            for layer in &mut editor.symbol_mut().timeline.layers {
+                let copies = layer
+                    .properties
+                    .groups
+                    .iter()
+                    .filter_map(|group| {
+                        let members = group
+                            .members
+                            .iter()
+                            .filter_map(|id| remap.get(&(layer.id.clone(), id.clone())).cloned())
+                            .collect::<Vec<_>>();
+                        (members.len() >= 2).then(|| AuthoringGroup {
+                            id: new_id("group"),
+                            name: group.name.clone(),
+                            members,
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                layer.properties.groups.extend(copies);
             }
             editor.set_selection(copies);
         });

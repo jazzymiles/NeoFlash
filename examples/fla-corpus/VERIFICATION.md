@@ -13,7 +13,8 @@ synthetic or stripped replacement.
 | Importer suite | 80 Rust tests passed, including the unchanged public FLA, metadata rejection, bounded geometry and eight semantic-preservation tests; importer Clippy with all targets passed. |
 | Imported content | 550 × 400, 24 fps; 2 symbols, 3 layers, 11 keys, 3 authored elements, all 9 AS2 frame scripts retained verbatim. |
 | Source geometry | Local square bounds ±21.25 px, opaque red fill, 1 px opaque black round stroke; dimensions/styles independently checked against the original SWF data. |
-| Corpus | 21/21 cases passed: 7 successful imports and 14 explicit refusals. 70 hashed files, 951,014 bytes, including the new native project. |
+| Corpus | 21/21 cases passed: 9 successful imports and 12 explicit refusals. 72 hashed files, 1,007,040 bytes, including the native projects. |
+| Binary MX fixtures | Public button and static-text sources import directly. Rust checks cover Up/Over/Down/Hit state geometry, invisible Hit artwork, text/font/style/bounds/alpha, source-byte retention and document roundtrip. Both contain zero scripts; no browser trace comparison is claimed. |
 | Real WASM and host | `web/tests/real-fla-frame-labels.test.cjs` imports the original FLA, compiles all nine scripts, compares all 17 trace lines with upstream `output.txt`, checks eight more stable ticks and repeats after reset. Passed. |
 | Actual HTML5 | Current exporter generated `dist/fla-corpus/ruffle-avm1-frame-labels/`; opened in the in-app browser. The original red square and black stroke rendered. |
 | Browser trace | Exactly 17 upstream trace lines on initial playback; Restart produced the same 17 again (34 total). No console errors. Root remained on UI frame 3 / 7. |

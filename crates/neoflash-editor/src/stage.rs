@@ -71,6 +71,11 @@ pub(crate) fn local_bounds(item: &DrawItem, p: &egui::Painter) -> Rect {
             commands,
             stroke_width,
             ..
+        }
+        | ElementKind::PaintedPath {
+            commands,
+            stroke_width,
+            ..
         } => path_bounds(commands)
             .ok()
             .flatten()
@@ -112,12 +117,20 @@ pub(crate) fn hit_item(item: &DrawItem, painter: &egui::Painter, point: Pos2, zo
             fill,
             stroke,
             stroke_width,
+        }
+        | ElementKind::PaintedPath {
+            commands,
+            fill_rule,
+            fill,
+            stroke,
+            stroke_width,
+            ..
         } => hit_test_path(
             commands,
             *fill_rule,
             [local.x as f64, local.y as f64],
-            fill[3] > 0,
-            if stroke[3] > 0 { *stroke_width } else { 0. },
+            fill[3] > 0 || matches!(&item.kind, ElementKind::PaintedPath { fill_gradient: Some(g), .. } if g.stops.iter().any(|s|s.color[3] > 0)),
+            if stroke[3] > 0 || matches!(&item.kind, ElementKind::PaintedPath { stroke_gradient: Some(g), .. } if g.stops.iter().any(|s|s.color[3] > 0)) { *stroke_width } else { 0. },
             FlattenOptions {
                 tolerance: 0.25
                     / (item.transform[0]
@@ -155,7 +168,10 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle) {
         bitmap_texture,
     } = style;
     let screen = |pt: Pos2| origin + affine(item.transform, pt).to_vec2() * zoom;
-    let alpha = item.alpha * opacity;
+    let alpha = opacity;
+    let color = |value: Color, alpha: f64, tint: Option<Color32>| {
+        color(item.color_transform.apply(value), alpha, tint)
+    };
     match &item.kind {
         ElementKind::Rectangle { fill, stroke, .. } | ElementKind::Ellipse { fill, stroke, .. } => {
             crate::stage_primitives::paint_primitive(
@@ -356,7 +372,7 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle) {
                     Pos2::new(1., 1.),
                     Pos2::new(0., 1.),
                 ];
-                let c = color([255, 255, 255, 255], alpha, tint);
+                let c = self::color([255, 255, 255, 255], alpha, tint);
                 for (pos, uv) in points.into_iter().zip(uvs) {
                     mesh.vertices
                         .push(egui::epaint::Vertex { pos, uv, color: c });
@@ -373,12 +389,40 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle) {
             }
         }
         ElementKind::Instance { .. } => {}
+        ElementKind::PaintedPath {
+            commands,
+            fill_rule,
+            fill,
+            stroke,
+            stroke_width,
+            fill_gradient,
+            stroke_gradient,
+        } if !outlines => {
+            crate::vector::paint_gradient_path(
+                p,
+                commands,
+                *fill_rule,
+                *stroke_width,
+                (fill, fill_gradient.as_ref()),
+                (stroke, stroke_gradient.as_ref()),
+                screen,
+                |c| color(c, alpha, tint),
+            );
+        }
         ElementKind::Path {
             commands,
             fill_rule,
             fill,
             stroke,
             stroke_width,
+        }
+        | ElementKind::PaintedPath {
+            commands,
+            fill_rule,
+            fill,
+            stroke,
+            stroke_width,
+            ..
         } => {
             let scale = (item.transform[0].hypot(item.transform[1]))
                 .max(item.transform[2].hypot(item.transform[3]))
@@ -554,11 +598,13 @@ impl Editor {
                     Stroke::new(1.0_f32, palette.stage_border),
                     StrokeKind::Outside,
                 );
+                let extended_tool = self.authoring_tool_stage(ui, &p, origin, page, rect, &scene);
+                if !extended_tool {
                 let zoom = self.zoom;
                 let to_local = |pos: Pos2| (pos - origin) / zoom;
                 let on_path_handle = self.tool == Tool::Subselect
                     && self.selected_sampled().is_some_and(|e| {
-                        if let ElementKind::Path { commands, .. } = &e.kind {
+                        if let ElementKind::Path { commands, .. } | ElementKind::PaintedPath { commands, .. } = &e.kind {
                             let matrix = transform_matrix(e.transform);
                             response.interact_pointer_pos().is_some_and(|pos| {
                                 crate::vector::handles(commands).iter().any(|h| {
@@ -627,6 +673,7 @@ impl Editor {
                     );
                 }
                 self.vector_stage(ui, &content, origin, page, &response);
+                }
                 ui.horizontal(|ui| {
                     ui.add_space(8.);
                     ui.label(egui::RichText::new(&self.status).size(11.));
@@ -672,9 +719,12 @@ impl Editor {
             }
         };
         for draw in &scene.draws {
-            let bitmap_texture =
-                self.bitmap_textures
-                    .texture(painter.ctx(), &self.project, &draw.item.kind);
+            let bitmap_texture = self.bitmap_textures.texture_transformed(
+                painter.ctx(),
+                &self.project,
+                &draw.item.kind,
+                draw.item.color_transform,
+            );
             let result = clips.paint(painter, &draw.clip_ids, |target| {
                 draw_item(
                     target,

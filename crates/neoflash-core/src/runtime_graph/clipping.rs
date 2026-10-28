@@ -385,7 +385,9 @@ fn vector_cost(kind: &ElementKind) -> Result<usize, DisplayError> {
     match kind {
         ElementKind::Rectangle { .. } => Ok(5),
         ElementKind::Ellipse { .. } => Ok(6),
-        ElementKind::Path { commands, .. } => Ok(commands.len()),
+        ElementKind::Path { commands, .. } | ElementKind::PaintedPath { commands, .. } => {
+            Ok(commands.len())
+        }
         ElementKind::Instance { .. } => Ok(0),
         _ => Err(error(
             "Text/bitmap/video mask sources require an unsupported raster/alpha-mask profile",
@@ -447,6 +449,11 @@ fn rectangle(width: f64, height: f64) -> Vec<PathCommand> {
 pub(crate) fn vector_path(kind: &ElementKind) -> Option<(Vec<PathCommand>, FillRule)> {
     let commands = match kind {
         ElementKind::Path {
+            commands,
+            fill_rule,
+            ..
+        }
+        | ElementKind::PaintedPath {
             commands,
             fill_rule,
             ..

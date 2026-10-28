@@ -1,0 +1,227 @@
+{
+  "schemaVersion": 1,
+  "baseCatalogSha256": "a5f6273ab4df2e8729e3c16ea1a1075c07bff6b9880885dc7ff951a415fd5717",
+  "reviews": [
+    {
+      "id": "COORD-AS3-FOUNDATIONS-20261028",
+      "title": "AS3 mathematics and object foundation in an ordinary inventory export",
+      "reason": "Bounded coordinator acceptance of the existing typed-collections ordinary export: numeric Class aliases and bound numeric methods, public source-object properties/reflection and Array insertion/removal. Shared-delivery and affected-replay evidence retains the timing boundaries below; visible inventory commands/Restart are accepted only for the unchanged AS3 feature paths of the captured source snapshot; later unrelated source edits are excluded. Final snapshot captured after the shared run collected all 24 project families (23 passed; typed-collections required a fixture LF/CR expectation correction) and after the numeric fixtures passed following restoration of native toString/valueOf behavior. Affected typed-family replay and final browser observations are recorded separately. This is not a fresh all-family run on the final snapshot. Bounded AS3 foundation scenario accepted. The original shared run collected all 24 project workflows: 23 passed and typed-collections failed only its fixture LF-versus-TextField-CR expectation. The focused typed-collections replay passed after correcting that expectation. Numeric fixture replay passed after preserving previous native toString/valueOf semantics. Browser observations before that numeric change covered initial quantity 13/sqrt 3.61 and two actions 16/4.00 and 17/4.12, with object/reflection flags true. A fresh export after the numeric change passed initial state, first action and Restart back to 13/3.61. No full all-family rerun on the final snapshot or original Flash differential execution is claimed. The review retains the 19:15:55 UTC source fingerprints. Subsequent concurrent AS1/SWF6 case-name routing and button-state additions in shared compiler/containers/runtime/web registration files are excluded. The AS3-owned implementation and test files were confirmed unchanged. Later export/Restart observations do not independently accept those unrelated additions, and currentSourceVerified remains false.",
+      "limitations": "Bounded coordinator evidence only. Ordinary AS3 source classes and plain records, with explicit unsupported reflection diagnostics; no full native/AS2/bytecode/ApplicationDomain/prototype/AVM2 conformance. Existing partial decisions stay partial. Original Flash differential execution is not claimed. Browser observation and automated real-WASM execution must be recorded separately. The recorded HEAD does not by itself identify the working-tree bytes. The review retains the 19:15:55 UTC source fingerprints. Subsequent concurrent AS1/SWF6 case-name routing and button-state additions in shared compiler/containers/runtime/web registration files are excluded. The AS3-owned implementation and test files were confirmed unchanged. Later export/Restart observations do not independently accept those unrelated additions, and currentSourceVerified remains false.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as3_collections.rs",
+          "sha256": "f13d5d379ad55c91cf172dde5a8d32f46cb69d50ebdfd9c394bf3ccbb3b217d8"
+        },
+        {
+          "path": "crates/neoflash-core/src/as3_object.rs",
+          "sha256": "8b67f4691f372a46774efc6a50fe85e6999b5eda11016a075b30df496e056187"
+        },
+        {
+          "path": "crates/neoflash-core/src/lib.rs",
+          "sha256": "232d1e4dabab3ec8afaaa7e8b0e7dbed5ecaf4b1e474b12ce05c559675520820"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "43c9aed2566785ab37d20ea1d315d665cf5f38625de01b365f9aebd4d21a9681"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/collections.js",
+          "sha256": "874238ea808aa1b9f067583d99f134ec935e9da4a217bf886625e797ef90bb48"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/containers.js",
+          "sha256": "5859095dff0b7f68f923151bc2a0094b8dbf8431c21722f30962f27acb7e2b6a"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/intrinsics.js",
+          "sha256": "d07ccbfb73c23c1a7d99c6decd30c9373d24310dfcc04b27a2fcb29ce8efe9f6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "97cac3fa8b262362ed526d46d60399d138160e1d4676a799678f4abf9dadcd8d"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "987f30c1807938a0ceb8a219e00462edc1856af0ad8402787cbea605a53153f8"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "2a8e4a1b1c9f601ba26579a77246bab53bb5b2f64c963661794bcea92cb825e5"
+        },
+        {
+          "path": "crates/neoflash-script/tests/intrinsic-fixtures.mjs",
+          "sha256": "b6fee9939390c050d4f81806790b847de3327a21925382400ac59a9aa01dd4b1"
+        },
+        {
+          "path": "crates/neoflash-script/tests/intrinsics.rs",
+          "sha256": "2d35acd7f63a4e1060d40ae6ebb0fbd726dc3520974422095754a04ba2de2382"
+        },
+        {
+          "path": "crates/neoflash-script/tests/rust-runtime-host.mjs",
+          "sha256": "07a0cd0dbfc6657bb68aaef58fbd557e5f4e788f2d0a5666ed96d9a36055e2cb"
+        },
+        {
+          "path": "crates/neoflash-script/tests/typed-collections.mjs",
+          "sha256": "7c5bd23ce53eca32c7648bd86d39aa7ac1750cbc6d5190edceefaaa7d9f8b234"
+        },
+        {
+          "path": "crates/neoflash-web/src/as3_collections.rs",
+          "sha256": "65b06103d06050fe9e81aa35d33f5193f4c30895d0ab6444f2d0a02d7e42eabe"
+        },
+        {
+          "path": "crates/neoflash-web/src/as3_object.rs",
+          "sha256": "5d3094491664ccf5ccececac5d2af36216b3baadf0e2db4157f804f9c2f5d4ed"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "42dc5ce645716bcec7cd7f4167b1b1ff0c1a03ed4161538c6f316017c0679c21"
+        },
+        {
+          "path": "examples/as-intrinsics.nflash",
+          "sha256": "3e2e58e8467061140ced24ea119b235e616f7e0215b5560c62d9afcb3544cc35"
+        },
+        {
+          "path": "examples/typed-collections.nflash",
+          "sha256": "8ca3b615b3a938bff7bb180b32b46ac7e6004616d7b60d9a12da58a301ccccd1"
+        },
+        {
+          "path": "web/math.js",
+          "sha256": "dd27ad57f1529f11135fa61967e32585252a72d07868cdab3704ff5829710dc2"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "c994bfec204edaf02d34478ea5db97d6aacc688a64ccddb05d5eca91a4066d29"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS3-FOUNDATIONS-20261028",
+        "recordedHead": "f014b7bdb82c8920a2464577e7e19a0bf9395bcc",
+        "sourceCapturedAt": "2026-10-28T19:15:55.872169+00:00",
+        "verifiedAt": "2026-10-28T19:18:44Z",
+        "sourceManifestSha256": "d36cc7f60fa5a63fd92dc741711c82290ca6070d4c2d03fc9b83769a03ce36c5",
+        "browser": "Codex in-app browser",
+        "engine": "actual exported Rust WASM + browser Canvas",
+        "originalFlashComparison": "documented_only",
+        "decision": "Bounded AS3 foundation scenario accepted. The original shared run collected all 24 project workflows: 23 passed and typed-collections failed only its fixture LF-versus-TextField-CR expectation. The focused typed-collections replay passed after correcting that expectation. Numeric fixture replay passed after preserving previous native toString/valueOf semantics. Browser observations before that numeric change covered initial quantity 13/sqrt 3.61 and two actions 16/4.00 and 17/4.12, with object/reflection flags true. A fresh export after the numeric change passed initial state, first action and Restart back to 13/3.61. No full all-family rerun on the final snapshot or original Flash differential execution is claimed. The review retains the 19:15:55 UTC source fingerprints. Subsequent concurrent AS1/SWF6 case-name routing and button-state additions in shared compiler/containers/runtime/web registration files are excluded. The AS3-owned implementation and test files were confirmed unchanged. Later export/Restart observations do not independently accept those unrelated additions, and currentSourceVerified remains false.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:class:int.html#",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "First-class int Class value assigned to a local Class-typed variable and used for numeric construction; exact MIN_VALUE/MAX_VALUE reads. No complete class/prototype/AVM2 type identity claim."
+        },
+        {
+          "catalogId": "AS3:class:uint.html#",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "First-class uint Class value assigned to a local Class-typed variable and used for wrapping construction; exact MIN_VALUE/MAX_VALUE reads. No complete class/prototype/AVM2 type identity claim."
+        },
+        {
+          "catalogId": "AS3:constructor:int.html#int()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Ordinary exported AS3 project uses new through an int Class alias on the finite numeric string 42.9 and observes 42. Other conversion and initialization paths retain their existing limits."
+        },
+        {
+          "catalogId": "AS3:constructor:uint.html#uint()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Ordinary exported AS3 project uses new through a uint Class alias on -1 and observes 4294967295. General coercion and all boundary/error paths are not inferred from this representative check."
+        },
+        {
+          "catalogId": "AS3:constant:int.html#MIN_VALUE",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "The AS3 int class exposes MIN_VALUE as -2147483648 in the combined ordinary-export inventory scenario."
+        },
+        {
+          "catalogId": "AS3:constant:int.html#MAX_VALUE",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "The AS3 int class exposes MAX_VALUE as 2147483647 in the combined ordinary-export inventory scenario."
+        },
+        {
+          "catalogId": "AS3:constant:uint.html#MIN_VALUE",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "The AS3 uint class exposes MIN_VALUE as 0 in the combined ordinary-export inventory scenario."
+        },
+        {
+          "catalogId": "AS3:constant:uint.html#MAX_VALUE",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "The AS3 uint class exposes MAX_VALUE as 4294967295 in the combined ordinary-export inventory scenario."
+        },
+        {
+          "catalogId": "AS3:method:Math.html#sqrt()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Existing shared Rust-backed sqrt is extracted as a Function and called on changing inventory totals 13, 16 and 17; this refreshes bounded integration evidence rather than claiming a new complete Math implementation."
+        },
+        {
+          "catalogId": "AS3:method:Number.html#toFixed()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Number.toFixed extracted from sqrt(total) retains its numeric receiver for direct calls, call with another receiver and apply(null,[2]); observed results 3.61, 4.00 and 4.12. This does not certify all rounding/exponent/range/coercion cases."
+        },
+        {
+          "catalogId": "AS3:method:Object.html#hasOwnProperty()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Plain record hidden dynamic property remains owned and readable; an ordinary AS3 source-class public quantity slot is reported as own. Native display/AS2/hidden trait and general AVM2 object conformance are outside this scenario."
+        },
+        {
+          "catalogId": "AS3:method:Object.html#propertyIsEnumerable()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Plain record dynamic metadata marked hidden reports false; ordinary AS3 source-class fixed public quantity slot also remains nonenumerable. The visible record properties remain the for-in keys count and quantity."
+        },
+        {
+          "catalogId": "AS3:method:Object.html#setPropertyIsEnumerable()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Hiding an existing own configurable dynamic metadata property removes it from for-in without deleting ownership, membership or its readable value. Fixed/native/AS2 traits are not made dynamic."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedClassName()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "An ordinary source-class app.Item instance reports app::Item during the published inventory workflow. This does not infer complete primitive/native/bytecode type identity."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedSuperclassName()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "An ordinary source-class app.Item instance rooted in Object reports Object during the published inventory workflow; arbitrary native-base hierarchies are outside this evidence."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getDefinitionByName()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Public registered app.Item source class resolves by both app.Item and app::Item and retains equality with its class value. Arbitrary loaded bytecode, ApplicationDomain and hidden definitions are not supported by this scope."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#describeType()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Ordinary source-class app.Item instance produces XML with public quantity:int variable and stockLabel accessor metadata without invoking that getter. Native-base, interface and unsupported rest-parameter descriptions retain explicit diagnostics; no complete AVM2 reflection claim."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#insertAt()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "An ordinary AS3 Array inserts the newest batch at index 0 in place, preserving the recent-history array across actions. This Player 19 API is not attributed to earlier Player versions."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#removeAt()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "An ordinary AS3 Array removes and returns its last entry using index -1, preserving the newest two batches across repeated actions and reset. General sparse/large-index/coercion cases need their own existing evidence."
+        }
+      ]
+    }
+  ]
+}

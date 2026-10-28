@@ -1,8 +1,8 @@
 {
-  "format_version": 4,
-  "name": "Classic authoring workspace",
+  "format_version": 5,
+  "name": "Classic authoring workspace and symbols",
   "width": 800,
-  "height": 480,
+  "height": 700,
   "fps": 24,
   "background": [
     20,
@@ -14,7 +14,8 @@
   "library_folders": [
     "Graphics",
     "Graphics/Badges",
-    "Reference"
+    "Reference",
+    "Controls"
   ],
   "symbols": [
     {
@@ -22,7 +23,7 @@
       "name": "Scene 1",
       "kind": "movie_clip",
       "timeline": {
-        "frame_count": 48,
+        "frame_count": 240,
         "layers": [
           {
             "id": "labels",
@@ -96,7 +97,7 @@
                     },
                     "kind": {
                       "type": "text",
-                      "text": "Library: Graphics / Badges \u00b7 Linkage: OrbitBadge",
+                      "text": "Library: Graphics / Badges · Linkage: OrbitBadge",
                       "font_family": "Arial",
                       "font_size": 15,
                       "color": [
@@ -375,6 +376,253 @@
                 "label": ""
               }
             ]
+          },
+          {
+            "id": "symbol-demo-layer",
+            "name": "Button and Graphic modes",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "symbol-demo-title",
+                    "name": "symbol-demo-title",
+                    "transform": {
+                      "x": 40,
+                      "y": 466,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Button states and synchronized Graphic playback",
+                      "font_family": "Arial",
+                      "font_size": 22,
+                      "color": [
+                        225,
+                        233,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "state-button-instance",
+                    "name": "stateButton",
+                    "transform": {
+                      "x": 60,
+                      "y": 512,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "state-button",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "trace(\"AS2 stateButton click\", this._name);"
+                        }
+                      },
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "import flash.display.SimpleButton; trace(\"AS3 SimpleButton click\", this is SimpleButton);"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Button states demo",
+                      "description": "Hover and press to switch Up, Over and Down. The invisible Hit region extends beyond the colored face.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "graphic-loop-instance",
+                    "name": "loopGraphic",
+                    "transform": {
+                      "x": 350,
+                      "y": 510,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "color-graphic",
+                      "playback": {
+                        "loop_from": 4
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "graphic-once-instance",
+                    "name": "onceGraphic",
+                    "transform": {
+                      "x": 565,
+                      "y": 510,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "color-graphic",
+                      "playback": {
+                        "play_once_from": 4
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-caption",
+                    "name": "button-caption",
+                    "transform": {
+                      "x": 60,
+                      "y": 590,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Hover / press / click",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        225,
+                        233,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "loop-caption",
+                    "name": "loop-caption",
+                    "transform": {
+                      "x": 335,
+                      "y": 590,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Loop from frame 5",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        225,
+                        233,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "once-caption",
+                    "name": "once-caption",
+                    "transform": {
+                      "x": 545,
+                      "y": 590,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Play once from frame 5",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        225,
+                        233,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "symbol-demo-note",
+                    "name": "symbol-demo-note",
+                    "transform": {
+                      "x": 40,
+                      "y": 632,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Hit: invisible 180 × 90 area. Click traces AS2 and AS3 SimpleButton in Output.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        225,
+                        233,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "graphic-demo-note",
+                    "name": "graphic-demo-note",
+                    "transform": {
+                      "x": 40,
+                      "y": 658,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Both start yellow; Loop cycles, Play once holds green. The scene restarts every 10 seconds.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        225,
+                        233,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
           }
         ],
         "scripts": [
@@ -382,7 +630,7 @@
             "frame": 0,
             "script": {
               "language": "java_script",
-              "source": "trace(\"Vector layer mask active; guide excluded from HTML5\");\nstop();"
+              "source": "trace(\"Vector layer mask active; guide excluded from HTML5; Graphic modes follow the parent timeline\");"
             }
           }
         ]
@@ -471,6 +719,463 @@
                 ],
                 "tween": null,
                 "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "state-button",
+      "name": "Four-state button",
+      "folder": "Controls",
+      "kind": "button",
+      "linkage_id": "StatesButton",
+      "timeline": {
+        "frame_count": 4,
+        "layers": [
+          {
+            "id": "state-button-art",
+            "name": "Button states",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face-Up",
+                    "name": "button-face-Up",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140,
+                      "height": 60,
+                      "fill": [
+                        55,
+                        134,
+                        211,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label-Up",
+                    "name": "button-label-Up",
+                    "transform": {
+                      "x": 18,
+                      "y": 20,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Up",
+                      "font_family": "Arial",
+                      "font_size": 20,
+                      "color": [
+                        225,
+                        233,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "Up"
+              },
+              {
+                "frame": 1,
+                "elements": [
+                  {
+                    "id": "button-face-Over",
+                    "name": "button-face-Over",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140,
+                      "height": 60,
+                      "fill": [
+                        207,
+                        153,
+                        34,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label-Over",
+                    "name": "button-label-Over",
+                    "transform": {
+                      "x": 18,
+                      "y": 20,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Over",
+                      "font_family": "Arial",
+                      "font_size": 20,
+                      "color": [
+                        225,
+                        233,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "Over"
+              },
+              {
+                "frame": 2,
+                "elements": [
+                  {
+                    "id": "button-face-Down",
+                    "name": "button-face-Down",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140,
+                      "height": 60,
+                      "fill": [
+                        213,
+                        73,
+                        88,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label-Down",
+                    "name": "button-label-Down",
+                    "transform": {
+                      "x": 18,
+                      "y": 20,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Down",
+                      "font_family": "Arial",
+                      "font_size": 20,
+                      "color": [
+                        225,
+                        233,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "Down"
+              },
+              {
+                "frame": 3,
+                "elements": [
+                  {
+                    "id": "button-hidden-hit",
+                    "name": "button-hidden-hit",
+                    "transform": {
+                      "x": -20,
+                      "y": -15,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 180,
+                      "height": 90,
+                      "fill": [
+                        235,
+                        50,
+                        215,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "Hit"
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "color-graphic",
+      "name": "Graphic color cycle",
+      "folder": "Graphics",
+      "kind": "graphic",
+      "timeline": {
+        "frame_count": 12,
+        "layers": [
+          {
+            "id": "color-graphic-art",
+            "name": "Graphic colors",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "graphic-face",
+                    "name": "graphic-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140,
+                      "height": 60,
+                      "fill": [
+                        211,
+                        75,
+                        86,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "graphic-state",
+                    "name": "graphic-state",
+                    "transform": {
+                      "x": 14,
+                      "y": 20,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Red",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        225,
+                        233,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "Red"
+              },
+              {
+                "frame": 4,
+                "elements": [
+                  {
+                    "id": "graphic-face",
+                    "name": "graphic-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140,
+                      "height": 60,
+                      "fill": [
+                        197,
+                        146,
+                        24,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "graphic-state",
+                    "name": "graphic-state",
+                    "transform": {
+                      "x": 14,
+                      "y": 20,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Yellow",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        225,
+                        233,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "Yellow"
+              },
+              {
+                "frame": 8,
+                "elements": [
+                  {
+                    "id": "graphic-face",
+                    "name": "graphic-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140,
+                      "height": 60,
+                      "fill": [
+                        35,
+                        153,
+                        114,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "graphic-state",
+                    "name": "graphic-state",
+                    "transform": {
+                      "x": 14,
+                      "y": 20,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Green",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        225,
+                        233,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "Green"
               }
             ]
           }

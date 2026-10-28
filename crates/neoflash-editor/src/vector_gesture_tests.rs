@@ -223,6 +223,151 @@ fn pencil_batched_and_separate_outside_release_produce_the_same_path() {
         assert_eq!(editor.project, after);
     }
     assert_eq!(results[0], results[1]);
+
+    // The added drawing tools share the same release/undo contract. Color tools
+    // preserve alpha and navigation never edits authored content.
+    for tool in [Tool::Line, Tool::Brush] {
+        let (mut editor, ctx, page) = rectangle_stage();
+        editor.set_tool(tool);
+        editor.fill = [60, 80, 100, 128];
+        let before = editor.project.clone();
+        let start = page.min + egui::vec2(100., 100.);
+        let end = start + egui::vec2(90., 35.);
+        stage_input_frame(
+            &mut editor,
+            &ctx,
+            0.1,
+            vec![
+                egui::Event::PointerMoved(start),
+                primary_button(start, true),
+                egui::Event::PointerMoved(end),
+                primary_button(end, false),
+            ],
+        );
+        let ElementKind::Path {
+            fill,
+            stroke,
+            commands,
+            ..
+        } = &editor.selected_element().unwrap().kind
+        else {
+            panic!("expected authored vector path");
+        };
+        if tool == Tool::Brush {
+            assert_eq!(*fill, editor.fill);
+            assert!(
+                commands
+                    .iter()
+                    .any(|command| matches!(command, PathCommand::Close))
+            );
+        } else {
+            assert_eq!(*stroke, editor.stroke);
+            assert_eq!(fill[3], 0);
+        }
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
+        assert!(!editor.history.can_undo());
+    }
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 80.,
+            height: 60.,
+            fill: [10, 20, 30, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 2.,
+        },
+        100.,
+        100.,
+    );
+    editor.history = neoflash_core::History::default();
+    let original = editor.project.clone();
+    let point = page.min + egui::vec2(140., 130.);
+    editor.fill = [90, 50, 110, 77];
+    editor.set_tool(Tool::Bucket);
+    pen_click(&mut editor, &ctx, 0.2, point, point);
+    assert!(matches!(
+        editor.selected_element().unwrap().kind,
+        ElementKind::Rectangle {
+            fill: [90, 50, 110, 77],
+            ..
+        }
+    ));
+    editor.set_tool(Tool::Eyedropper);
+    editor.fill = [0; 4];
+    pen_click(&mut editor, &ctx, 0.3, point, point);
+    assert_eq!(editor.fill, [90, 50, 110, 77]);
+    assert!(editor.tool == Tool::Bucket);
+    editor.undo();
+    assert_eq!(editor.project, original);
+    assert!(!editor.history.can_undo());
+    editor.set_tool(Tool::Eraser);
+    pen_click(&mut editor, &ctx, 0.4, point, point);
+    assert!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .is_empty()
+    );
+    editor.undo();
+    assert_eq!(editor.project, original);
+    editor.set_tool(Tool::Hand);
+    pen_click(&mut editor, &ctx, 0.5, point, point + egui::vec2(30., 20.));
+    assert_eq!(editor.pan, egui::vec2(30., 20.));
+    assert_eq!(editor.project, original);
+    assert!(!editor.history.can_undo());
+
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.project.format_version = 5;
+    editor.add_element(
+        ElementKind::PaintedPath {
+            commands: vec![
+                PathCommand::MoveTo { x: 0., y: 0. },
+                PathCommand::LineTo { x: 100., y: 0. },
+                PathCommand::LineTo { x: 100., y: 80. },
+                PathCommand::LineTo { x: 0., y: 80. },
+                PathCommand::Close,
+            ],
+            fill_rule: Default::default(),
+            fill: [0; 4],
+            stroke: [0; 4],
+            stroke_width: 0.,
+            stroke_gradient: None,
+            fill_gradient: Some(neoflash_core::GradientPaint {
+                kind: neoflash_core::GradientKind::Linear,
+                matrix: [0.06, 0., 0., 0.04, 50., 40.],
+                stops: vec![
+                    neoflash_core::GradientStop {
+                        ratio: 0,
+                        color: [255, 0, 0, 128],
+                    },
+                    neoflash_core::GradientStop {
+                        ratio: 255,
+                        color: [0, 0, 255, 255],
+                    },
+                ],
+                focal_point_ratio: 0.,
+            }),
+        },
+        100.,
+        100.,
+    );
+    editor.history = neoflash_core::History::default();
+    let original = editor.project.clone();
+    editor.set_tool(Tool::Gradient);
+    let center = page.min + egui::vec2(150., 140.);
+    pen_click(&mut editor, &ctx, 0.1, center, center + egui::vec2(20., 0.));
+    let ElementKind::PaintedPath {
+        fill_gradient: Some(fill),
+        ..
+    } = &editor.selected_element().unwrap().kind
+    else {
+        panic!("gradient retained");
+    };
+    assert_eq!(fill.matrix[4], 70.);
+    editor.undo();
+    assert_eq!(editor.project, original);
+    assert!(!editor.history.can_undo());
 }
 
 #[test]

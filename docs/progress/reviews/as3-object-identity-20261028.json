@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "baseCatalogSha256": "92fb1a40288cfde74c123a34591c1a00a0d53e8273ac2e2dfa5acfb020c95d7f",
+  "reviews": [
+    {
+      "id": "COORD-AS3-OBJECT-IDENTITY-20261028",
+      "title": "Ordinary AS3 source-class identity and default Object labels",
+      "reason": "Bounded coordinator acceptance of the second ordinary source-class identity extension in the existing typed-collections export. The 19:27:45 UTC source snapshot was unchanged when checked after the shared suite. Its recorded source hashes are retained; subsequent unrelated Button registrations in the shared project compiler are excluded. The earlier mathematics/property/reflection review remains a separate historical record.",
+      "limitations": "Only ordinary public AS3 source classes rooted in Object and plain records are covered. The supported Class-valued construction path does not establish the Class metaclass or complete AVM2 type objects. Native-derived/AS2 object paths, arbitrary prototype replacement/mutation, constructor-function models and Object() construction are outside this delta. Default locale labeling is not locale-sensitive numeric/date formatting. No original Flash differential or broad current-tree conformance claim. Existing concurrent AS1/Button shared-tree additions are excluded from acceptance. New describeType/getQualifiedClassName behavior for prototype objects is not promoted without a corresponding scenario. Explicit toString/toLocaleString labeling does not establish Flash-equivalent implicit String or concatenation coercion. Native-derived/AS2 prototype behavior is not newly accepted. This review does not claim the pending final Clippy run.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as3_collections.rs",
+          "sha256": "f13d5d379ad55c91cf172dde5a8d32f46cb69d50ebdfd9c394bf3ccbb3b217d8"
+        },
+        {
+          "path": "crates/neoflash-core/src/as3_object.rs",
+          "sha256": "dc509d88a7b9e9550a392c74f48483b6a4b8e83cc023d6073ca099a0b3bac2b9"
+        },
+        {
+          "path": "crates/neoflash-core/src/lib.rs",
+          "sha256": "232d1e4dabab3ec8afaaa7e8b0e7dbed5ecaf4b1e474b12ce05c559675520820"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "6ad9972c6b6e94b4baf8950d35163767768a659795887b3f0c568066935f3e5f"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/collections.js",
+          "sha256": "874238ea808aa1b9f067583d99f134ec935e9da4a217bf886625e797ef90bb48"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/containers.js",
+          "sha256": "c189f2ac133c0618983c961a7135eec58208a71ef49952dd62903fc49e5ebf9a"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/intrinsics.js",
+          "sha256": "d07ccbfb73c23c1a7d99c6decd30c9373d24310dfcc04b27a2fcb29ce8efe9f6"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "7c585fa4721a8e94668402dd21b58f05fe72a34fc413b8181396679719d8968f"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "987f30c1807938a0ceb8a219e00462edc1856af0ad8402787cbea605a53153f8"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "2a8e4a1b1c9f601ba26579a77246bab53bb5b2f64c963661794bcea92cb825e5"
+        },
+        {
+          "path": "crates/neoflash-script/tests/intrinsic-fixtures.mjs",
+          "sha256": "b6fee9939390c050d4f81806790b847de3327a21925382400ac59a9aa01dd4b1"
+        },
+        {
+          "path": "crates/neoflash-script/tests/intrinsics.rs",
+          "sha256": "2d35acd7f63a4e1060d40ae6ebb0fbd726dc3520974422095754a04ba2de2382"
+        },
+        {
+          "path": "crates/neoflash-script/tests/project-execute.mjs",
+          "sha256": "581958c28871f9e4be72ba9de22a77efb2031f6ab9cd0a19466557aeba0e3d34"
+        },
+        {
+          "path": "crates/neoflash-script/tests/rust-runtime-host.mjs",
+          "sha256": "07a0cd0dbfc6657bb68aaef58fbd557e5f4e788f2d0a5666ed96d9a36055e2cb"
+        },
+        {
+          "path": "crates/neoflash-script/tests/typed-collections.mjs",
+          "sha256": "25b7e7e8e4f938da75a01317b5cab195166399018bb00904d3625a546af5d774"
+        },
+        {
+          "path": "crates/neoflash-web/src/as3_collections.rs",
+          "sha256": "65b06103d06050fe9e81aa35d33f5193f4c30895d0ab6444f2d0a02d7e42eabe"
+        },
+        {
+          "path": "crates/neoflash-web/src/as3_object.rs",
+          "sha256": "5d3094491664ccf5ccececac5d2af36216b3baadf0e2db4157f804f9c2f5d4ed"
+        },
+        {
+          "path": "crates/neoflash-web/src/lib.rs",
+          "sha256": "dd84919778a00ab6c5946f926a809208024456c2c1d93fc8ff19775addb53d8e"
+        },
+        {
+          "path": "examples/as-intrinsics.nflash",
+          "sha256": "3e2e58e8467061140ced24ea119b235e616f7e0215b5560c62d9afcb3544cc35"
+        },
+        {
+          "path": "examples/typed-collections.nflash",
+          "sha256": "4287e931bf1afbcd420fca99e7c8961ff83407b3359b12407e8ab1747e7725a3"
+        },
+        {
+          "path": "web/math.js",
+          "sha256": "dd27ad57f1529f11135fa61967e32585252a72d07868cdab3704ff5829710dc2"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "9666a8f0dd468e97fdce54b6de5a6aca5e00a363ed7cf6edd3d655c740276f52"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS3-OBJECT-IDENTITY-20261028",
+        "recordedHead": "f014b7bdb82c8920a2464577e7e19a0bf9395bcc",
+        "sourceCapturedAt": "2026-10-28T19:27:45.727068+00:00",
+        "verifiedAt": "2026-10-28T19:32:02Z",
+        "sourceManifestSha256": "642e075beb1241b70fa0397f70c291756ff4774ad413d502b2de4de34ee53bc5",
+        "browser": "Codex in-app browser",
+        "engine": "actual exported Rust WASM + browser Canvas",
+        "originalFlashComparison": "documented_only",
+        "decision": "Actual build passed; Rust 140 tests, 91 emitted-script fixtures, shared project workflows 25/25 and 63 web tests passed. The additional shared AS1 workflow is a regression result only, not independent AS1/Button feature acceptance. The ordinary HTML5 export showed identity/math/object/reflection true initially, after two actions (quantity 17, sqrt 4.12, recent Batch 2/Batch 1), and after Restart (quantity 13, sqrt 3.61, Ready/Empty). No runtime errors; existing Arial-not-embedded warning only. No original Flash differential or complete current-tree conformance is claimed. Subsequent unrelated Button compiler edits are excluded from the captured snapshot evidence.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:class:Class.html#",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Bounded first-class public source-class value: getDefinitionByName(app.Item) assigned to Class and invoked with new constructs an Item, retaining class/constructor/prototype identity. This is ordinary source-class value behavior, not general Class metaclass construction, loaded bytecode or native class conformance."
+        },
+        {
+          "catalogId": "AS3:class:Object.html#",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Ordinary AS3 source classes rooted in Object have an instance-to-class-prototype-to-source-base-prototype chain and bounded inherited Object identity/default-label operations. Plain records preserve authored string-method overrides. Object construction, arbitrary prototype mutation, native-derived and AS2 object models are not accepted by this delta."
+        },
+        {
+          "catalogId": "AS3:property:Object.html#constructor",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Item constructed through a public Class alias inherits constructor===Item. DerivedRecord.prototype owns a nonenumerable constructor===DerivedRecord. Only this ordinary source-class identity path is accepted; prototype writes, constructor functions and native/AS2 constructor semantics are outside the scenario."
+        },
+        {
+          "catalogId": "AS3:property:Object.html#prototype",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Ordinary source-class prototype identities are stable along Item and DerivedRecord/BaseRecord chains. The scenario observes prototype lookup, own nonenumerable constructor, direct/base ancestry and unrelated-class negatives. No prototype replacement or complete dynamic prototype mutation contract is claimed."
+        },
+        {
+          "catalogId": "AS3:method:Object.html#isPrototypeOf()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Observed on ordinary source-class prototypes: own Item and DerivedRecord prototypes and the BaseRecord ancestor recognize their instances; unrelated Item/BaseRecord pairs return false. No full native/AS2/proxy/custom-prototype conformance is inferred."
+        },
+        {
+          "catalogId": "AS3:method:Object.html#toLocaleString()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Default method on ordinary source Item returns [object Item]; default method on a plain record returns [object Object] without invoking its authored custom toString. An explicit authored toLocaleString override remains callable. This is default Object labeling, not locale-sensitive formatting of arbitrary native objects."
+        },
+        {
+          "catalogId": "AS3:method:Object.html#toString()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Shared Rust label formatting returns short-name [object Item] and [object DerivedRecord] for ordinary source instances and [class Item] for the class value. A plain-record authored toString returns its custom label and runs once. Numeric/native-derived/AS2 stringification and complete coercion remain separate."
+        },
+        {
+          "catalogId": "AS3:method:Object.html#valueOf()",
+          "status": "partial",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow",
+          "scopeNote": "Default Object valueOf returns the same ordinary source Item instance constructed through a Class alias. Primitive unboxing, custom native objects and full AVM2 coercion are not accepted by this bounded identity observation."
+        }
+      ]
+    }
+  ]
+}

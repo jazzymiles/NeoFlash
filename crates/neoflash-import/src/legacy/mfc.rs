@@ -1,6 +1,8 @@
 //! Sequential bounded MFC structure reader. Unknown data stops parsing;
 //! neither byte-pattern scans nor guessed record boundaries are used.
 use super::{BinaryStreamInspection, RecordCounts, geometry, timeline::*};
+mod instances;
+mod text;
 
 const MAX_RECORDS: usize = 50_000;
 const MAX_DEPTH: usize = 32;
@@ -127,6 +129,26 @@ impl<'a> Reader<'a> {
     }
     fn dword(&mut self) -> Result<u32> {
         Ok(u32::from_le_bytes(self.bytes(4)?.try_into().unwrap()))
+    }
+    fn float(&mut self) -> Result<f32> {
+        let value = f32::from_le_bytes(self.bytes(4)?.try_into().unwrap());
+        if !value.is_finite() {
+            return stop(
+                "fla_nonfinite_number",
+                "Nonfinite number in an authored record.",
+            );
+        }
+        Ok(value)
+    }
+    fn double(&mut self) -> Result<f64> {
+        let value = f64::from_le_bytes(self.bytes(8)?.try_into().unwrap());
+        if !value.is_finite() {
+            return stop(
+                "fla_nonfinite_number",
+                "Nonfinite number in an authored record.",
+            );
+        }
+        Ok(value)
     }
     fn signed_words<const N: usize>(&mut self) -> Result<[i32; N]> {
         let mut out = [0; N];
@@ -346,10 +368,15 @@ impl<'a> Reader<'a> {
                 }
                 Some(TimelineReference::Object { .. }) if !is_class => {
                     self.pointer(source, relation, Some(tag), true, start)?;
-                    if matches!(relation, TimelineRelation::Child | TimelineRelation::Root) {
+                    // Layers may first be serialized through a mask/folder link,
+                    // then referenced in the page's ordered child list. Reuse the
+                    // completed object identity instead of reparsing or cloning it.
+                    if matches!(relation, TimelineRelation::Child | TimelineRelation::Root)
+                        && !self.objects[self.object_index(tag)].complete
+                    {
                         return stop(
                             "fla_mfc_object_reference_unsupported",
-                            "Shared or cyclic child object references require graph decoding.",
+                            "A child pointer targets an active, incomplete object; cyclic ownership is unsupported.",
                         );
                     }
                     return Ok(Some(tag));
@@ -411,7 +438,15 @@ impl<'a> Reader<'a> {
             }
             if !matches!(
                 class,
-                Class::Page | Class::Layer | Class::Frame | Class::Shape | Class::Bitmap
+                Class::Page
+                    | Class::Layer
+                    | Class::Frame
+                    | Class::Shape
+                    | Class::Bitmap
+                    | Class::Symbol
+                    | Class::Sprite
+                    | Class::Button
+                    | Class::Text
             ) {
                 return stop(
                     "fla_mfc_class_unsupported",
@@ -434,6 +469,8 @@ impl<'a> Reader<'a> {
                     self.frame(id, depth)?;
                 }
                 Class::Bitmap => self.bitmap(id)?,
+                Class::Symbol | Class::Sprite | Class::Button => self.instance(id, class)?,
+                Class::Text => self.text(id)?,
                 _ => unreachable!(),
             }
             Ok(())
@@ -455,7 +492,7 @@ impl<'a> Reader<'a> {
     fn base(&mut self, id: u32, depth: usize) -> Result<()> {
         let mut base = TimelineBase::default();
         let parsed = (|| {
-            let rev = self.revision(5, "CPicObj")?;
+            let rev = self.revision(6, "CPicObj")?;
             base.revision = Some(rev);
             base.flags = Some(self.byte()?);
             while self
@@ -471,6 +508,26 @@ impl<'a> Reader<'a> {
             }
             if rev >= 4 {
                 base.cache_as_bitmap = Some(self.byte()?);
+            }
+            if rev >= 6 {
+                let start = self.pos;
+                let mut terminated = false;
+                for _ in 0..37 {
+                    if self.byte()? == 0 {
+                        terminated = true;
+                        break;
+                    }
+                }
+                if !terminated {
+                    return stop(
+                        "fla_identifier_limit",
+                        "Object identifier exceeds 36 bytes.",
+                    );
+                }
+                base.identifier = Some(TimelineByteSpan {
+                    start,
+                    end: self.pos,
+                });
             }
             Ok(())
         })();
@@ -506,7 +563,7 @@ impl<'a> Reader<'a> {
     fn layer(&mut self, id: u32, depth: usize) -> Result<()> {
         let mut layer = TimelineLayer::default();
         let parsed = (|| {
-            let rev = self.revision(11, "CPicLayer")?;
+            let rev = self.revision(13, "CPicLayer")?;
             layer.revision = Some(rev);
             layer.name = Some(self.string()?);
             layer.state_flags = Some(self.span(if rev <= 3 { 1 } else { 3 })?);
@@ -533,6 +590,33 @@ impl<'a> Reader<'a> {
             }
             if rev >= 10 {
                 layer.auto_named = Some(self.byte()?);
+            }
+            if rev >= 12 {
+                let kind = if rev >= 13 {
+                    self.byte()?
+                } else {
+                    match layer.layer_type {
+                        Some(6) => 2,
+                        Some(5) => 1,
+                        _ => 0,
+                    }
+                };
+                layer.animation_type = Some(kind);
+                if kind > 2 {
+                    return stop(
+                        "fla_layer_animation_unsupported",
+                        "Unknown layer animation type.",
+                    );
+                }
+                if kind == 2 {
+                    let count = self.dword()? as usize;
+                    if count > MAX_RECORDS {
+                        return stop("fla_record_limit", "Layer animation table exceeds budget.");
+                    }
+                    for _ in 0..count {
+                        layer.animation_values.push(self.dword()?);
+                    }
+                }
             }
             Ok(())
         })();
@@ -575,7 +659,7 @@ impl<'a> Reader<'a> {
     fn frame(&mut self, id: u32, depth: usize) -> Result<()> {
         let mut frame = TimelineFrame::default();
         let parsed = (|| {
-            let rev = self.revision(26, "CPicFrame")?;
+            let rev = self.revision(29, "CPicFrame")?;
             frame.revision = Some(rev);
             let duration = self.word()?;
             frame.duration = Some(duration);
@@ -654,11 +738,45 @@ impl<'a> Reader<'a> {
                 let present = self.dword()?;
                 frame.custom_ease_present = Some(present);
                 if present != 0 {
-                    return stop(
-                        "fla_custom_ease_unsupported",
-                        "Custom easing records are not implemented.",
-                    );
+                    let mut total = 0usize;
+                    for _ in 0..6 {
+                        let count = self.dword()? as usize;
+                        total = total.checked_add(count).ok_or_else(|| Stop {
+                            code: "fla_record_limit".into(),
+                            message: "Ease count overflow.".into(),
+                        })?;
+                        if total > MAX_RECORDS || count > (self.data.len() - self.pos) / 48 {
+                            return stop(
+                                "fla_record_limit",
+                                "Custom ease exceeds remaining input or item budget.",
+                            );
+                        }
+                        let mut curve = Vec::with_capacity(count);
+                        for _ in 0..count {
+                            self.retain_budget()?;
+                            let mut knot = [0.; 6];
+                            for value in &mut knot {
+                                *value = self.double()?;
+                            }
+                            curve.push(knot);
+                        }
+                        frame.custom_ease.push(curve);
+                    }
                 }
+            }
+            let kind = frame.key_mode.unwrap_or(0) & 255;
+            if rev >= 27 && kind == 3 {
+                frame.motion_xml = Some(self.string()?);
+                frame.visible_animation_keyframes = Some(self.dword()?);
+            }
+            if rev >= 28 && kind == 3 {
+                frame.tween_instance_name = Some(self.string()?);
+            }
+            if rev >= 29 && kind == 4 {
+                return stop(
+                    "fla_pose_animation_unsupported",
+                    "Pose matrix animation requires a dedicated adapter.",
+                );
             }
             Ok(())
         })();

@@ -629,7 +629,8 @@ impl Editor {
                         };
                         if let Some(hit) = gesture.hit.clone() {
                             if gesture.shift && targets.contains(&hit) {
-                                targets.retain(|target| *target != hit);
+                                let group = self.grouped_targets(&hit);
+                                targets.retain(|target| !group.contains(target));
                             } else {
                                 targets.push(hit);
                             }

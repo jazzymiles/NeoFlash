@@ -14,7 +14,7 @@ pub(crate) struct Source {
     pub format: ImportFormat,
     pub version: Option<String>,
     pub files: BTreeMap<String, String>,
-    pub binary: Option<crate::legacy::BinaryFlaInspection>,
+    pub binary: Option<crate::legacy::BinaryTimelineDocument>,
 }
 
 pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
@@ -62,14 +62,16 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
         });
     }
     if header[..read].starts_with(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]) {
-        let binary = crate::legacy::inspect(path)?;
+        let binary = crate::legacy::read_for_import(path)?;
         return Ok(Source {
             format: if binary.is_some() {
                 ImportFormat::LegacyBinaryFla
             } else {
                 ImportFormat::Unknown
             },
-            version: binary.as_ref().and_then(|b| b.authoring_version.clone()),
+            version: binary
+                .as_ref()
+                .and_then(|b| b.inspection.authoring_version.clone()),
             files,
             binary,
         });

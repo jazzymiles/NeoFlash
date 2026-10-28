@@ -1,5 +1,8 @@
 mod accessibility;
 mod app;
+mod authoring_modify;
+mod authoring_symbols;
+mod authoring_tools;
 mod bitmaps;
 mod clipboard;
 mod detached;

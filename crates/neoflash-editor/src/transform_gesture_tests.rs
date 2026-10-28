@@ -68,6 +68,7 @@ fn native_corner_resize_keeps_opposite_anchor_for_rotated_mirrored_object_and_un
         scale_x: -2.,
         scale_y: 1.2,
         alpha: 1.,
+        ..Default::default()
     };
     editor.selected_element_mut().unwrap().transform = original;
     clean(&mut editor);
@@ -118,6 +119,7 @@ fn native_alt_shift_resize_preserves_center_and_aspect_ratio() {
         scale_x: 1.5,
         scale_y: 0.8,
         alpha: 1.,
+        ..Default::default()
     };
     editor.selected_element_mut().unwrap().transform = original;
     clean(&mut editor);

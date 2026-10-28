@@ -293,6 +293,7 @@ impl Editor {
 
 fn source_language_name(language: ScriptLanguage) -> &'static str {
     match language {
+        ScriptLanguage::ActionScript1 => "ActionScript 1",
         ScriptLanguage::ActionScript2 => "ActionScript 2",
         ScriptLanguage::ActionScript3 => "ActionScript 3",
         ScriptLanguage::JavaScript => "JavaScript",

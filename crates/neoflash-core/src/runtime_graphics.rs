@@ -30,6 +30,86 @@ pub struct GradientPaint {
     pub focal_point_ratio: f64,
 }
 
+impl GradientPaint {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        let spec = GradientSpec {
+            kind: self.kind,
+            colors: self
+                .stops
+                .iter()
+                .map(|s| {
+                    (u32::from(s.color[0]) << 16)
+                        | (u32::from(s.color[1]) << 8)
+                        | u32::from(s.color[2])
+                })
+                .collect(),
+            alphas: self
+                .stops
+                .iter()
+                .map(|s| f64::from(s.color[3]) / 255.)
+                .collect(),
+            ratios: self.stops.iter().map(|s| f64::from(s.ratio)).collect(),
+            matrix: self.matrix,
+            spread_method: "pad".into(),
+            interpolation_method: "rgb".into(),
+            focal_point_ratio: self.focal_point_ratio,
+        };
+        spec.validate()
+    }
+    /// Shared native paint sampling; the browser uses the equivalent Canvas brush.
+    pub fn sample(&self, x: f64, y: f64) -> Color {
+        let [a, b, c, d, tx, ty] = self.matrix;
+        let det = a * d - b * c;
+        if det == 0. || self.stops.is_empty() {
+            return [0; 4];
+        }
+        let x = x - tx;
+        let y = y - ty;
+        let gx = (d * x - c * y) / det / 819.2;
+        let gy = (-b * x + a * y) / det / 819.2;
+        let t = match self.kind {
+            GradientKind::Linear => (gx + 1.) * 0.5,
+            GradientKind::Radial => {
+                let f = self.focal_point_ratio;
+                let dx = gx - f;
+                let qa = f * f - 1.;
+                let qb = 2. * f * dx;
+                let qc = dx * dx + gy * gy;
+                if qc == 0. {
+                    0.
+                } else if qa.abs() < 1e-12 {
+                    if qb == 0. { 1. } else { -qc / qb }
+                } else {
+                    (-qb - (qb * qb - 4. * qa * qc).max(0.).sqrt()) / (2. * qa)
+                }
+            }
+        }
+        .clamp(0., 1.)
+            * 255.;
+        let first = &self.stops[0];
+        if t <= f64::from(first.ratio) {
+            return first.color;
+        }
+        for pair in self.stops.windows(2) {
+            let (left, right) = (&pair[0], &pair[1]);
+            if t <= f64::from(right.ratio) {
+                let span = f64::from(right.ratio - left.ratio);
+                if span == 0. {
+                    return right.color;
+                }
+                let f = (t - f64::from(left.ratio)) / span;
+                return std::array::from_fn(|i| {
+                    (f64::from(left.color[i])
+                        + (f64::from(right.color[i]) - f64::from(left.color[i])) * f)
+                        .round()
+                        .clamp(0., 255.) as u8
+                });
+            }
+        }
+        self.stops.last().unwrap().color
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GradientSpec {

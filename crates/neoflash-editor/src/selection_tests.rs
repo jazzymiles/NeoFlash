@@ -263,6 +263,68 @@ fn multi_layer_midpoint_drag_uses_sampled_poses_and_one_undo_for_both_layers() {
         editor.redo();
         assert_eq!(editor.project, after);
     }
+
+    // The same selection/history contract also covers the Modify family.
+    let (mut editor, ctx, _) = fixture(0);
+    select(&mut editor, &["first", "second"]);
+    let before = editor.project.clone();
+    editor.align_selection(&ctx, 1, 0);
+    assert_eq!(sampled(&editor, "second").transform.y, 100.);
+    editor.undo();
+    assert_eq!(editor.project, before);
+    select(&mut editor, &["first", "second"]);
+    editor.space_selection(&ctx, 0, Some(-10.));
+    assert_eq!(sampled(&editor, "second").transform.x, 150.);
+    editor.undo();
+    assert_eq!(editor.project, before);
+    select(&mut editor, &["first", "second", "untouched"]);
+    editor.distribute_selection(&ctx, 0, 1);
+    assert_eq!(sampled(&editor, "second").transform.x, 350.);
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    select(&mut editor, &["first", "untouched"]);
+    editor.group_selection();
+    let grouped = editor.project.clone();
+    assert_eq!(
+        editor.symbol().timeline.layers[0].properties.groups.len(),
+        1
+    );
+    editor.clear_selection();
+    select(&mut editor, &["first"]);
+    assert_eq!(ids(&editor), ["first", "untouched"]);
+    editor.authoring_modify.to_stage = true;
+    editor.align_selection(&ctx, 0, 1);
+    assert_eq!(
+        sampled(&editor, "untouched").transform.x - sampled(&editor, "first").transform.x,
+        500.
+    );
+    editor.undo();
+    assert_eq!(editor.project, grouped);
+    editor.authoring_modify.to_stage = false;
+    editor.duplicate();
+    assert_eq!(
+        editor.symbol().timeline.layers[0].properties.groups.len(),
+        2
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, grouped);
+    select(&mut editor, &["first"]);
+    editor.ungroup_selection();
+    assert!(
+        editor.symbol().timeline.layers[0]
+            .properties
+            .groups
+            .is_empty()
+    );
+    editor.undo();
+    assert_eq!(editor.project, grouped);
+    select(&mut editor, &["first"]);
+    editor.affine_selection(&ctx, [-1., 0., 0., 1., 0., 0.]);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, grouped);
 }
 
 #[test]

@@ -1,6 +1,7 @@
 //! Strict sequential Contents prefix reader. Layout facts are referenced in
 //! docs/IMPORTS.md; this implementation and its fixtures are independently written.
 //! Unknown fields never trigger a scan for a plausible later boundary.
+mod extensions;
 mod payload;
 
 use super::{BinaryStreamInspection, BinaryStreamRole};
@@ -40,6 +41,9 @@ pub enum ContentsDescriptorClass {
     Bitmap,
     Sound,
     Video,
+    Color,
+    ColorList,
+    QuickTimeAudioSettings,
 }
 
 /// This is the archive's combined class/object identity table, including index 0.
@@ -55,6 +59,10 @@ pub enum ContentsReference {
     },
     Object {
         descriptor_index: Option<usize>,
+    },
+    AuxiliaryObject {
+        class: ContentsDescriptorClass,
+        encoded: ContentsByteSpan,
     },
 }
 
@@ -83,6 +91,37 @@ pub struct ContentsDescriptor {
     pub library_id: Option<u32>,
     pub symbol_type: Option<u8>,
     pub media_id: Option<u16>,
+    #[serde(default)]
+    pub library_metadata: Option<ContentsLibraryMetadata>,
+    #[serde(default)]
+    pub linkage: Option<ContentsLinkage>,
+    #[serde(default)]
+    pub bitmap: Option<ContentsBitmapSettings>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ContentsBitmapSettings {
+    pub compression: Option<u8>,
+    pub quality: Option<u8>,
+    pub smoothing: bool,
+    pub encoded_byte_count: i32,
+    pub deblocking: bool,
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ContentsLibraryMetadata {
+    pub parent: Option<[u32; 2]>,
+    pub item: Option<[u32; 2]>,
+    pub attributes: Option<u32>,
+    pub linkage: Option<ContentsLinkage>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContentsLinkage {
+    pub flags: u32,
+    pub identifier: ContentsString,
+    pub url: ContentsString,
+    pub class_name: Option<ContentsString>,
+    pub export_flags: Option<u8>,
+    pub base_class: Option<ContentsString>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -174,7 +213,59 @@ pub struct BinaryContentsPrefix {
     pub legacy_publish: Option<ContentsLegacyPublish>,
     #[serde(default)]
     pub compatibility_tail: Option<ContentsCompatibilityTail>,
+    #[serde(default)]
+    pub extensions: Option<ContentsExtensions>,
     pub original_bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ContentsExtensions {
+    pub encoded: ContentsByteSpan,
+    pub document_properties: Vec<ContentsProperty>,
+    pub profiles: Vec<Vec<ContentsProperty>>,
+    pub extension_properties: Vec<ContentsProperty>,
+    pub folders: Vec<ContentsFolder>,
+    pub document_type: Option<u32>,
+    pub metadata_xml: Option<ContentsString>,
+    pub shared_library_url: Option<ContentsString>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContentsFolder {
+    pub name: ContentsString,
+    pub metadata: ContentsLibraryMetadata,
+    pub encoded: ContentsByteSpan,
+}
+impl BinaryContentsPrefix {
+    /// Decode known Unicode or ASCII metadata without guessing an ANSI codepage.
+    pub fn string_text(&self, value: &ContentsString) -> Option<String> {
+        let bytes = self.original_bytes.get(value.data.start..value.data.end)?;
+        if value.utf16 {
+            if bytes.len() % 2 != 0 {
+                return None;
+            }
+            String::from_utf16(
+                &bytes
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|b| u16::from_le_bytes([b[0], b[1]]))
+                    .collect::<Vec<_>>(),
+            )
+            .ok()
+        } else {
+            bytes
+                .is_ascii()
+                .then(|| String::from_utf8_lossy(bytes).into_owned())
+        }
+    }
+    pub fn publish_property(&self, profile: usize, key: &str) -> Option<String> {
+        let properties = self.extensions.as_ref()?.profiles.get(profile)?;
+        let mut values = properties
+            .iter()
+            .filter(|p| self.string_text(&p.key).as_deref() == Some(key));
+        let result = self.string_text(&values.next()?.value)?;
+        values.next().is_none().then_some(result)
+    }
 }
 
 pub(super) struct InventoryEntry {
@@ -193,6 +284,7 @@ pub(super) fn inspect(
         bytes,
         at: 0,
         items: 0,
+        object_depth: 0,
         refs: vec![ContentsReference::Null],
         descriptors: Vec::new(),
         inventory,
@@ -218,6 +310,7 @@ pub(super) fn inspect(
         stop: None,
         legacy_publish: None,
         compatibility_tail: None,
+        extensions: None,
         original_bytes: Vec::new(),
     };
     let parsed = reader.prefix(&mut out);
@@ -242,6 +335,7 @@ struct Reader<'a> {
     bytes: &'a [u8],
     at: usize,
     items: usize,
+    object_depth: usize,
     refs: Vec<ContentsReference>,
     descriptors: Vec<ContentsDescriptor>,
     inventory: &'a Inventory,
@@ -349,9 +443,9 @@ impl Reader<'_> {
                 "Contents save-target revision is unknown.",
             ));
         }
-        if !matches!(v, 0x14 | 0x20 | 0x29 | 0x3f) {
+        if !matches!(v, 0x14 | 0x20 | 0x29 | 0x3f | 0x47) {
             return self.unsupported(
-                "Contents prefix revision is unsupported; only Flash 3, 5, MX and 8 are decoded.",
+                "Contents prefix revision is unsupported; only Flash 3, 5, MX, 8 and CS4 are decoded.",
             );
         }
         if v >= 0x20 {
@@ -392,6 +486,8 @@ impl Reader<'_> {
         out.settings = Some(self.settings()?);
         if v == 0x14 {
             self.f3_suffix(out)
+        } else if matches!(v, 0x29 | 0x47) {
+            self.extensions(out, v)
         } else {
             Err(self.error("fla_contents_suffix_unsupported", "Contents settings prefix read; this revision's extensions and compatibility suffix are not decoded."))
         }
@@ -531,6 +627,15 @@ impl Reader<'_> {
         Ok(id)
     }
     fn object(&mut self) -> Result<Option<u32>> {
+        if self.object_depth >= 32 {
+            return self.unsupported("Contents object nesting exceeds 32.");
+        }
+        self.object_depth += 1;
+        let result = self.object_inner();
+        self.object_depth -= 1;
+        result
+    }
+    fn object_inner(&mut self) -> Result<Option<u32>> {
         let start = self.at;
         let short = self.u16()?;
         let tag = if short == 0x7fff {
@@ -557,6 +662,9 @@ impl Reader<'_> {
                 b"CMediaBits" => Some(ContentsDescriptorClass::Bitmap),
                 b"CMediaSound" => Some(ContentsDescriptorClass::Sound),
                 b"CMediaVideoStream" => Some(ContentsDescriptorClass::Video),
+                b"CColorDef" => Some(ContentsDescriptorClass::Color),
+                b"CColorList" => Some(ContentsDescriptorClass::ColorList),
+                b"CQTAudioSettings" => Some(ContentsDescriptorClass::QuickTimeAudioSettings),
                 _ => None,
             };
             self.add_reference(ContentsReference::Class {
@@ -577,7 +685,8 @@ impl Reader<'_> {
                 Some(ContentsReference::Null) => Ok(None),
                 Some(ContentsReference::Object {
                     descriptor_index: Some(_),
-                }) => Ok(Some(tag)),
+                })
+                | Some(ContentsReference::AuxiliaryObject { .. }) => Ok(Some(tag)),
                 _ => {
                     self.invalid("MFC object pointer does not identify a complete existing object.")
                 }
@@ -586,10 +695,46 @@ impl Reader<'_> {
         let id = self.add_reference(ContentsReference::Object {
             descriptor_index: None,
         })?;
-        self.counts.descriptors_encountered += 1;
         let Some(class) = class else {
             return self.unsupported("MFC Contents descriptor class is unsupported.");
         };
+        if class == ContentsDescriptorClass::QuickTimeAudioSettings {
+            if schema != 1 {
+                return self.unsupported("MFC QuickTime audio-settings schema is unsupported.");
+            }
+            let length = self.u32()? as usize;
+            self.take(length)?;
+            self.refs[id as usize] = ContentsReference::AuxiliaryObject {
+                class,
+                encoded: ContentsByteSpan {
+                    start,
+                    end: self.at,
+                },
+            };
+            return Ok(Some(id));
+        }
+        if matches!(
+            class,
+            ContentsDescriptorClass::Color | ContentsDescriptorClass::ColorList
+        ) {
+            if schema != 0 {
+                return self.unsupported("MFC color schema is unsupported.");
+            }
+            if class == ContentsDescriptorClass::Color {
+                self.color()?;
+            } else {
+                self.color_list(0)?;
+            }
+            self.refs[id as usize] = ContentsReference::AuxiliaryObject {
+                class,
+                encoded: ContentsByteSpan {
+                    start,
+                    end: self.at,
+                },
+            };
+            return Ok(Some(id));
+        }
+        self.counts.descriptors_encountered += 1;
         if schema != 1 {
             return self.unsupported("MFC Contents descriptor schema is unsupported.");
         }

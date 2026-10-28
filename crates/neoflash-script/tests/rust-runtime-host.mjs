@@ -16,7 +16,7 @@ export function createRustStrings() { return bridge.create({execute: runtimeWasm
 const require = createRequire(import.meta.url);
 export function createStringServices() {
   const strings=createRustStrings(),boxing=require(resolve(root,'web/as2-boxing.js')).create({execute:runtimeWasm.as2_box_json,strings});
-  return {objects:require(resolve(root,'web/as2-object.js')).create(runtimeWasm),strings,boxing,strings3:require(resolve(root,'web/as3-strings.js')).create({execute:runtimeWasm.as3_string_json}),math:require(resolve(root,'web/math.js')).create(runtimeWasm),date:require(resolve(root,'web/date.js')).create(runtimeWasm)};
+  return {objects:require(resolve(root,'web/as2-object.js')).create(runtimeWasm),objects3:{execute:request=>JSON.parse(runtimeWasm.as3_object_json(JSON.stringify(request))),arrayPlan:(method,length,index)=>JSON.parse(runtimeWasm.as3_array_plan_json(method,length,index))},strings,boxing,strings3:require(resolve(root,'web/as3-strings.js')).create({execute:runtimeWasm.as3_string_json}),math:require(resolve(root,'web/math.js')).create(runtimeWasm),date:require(resolve(root,'web/date.js')).create(runtimeWasm)};
 }
 export function createGeometryFamily() {
   let two;

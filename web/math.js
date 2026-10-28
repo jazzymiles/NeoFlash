@@ -23,7 +23,7 @@
       for(const name of constants)Object.defineProperty(value,name,{value:wasm.as_math_constant(name)});
       return Object.freeze(value);
     }
-    return Object.freeze({as2:family(false),as3:family(true),randomInt(...args){
+    return Object.freeze({as2:family(false),as3:family(true),numericState:{classes:new Map(),methods:new Map()},randomInt(...args){
       if(args.length>1)throw new TypeError('AS2 random expects at most one upper bound.');
       try{return wasm.as_math_value(false,'randomInt',[Number(args[0])],random());}
       catch(error){throw new RangeError(String(error));}

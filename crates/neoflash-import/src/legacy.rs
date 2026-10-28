@@ -1,12 +1,15 @@
 //! Bounded, read-only CFB and binary FLA structure inspection.
 //! No byte-pattern recovery: unknown records stop the current stream.
+mod container_compat;
 pub(crate) mod contents;
 pub(crate) mod contours;
+pub(crate) mod convert;
 pub(crate) mod geometry;
+pub(crate) mod media;
 mod mfc;
 pub(crate) mod timeline;
 
-use crate::{ImportError, ImportReport};
+use crate::ImportError;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
@@ -67,6 +70,10 @@ pub struct BinaryFlaInspection {
     pub storage_count: usize,
     pub logical_bytes: u64,
     pub streams: Vec<BinaryStreamInspection>,
+    /// Narrow CFB metadata compatibility applied to an in-memory reading view.
+    /// The original input is retained unchanged by the preservation API.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub metadata_compatibility_offsets: Vec<usize>,
 }
 
 /// Explicit opt-in preservation API. Contains private artwork; unlike inspect(),
@@ -101,10 +108,6 @@ fn container(message: impl Into<String>) -> ImportError {
     ImportError::Container(message.into())
 }
 
-pub(crate) fn inspect(path: &Path) -> Result<Option<BinaryFlaInspection>, ImportError> {
-    Ok(read(path, false, false, false)?.map(|document| document.inspection))
-}
-
 /// Explicit opt-in Contents IR. Contains private names/metadata and exact unread bytes.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BinaryContentsDocument {
@@ -130,18 +133,38 @@ pub struct BinaryTimelineDocument {
     pub inspection: BinaryFlaInspection,
     pub contents: contents::BinaryContentsPrefix,
     pub streams: Vec<timeline::BinaryTimelineStream>,
+    #[serde(default)]
+    pub raw_streams: Vec<BinaryRawStream>,
+    #[serde(default)]
+    pub original_bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BinaryRawStream {
+    pub index: usize,
+    pub name: String,
+    pub role: BinaryStreamRole,
+    pub bytes: Vec<u8>,
 }
 
 pub fn read_binary_timeline(path: &Path) -> Result<BinaryTimelineDocument, ImportError> {
-    let document = read(path, false, true, true)?
-        .ok_or_else(|| container("compound document is not recognized as binary FLA"))?;
-    Ok(BinaryTimelineDocument {
+    read_for_import(path)?
+        .ok_or_else(|| container("compound document is not recognized as binary FLA"))
+}
+
+pub(crate) fn read_for_import(path: &Path) -> Result<Option<BinaryTimelineDocument>, ImportError> {
+    let Some(document) = read(path, false, true, true)? else {
+        return Ok(None);
+    };
+    Ok(Some(BinaryTimelineDocument {
         inspection: document.inspection,
         contents: document
             .contents
             .ok_or_else(|| container("Contents stream is absent"))?,
         streams: document.timeline,
-    })
+        raw_streams: document.raw_streams,
+        original_bytes: document.original_bytes,
+    }))
 }
 
 struct ReadDocument {
@@ -149,6 +172,8 @@ struct ReadDocument {
     geometry: Vec<BinaryStreamGeometry>,
     timeline: Vec<timeline::BinaryTimelineStream>,
     contents: Option<contents::BinaryContentsPrefix>,
+    raw_streams: Vec<BinaryRawStream>,
+    original_bytes: Vec<u8>,
 }
 
 fn read(
@@ -167,6 +192,20 @@ fn read(
         return Err(container("CFB grew beyond 64 MiB"));
     }
     let major = preflight(&bytes)?;
+    let original_bytes = bytes.clone();
+    let metadata_compatibility_offsets = container_compat::normalize_timestamps(&mut bytes)?;
+    // This second reader is only a byte-integrity cross-check, never the source
+    // of structural acceptance. The reading view below must pass strict mode.
+    let mut original_view = if metadata_compatibility_offsets.is_empty() {
+        None
+    } else {
+        Some(
+            cfb::OpenOptions::new()
+                .max_buffer_size(8192)
+                .open_with(Cursor::new(original_bytes.as_slice()))
+                .map_err(|_| container("cannot verify original CFB stream bytes"))?,
+        )
+    };
     // Snapshot bounds allocation and makes concurrent source changes harmless.
     let mut compound = cfb::OpenOptions::new()
         .strict()
@@ -243,6 +282,7 @@ fn read(
         storage_count,
         logical_bytes,
         streams: vec![],
+        metadata_compatibility_offsets,
     };
     let inventory: contents::Inventory = entries
         .iter()
@@ -263,16 +303,38 @@ fn read(
     let mut retained_items_remaining = 250_000;
     let mut timeline_streams = Vec::new();
     let mut timeline_items_remaining = 100_000;
+    let mut raw_streams = Vec::new();
     for (index, (path, byte_length, role)) in entries.into_iter().enumerate() {
         let mut data = Vec::new();
         compound
-            .open_stream(path)
+            .open_stream(&path)
             .map_err(|_| container("cannot open CFB stream"))?
             .take(MAX_STREAM + 1)
             .read_to_end(&mut data)
             .map_err(|_| container("invalid or truncated CFB stream chain"))?;
         if data.len() as u64 != byte_length {
             return Err(container("CFB stream length mismatch"));
+        }
+        if let Some(original) = original_view.as_mut() {
+            let mut unchanged = Vec::new();
+            original
+                .open_stream(&path)
+                .map_err(|_| container("original CFB stream cannot be verified"))?
+                .take(MAX_STREAM + 1)
+                .read_to_end(&mut unchanged)?;
+            if unchanged != data {
+                return Err(container(
+                    "CFB metadata compatibility would alter application bytes",
+                ));
+            }
+        }
+        if retain_timeline {
+            raw_streams.push(BinaryRawStream {
+                index,
+                name: path.to_string_lossy().into_owned(),
+                role,
+                bytes: data.clone(),
+            });
         }
         let mut stream = BinaryStreamInspection {
             index,
@@ -338,6 +400,12 @@ fn read(
         geometry: geometry_streams,
         timeline: timeline_streams,
         contents: contents_prefix,
+        raw_streams,
+        original_bytes: if retain_timeline {
+            original_bytes
+        } else {
+            Vec::new()
+        },
     }))
 }
 
@@ -415,24 +483,4 @@ fn version(revision: u8) -> Option<&'static str> {
         0x47 => "Flash CS4",
         _ => return None,
     })
-}
-
-pub(crate) fn report(binary: BinaryFlaInspection, report: &mut ImportReport) {
-    for stream in &binary.streams {
-        if let Some(code) = &stream.stop_code {
-            report.error(
-                code,
-                format!(
-                    "CFB stream #{} {:?} @0x{:x}",
-                    stream.index, stream.role, stream.bytes_consumed
-                ),
-                stream
-                    .stop_message
-                    .as_deref()
-                    .unwrap_or("Stream is not fully decoded."),
-            );
-        }
-    }
-    report.error("legacy_fla_conversion_unsupported", "CFB document", "Binary FLA structural inspection is implemented; editable conversion is blocked until Contents, all referenced records and their semantics can be preserved. Keep the original file; use XFL export from the authoring application when available.");
-    report.binary_fla = Some(binary);
 }

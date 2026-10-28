@@ -97,6 +97,7 @@ const BUILTINS: &[&str] = &[
     "flash.display.DisplayObject",
     "flash.display.DisplayObjectContainer",
     "flash.display.MovieClip",
+    "flash.display.SimpleButton",
     "flash.display.Sprite",
     "flash.display.Shape",
     "flash.display.Graphics",
@@ -230,6 +231,10 @@ const BUILTINS: &[&str] = &[
     "flash.external.ExternalInterface",
 ];
 const BUILTIN_FUNCTIONS: &[&str] = &[
+    "flash.utils.getQualifiedClassName",
+    "flash.utils.getQualifiedSuperclassName",
+    "flash.utils.getDefinitionByName",
+    "flash.utils.describeType",
     "flash.utils.getTimer",
     "flash.utils.escapeMultiByte",
     "flash.utils.unescapeMultiByte",
@@ -755,6 +760,8 @@ fn context(
             .insert("getTimer".into(), "flash.utils.getTimer".into());
         c.types
             .insert("MovieClip".into(), "flash.display.MovieClip".into());
+        c.types
+            .insert("Button".into(), "flash.display.SimpleButton".into());
         c.types
             .insert("TextField".into(), "flash.text.TextField".into());
         c.types
@@ -1692,7 +1699,21 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
     let mut native_bases = BTreeMap::<String, String>::new();
     let mut contracts = BTreeMap::<String, BTreeMap<(String, MethodKind), MethodContract>>::new();
     let mut interface_closures = BTreeMap::<String, BTreeSet<String>>::new();
-    let mut registrations = String::new();
+    let mut reflection_types = BUILTINS
+        .iter()
+        .filter(|name| !name.starts_with("mx.transitions.") && !AS2_BUILTINS.contains(name))
+        .copied()
+        .collect::<Vec<_>>();
+    reflection_types.extend([
+        "Date",
+        "RegExp",
+        "JSON",
+        "XML",
+        "XMLList",
+        "Namespace",
+        "QName",
+    ]);
+    let mut registrations = format!("__nfProgram.setNativeTypes({reflection_types:?});\n");
     for name in &order {
         let c = classes.get_mut(name).unwrap();
         let as2 = c.header.script.language == ScriptLanguage::ActionScript2;
@@ -1764,7 +1785,10 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             check_accessor_pairs(c, &inherited, &mut errors);
             contracts.insert(name.clone(), inherited);
             interface_closures.insert(name.clone(), closure);
-            registrations.push_str(&format!("__nfProgram.defineInterface({name:?});\n"));
+            registrations.push_str(&format!(
+                "__nfProgram.defineInterface({name:?},{});\n",
+                reflection_metadata(c)
+            ));
             continue;
         }
         let inherited_history = c
@@ -2008,14 +2032,19 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         .iter()
         .filter(|symbol| symbol.linkage_id.is_some())
     {
+        let required_base = if symbol.kind == neoflash_core::SymbolKind::Button {
+            "flash.display.SimpleButton"
+        } else {
+            "flash.display.MovieClip"
+        };
         if let Some(class) = &symbol.class_name
-            && native_bases.get(class).map(String::as_str) != Some("flash.display.MovieClip")
+            && native_bases.get(class).map(String::as_str) != Some(required_base)
         {
             errors.push(Diagnostic {
                 language: classes.get(class).map_or(ScriptLanguage::ActionScript3, |class| class.header.script.language),
                 line: 1,
                 column: 1,
-                message: format!("Exported MovieClip '{}' requires class '{class}' to ultimately extend flash.display.MovieClip.",symbol.name),
+                message: format!("Exported symbol '{}' requires class '{class}' to ultimately extend {required_base}.",symbol.name),
             });
         }
     }
@@ -2098,6 +2127,44 @@ fn compile_prepared(script: &Script, program: &ProjectProgram) -> Result<String,
         .collect::<String>()
         + &script.source[end..];
     super::compile_context(&replaced, c).map_err(|e| vec![e])
+}
+
+fn reflection_metadata(c: &Class) -> serde_json::Value {
+    use serde_json::json;
+    let canonical = |ty: Option<&str>| c.context.canonical_type(ty.unwrap_or("*"));
+    let parameters = |f: &Function| {
+        f.params.iter().enumerate().map(|(index, (_, ty))| json!({
+        "type": canonical(ty.as_deref()), "optional": f.defaults.get(index).is_some_and(Option::is_some)
+    })).collect::<Vec<_>>()
+    };
+    let short = c.header.name.rsplit('.').next().unwrap();
+    let mut constructor = Vec::new();
+    let mut constructor_rest = false;
+    let mut members = c.fields.iter().map(|field| json!({
+        "name": field.name, "kind": if field.constant { "constant" } else { "variable" },
+        "static": field.is_static, "access": field.access.name(), "type": canonical(field.ty.as_deref())
+    })).collect::<Vec<_>>();
+    for method in &c.methods {
+        let function = &method.function;
+        if function.name.as_deref() == Some(short) && method.kind == MethodKind::Method {
+            constructor = parameters(function);
+            constructor_rest = function.rest.is_some();
+            continue;
+        }
+        let ty = if method.kind == MethodKind::Set {
+            function.params.first().and_then(|(_, ty)| ty.as_deref())
+        } else {
+            function.returns.as_deref()
+        };
+        members.push(json!({
+            "name": function.name, "kind": match method.kind { MethodKind::Method => "method", MethodKind::Get => "get", MethodKind::Set => "set" },
+            "static": method.is_static, "access": method.access.name(), "type": canonical(ty),
+            "parameters": parameters(function), "rest": function.rest.is_some()
+        }));
+    }
+    json!({"name": c.header.name, "base": c.base, "public": c.header.public,
+        "dynamic": c.header.dynamic, "final": c.header.final_, "interface": c.header.is_interface,
+        "interfaces": c.interfaces, "members": members, "constructor": constructor, "constructor_rest": constructor_rest})
 }
 
 fn emit_class(c: &Class) -> Result<String, Diagnostic> {
@@ -2220,7 +2287,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         })
         .collect::<Vec<_>>();
     Ok(format!(
-        "__nfProgram.define({:?},{},[{}],[{}],{},{:?},[{}],{:?},{{dynamic:{},final:{},package:{:?}}});\n",
+        "__nfProgram.define({:?},{},[{}],[{}],{},{:?},[{}],{:?},{{dynamic:{},final:{},package:{:?},reflection:{}}});\n",
         c.header.name,
         c.base
             .as_ref()
@@ -2234,6 +2301,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         c.interfaces,
         c.header.dynamic,
         c.header.final_,
-        c.header.package
+        c.header.package,
+        reflection_metadata(c)
     ))
 }

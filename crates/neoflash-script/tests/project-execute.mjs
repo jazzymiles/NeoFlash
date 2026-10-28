@@ -30,6 +30,7 @@ import { verifyImagePipeline } from './image-pipeline.mjs';
 import { verifyClassPackages } from './class-packages.mjs';
 import { verifyVideoPlayback } from './video-playback.mjs';
 import { verifyDragDrop } from './drag-drop.mjs';
+import { verifyLegacyImport } from './legacy-import.mjs';
 import { verifyWebIntegration } from './web-integration.mjs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -82,6 +83,7 @@ const builtins={__nfLegacy:createStringServices(),__nfTrace:()=>{},__nfAs2Method
  'flash.geom.Point':geom.Point,'flash.geom.Rectangle':geom.Rectangle,'flash.geom.Matrix':geom.Matrix,
  'flash.utils.Timer':timerService.Timer,'flash.events.TimerEvent':timerService.TimerEvent,'flash.utils.getTimer':timerService.getTimer};
 for(const name of ['Event','MouseEvent','KeyboardEvent','EventPhase','EventDispatcher'])builtins[`flash.events.${name}`]=events[name];
+builtins.__nfObjectExecute=builtins.__nfLegacy.objects3.execute;
 const program=new Function('__nfBuiltins',compiled.Ok.code)(builtins);
 const lookup=[], probe=[];
 Object.defineProperty(probe,'sort',{get(){lookup.push('lookup');return function(value){assert.equal(this,probe);lookup.push('call');return value;};}});
@@ -175,6 +177,7 @@ try {
   player?.free();rmSync(directory,{recursive:true,force:true});
 }
 const workflows=[
+  ['legacy-import',verifyLegacyImport],
   ['as2-project-input',verifyAs2ProjectInput],
   ['geometry-timer',verifyGeometryTimer],
   ['binary-data',verifyBinaryData],

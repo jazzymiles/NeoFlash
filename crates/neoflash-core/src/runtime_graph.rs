@@ -96,6 +96,9 @@ pub struct RuntimeObject {
     pub source_path: Option<Vec<Id>>,
     /// Own Graphics paints; these are not display children.
     pub graphics: Vec<RuntimeDrawKind>,
+    /// Button Hit-frame geometry in button-local coordinates; never painted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub button_hits: Vec<DrawItem>,
     pub text: Option<TextFieldState>,
     pub video: Option<VideoState>,
     pub input: Option<DisplayInputState>,
@@ -579,6 +582,19 @@ impl Player {
             .into_iter()
             .filter_map(|item| self.object_ref(&item.instance_path).map(|id| (id, item)))
             .collect();
+        let mut button_symbols: HashMap<_, _> = base
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                let symbol = node.symbol_id.as_ref().and_then(|id| project.symbol(id))?;
+                (symbol.kind == SymbolKind::Button)
+                    .then(|| {
+                        self.object_ref(&node.path)
+                            .map(|id| (id, symbol.id.clone()))
+                    })
+                    .flatten()
+            })
+            .collect();
         let mut metadata: HashMap<_, _> = base
             .nodes
             .into_iter()
@@ -609,6 +625,12 @@ impl Player {
                 }
             }
             for node in source.nodes {
+                if let Some(symbol) = node.symbol_id.as_ref().and_then(|id| project.symbol(id))
+                    && symbol.kind == SymbolKind::Button
+                    && let Some(reference) = self.graph.linked_ref(namespace, &node.path)
+                {
+                    button_symbols.insert(reference, symbol.id.clone());
+                }
                 if let Some(accessibility) = node.accessibility
                     && let Some(reference) = self.graph.linked_ref(namespace, &node.path)
                 {
@@ -691,7 +713,8 @@ impl Player {
                             path: vec![],
                             lifetime_id: reference.id.clone(),
                             name: node.name.clone(),
-                            owner: owner.into(),
+                            owner: linked
+                                .map_or_else(|| owner.into(), |source| source.owner.clone()),
                             class_name: linked.and_then(|source| source.class_name.clone()),
                             transform: node.transform,
                             world: [0.; 6],
@@ -700,7 +723,8 @@ impl Player {
                             frame: linked.map_or(0, |source| source.frame),
                             total_frames: linked
                                 .map_or(if movie { 1 } else { 0 }, |source| source.total_frames),
-                            independent: movie,
+                            independent: linked
+                                .map_or(movie, |source| source.owner == "movie_clip"),
                             kind: None,
                         },
                         None,
@@ -739,7 +763,12 @@ impl Player {
                         .color_transforms
                         .get(&reference)
                         .copied()
-                        .unwrap_or_else(|| ColorTransform::from_alpha(display.transform.alpha))
+                        .unwrap_or_else(|| {
+                            display
+                                .transform
+                                .color_transform
+                                .with_alpha(display.transform.alpha)
+                        })
                 },
                 |(_, _, color)| color,
             );
@@ -787,6 +816,7 @@ impl Player {
                     let mut item = source.clone().map_kind(RuntimeDrawKind::Element);
                     item.transform = display.world;
                     item.alpha = 1.;
+                    item.color_transform = ColorTransform::default();
                     if let RuntimeDrawKind::Element(kind) = &mut item.kind {
                         concatenated_color_transform.transform_kind(kind);
                     }
@@ -819,6 +849,7 @@ impl Player {
                                 .map_or_else(String::new, |item| item.layer_id.clone()),
                             transform: display.world,
                             alpha: 1.,
+                            color_transform: ColorTransform::default(),
                             kind: RuntimeDrawKind::VideoFrame {
                                 width: video.width,
                                 height: video.height,
@@ -856,6 +887,7 @@ impl Player {
                                     .map_or_else(String::new, |item| item.layer_id.clone()),
                                 transform: affine_multiply(display.world, [1., 0., 0., 1., x, y]),
                                 alpha: 1.,
+                                color_transform: ColorTransform::default(),
                                 kind: RuntimeDrawKind::Element(kind),
                             },
                         });
@@ -876,6 +908,7 @@ impl Player {
                                 .map_or_else(String::new, |item| item.layer_id.clone()),
                             transform: display.world,
                             alpha: 1.,
+                            color_transform: ColorTransform::default(),
                             kind: RuntimeDrawKind::TextField {
                                 field: Box::new(concatenated_color_transform.transform_text(field)),
                             },
@@ -901,6 +934,7 @@ impl Player {
                                 .map_or_else(String::new, |item| item.layer_id.clone()),
                             transform: display.world,
                             alpha: 1.,
+                            color_transform: ColorTransform::default(),
                             kind: RuntimeDrawKind::BitmapPixels {
                                 pixel_ref: pixel.pixel_ref.clone(),
                                 width: pixel.width,
@@ -934,6 +968,7 @@ impl Player {
                             layer_id: String::new(),
                             transform: display.world,
                             alpha: 1.,
+                            color_transform: ColorTransform::default(),
                             kind,
                         },
                     });
@@ -965,6 +1000,16 @@ impl Player {
                 namespace_ref,
                 source_path,
                 graphics,
+                button_hits: button_symbols
+                    .get(&reference)
+                    .map_or_else(Vec::new, |symbol| {
+                        let count = project.symbol(symbol).map_or(0, |s| s.timeline.frame_count);
+                        if count >= 4 {
+                            crate::evaluate(project, symbol, 3)
+                        } else {
+                            vec![]
+                        }
+                    }),
                 text,
                 video,
                 bitmap,
@@ -1027,7 +1072,15 @@ impl Player {
                     stroke_gradient,
                     stroke_width,
                     ..
-                } => {
+                }
+                | RuntimeDrawKind::Element(ElementKind::PaintedPath {
+                    fill,
+                    stroke,
+                    fill_gradient,
+                    stroke_gradient,
+                    stroke_width,
+                    ..
+                }) => {
                     fill_gradient
                         .as_ref()
                         .map_or(fill[3] > 0, |g| g.stops.iter().any(|s| s.color[3] > 0))
@@ -1525,6 +1578,33 @@ impl Player {
         object.name = name.into();
         true
     }
+    pub fn object_button_state(
+        &mut self,
+        project: &Project,
+        reference: &ObjectRef,
+        state: u32,
+    ) -> bool {
+        if let Some(address) = self.graph.source_address(reference) {
+            let changed = self
+                .graph
+                .namespaces
+                .get_mut(&address.namespace)
+                .expect("namespace")
+                .player
+                .button_state(project, &address.path, state);
+            if changed {
+                self.sync_linked(project);
+                self.collect_linked_scripts(&address.namespace);
+            }
+            return changed;
+        }
+        self.graph
+            .paths
+            .get(reference)
+            .cloned()
+            .is_some_and(|path| self.button_state(project, &path, state))
+    }
+
     pub fn object_control(
         &mut self,
         project: &Project,

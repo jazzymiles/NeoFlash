@@ -5,7 +5,7 @@ use crate::{
     workspace::PanelId,
 };
 use eframe::egui::{self, Align2, FontId, Pos2, Rect, Sense, Stroke, Vec2};
-use neoflash_core::SymbolKind;
+use neoflash_core::{ElementKind, InstancePlayback, SymbolKind};
 use std::collections::HashSet;
 
 #[derive(Default)]
@@ -84,6 +84,7 @@ struct LibraryEdit {
     target: EditTarget,
     name: String,
     parent: String,
+    kind: Option<SymbolKind>,
     focus: bool,
     error: Option<String>,
 }
@@ -377,7 +378,7 @@ impl Editor {
                                     action = Some(Action::EditSymbol(symbol.id.clone()));
                                     ui.close();
                                 }
-                                if ui.button("Rename / move symbol…").clicked() {
+                                if ui.button("Symbol properties…").clicked() {
                                     action = Some(Action::RenameSymbol(symbol.id.clone()));
                                     ui.close();
                                 }
@@ -446,7 +447,8 @@ impl Editor {
                         self.enter_symbol(symbol.id.clone());
                     }
                     if ui
-                        .add_sized([width, 24.], egui::Button::new("Organize"))
+                        .add_sized([width, 24.], egui::Button::new("Props"))
+                        .on_hover_text("Symbol properties: name, folder and type")
                         .clicked()
                     {
                         self.start_library_edit(EditTarget::Symbol(symbol.id.clone()), "");
@@ -483,6 +485,10 @@ impl Editor {
     }
 
     fn start_library_edit(&mut self, target: EditTarget, parent: &str) {
+        let kind = match &target {
+            EditTarget::Symbol(id) => self.project.symbol(id).map(|symbol| symbol.kind),
+            _ => None,
+        };
         let (name, parent) = match &target {
             EditTarget::NewFolder => {
                 let paths = self.project.library_folder_paths();
@@ -504,6 +510,7 @@ impl Editor {
             target,
             name,
             parent,
+            kind,
             focus: true,
             error: None,
         });
@@ -519,7 +526,7 @@ impl Editor {
             ui.strong(match edit.target {
                 EditTarget::NewFolder => "New folder",
                 EditTarget::Folder(_) => "Organize folder",
-                EditTarget::Symbol(_) => "Organize symbol",
+                EditTarget::Symbol(_) => "Symbol properties",
             });
             let response = crate::paint_controls::text_row(ui, "Name", &mut edit.name);
             if std::mem::take(&mut edit.focus) {
@@ -538,6 +545,42 @@ impl Editor {
                     excluded,
                 );
             });
+            if let Some(kind) = &mut edit.kind {
+                crate::paint_controls::property_row(ui, "Type", |ui| {
+                    egui::ComboBox::from_id_salt("library-symbol-kind")
+                        .width(ui.available_width().min(130.))
+                        .truncate()
+                        .selected_text(kind_label(*kind))
+                        .show_ui(ui, |ui| {
+                            for option in [
+                                SymbolKind::MovieClip,
+                                SymbolKind::Graphic,
+                                SymbolKind::Button,
+                            ] {
+                                ui.selectable_value(kind, option, kind_label(option));
+                            }
+                        });
+                });
+                ui.small("Changes this library symbol and all its instances.");
+                if *kind == SymbolKind::Button {
+                    ui.small("Frames 1–4: Up, Over, Down, Hit. Later frames are preserved.");
+                }
+                if let EditTarget::Symbol(id) = &edit.target
+                    && let Some(symbol) = self.project.symbol(id)
+                {
+                    for (label, value) in [
+                        ("Linkage", &symbol.linkage_id),
+                        ("Class", &symbol.class_name),
+                    ] {
+                        if let Some(value) = value {
+                            crate::paint_controls::property_row(ui, label, |ui| {
+                                ui.add(egui::Label::new(value).truncate())
+                                    .on_hover_text(value);
+                            });
+                        }
+                    }
+                }
+            }
             if let Some(error) = &edit.error {
                 ui.colored_label(ui.visuals().error_fg_color, error);
             }
@@ -577,8 +620,40 @@ impl Editor {
                         candidate.relocate_library_folder(from, &destination)
                     }
                     EditTarget::Symbol(id) => {
-                        candidate.move_library_symbol(id, &edit.parent).map(|()| {
-                            candidate.symbol_mut(id).unwrap().name = name.to_owned();
+                        candidate.move_library_symbol(id, &edit.parent).and_then(|()| {
+                            let symbol = candidate.symbol_mut(id).unwrap();
+                            let before = symbol.kind;
+                            let kind = edit.kind.unwrap_or(before);
+                            if kind != before && symbol.class_name.is_some() {
+                                return Err("Type changes for class-linked symbols are not supported yet. The linked class and scripts have been preserved.".into());
+                            }
+                            if kind == SymbolKind::Graphic && symbol.linkage_id.is_some() {
+                                return Err("Graphic symbols cannot keep runtime export linkage. Keep Movie Clip or Button; the export identifier has been preserved.".into());
+                            }
+                            symbol.name = name.to_owned();
+                            symbol.kind = kind;
+                            if kind == SymbolKind::Button {
+                                symbol.timeline.frame_count = symbol.timeline.frame_count.max(4);
+                            }
+                            if kind != before {
+                                for owner in &mut candidate.symbols {
+                                    for element in owner.timeline.layers.iter_mut().flat_map(|layer| &mut layer.keyframes).flat_map(|key| &mut key.elements) {
+                                        if let ElementKind::Instance { symbol_id, playback } = &mut element.kind
+                                            && symbol_id.as_str() == id.as_str()
+                                        {
+                                            *playback = match kind {
+                                                SymbolKind::MovieClip => InstancePlayback::Independent,
+                                                SymbolKind::Button => InstancePlayback::SingleFrame(0),
+                                                SymbolKind::Graphic => match *playback {
+                                                    InstancePlayback::Independent => InstancePlayback::Loop,
+                                                    other => other,
+                                                },
+                                            };
+                                        }
+                                    }
+                                }
+                            }
+                            Ok(())
                         })
                     }
                 }

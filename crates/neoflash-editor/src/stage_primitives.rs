@@ -554,6 +554,7 @@ mod tests {
             layer_id: "layer".into(),
             transform: matrix(),
             alpha: 1.,
+            color_transform: neoflash_core::ColorTransform::default(),
             kind: ElementKind::Rectangle {
                 width: 80.,
                 height: 40.,

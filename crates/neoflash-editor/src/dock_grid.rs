@@ -145,7 +145,7 @@ impl Editor {
         let tools_only = groups.len() == 1 && groups[0].tabs == [PanelId::Tools];
         let available = ctx.available_rect();
         let (minimum, maximum) = if edge.vertical() {
-            let min = if tools_only { 56. } else { 170. };
+            let min = if tools_only { 90. } else { 170. };
             let reserve = if edge == DockEdge::Left && self.dock_edge_visible(DockEdge::Right) {
                 self.workspace
                     .dock
@@ -497,6 +497,7 @@ impl Editor {
         let body =
             egui::Rect::from_min_max(egui::pos2(rect.left(), header.bottom()), rect.max).shrink(5.);
         let ctx = parent.ctx().clone();
+        let clipboard_target = self.clipboard_target(&ctx);
         let zoom = ctx.zoom_factor();
         let inner = ctx
             .input(|i| i.viewport().inner_rect)
@@ -513,13 +514,17 @@ impl Editor {
             header: global(header),
             tabs: Vec::new(),
         };
+        let tabs_rect = egui::Rect::from_min_max(
+            header.min + egui::vec2(15., 1.),
+            header.max - egui::vec2(25., 1.),
+        );
         let mut header_ui = parent.new_child(
             egui::UiBuilder::new()
                 .id(("dock-tabs", surface, group.id))
-                .max_rect(header.shrink2(egui::vec2(3., 1.)))
+                .max_rect(tabs_rect)
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
-        header_ui.set_clip_rect(parent.clip_rect().intersect(header));
+        header_ui.set_clip_rect(parent.clip_rect().intersect(tabs_rect));
         if self.symbol_conversion.is_some() {
             header_ui.disable();
         }
@@ -541,7 +546,7 @@ impl Editor {
                                 .min_size(egui::vec2(34., 22.))
                                 .sense(egui::Sense::click_and_drag()),
                         );
-                        let visible_rect = response.rect.intersect(header);
+                        let visible_rect = response.rect.intersect(tabs_rect);
                         if visible_rect.is_positive() {
                             target.tabs.push((*panel, global(visible_rect)));
                             if group.active == *panel {
@@ -556,23 +561,79 @@ impl Editor {
                             self.show_panel(*panel);
                         }
                         self.panel_drag_handle(ui, *panel, &response);
-                        response.context_menu(|ui| self.panel_dock_menu(ui, *panel));
+                        response.context_menu(|ui| {
+                            self.dock_header_menu(ui, *panel, surface, &clipboard_target)
+                        });
                     }
                 });
             });
         let blank_start = target
             .tabs
             .last()
-            .map_or(header.left(), |(_, r)| r.right() / zoom - inner.left());
-        let blank = egui::Rect::from_min_max(egui::pos2(blank_start, header.top()), header.max);
+            .map_or(tabs_rect.left(), |(_, r)| r.right() / zoom - inner.left());
+        let blank =
+            egui::Rect::from_min_max(egui::pos2(blank_start, tabs_rect.top()), tabs_rect.max);
         if blank.width() > 6. {
             let response = header_ui.interact(
                 blank,
                 header_ui.id().with("header-grab"),
                 egui::Sense::click_and_drag(),
             );
-            self.panel_drag_handle(&header_ui, group.active, &response);
+            self.panel_group_drag_handle(
+                &header_ui,
+                group.active,
+                (surface, edge, group.id),
+                &response,
+            );
+            response.context_menu(|ui| {
+                self.dock_header_menu(ui, group.active, surface, &clipboard_target)
+            });
         }
+        // A small grip stays reachable when the tab strip is full. The blank
+        // header uses the same gesture; tab labels always move a single panel.
+        let grip =
+            egui::Rect::from_min_max(header.min, egui::pos2(header.left() + 13., header.bottom()));
+        let mut grip_ui = parent.new_child(
+            egui::UiBuilder::new()
+                .id(("dock-group-grip", surface, group.id))
+                .max_rect(grip),
+        );
+        grip_ui.set_clip_rect(parent.clip_rect().intersect(grip));
+        if self.symbol_conversion.is_some() {
+            grip_ui.disable();
+        }
+        let response = grip_ui.interact(grip, grip_ui.id(), egui::Sense::click_and_drag());
+        for y in [-4., 0., 4.] {
+            grip_ui.painter().circle_filled(
+                grip.center() + egui::vec2(0., y),
+                1.,
+                parent.visuals().weak_text_color(),
+            );
+        }
+        self.panel_group_drag_handle(&grip_ui, group.active, (surface, edge, group.id), &response);
+        response
+            .on_hover_text("Drag panel group")
+            .context_menu(|ui| self.dock_header_menu(ui, group.active, surface, &clipboard_target));
+        let menu_rect = egui::Rect::from_min_max(
+            egui::pos2(header.right() - 23., header.top() + 1.),
+            header.max - egui::vec2(1., 1.),
+        );
+        let mut menu_ui = parent.new_child(
+            egui::UiBuilder::new()
+                .id(("dock-group-menu", surface, group.id))
+                .max_rect(menu_rect),
+        );
+        menu_ui.set_clip_rect(parent.clip_rect().intersect(menu_rect));
+        if self.symbol_conversion.is_some() {
+            menu_ui.disable();
+        }
+        menu_ui.spacing_mut().button_padding = egui::vec2(3., 0.);
+        menu_ui
+            .menu_button("...", |ui| {
+                self.dock_header_menu(ui, group.active, surface, &clipboard_target)
+            })
+            .response
+            .on_hover_text("Panel menu");
         parent.painter().hline(
             header.x_range(),
             header.bottom(),
@@ -648,7 +709,7 @@ impl Editor {
         });
     }
 
-    fn current_dock_group(
+    pub(crate) fn current_dock_group(
         &self,
         surface: DockSurface,
         edge: DockEdge,
@@ -821,6 +882,9 @@ impl Editor {
             PanelId::Tools => self.tools_contents(ui),
             PanelId::Timeline => self.timeline_contents(ui),
             PanelId::Library => self.library_contents(ui),
+            PanelId::Align => self.align_panel_ui(ui),
+            PanelId::Transform => self.transform_panel_ui(ui),
+            PanelId::Color => self.color_panel_ui(ui),
             _ => self.bottom_contents(ui, panel),
         }
         self.detached.content_header = None;
@@ -843,6 +907,19 @@ impl Editor {
             self.set_panel_visible(panel, false);
             ui.close();
         }
+    }
+
+    fn dock_header_menu(
+        &mut self,
+        ui: &mut egui::Ui,
+        panel: PanelId,
+        surface: DockSurface,
+        target: &crate::clipboard::ClipboardTarget,
+    ) {
+        if let DockSurface::Floating(window) = surface {
+            self.floating_panel_commands(ui, window, target);
+        }
+        self.panel_dock_menu(ui, panel);
     }
 
     pub(crate) fn dock_surface_at(&self, pointer: egui::Pos2) -> Option<DockViewportTarget> {

@@ -60,11 +60,11 @@ impl Project {
 pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if !matches!(project.format_version, 1..=4) {
+    if !matches!(project.format_version, 1..=5) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported versions are 1, 2, 3 and 4",
+                "unsupported version {}; supported versions are 1, 2, 3, 4 and 5",
                 project.format_version
             ),
         );
@@ -264,10 +264,12 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                     "export identifier must be unique".into(),
                 );
             }
-            if symbol.id == project.root || symbol.kind != SymbolKind::MovieClip {
+            if symbol.id == project.root
+                || !matches!(symbol.kind, SymbolKind::MovieClip | SymbolKind::Button)
+            {
                 add(
                     format!("{sp}.linkage_id"),
-                    "only a non-root MovieClip symbol can be exported for runtime creation".into(),
+                    "only a non-root MovieClip or Button symbol can be exported for runtime creation".into(),
                 );
             }
             if let Some(class) = &symbol.class_name
@@ -330,6 +332,30 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                 &format!("{lp}.id"),
                 &mut add,
             );
+            let members: HashSet<_> = layer
+                .keyframes
+                .iter()
+                .flat_map(|k| &k.elements)
+                .map(|e| e.id.as_str())
+                .collect();
+            let mut group_ids = HashSet::new();
+            let mut grouped = HashSet::new();
+            for group in &layer.properties.groups {
+                if group.id.is_empty() || !group_ids.insert(group.id.as_str()) {
+                    add(
+                        format!("{lp}.properties.groups"),
+                        "group IDs must be nonempty and unique within a layer".into(),
+                    );
+                }
+                if group.members.len() < 2
+                    || group
+                        .members
+                        .iter()
+                        .any(|id| !members.contains(id.as_str()) || !grouped.insert(id.as_str()))
+                {
+                    add(format!("{lp}.properties.groups"), "each group requires at least two distinct layer members; groups must not overlap".into());
+                }
+            }
             let mut keys = HashSet::new();
             for (ki, key) in layer.keyframes.iter().enumerate() {
                 let kp = format!("{lp}.keyframes[{ki}]");
@@ -353,6 +379,20 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                         format!("{kp}.tween"),
                         "Bézier controls must be finite, x in [0,1], |y| <= 100".into(),
                     );
+                }
+                if let Some(Easing::Flash { acceleration }) = key.tween {
+                    if !acceleration.is_finite() || !(-100.0..=100.0).contains(&acceleration) {
+                        add(
+                            format!("{kp}.tween"),
+                            "Flash acceleration must be finite and within [-100,100]".into(),
+                        );
+                    }
+                    if project.format_version < 5 {
+                        add(
+                            format!("{kp}.tween"),
+                            "Flash easing requires format version 5".into(),
+                        );
+                    }
                 }
                 let mut placed = HashSet::new();
                 for (ei, element) in key.elements.iter().enumerate() {
@@ -394,7 +434,7 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                             );
                         }
                     }
-                    if ![t.x, t.y, t.scale_x, t.scale_y, t.rotation, t.alpha]
+                    if ![t.x, t.y, t.scale_x, t.scale_y, t.rotation, t.alpha, t.skew]
                         .iter()
                         .all(|v| v.is_finite())
                         || t.x.abs() > 1e12
@@ -402,12 +442,33 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                         || t.scale_x.abs() > 1e4
                         || t.scale_y.abs() > 1e4
                         || t.rotation.abs() > 1e9
+                        || t.skew.abs() > 1e9
+                        || t.color_transform.validate().is_err()
                         || !(0.0..=1.0).contains(&t.alpha)
                     {
                         add(
                             format!("{ep}.transform"),
                             "invalid or out-of-range transform".into(),
                         );
+                    }
+                    if project.format_version < 5
+                        && (t.skew != 0.
+                            || !t.color_transform.is_identity()
+                            || matches!(element.kind, ElementKind::PaintedPath { .. }))
+                    {
+                        add(format!("{ep}.transform"), "affine axes, authored color transforms and gradient paints require document version 5".into());
+                    }
+                    if let ElementKind::PaintedPath {
+                        fill_gradient,
+                        stroke_gradient,
+                        ..
+                    } = &element.kind
+                    {
+                        for paint in [fill_gradient, stroke_gradient].into_iter().flatten() {
+                            if let Err(error) = paint.validate() {
+                                add(format!("{ep}.kind"), error.into());
+                            }
+                        }
                     }
                     match &element.kind {
                         ElementKind::Video { .. } => {
@@ -445,6 +506,11 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                             }
                         }
                         ElementKind::Path {
+                            commands,
+                            stroke_width,
+                            ..
+                        }
+                        | ElementKind::PaintedPath {
                             commands,
                             stroke_width,
                             ..
@@ -509,7 +575,9 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                                     format!("missing symbol {symbol_id}"),
                                 );
                             }
-                            if let InstancePlayback::SingleFrame(frame) = playback
+                            if let InstancePlayback::SingleFrame(frame)
+                            | InstancePlayback::LoopFrom(frame)
+                            | InstancePlayback::PlayOnceFrom(frame) = playback
                                 && project
                                     .symbol(symbol_id)
                                     .is_some_and(|s| *frame >= s.timeline.frame_count)

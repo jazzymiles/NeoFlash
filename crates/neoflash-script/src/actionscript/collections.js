@@ -171,13 +171,32 @@ function __nfArrayMethod(receiver, name, as3) {
     const method = receiver[name];
     const array = __nfArrayIsArray(receiver);
     const synthesizeSortOn = array && name === 'sortOn' && !(name in receiver);
+    const synthesizeMutation = as3 && array && (name === 'insertAt' || name === 'removeAt') && !(name in receiver);
     const native = array && Object.hasOwn(__nfArrayMethods, name) && method === __nfArrayMethods[name];
     return (...args) => {
-        if (!native && !synthesizeSortOn) {
+        if (!native && !synthesizeSortOn && !synthesizeMutation) {
             if (typeof method !== 'function') throw new __nfArrayTypeError(`Array/custom member '${name}' is not callable.`);
             return __nfArrayApply(method, receiver, args);
         }
         __nfArrayBound(receiver.length);
+        if (synthesizeMutation) {
+            const required = name === 'insertAt' ? 2 : 1;
+            if (args.length !== required) throw new __nfArrayTypeError(`Array.${name} requires ${required} arguments.`);
+            const service = typeof __nfLegacy !== 'undefined' ? __nfLegacy?.objects3 : null;
+            if (typeof service?.arrayPlan !== 'function') throw new __nfArrayTypeError('Rust Array mutation services are unavailable; rebuild and re-export this project.');
+            let plan;
+            try { plan = service.arrayPlan(name, receiver.length, __nfArrayNumber(args[0]) | 0); }
+            catch (error) { throw new __nfArrayRangeError(String(error?.message ?? error)); }
+            // Only storage operations happen here. Rust owns index and growth policy.
+            // Refuse sparse/accessor/frozen storage before touching any element.
+            if (!Object.isExtensible(receiver) || !Object.getOwnPropertyDescriptor(receiver, 'length')?.writable) throw new __nfArrayTypeError('Array insertAt/removeAt requires ordinary mutable dense storage.');
+            for (let i = 0; i < receiver.length; i++) {
+                const descriptor = Object.getOwnPropertyDescriptor(receiver, String(i));
+                if (!descriptor || !Object.hasOwn(descriptor, 'value') || !descriptor.writable || !descriptor.configurable) throw new __nfArrayTypeError('Array insertAt/removeAt does not yet support sparse arrays or exotic element descriptors.');
+            }
+            const removed = __nfArrayApply(__nfArrayMethods.splice, receiver, plan.insert ? [plan.index, 0, args[1]] : [plan.index, plan.remove]);
+            return plan.insert ? undefined : removed[0];
+        }
         if (name === 'sort' || name === 'sortOn') return __nfArraySort(receiver, args, as3, name === 'sortOn');
         if (['map', 'filter', 'forEach', 'every', 'some'].includes(name)) {
             if (!as3) throw new __nfArrayTypeError(`${name} is an AS3 Array method. Use an AS2 loop or a custom method.`);

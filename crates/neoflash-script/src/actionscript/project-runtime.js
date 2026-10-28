@@ -4,6 +4,11 @@ const __nfProgram = (() => {
     const accessorStates = new WeakMap(), slots = new WeakMap(), classFacades = new WeakMap();
     const elementDescriptors = new Map();
     const initialized = new WeakMap(), superMethods = new WeakMap(), failed = new WeakMap();
+    const reflectionInterfaces = new Map();
+    const prototypeOwners = new WeakMap();
+    const objectDefaults = {toString:Object.prototype.toString,toLocaleString:Object.prototype.toLocaleString};
+    const classDefaultString = Function.prototype.toString;
+    let nativeTypeNames = [];
     const builtins = { Object, Array: __nfArrayClass(true), Date: __nfDateClass(true), RegExp: __nfRegExpClass(true), JSON: __nfJSON, XML:__nfXML?.XML, XMLList:__nfXML?.XMLList, Namespace:__nfXML?.Namespace, QName:__nfXML?.QName, 'flash.utils.Dictionary':__nfDictionaryClass(true), ...__nfBuiltins };
     function type(name) {
         const value = definitions.get(name)?.facade ?? interfaces.get(name) ?? builtins[name];
@@ -93,6 +98,21 @@ const __nfProgram = (() => {
         };
     }
     function hasFixedProperty(value,key) {return Boolean(publicSlot(value,key));}
+    function objectDescriptor(value,key) {
+        if(prototypeOwners.has(value)){
+            const descriptor=Object.getOwnPropertyDescriptor(value,key);
+            return {supported:true,fixed:false,own:Boolean(descriptor),enumerable:Boolean(descriptor?.enumerable),configurable:Boolean(descriptor?.configurable)};
+        }
+        const definition=classDefinition(value);
+        if(!definition)return null;
+        const nativeBase=chain(definition.name)[0]?.base;
+        if(nativeBase&&nativeBase!=='Object')return {supported:false};
+        const fixed=Boolean(publicSlot(value,key)),descriptor=Object.getOwnPropertyDescriptor(value,key);
+        // Class objects expose their own public static traits, not incidental
+        // JavaScript function name/length/prototype storage or base statics.
+        if(classFacades.has(value))return {supported:true,fixed,own:fixed,enumerable:false,configurable:false};
+        return {supported:true,fixed,own:fixed||Boolean(descriptor),enumerable:!fixed&&Boolean(descriptor?.enumerable),configurable:!fixed&&Boolean(descriptor?.configurable)};
+    }
     function enumerationKeys(value) {
         if(!identities.has(value))return null;
         const keys=[];
@@ -274,13 +294,13 @@ const __nfProgram = (() => {
         // Value classes keep their ordinary prototype/initialization path.
         const receiver = typeof nativeType?.__nfAllocate === 'function'
             ? nativeType.__nfAllocate({ className: name, args })
-            : Object.create(nativeType?.prototype || Object.prototype);
+            : Object.create(definitions.get(name).ordinary ? type(name).prototype : nativeType?.prototype || Object.prototype);
         if (receiver === null || (typeof receiver !== 'object' && typeof receiver !== 'function')) {
             throw new TypeError(`Native allocation for ${name} did not return an object.`);
         }
         return attach(name, receiver, args);
     }
-    function defineInterface(name) {
+    function defineInterface(name,reflection=null) {
         const facade = function(value) {
             if (new.target) throw new TypeError(`Interface ${name} cannot be constructed.`);
             if (arguments.length !== 1) throw new TypeError(`Interface ${name} conversion expects one value.`);
@@ -288,6 +308,8 @@ const __nfProgram = (() => {
         };
         Object.defineProperty(facade, Symbol.hasInstance, { value: value => is(value,name) });
         interfaces.set(name,facade);
+        classFacades.set(facade,name);
+        if(reflection)reflectionInterfaces.set(name,reflection);
     }
     function define(name, base, fields, methods, ctor, dialect = 'as3', accessors = [], implemented = [], options = {}) {
         const facade = function(...args) {
@@ -309,9 +331,20 @@ const __nfProgram = (() => {
             return {...value,access,owner:name,namespace,slot};
         }
         fields=fields.map(member);methods=methods.map(member);accessors=accessors.map(member);
-        const definition = { name, base, fields, methods, ctor, facade, dialect, accessors, interfaces:implemented,package:packageName,dynamic:Boolean(options.dynamic),final:Boolean(options.final) };
+        const ordinary=dialect==='as3'&&(!base||base==='Object'||definitions.get(base)?.ordinary===true);
+        const definition = { name, base, fields, methods, ctor, facade, dialect, accessors, interfaces:implemented,package:packageName,dynamic:Boolean(options.dynamic),final:Boolean(options.final),reflection:options.reflection,ordinary };
         classFacades.set(facade,name);
         definitions.set(name, definition);
+        if(ordinary){
+            // Adobe avmplus 858d034a3bd3a54d9b70909386435cf4aec81d21
+            // core/MethodEnv.cpp::newclass connects prototype
+            // delegates, then defines a nonenumerable constructor. Fixed traits
+            // remain per-instance slots; native/display allocation is untouched.
+            Object.setPrototypeOf(facade.prototype,definitions.get(base)?.facade.prototype||Object.prototype);
+            Object.defineProperty(facade.prototype,'constructor',{value:facade,writable:true,configurable:true,enumerable:false});
+            Object.defineProperty(facade,'prototype',{writable:false});
+            prototypeOwners.set(facade.prototype,name);
+        }
         if (dialect === 'as2') {
             const parent = base ? type(base) : Object;
             facade.prototype = Object.create(parent.prototype || Object.prototype);
@@ -334,6 +367,90 @@ const __nfProgram = (() => {
         for (const definition of definitions.values()) initializeFields(definition.name, definition.facade, true);
         for(const definition of definitions.values())if(definition.dialect==='as3')Object.preventExtensions(definition.facade);
     }
-    return Object.freeze({ type, is, cast, define, defineInterface, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, ref, assertDynamicWrite,
+    // Host objects stay in JavaScript. Only class identities, compiler-emitted
+    // metadata and descriptor facts cross into the Rust reflection policy.
+    function reflectionClass(name) {
+        if(['Number','int','uint','Boolean'].includes(name))return __nfNumericClass(name);
+        if(name==='String')return __nfStringClass(true);
+        return type(name);
+    }
+    function className(value) {
+        const numeric=typeof __nfNumericClassName==='function'?__nfNumericClassName(value):null;
+        if(numeric)return numeric;
+        if(classFacades.has(value))return classFacades.get(value);
+        if(value===__nfObjectClass(true))return 'Object';
+        if(value===__nfStringClass(true))return 'String';
+        for(const name of nativeTypeNames)if(builtins[name]!==undefined&&builtins[name]===value)return name;
+        return null;
+    }
+    function isClass(value) {return className(value)!==null;}
+    function constructClass(value,args) {
+        const name=className(value);
+        if(!name)throw new TypeError('Class construction requires a registered class; ordinary functions are unsupported.');
+        if(['Number','int','uint','Boolean'].includes(name))return __nfScalarCreate(name,args);
+        if(name==='String')return __nfStringCreate(true,args);
+        if(name==='Object')return __nfObjectCreate(true,args,true);
+        return construct(name,args);
+    }
+    function reflectionValue(value) {
+        const name=className(value);
+        if(name)return {kind:'class',name};
+        if(identities.has(value)){
+            const name=identities.get(value);
+            return definitions.get(name)?.dialect==='as3'?{kind:'project',name}:{kind:'unsupported'};
+        }
+        if(prototypeOwners.has(value))return {kind:'object'};
+        if(value===null)return {kind:'null'};
+        const kind=typeof value;
+        if(['undefined','boolean','number','string','function'].includes(kind))return {kind};
+        if(__nfArrayIsArray(value))return {kind:'array'};
+        if(__nfDateIs(value))return {kind:'date'};
+        if(__nfRegExpIs(value))return {kind:'regexp'};
+        if(__nfBuiltins.__nfIsNativeDisplay?.(value))return {kind:'unsupported'};
+        const prototype=Object.getPrototypeOf(value);
+        return {kind:prototype===Object.prototype||prototype===null?'object':'unsupported'};
+    }
+    function defaultStringDescriptor(receiver) {
+        const definition=classDefinition(receiver);
+        if(definition)return definition.ordinary?{name:definition.name,class_object:classFacades.has(receiver)}:null;
+        if(prototypeOwners.has(receiver))return {name:'Object',class_object:false};
+        if(receiver===null||typeof receiver!=='object'||__nfBuiltins.__nfIsNativeDisplay?.(receiver))return null;
+        const prototype=Object.getPrototypeOf(receiver);
+        return prototype===Object.prototype||prototype===null?{name:'Object',class_object:false}:null;
+    }
+    function defaultObjectString() {
+        const descriptor=defaultStringDescriptor(this);
+        if(!descriptor)throw new TypeError('Default Object string conversion supports ordinary AS3 source objects and plain records; provide an explicit supported receiver.');
+        if(typeof __nfBuiltins.__nfObjectExecute!=='function')throw new TypeError('Rust Object formatting is unavailable; rebuild and re-export this project.');
+        return __nfBuiltins.__nfObjectExecute({op:'default_string',...descriptor});
+    }
+    function defaultObjectMethod(receiver,name,resolved) {
+        if(!Object.hasOwn(objectDefaults,name)||!defaultStringDescriptor(receiver))return null;
+        if(resolved!==objectDefaults[name]&&!(name==='toString'&&classFacades.has(receiver)&&resolved===classDefaultString))return null;
+        // Both prototype methods share the native formatter in Adobe Object.as.
+        // In particular, the default locale method does not call an authored
+        // toString override. Use the invocation receiver, preserving call/apply.
+        return defaultObjectString;
+    }
+    function reflect(operation,args) {
+        if(args.length!==1)throw new TypeError(`${operation} expects exactly one argument in the source reflection profile.`);
+        if(typeof __nfBuiltins.__nfObjectExecute!=='function')throw new TypeError('Rust Object reflection is unavailable; rebuild and re-export this project.');
+        const metadata=[...definitions.values()].filter(definition=>definition.dialect==='as3').map(definition=>definition.reflection).filter(Boolean);
+        metadata.push(...reflectionInterfaces.values());
+        const request={op:operation,classes:metadata};
+        if(operation==='getDefinitionByName') {
+            if(typeof args[0]!=='string')throw new TypeError('getDefinitionByName currently requires a primitive String name.');
+            request.name=args[0];request.definitions=[...nativeTypeNames.filter(name=>builtins[name]!==undefined),'Number','int','uint','Boolean','String'];
+        } else request.value=reflectionValue(args[0]);
+        let result;
+        try{result=__nfBuiltins.__nfObjectExecute(request);}
+        catch(error){throw operation==='getDefinitionByName'?new ReferenceError(String(error?.message||error)):new TypeError(String(error?.message||error));}
+        if(operation==='getDefinitionByName')return reflectionClass(result);
+        if(operation==='describeType')return new __nfXML.XML(result);
+        return result;
+    }
+    for(const name of ['getQualifiedClassName','getQualifiedSuperclassName','getDefinitionByName','describeType'])builtins['flash.utils.'+name]=(...args)=>reflect(name,args);
+    return Object.freeze({ type, is, cast, define, defineInterface, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, ref, assertDynamicWrite, objectDescriptor, isClass, constructClass, reflect, defaultObjectMethod,
+        setNativeTypes:names=>{nativeTypeNames=names;},
         dialect:name=>definitions.get(name)?.dialect });
 })();

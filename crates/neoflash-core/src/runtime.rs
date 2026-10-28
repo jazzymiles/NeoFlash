@@ -133,7 +133,9 @@ impl Player {
             Clock {
                 symbol_id: self.root_id(project).into(),
                 frame: 0,
-                playing: true,
+                playing: project
+                    .symbol(self.root_id(project))
+                    .is_none_or(|s| s.kind != SymbolKind::Button),
             },
         );
         self.refresh(project, false, &HashSet::new());
@@ -544,6 +546,12 @@ impl Player {
         let Some(clock) = self.clocks.get_mut(path) else {
             return false;
         };
+        if project
+            .symbol(&clock.symbol_id)
+            .is_some_and(|s| s.kind == SymbolKind::Button)
+        {
+            return false;
+        }
         let count = project
             .symbol(&clock.symbol_id)
             .map_or(1, |s| s.timeline.frame_count.max(1));
@@ -560,6 +568,33 @@ impl Player {
                 forced.insert(path.to_vec());
                 self.refresh(project, false, &forced);
             }
+        }
+        true
+    }
+
+    pub(crate) fn button_state(&mut self, project: &Project, path: &[Id], state: u32) -> bool {
+        if state > 2
+            || !self
+                .previous
+                .get(path)
+                .and_then(|node| node.symbol_id.as_ref())
+                .and_then(|id| project.symbol(id))
+                .is_some_and(|symbol| symbol.kind == SymbolKind::Button)
+        {
+            return false;
+        }
+        if path.is_empty()
+            && let Some(clock) = self.clocks.get_mut(path)
+        {
+            clock.frame = state;
+            clock.playing = false;
+            self.refresh(project, false, &HashSet::new());
+            return true;
+        }
+        let patch = self.overrides.entry(path.to_vec()).or_default();
+        if patch.button_frame.unwrap_or(0) != state {
+            patch.button_frame = Some(state);
+            self.refresh(project, false, &HashSet::new());
         }
         true
     }

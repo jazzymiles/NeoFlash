@@ -14,6 +14,7 @@ mod xml_literals;
 
 #[derive(Clone, Default)]
 struct CompileContext {
+    legacy_case: bool,
     types: std::collections::BTreeMap<String, String>,
     intrinsic_types: std::collections::BTreeSet<String>,
     functions: std::collections::BTreeMap<String, String>,
@@ -41,7 +42,15 @@ impl CompileContext {
     fn core_type(&self, name: &str) -> bool {
         (matches!(
             name,
-            "Number" | "String" | "Boolean" | "int" | "uint" | "Function" | "Object" | "Array"
+            "Number"
+                | "String"
+                | "Boolean"
+                | "int"
+                | "uint"
+                | "Function"
+                | "Class"
+                | "Object"
+                | "Array"
         ) || is_error_type(name))
             && self.types.get(name).is_none_or(|resolved| resolved == name)
     }
@@ -353,6 +362,7 @@ enum Expr {
     Function(Box<Function>),
     NewError(String, Vec<Expr>, usize),
     NewClass(String, Vec<Expr>, usize),
+    NewValue(String, Vec<Expr>, usize),
     NewBuiltin(String, Vec<Expr>, usize),
     NewVector(String, Vec<Expr>, usize),
 }
@@ -450,6 +460,7 @@ impl Expr {
                 .max(args.iter().map(Self::depth).max().unwrap_or(0)),
             Self::NewError(_, args, _)
             | Self::NewClass(_, args, _)
+            | Self::NewValue(_, args, _)
             | Self::NewBuiltin(_, args, _)
             | Self::NewVector(_, args, _) => args.iter().map(Self::depth).max().unwrap_or(0),
         }
@@ -1126,7 +1137,7 @@ impl<'a> Frontend<'a> {
         let supported = matches!(
             name,
             "Number" | "String" | "Boolean" | "Function" | "Array" | "Object"
-        ) || (as3 && matches!(name, "int" | "uint" | "*"))
+        ) || (as3 && matches!(name, "int" | "uint" | "Class" | "*"))
             || self.context.intrinsic_type(name, as3)
             || (!as3
                 && matches!(
@@ -1681,6 +1692,7 @@ impl<'a> Frontend<'a> {
                 && class.is_none()
                 && (!is_error_type(&name)
                     || (self.script.language == ScriptLanguage::ActionScript2 && name != "Error"))
+                && (self.script.language != ScriptLanguage::ActionScript3 || name.contains('.'))
             {
                 return Err(self.error("This constructor is not a supported native type in this language/profile; user classes require project type resolution."));
             }
@@ -1704,6 +1716,9 @@ impl<'a> Frontend<'a> {
             }
             if let Some(name) = class {
                 return Ok(Expr::NewClass(name, args, offset));
+            }
+            if !is_error_type(&name) {
+                return Ok(Expr::NewValue(name, args, offset));
             }
             let maximum = if self.script.language == ScriptLanguage::ActionScript3 {
                 2
@@ -2179,8 +2194,9 @@ impl Emitter<'_> {
                 format!("((__nfValue) => __nfValue == null ? null : {string}(__nfValue))({value})")
             }
             Some("Function") => format!(
-                "((__nfValue) => {{ if (__nfValue == null) return null; if (typeof __nfValue !== 'function') throw new __nfTypeError('AS3 Function value required'); return __nfValue; }})({value})"
+                "((__nfValue) => {{ if (__nfValue == null) return null; if (typeof __nfValue !== 'function' || __nfNumericClassName(__nfValue)!==null) throw new __nfTypeError('AS3 Function value required'); return __nfValue; }})({value})"
             ),
+            Some("Class") => format!("__nfClassCast({value})"),
             Some("Object") => {
                 format!("((__nfValue) => __nfValue == null ? null : __nfValue)({value})")
             }
@@ -2304,6 +2320,13 @@ impl Emitter<'_> {
     fn unscoped_name(&self, name: &str) -> String {
         if name == "arguments" {
             return "__nfArgumentsValue".into();
+        }
+        if self.as3
+            && matches!(name, "Number" | "int" | "uint" | "Boolean")
+            && self.analysis.resolve(self.scope, name).is_none()
+            && self.analysis.context.core_type(name)
+        {
+            return format!("__nfNumericClass({name:?})");
         }
         if name == "Math"
             && self.analysis.resolve(self.scope, name).is_none()
@@ -2482,7 +2505,9 @@ impl Emitter<'_> {
             .map_or_else(String::new, |name| format!(", {name:?}"))
     }
     fn bare_member_receiver(&self, name: &str) -> Option<String> {
-        self.analysis.context.class_name.as_ref()?;
+        if self.analysis.context.class_name.is_none() && !self.analysis.context.legacy_case {
+            return None;
+        }
         if self
             .analysis
             .resolve(self.scope, name)
@@ -2543,7 +2568,7 @@ impl Emitter<'_> {
             Some(ty) if vector_element(ty).is_some() => "null",
             Some("Number") => "NaN",
             Some("Boolean") => "false",
-            Some("String" | "Function" | "Object" | "Array") => "null",
+            Some("String" | "Function" | "Class" | "Object" | "Array") => "null",
             Some(ty @ ("Date" | "RegExp" | "XML" | "XMLList" | "Namespace" | "QName"))
                 if self.analysis.context.intrinsic_type(ty, true) =>
             {
@@ -2835,6 +2860,14 @@ impl Emitter<'_> {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
+            Expr::NewValue(name, args, _) => format!(
+                "__nfClassConstruct({}, [{}])",
+                self.name(name),
+                args.iter()
+                    .map(|a| self.expression(a))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Expr::NewBuiltin(name, args, _)
                 if matches!(
                     name.as_str(),
@@ -2960,7 +2993,11 @@ impl Emitter<'_> {
             }
             Expr::TypeTest(op, value, ty, _) => {
                 let predicate = if self.analysis.context.core_type(ty) {
-                    if ty == "Array" {
+                    if ty == "Class" {
+                        "__nfClassIs(__nfValue)".into()
+                    } else if self.as3 && ty == "Function" {
+                        "(typeof __nfValue === 'function' && __nfNumericClassName(__nfValue)===null)".into()
+                    } else if ty == "Array" {
                         "__nfArrayIsArray(__nfValue)".into()
                     } else {
                         format!("__nfCatchType(__nfValue, {ty:?})")
@@ -3718,6 +3755,15 @@ impl Emitter<'_> {
 pub(crate) fn compile(script: &Script) -> Result<String, Diagnostic> {
     compile_context(script, CompileContext::default())
 }
+pub(crate) fn compile_legacy(script: &Script) -> Result<String, Diagnostic> {
+    compile_context(
+        script,
+        CompileContext {
+            legacy_case: true,
+            ..CompileContext::default()
+        },
+    )
+}
 
 // One helper profile for standalone handlers and project methods. Helpers are
 // lexically captured per compiled unit; JavaScript/TypeScript remain untouched.
@@ -3777,7 +3823,8 @@ function __nfPrimitiveDescriptor(name) {
       case 'String':token=__nfString;coerce=value=>value==null?null:__nfString(value);break;
       case '*':token=Symbol.for('neoflash.vector.element.any');coerce=nullable;break;
       case 'Object':token=__nfObjectType;coerce=nullable;break;
-      case 'Function':token=__nfFunctionType;coerce=value=>{if(value==null)return null;if(typeof value==='function')return value;throw new __nfTypeError('AS3 Function value required');};break;
+      case 'Function':token=__nfFunctionType;coerce=value=>{if(value==null)return null;if(typeof value==='function'&&__nfNumericClassName(value)===null)return value;throw new __nfTypeError('AS3 Function value required');};break;
+      case 'Class':token=Symbol.for('neoflash.vector.element.Class');coerce=__nfClassCast;break;
       case 'Array':token=__nfArrayType;coerce=value=>{if(value==null)return null;if(__nfArrayIsArray(value))return value;throw new __nfTypeError('AS3 Array value required');};break;
       case 'XML':case 'XMLList':case 'Namespace':case 'QName':token=__nfXMLClass(name,true);coerce=value=>__nfXMLCast(name,value);break;
       case 'Date':token=__nfDateNative;coerce=__nfDateCast;break;

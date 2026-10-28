@@ -1,5 +1,15 @@
 # Imported public projects
 
+[ruffle-mx-button.nflash](ruffle-mx-button.nflash) and
+[ruffle-mx-static-text.nflash](ruffle-mx-static-text.nflash) are direct imports of
+the unchanged [MX button](../upstream/ruffle/mx-button/DefineButton-MX.fla) and
+[MX static-text](../upstream/ruffle/mx-static-text/DefineText2-MX.fla) sources.
+Their embedded original bytes and native snapshots are pinned in the corpus
+manifest. Ruffle's [MIT OR Apache-2.0 license notices](../upstream/ruffle/LICENSE.md)
+also apply to these derived projects. Both are 550 × 400 at 12 fps and contain
+no scripts. Rust regressions check button states/Hit picking and archived text
+style; static font metrics and padding can differ from Flash.
+
 [ruffle-avm1-frame-labels.nflash](ruffle-avm1-frame-labels.nflash) is the direct,
 unmodified result of importing the real Adobe Flash CS6
 [source FLA](../upstream/ruffle/avm1-frame-labels/test.fla). It is not a synthetic

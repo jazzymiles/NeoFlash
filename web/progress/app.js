@@ -3,6 +3,7 @@
 (() => {
   const labels = { implemented: 'Implemented', partial: 'Partial', planned: 'Planned' };
   const colors = { implemented: '#147b63', partial: '#b98124', needs_review: '#83629d', total: '#426986' };
+  const catalogueStatuses = [['implemented_subset', 'Implemented subset'], ['partial', 'Partial'], ['missing', 'Missing'], ['needs_review', 'Needs review']];
   const repository = 'https://github.com/jazzymiles/NeoFlash';
   const dateFormat = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' });
   const shortDateFormat = new Intl.DateTimeFormat('en-US', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
@@ -61,6 +62,24 @@
           throw new Error('Invalid ActionScript catalogue counts.');
         }
       }
+      const priorities = data.actionscript.priorities;
+      if (priorities) {
+        const validCounts = counts => counts && catalogueStatuses.every(([key]) => Number.isInteger(counts[key]) && counts[key] >= 0)
+          && catalogueStatuses.reduce((sum, [key]) => sum + counts[key], 0) === counts.total;
+        const validRows = rows => Array.isArray(rows) && rows.every(row => typeof row.id === 'string' && typeof row.title === 'string' && typeof row.purpose === 'string' && validCounts(row.counts));
+        if (priorities.schemaVersion !== 1 || !validCounts(priorities.total) || !validRows(priorities.groups) || !validRows(priorities.stages) || !validRows(priorities.buckets)
+          || !Array.isArray(priorities.limitations) || !priorities.limitations.every(value => typeof value === 'string')) {
+          throw new Error('Invalid AS3 priority classification.');
+        }
+        const player = priorities.buckets.find(bucket => bucket.id === 'player');
+        const sameCounts = (left, right) => ['total', ...catalogueStatuses.map(([key]) => key)].every(key => left[key] === right[key]);
+        const sumCounts = rows => Object.fromEntries(['total', ...catalogueStatuses.map(([key]) => key)].map(key => [key, rows.reduce((sum, row) => sum + row.counts[key], 0)]));
+        if (!player || !sameCounts(priorities.total, languages.AS3) || !sameCounts(sumCounts(priorities.groups), priorities.total)
+          || !sameCounts(sumCounts(priorities.buckets), priorities.total) || !sameCounts(sumCounts(priorities.stages), player.counts)
+          || priorities.stages.some((stage, index) => stage.order !== index + 1)) {
+          throw new Error('AS3 priority totals or stage order do not match the catalogue.');
+        }
+      }
     }
     return data;
   }
@@ -102,7 +121,7 @@
       metric.setAttribute('aria-label', `${number(counts.total)} documented entries`);
       card.append(metric);
       const statuses = element('dl', 'catalogue-statuses');
-      for (const [key, label] of [['implemented_subset', 'Implemented subset'], ['partial', 'Partial'], ['missing', 'Missing'], ['needs_review', 'Needs review']]) {
+      for (const [key, label] of catalogueStatuses) {
         const item = element('div', `catalogue-status ${key}`);
         item.append(element('dt', '', label), element('dd', '', number(counts[key])));
         statuses.append(item);
@@ -126,6 +145,63 @@
       note.append(document.createTextNode('Audited baseline: '), element('code', '', audit.sourceRevision.slice(0, 7)), document.createTextNode('. '));
     }
     note.append(link('Audit evidence', pathUrl(data.revision, 'docs/progress/actionscript-audit.json')));
+  }
+
+  function priorityTable(rows, caption, ordered = false) {
+    const wrapper = element('div', 'table-scroll priority-scroll');
+    wrapper.tabIndex = 0;
+    wrapper.setAttribute('role', 'region');
+    wrapper.setAttribute('aria-label', caption);
+    const table = element('table', 'priority-table');
+    table.append(element('caption', '', caption));
+    const head = element('thead'), heading = element('tr');
+    for (const label of [ordered ? 'Adaptation order and purpose' : 'Scope and purpose', 'Total', ...catalogueStatuses.map(([key, label]) => key === 'missing' ? 'Audit missing' : label)]) {
+      const cell = element('th', '', label);
+      cell.scope = 'col';
+      heading.append(cell);
+    }
+    head.append(heading);
+    const body = element('tbody');
+    for (const row of rows) {
+      const line = element('tr', `priority-${row.group || row.id}`);
+      const title = element('th', 'priority-topic');
+      title.scope = 'row';
+      title.append(element('span', 'priority-title', `${ordered ? `${row.order}. ` : ''}${row.title}`), element('span', 'priority-purpose', row.purpose));
+      line.append(title);
+      for (const key of ['total', ...catalogueStatuses.map(([key]) => key)]) line.append(element('td', `priority-count ${key}`, number(row.counts[key])));
+      body.append(line);
+    }
+    table.append(head, body);
+    wrapper.append(table);
+    return wrapper;
+  }
+
+  function renderAS3Priorities(data) {
+    const priorities = data.actionscript?.priorities;
+    const section = byId('as3-priorities');
+    if (!priorities || !section) return;
+    section.hidden = false;
+    byId('as3-priorities-description').textContent = priorities.description;
+    const content = byId('as3-priorities-content');
+    content.replaceChildren();
+    content.append(priorityTable(priorities.groups, 'Every AS3 catalogue entry belongs to one scope below. AIR-only APIs and shipped libraries are separate from the Flash Player adaptation queue.'));
+    const stages = element('details', 'priority-stages');
+    stages.open = true;
+    stages.append(element('summary', '', 'Flash Player adaptation order: foundations first'));
+    stages.append(element('p', 'fine-print', 'These stages divide the same Flash Player entries shown above; they are not additional entries. “Audit missing” is a dated decision, not a fresh source check. Adaptation targets remaining behavior; existing methods are not scheduled again. “Needs review” requires evidence before being treated as missing.'));
+    stages.append(priorityTable(priorities.stages, 'Ordered by dependency and usefulness for classic Flash content. Cameras, networking and external services follow the core.', true));
+    content.append(stages);
+    const note = element('p', 'fine-print priority-boundary', 'Classification describes documented Flash Player availability, including APIs shared with AIR. It does not promise equivalent HTML5 browser access or establish new implementation evidence. ');
+    note.append(link('Per-entry classification, exclusions and evidence →', pathUrl(data.revision, 'docs/progress/ACTIONSCRIPT.md')));
+    content.append(note);
+    if (priorities.limitations.length) {
+      const details = element('details', 'priority-limitations');
+      details.append(element('summary', '', 'Classification limits'));
+      const list = element('ul');
+      priorities.limitations.forEach(value => list.append(element('li', '', value)));
+      details.append(list);
+      content.append(details);
+    }
   }
 
   function renderCategories(data) {
@@ -161,6 +237,7 @@
 
   function renderCurrent(data) {
     renderActionScript(data);
+    renderAS3Priorities(data);
     renderCategories(data);
   }
 

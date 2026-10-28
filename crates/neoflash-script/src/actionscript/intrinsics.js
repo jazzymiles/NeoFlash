@@ -7,7 +7,85 @@ const __nfNativeParseInt = parseInt;
 const __nfNativeFixed = Number.prototype.toFixed;
 const __nfNativeExponential = Number.prototype.toExponential;
 const __nfNativePrecision = Number.prototype.toPrecision;
+const __nfNativeNumberString = Number.prototype.toString;
+const __nfNativeNumberValue = Number.prototype.valueOf;
 const __nfApply = Reflect.apply;
+const __nfNumericBrand = Symbol.for('neoflash.as3.numeric.class.v1');
+const __nfNumericNegativeZero = Symbol.for('neoflash.as3.numeric.negative-zero');
+const __nfLocalNumericState = {classes:new Map(),methods:new Map()};
+function __nfNumericState() {
+    return typeof __nfLegacy !== 'undefined' && __nfLegacy?.math?.numericState || __nfLocalNumericState;
+}
+function __nfNumericClassName(value) {
+    if (typeof value !== 'function') return null;
+    const descriptor = Object.getOwnPropertyDescriptor(value, __nfNumericBrand);
+    return descriptor && ['Number','int','uint','Boolean'].includes(descriptor.value) ? descriptor.value : null;
+}
+function __nfNumericCreate(name, args) {
+    if (args.length > 1) throw new __nfTypeError('AS3 '+name+' conversion/construction currently accepts zero or one argument.');
+    return __nfScalarCreate(name, args);
+}
+function __nfNumericClass(name) {
+    const state = __nfNumericState();
+    if (!state.classes.has(name)) {
+        if (!['Number','int','uint','Boolean'].includes(name)) throw new __nfTypeError('Unsupported numeric class '+name);
+        // Construction is lowered through __nfClassConstruct so that aliases
+        // return AS3 scalar values, never JavaScript primitive wrapper objects.
+        const facade = (...args) => __nfNumericCreate(name,args);
+        const constants = name === 'Number' ? {MAX_VALUE:Number.MAX_VALUE,MIN_VALUE:Number.MIN_VALUE,NaN,NEGATIVE_INFINITY:-Infinity,POSITIVE_INFINITY:Infinity}
+            : name === 'int' ? {MIN_VALUE:-2147483648,MAX_VALUE:2147483647}
+            : name === 'uint' ? {MIN_VALUE:0,MAX_VALUE:4294967295} : {};
+        for (const [key,value] of Object.entries(constants)) Object.defineProperty(facade,key,{value});
+        Object.defineProperties(facade, {
+            [__nfNumericBrand]:{value:name},name:{value:name},length:{value:1},
+            prototype:{get(){throw new __nfTypeError('AS3 '+name+'.prototype mutation and prototype method borrowing are outside the numeric class profile.');}},
+            __nfIs:{value:value=>name==='Boolean'?typeof value==='boolean':typeof value==='number'&&(name==='Number'||(Number.isInteger(value)&&value>=(name==='int'?-2147483648:0)&&value<=(name==='int'?2147483647:4294967295)))},
+        });
+        state.classes.set(name,Object.freeze(facade));
+    }
+    return state.classes.get(name);
+}
+function __nfClassIs(value) {
+    return __nfNumericClassName(value)!==null || (typeof __nfProgram!=='undefined' && __nfProgram?.isClass?.(value)===true);
+}
+function __nfClassCast(value) {
+    if(value==null)return null;
+    if(__nfClassIs(value))return value;
+    throw new __nfTypeError('AS3 Class requires a supported built-in or registered project class, not an arbitrary Function.');
+}
+function __nfClassConstruct(value,args) {
+    const name=__nfNumericClassName(value);
+    if(name)return __nfNumericCreate(name,args);
+    if(typeof __nfProgram!=='undefined' && __nfProgram?.isClass?.(value)===true)return __nfProgram.constructClass(value,args);
+    throw new __nfTypeError('Constructor alias must reference a supported AS3 class; arbitrary Function construction is unsupported.');
+}
+function __nfNumericMethod(receiver,name) {
+    if(name==='toFixed')return __nfFixedMethod(receiver);
+    if(name==='toExponential'||name==='toPrecision')return __nfNumberFormatMethod(receiver,name,true);
+    // Keep the existing native toString/valueOf calculation and argument
+    // profile. This adapter only retains the numeric receiver for extraction;
+    // it does not introduce a new radix algorithm or claim AVM formatting parity.
+    const method=name==='valueOf'?__nfNativeNumberValue:__nfNativeNumberString;
+    return (...args)=>__nfApply(method,receiver,args);
+}
+function __nfNumericMethodValue(receiver,value) {
+    if(typeof receiver!=='number')return value;
+    const names = [[__nfNativeFixed,'toFixed'],[__nfNativeExponential,'toExponential'],[__nfNativePrecision,'toPrecision'],[__nfNativeNumberString,'toString'],[__nfNativeNumberValue,'valueOf']];
+    const name=names.find(([method])=>method===value)?.[1];
+    if(!name)return value;
+    const methods=__nfNumericState().methods,key=Object.is(receiver,-0)?__nfNumericNegativeZero:receiver;
+    let cached=methods.get(key);
+    if(!cached){
+        if(methods.size>=16384)throw new __nfTypeError('Numeric method references exceed 16384 distinct receiver values in this publication.');
+        cached=new Map();methods.set(key,cached);
+    }
+    if(!cached.has(name)){
+        const method=__nfNumericMethod(receiver,name);
+        Object.defineProperties(method,{length:{value:name==='valueOf'?0:1},name:{value:name}});
+        cached.set(name,method);
+    }
+    return cached.get(name);
+}
 // Per-publication Rust service; there is deliberately no JavaScript fallback.
 function __nfAs2Strings() {
     if (typeof __nfLegacy === 'undefined' || typeof __nfLegacy?.strings?.invoke !== 'function') {

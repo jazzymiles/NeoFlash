@@ -9,15 +9,34 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "progress.py"
 sys.path.insert(0, str(MODULE_PATH.parent))
 from test_progress_catalog import write_catalog_fixture
+from progress_as3 import build_manifest
 
 SPEC = importlib.util.spec_from_file_location("progress", MODULE_PATH)
 progress = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(progress)
+
+
+def priority_summary_fixture():
+    counts = {"implemented_subset": 1, "partial": 1, "missing": 1, "needs_review": 1, "total": 4}
+    return {
+        "schemaVersion": 1, "title": "AS3 adaptation priorities",
+        "description": "Player foundations before external services.",
+        "source": {"referenceSha256": "a" * 64, "referenceGeneration": "2018-12-06",
+                   "classificationSha256": "b" * 64, "entryCount": 4},
+        "total": counts,
+        "buckets": [{"id": "player", "title": "Flash Player", "purpose": "Run authored content.", "counts": counts}],
+        "groups": [{"id": "foundation", "title": "Important foundation", "purpose": "Enable ordinary interactive projects.", "counts": counts}],
+        "stages": [{"id": "math-geometry", "order": 1, "title": "Mathematics and types", "group": "foundation",
+                    "purpose": "Calculate movement and transform coordinates.", "counts": counts}],
+        "limitations": ["Availability is distinct from implementation evidence."],
+        "currentSourceVerified": False,
+    }
 
 
 class ProgressTests(unittest.TestCase):
@@ -223,6 +242,60 @@ class ProgressTests(unittest.TestCase):
         self.write("docs/progress/ACTIONSCRIPT.md", "Outdated audit report.\n")
         with self.assertRaisesRegex(ValueError, "stale"):
             progress.reports(self.root, categories, features)
+
+    def test_priority_reports_keep_statuses_purposes_and_precede_followup_history(self):
+        categories, features = self.inventory(method=2)
+        priorities = priority_summary_fixture()
+        with patch.object(progress, "load_priorities", return_value=priorities):
+            progress.reports(self.root, categories, features, write=True)
+            progress.reports(self.root, categories, features)
+        readme = (self.root / "README.md").read_text()
+        self.assertIn("| AS3 | 4 | 1 | 1 | 1 | 1 |", readme)
+        self.assertIn("| Important foundation | 4 | 1 | 1 | 1 | 1 |", readme)
+        self.assertIn("Audit missing", readme)
+        self.assertIn("#as3-adaptation-priorities", readme)
+        catalog = progress.load_catalog(self.root)
+        catalog["metadata"]["independentVerifications"] = [{
+            "id": "fixture-follow-up", "recordedHead": "c" * 40,
+            "sourceCapturedAt": "2026-10-27T10:00:00Z", "verifiedAt": "2026-10-27T11:00:00Z",
+            "browser": "Fixture only",
+        }]
+        report = progress.catalog_report(catalog, priorities)
+        self.assertLess(report.index("## AS3 adaptation priorities"), report.index("## Follow-up acceptance"))
+        self.assertIn("Calculate movement and transform coordinates.", report)
+        self.assertIn("not a freshly demonstrated absence", report)
+        self.assertIn("Availability is distinct from implementation evidence.", report)
+        changed = copy.deepcopy(priorities)
+        changed["stages"][0]["purpose"] = "Updated planning purpose."
+        with patch.object(progress, "load_priorities", return_value=changed):
+            with self.assertRaisesRegex(ValueError, "stale"):
+                progress.reports(self.root, categories, features)
+
+    def test_priority_build_reads_selected_revision_and_omits_absent_historical_plan(self):
+        self.inventory(method=2)
+        earlier = self.commit("audit before priority plan", "2026-10-26T12:00:00+00:00")
+        catalog = progress.load_catalog(self.root)
+        source = next(item for item in catalog["metadata"]["sourceFiles"] if item["file"] == "as3.json")
+        reference = {
+            "source_baseline": {"reference_generation_date": source["referenceGeneration"]},
+            "entries": [{**row, "id": row["catalog_id"], "availability": [{"runtime": "Flash", "version": "9"}],
+                         "detail_availability": None}
+                        for row in catalog["entries"] if row["language"] == "AS3"],
+        }
+        self.write_json("docs/progress/as3-priorities.json", build_manifest(reference, catalog, source["sha256"]))
+        current = self.commit("priority plan", "2026-10-27T12:00:00+00:00")
+        self.write("docs/progress/as3-priorities.json", "invalid uncommitted priority plan")
+        data = progress.build(self.root, self.root / "dist/current", current)
+        priorities = data["actionscript"]["priorities"]
+        self.assertEqual(priorities["total"], data["actionscript"]["counts"]["AS3"])
+        self.assertEqual(sum(row["counts"]["total"] for row in priorities["groups"]), 4)
+        self.assertEqual(priorities["source"]["referenceSha256"], source["sha256"])
+        self.assertFalse(priorities["currentSourceVerified"])
+        self.assertNotIn("entries", priorities)
+        self.assertNotIn("catalog_id", json.dumps(priorities))
+        historical = progress.build(self.root, self.root / "dist/earlier", earlier)
+        self.assertNotIn("priorities", historical["actionscript"])
+        self.assertEqual(historical["actionscript"]["counts"]["AS3"], priorities["total"])
 
     def test_generated_report_drift_is_rejected(self):
         categories, features = self.inventory()

@@ -16,18 +16,31 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | AS2 | 2,307 | 15 | 1,518 | 737 | 37 |
-| AS3 | 43,740 | 15 | 1,254 | 42,308 | 163 |
+| AS3 | 43,740 | 15 | 1,275 | 42,300 | 150 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
+
+### AS3 adaptation priorities
+
+| AS3 scope | Entries | Implemented subset | Partial | Audit missing | Needs review |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Important now: classic foundation | 1,939 | 15 | 725 | 1,052 | 147 |
+| Next: file audio and video | 91 | 0 | 35 | 54 | 2 |
+| Later: services and advanced Player APIs | 2,134 | 0 | 358 | 1,776 | 0 |
+| Far future: AIR extensions | 1,448 | 0 | 32 | 1,416 | 0 |
+| Far future: libraries and platform extensions | 37,990 | 0 | 124 | 37,866 | 0 |
+| Platform not resolved | 138 | 0 | 1 | 136 | 1 |
+
+The important foundation comes first: mathematics and types, objects, MovieClips, display and text. Media and then cameras, networking and other platform facilities follow. AIR and libraries are separate. **Audit missing** is a dated audit status, not a fresh source check. See the [stage purposes, order and classification limits](docs/progress/ACTIONSCRIPT.md#as3-adaptation-priorities).
 
 ### Product capabilities
 
 | Area | Implemented | Partial | Planned | Registry coverage |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 5/12 | 6 | 1 | 41.7% |
+| Editor and graphics | 5/12 | 7 | 0 | 41.7% |
 | Timelines and animation | 5/10 | 3 | 2 | 50.0% |
 | HTML5 and interactivity | 6/12 | 4 | 2 | 50.0% |
-| Import and file compatibility | 1/10 | 6 | 3 | 10.0% |
+| Import and file compatibility | 1/10 | 7 | 2 | 10.0% |
 | Platform and quality | 4/10 | 5 | 1 | 40.0% |
 
 Implemented means the item's stated scope is complete; partial items do not contribute to the percentage. This measures our capability registry, **not Flash compatibility or test line coverage**. Items differ in size, so there is no overall product completion percentage.
@@ -51,7 +64,7 @@ The first build downloads pinned Rust/WASM dependencies. Apple Silicon is locall
 
 ## Try the workflow
 
-Open [authoring-workspace.nflash](examples/authoring-workspace.nflash) for mask layers, guides and a linked library symbol. Drag [authoring-badge.svg](examples/authoring-badge.svg) onto the stage to import editable artwork. PNG/JPEG and more complex SVG artwork also import through **File → Import graphics to Stage**.
+Open [authoring-workspace.nflash](examples/authoring-workspace.nflash) for masks, guides, a linked library symbol, four-state buttons and Graphic playback. Drag [authoring-badge.svg](examples/authoring-badge.svg) onto the stage to import editable artwork. PNG/JPEG and more complex SVG artwork also import through **File → Import graphics to Stage**.
 
 1. Open the example, scrub the top timeline and enable **Onion Skin**. Drag the blue range handles or change Before/After; choose outlines and opacity.
 2. Double-click a symbol in the Library or an instance on the stage to edit a nested timeline. Use the breadcrumbs to return.
@@ -64,7 +77,7 @@ Open [authoring-workspace.nflash](examples/authoring-workspace.nflash) for mask 
 
 ## Editing and publishing
 
-Use **Pen (P)**, **Pencil (Y)** and **Subselection (A)** for vector paths. **Selection (V)** supports multiple objects and marquee selection; **Free Transform (Q)** resizes and rotates them. Copy/paste carries nested symbols and scripts between documents. See [clipboard workflows](docs/CLIPBOARD.md) and [workspace controls](docs/WORKSPACE.md).
+Use **Pen (P)**, **Pencil (Y)** and **Subselection (A)** for vector paths. **Selection (V)** supports multiple objects and marquee selection; **Free Transform (Q)** resizes and rotates them. Line, Brush, Bucket, Ink Bottle, Eyedropper, Eraser, Lasso, Hand, Zoom and Gradient Transform extend the compact tool palette. **Modify** and the **Align / Transform / Color** panels add grouping, arrangement, exact spacing and compact numeric editing. Copy/paste carries nested symbols, groups and scripts between documents. See [clipboard workflows](docs/CLIPBOARD.md) and [workspace controls](docs/WORKSPACE.md).
 
 **Actions → Project files** stores reusable AS2/AS3 source and linked classes. **Library → Resource files** embeds data, images and media for portable HTML5 projects. Runtime support includes partial display, events, text input, storage, audio/video and browser integration; each has explicit limits in the [compatibility matrix](docs/COMPATIBILITY.md).
 
@@ -84,7 +97,9 @@ System fonts are referenced by name; font embedding and identical cross-platform
 | Audio and video | [Sound playback](examples/sound-playback.nflash), [Video playback](examples/video-playback.nflash) |
 | Browser integration and dragging | [Web integration](examples/web-integration.nflash), [Drag and drop](examples/drag-drop.nflash) |
 
-The [public FLA corpus](examples/fla-corpus/README.md) includes licensed, pinned source files. One unchanged Adobe CS6 example imports and reproduces its reference trace in HTML5; other external cases retain explicit refusals. This is a bounded import profile, not general FLA compatibility.
+Native binary FLA import now covers the supported Flash MX/CS4 profiles exercised by `Clock.fla` and `300x600.fla`, preserving nested structure, classic animation and original scripts. The imported project embeds its exact source archive. Clock uses a partial AS1 timeline profile; the banner retains AS2. Missing installed fonts use fallback and do not block import. See [legacy import support and limits](docs/IMPORTS.md).
+
+The [public FLA corpus](examples/fla-corpus/README.md) includes licensed, pinned source files. Accepted cases include MX button/static-text files through the native profile and an Adobe CS6 example through XFL. The CS6 example reproduces its reference trace in HTML5. Unsupported cases retain explicit diagnostics; these examples do not establish general FLA compatibility.
 
 ## Project layout
 

@@ -20,6 +20,8 @@ export const intrinsicProfiles = {
       'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/Toplevel.cpp#L918',
       'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/Number.as#L146',
       'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/NumberClass.cpp#L33',
+      'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/Number.as#L149',
+      'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/MethodClosure.cpp#L147',
       'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/MathUtils.cpp#L863',
     ],
   },
@@ -42,7 +44,7 @@ var objectScalars=[Object(7),new Object(false),Object(null),new Object(undefined
 var precise=[(123.45).toExponential(),(123.45).toExponential(2),(123.45).toPrecision(4),(123.45).toPrecision(undefined),(123.45).toPrecision(null),(12).toExponential(4294967297)];
 var precisionErrors=0;try{(2).toPrecision();}catch(e:RangeError){precisionErrors++;}try{NaN.toExponential(21);}catch(e:RangeError){precisionErrors++;}try{(2).toPrecision(22);}catch(e:RangeError){precisionErrors++;}
 var formattingTool={toPrecision:function(value){return "custom:"+value;}};var customPrecision=formattingTool.toPrecision(22);
-var precisionAliasRejected=false;try{var formatAlias:Function=(2).toPrecision;}catch(e:Error){precisionAliasRejected=true;}
+var formatAlias:Function=(2).toPrecision;var precisionAliasValue=formatAlias(2);
 `;
 export const intrinsicFixtures = [
   fixture('as2', 'values=[parseInt("0777"),parseInt("08"),parseInt("0777tail"),parseInt(" 0777"),parseInt("-0777"),parseInt("0x10"),parseInt("0x10",10),parseInt("-0x10"),parseInt("0x  -10"),parseInt(),parseInt("10",0),parseInt("10",undefined),parseInt("10",null),parseInt("0777",8),parseInt("11",2.9),parseInt("10",1),parseInt("10",37),parseInt("-0")]; legacyInts=[int(3.9),int(-3.9),int(4294967295),int(NaN),int(Infinity)]; var booleanAlias:Function=Boolean;legacyBooleans=[Boolean(),Boolean(undefined),Boolean(null),Boolean("false"),booleanAlias()]; legacyRandom=[random(0),random(-2),random(NaN),random(1)]; var roll=random(7.9); var randomInRange=roll>=0&&roll<7&&int(roll)==roll;function localLegacy(int:Function,random:Function):Number{return int(2)+random(3);}legacyShadow=localLegacy(function(n){return n+10;},function(n){return n+20;});', c => {
@@ -70,7 +72,7 @@ export const intrinsicFixtures = [
     assert.equal(c.defaultVoid,undefined);assert.equal(c.retainedPrimitive,7);assert.equal(c.failedPrimitive,null);assert.equal(c.typeReads,2);
     assert.deepEqual(c.errorTypeChecks,[true,false]);assert.equal(c.objectScalars[0],7);assert.equal(c.objectScalars[1],false);assert.deepEqual(c.objectScalars.slice(2),[{},{}]);
     assert.deepEqual(c.precise,['1e+2','1.23e+2','123.5','123.45','123.45','1.2e+1']);assert.equal(c.precisionErrors,3);
-    assert.equal(c.customPrecision,'custom:22');assert.equal(c.precisionAliasRejected,true);
+    assert.equal(c.customPrecision,'custom:22');assert.equal(c.precisionAliasValue,'2.0');
   }),
   fixture('as3', 'var values=[]; var numbers=[1,NaN,Infinity,-Infinity]; var digits=[-1,21,4294967295]; for(var i:int=0;i<4;i++){for(var j:int=0;j<3;j++){try{numbers[i].toFixed(digits[j]);values.push("bad");}catch(e:RangeError){values.push(e.errorID);}}} boundary=(1).toFixed(20);', c => {
     assert.deepEqual(c.values, Array(12).fill(1002)); assert.equal(c.boundary, '1.00000000000000000000');
@@ -81,13 +83,38 @@ export const intrinsicFixtures = [
   fixture('as3', 'var tool={toFixed:function(value){return "custom:"+value;}}; custom=tool.toFixed(21); var callback:Function=tool.toFixed; alias=callback(22);', c => {
     assert.equal(c.custom, 'custom:21'); assert.equal(c.alias, 'custom:22');
   }),
-  fixture('as3', 'var n:Number=1; var key:String="toFixed"; try {var f:Function=n[key]; result=f(21);} catch(e:Error) {message=e.message;} try {var g:Function=(n[key] ||= 0); g(21);} catch(e:Error) {logical=e.message;}', c => {
-    assert.match(c.message, /Unsupported AS3 Number.toFixed method value/);
-    assert.match(c.logical, /Unsupported AS3 Number.toFixed method value/);
+  fixture('as3', 'var n:Number=1; var key:String="toFixed"; try {var f:Function=n[key]; result=f(21);} catch(e:RangeError) {errorId=e.errorID;} try {var g:Function=(n[key] ||= 0); g(21);} catch(e:RangeError) {logicalId=e.errorID;}', c => {
+    assert.equal(c.errorId, 1002);
+    assert.equal(c.logicalId, 1002);
     assert.equal(c.result, undefined);
   }),
-  fixture('as3', 'try {var direct:Function=(1).toFixed;} catch(e:Error) {directMessage=e.message;} try {var literal:Function=(1)["toFixed"];} catch(e:Error) {literalMessage=e.message;} try {var escaped:Function=(1)["to\\u0046ixed"];} catch(e:Error) {escapedMessage=e.message;}', c => {
-    for (const key of ['directMessage','literalMessage','escapedMessage']) assert.match(c[key], /Unsupported AS3 Number.toFixed method value/);
+  fixture('as3', 'var direct:Function=(1).toFixed;var literal:Function=(1)["toFixed"];var escaped:Function=(1)["to\\u0046ixed"];var referenceValues=[direct(2),literal.call(999,1),escaped.apply(null,[0])];var sameReferences=direct===literal&&literal===escaped;', c => {
+    assert.deepEqual(c.referenceValues,['1.00','1.0','1']);assert.equal(c.sameReferences,true);
+  }),
+  fixture('as3', `
+var signedType:Class=int;var unsignedType:Class=uint;var numberType:Class=Number;var booleanType:Class=Boolean;
+var aliasValues=[signedType("42.9"),new signedType(4294967295),unsignedType(-1),new unsignedType(-1),new numberType("12.5"),numberType(),new booleanType("false")];
+var bounds=[int.MIN_VALUE,int.MAX_VALUE,uint.MIN_VALUE,uint.MAX_VALUE,Number.MIN_VALUE,Number.MAX_VALUE,Number.NEGATIVE_INFINITY,Number.POSITIVE_INFINITY];
+var aliasIdentity=[signedType===int,numberType===Number,signedType is Class,numberType is Class,signedType is Function,ordinary is Class,(ordinary as Class)===null];
+function ordinary():int{return 3;}
+var coercionCount:int=0;var numericInput={valueOf:function():Number{coercionCount++;return 42.9;}};var aliasCoercion=new signedType(numericInput);
+var classRefused=false;try{var invalid:Class=ordinary;}catch(e:TypeError){classRefused=true;}
+var constructionRefused=false;try{var custom:Function=ordinary;var failed=new custom();}catch(e:TypeError){constructionRefused=true;}
+var extraRefused=false;try{signedType(1,2);}catch(e:TypeError){extraRefused=true;}
+var constantRefused=false;try{signedType.MAX_VALUE=7;}catch(e:TypeError){constantRefused=true;}
+var numericMethods=[(12.5).toFixed,(12.5).toExponential,(12.5).toPrecision,(42).toString,(-0).valueOf];
+var fixed:Function=numericMethods[0];var exponential:Function=numericMethods[1];var precision:Function=numericMethods[2];var digits:Function=numericMethods[3];var scalar:Function=numericMethods[4];
+var detachedValues=[fixed(2),exponential.call(999,1),precision.apply(null,[3]),digits(16),1/scalar.call(99),fixed.length,scalar.length];
+var radixRefused=false;try{digits(null);}catch(e:RangeError){radixRefused=true;}
+var fractional:Function=(12.5).toString;var nativeFormatting=[fractional(16),(12.5).toString(16),digits(undefined),digits(16,99),scalar(99)];
+`, c => {
+    assert.deepEqual(c.aliasValues,[42,-1,4294967295,4294967295,12.5,0,true]);
+    assert.deepEqual(c.bounds,[-2147483648,2147483647,0,4294967295,Number.MIN_VALUE,Number.MAX_VALUE,-Infinity,Infinity]);
+    assert.deepEqual(c.aliasIdentity,[true,true,true,true,false,false,true]);
+    assert.equal(c.aliasCoercion,42);assert.equal(c.coercionCount,1);
+    assert.equal(c.classRefused,true);assert.equal(c.constructionRefused,true);assert.equal(c.extraRefused,true);assert.equal(c.constantRefused,true);
+    assert.deepEqual(c.detachedValues,['12.50','1.3e+1','12.5','2a',-Infinity,1,0]);
+    assert.equal(c.radixRefused,true);assert.deepEqual(c.nativeFormatting,['c.8','c.8','42','2a',-0]);
   }),
   fixture('as3', 'var data={toFixed:17}; first=data.toFixed; data.toFixed=18; second=data.toFixed; data.toFixed+=1; before=data.toFixed++; after=++data.toFixed;', c => {
     assert.equal(c.first, 17); assert.equal(c.second, 18);

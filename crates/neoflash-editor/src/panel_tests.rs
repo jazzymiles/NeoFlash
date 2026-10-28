@@ -525,8 +525,12 @@ fn visibility_restore_and_theme_keep_document_and_history_unchanged() {
     editor.restore_workspace(&ctx);
     let out = frame(&mut editor, &ctx, Vec2::new(1024., 720.), 0.2, vec![]);
     assert!(named_bounds(&out, "Selection (V)").is_some());
+    let defaults = crate::workspace::WorkspacePrefs::default();
     for panel in PanelId::ALL {
-        assert!(editor.workspace.is_panel_visible(panel));
+        assert_eq!(
+            editor.workspace.is_panel_visible(panel),
+            defaults.is_panel_visible(panel)
+        );
     }
     assert!(editor.workspace.theme == ThemeMode::Dark);
     assert_eq!(editor.project, before);

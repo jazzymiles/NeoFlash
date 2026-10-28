@@ -8,6 +8,15 @@ pub(crate) enum Icon {
     Transform,
     Pen,
     Pencil,
+    Line,
+    Brush,
+    Bucket,
+    Ink,
+    Eyedropper,
+    Eraser,
+    Lasso,
+    Hand,
+    Gradient,
     Rectangle,
     Ellipse,
     Text,
@@ -106,6 +115,107 @@ pub(crate) fn paint_icon(p: &Painter, rect: Rect, icon: Icon, stroke: Stroke) {
             line((6., 13.), (11., 18.));
             line((14., 5.), (19., 10.));
             line((8., 15.), (17., 6.));
+        }
+        Icon::Line => line((4., 20.), (20., 4.)),
+        Icon::Brush => {
+            path(&[(11., 14.), (17., 3.), (21., 5.), (15., 16.)], true, false);
+            path(
+                &[
+                    (11., 14.),
+                    (7., 14.),
+                    (6., 18.),
+                    (3., 21.),
+                    (10., 21.),
+                    (14., 17.),
+                ],
+                true,
+                true,
+            );
+        }
+        Icon::Bucket => {
+            path(&[(4., 9.), (11., 3.), (18., 11.), (11., 19.)], true, false);
+            line((3., 9.), (17., 9.));
+            path(
+                &[(19., 13.), (16., 18.), (18., 21.), (21., 18.)],
+                true,
+                true,
+            );
+        }
+        Icon::Ink => {
+            box_at(8., 3., 8., 4.);
+            path(
+                &[
+                    (8., 8.),
+                    (5., 11.),
+                    (5., 20.),
+                    (19., 20.),
+                    (19., 11.),
+                    (16., 8.),
+                ],
+                true,
+                false,
+            );
+            line((7., 15.), (17., 15.));
+        }
+        Icon::Eyedropper => {
+            path(
+                &[(6., 15.), (15., 6.), (18., 9.), (9., 18.), (4., 20.)],
+                true,
+                false,
+            );
+            path(&[(12., 5.), (16., 2.), (22., 8.), (19., 12.)], true, true);
+        }
+        Icon::Eraser => {
+            path(
+                &[(3., 14.), (13., 4.), (21., 12.), (13., 20.), (9., 20.)],
+                true,
+                false,
+            );
+            line((8., 9.), (17., 17.));
+            line((9., 21.), (22., 21.));
+        }
+        Icon::Lasso => {
+            p.add(Shape::ellipse_stroke(
+                point(12., 10.),
+                Vec2::new(9., 6.) * size / 24.,
+                stroke,
+            ));
+            path(
+                &[(7., 15.), (5., 20.), (9., 22.), (12., 19.), (8., 15.)],
+                false,
+                false,
+            );
+        }
+        Icon::Hand => path(
+            &[
+                (5., 13.),
+                (3., 11.),
+                (2., 13.),
+                (7., 21.),
+                (17., 21.),
+                (21., 13.),
+                (21., 8.),
+                (18., 8.),
+                (17., 13.),
+                (17., 5.),
+                (14., 4.),
+                (13., 12.),
+                (13., 3.),
+                (10., 3.),
+                (9., 12.),
+                (9., 5.),
+                (6., 5.),
+                (6., 15.),
+            ],
+            false,
+            false,
+        ),
+        Icon::Gradient => {
+            box_at(3., 4., 18., 16.);
+            for x in [7., 10., 13., 16., 18.] {
+                line((x, 6.), (x, 18.));
+            }
+            p.circle(point(6., 12.), 2. * size / 24., stroke.color, Stroke::NONE);
         }
         Icon::Rectangle => box_at(3., 5., 18., 14.),
         Icon::Ellipse => {

@@ -121,6 +121,20 @@
       "license": "MIT OR Apache-2.0"
     },
     {
+      "path": "imported/ruffle-mx-button.nflash",
+      "sha256": "1e2be8ca6a76a5cf35c30afb744b87ceb89408c7c0da25711c1a2aaa27c571b1",
+      "bytes": 34055,
+      "derived_from": "upstream/ruffle/mx-button/DefineButton-MX.fla",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "path": "imported/ruffle-mx-static-text.nflash",
+      "sha256": "c6b46f9287bbf6a57e423b91499d17ae4f074037de1f773f16fd1c17adb4e90f",
+      "bytes": 21971,
+      "derived_from": "upstream/ruffle/mx-static-text/DefineText2-MX.fla",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
       "path": "upstream/flacomdoc/LICENSE.md",
       "upstream_path": "LICENSE.md",
       "url": "https://raw.githubusercontent.com/jindrapetrik/flacomdoc/0923d70870d11b236755af71337da8d0110a57aa/LICENSE.md",
@@ -505,11 +519,17 @@
       ],
       "expected": {
         "format": "legacy_binary_fla",
-        "can_import": false,
-        "required_diagnostics": [
-          "legacy_fla_conversion_unsupported"
-        ]
-      }
+        "can_import": true,
+        "required_diagnostics": [],
+        "statistics": {
+          "symbols": 3,
+          "layers": 4,
+          "keyframes": 7,
+          "elements": 4,
+          "scripts": 0
+        }
+      },
+      "native_project": "imported/ruffle-mx-button.nflash"
     },
     {
       "id": "ruffle-mx-static-text",
@@ -524,11 +544,19 @@
       ],
       "expected": {
         "format": "legacy_binary_fla",
-        "can_import": false,
+        "can_import": true,
         "required_diagnostics": [
-          "legacy_fla_conversion_unsupported"
-        ]
-      }
+          "fla_text_metrics"
+        ],
+        "statistics": {
+          "symbols": 1,
+          "layers": 1,
+          "keyframes": 1,
+          "elements": 1,
+          "scripts": 0
+        }
+      },
+      "native_project": "imported/ruffle-mx-static-text.nflash"
     },
     {
       "id": "ruffle-mx-shape-tween",
@@ -545,7 +573,7 @@
         "format": "legacy_binary_fla",
         "can_import": false,
         "required_diagnostics": [
-          "legacy_fla_conversion_unsupported"
+          "fla_mfc_class_unsupported"
         ]
       }
     },
@@ -611,7 +639,7 @@
         "format": "legacy_binary_fla",
         "can_import": false,
         "required_diagnostics": [
-          "legacy_fla_conversion_unsupported"
+          "fla_contents_suffix_unsupported"
         ]
       }
     },
@@ -738,7 +766,7 @@
         "format": "legacy_binary_fla",
         "can_import": false,
         "required_diagnostics": [
-          "legacy_fla_conversion_unsupported"
+          "fla_contents_suffix_unsupported"
         ]
       }
     },
@@ -755,7 +783,7 @@
         "format": "legacy_binary_fla",
         "can_import": false,
         "required_diagnostics": [
-          "legacy_fla_conversion_unsupported"
+          "fla_semantic_conversion"
         ]
       }
     },
@@ -773,7 +801,7 @@
         "format": "legacy_binary_fla",
         "can_import": false,
         "required_diagnostics": [
-          "legacy_fla_conversion_unsupported"
+          "fla_contents_suffix_unsupported"
         ]
       }
     },
@@ -790,7 +818,7 @@
         "format": "legacy_binary_fla",
         "can_import": false,
         "required_diagnostics": [
-          "legacy_fla_conversion_unsupported"
+          "fla_semantic_conversion"
         ]
       }
     },

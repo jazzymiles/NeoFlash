@@ -15,6 +15,16 @@ pub enum Tool {
     Pen,
     Pencil,
     Subselect,
+    Line,
+    Brush,
+    Bucket,
+    Ink,
+    Eyedropper,
+    Eraser,
+    Lasso,
+    Hand,
+    Zoom,
+    Gradient,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BottomTab {
@@ -41,6 +51,7 @@ pub struct Editor {
     pub selection: crate::selection::Selection,
     pub object_gesture: Option<crate::stage_selection::SelectionGesture>,
     pub tool: Tool,
+    pub(crate) authoring_tools: crate::authoring_tools::AuthoringToolsState,
     pub playing: bool,
     pub last_tick: Instant,
     pub accumulator: f64,
@@ -58,6 +69,7 @@ pub struct Editor {
     pub stroke: Color,
     pub stroke_width: f64,
     pub(crate) property_edit: Option<crate::paint_controls::PropertyEdit>,
+    pub(crate) authoring_modify: crate::authoring_modify::AuthoringModify,
     pub bottom: BottomTab,
     pub script_target: ScriptTarget,
     pub script_event: ObjectEvent,
@@ -117,7 +129,8 @@ impl Editor {
             onion_anchor: false, anchored_range: (0, 6), onion_opacity: 0.3,
             zoom: 0.75, pan: Vec2::ZERO, shape_draft: None,
             fill: [50, 117, 184, 255], stroke: [30, 50, 70, 255], stroke_width: 1.0,
-            property_edit: None, bottom: BottomTab::Properties,
+            property_edit: None, authoring_modify: crate::authoring_modify::AuthoringModify::default(), bottom: BottomTab::Properties,
+            authoring_tools: crate::authoring_tools::AuthoringToolsState::default(),
             script_target: ScriptTarget::Frame, script_event: ObjectEvent::Click,
             selected_source: None, code_feedback: None,
             status: "Ready · F5 frame · F6 keyframe · F7 blank keyframe · ⌘↵ Test Movie".into(),
@@ -224,6 +237,7 @@ impl Editor {
         self.finish_point_drag();
         self.history.begin(&self.project);
         f(self);
+        self.project.prune_authoring_groups();
         self.history.commit(&self.project);
     }
     pub fn normalize_selection(&mut self) {
@@ -325,7 +339,7 @@ impl Editor {
                 ElementKind::Ellipse { .. } => "oval",
                 ElementKind::Text { .. } | ElementKind::TextBox { .. } => "text",
                 ElementKind::Instance { .. } => "clip",
-                ElementKind::Path { .. } => "path",
+                ElementKind::Path { .. } | ElementKind::PaintedPath { .. } => "path",
                 ElementKind::Bitmap { .. } => "bitmap",
                 ElementKind::Video { .. } => "video",
             };
@@ -643,7 +657,9 @@ impl Editor {
             if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F5)) {
                 self.insert_frame();
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F8)) {
+            if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::F8)) {
+                self.begin_new_symbol();
+            } else if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F8)) {
                 self.convert_to_symbol();
             }
             if ctx.input(|i| i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace)) {
@@ -651,6 +667,7 @@ impl Editor {
             }
             if ctx.input(|i| i.key_pressed(Key::Escape)) {
                 let captured = self.object_gesture.is_some()
+                    || self.authoring_tools.is_drawing()
                     || self.shape_draft.is_some()
                     || self.vector.point_drag.is_some()
                     || self.vector.draft.is_some();
@@ -673,6 +690,17 @@ impl Editor {
                 (Key::P, Tool::Pen),
                 (Key::Y, Tool::Pencil),
                 (Key::A, Tool::Subselect),
+                (Key::N, Tool::Line),
+                (Key::B, Tool::Brush),
+                (Key::K, Tool::Bucket),
+                (Key::S, Tool::Ink),
+                (Key::I, Tool::Eyedropper),
+                (Key::E, Tool::Eraser),
+                (Key::L, Tool::Lasso),
+                (Key::H, Tool::Hand),
+                (Key::Z, Tool::Zoom),
+                (Key::M, Tool::Zoom),
+                (Key::F, Tool::Gradient),
             ] {
                 if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, key)) {
                     self.set_tool(tool);

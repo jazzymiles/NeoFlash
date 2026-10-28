@@ -396,7 +396,17 @@
           legacyGlobals=Object.freeze({Key:legacyHost.Key,Mouse:legacyHost.Mouse,Stage:as2StageHost?.Stage||legacyHost.Stage,...(as2StageHost?{ContextMenu:as2StageHost.ContextMenu,ContextMenuItem:as2StageHost.ContextMenuItem}:{})});
         }
       }
-      legacyGlobals=Object.freeze({...legacyGlobals,_global:Object.create(null),newline:"\n"});
+      legacyGlobals=Object.freeze({...legacyGlobals,_global:Object.create(null),newline:"\n",caseKey(receiver,name){
+        if(typeof wasm.legacy_case_name_json!=='function')throw new Error('The SWF6 case-name service is missing. Re-export this project.');
+        const keys=[],seen=new Set(),add=key=>{if(typeof key==='string'&&!seen.has(key)){if(keys.length>=100000)throw new RangeError('Legacy property lookup exceeds 100000 names.');seen.add(key);keys.push(key);}};
+        const ref=references.get(receiver);
+        if(ref){for(const key of ref.nativeKeys())add(key);for(const key of ref.customKeys())add(key);for(const node of display.children(receiver))add(node.name);}
+        for(let object=Object(receiver),depth=0;object;object=Object.getPrototypeOf(object),depth++){
+          if(depth>=256)throw new RangeError('Legacy property prototype lookup exceeds 256 levels.');
+          for(const key of Object.getOwnPropertyNames(object))add(key);
+        }
+        return wasm.legacy_case_name_json(name,JSON.stringify(keys));
+      }});
       if(as2PlatformHost)legacyGlobals=Object.freeze({...legacyGlobals,System:as2PlatformHost.System,getVersion:as2PlatformHost.getVersion,updateAfterEvent:as2PlatformHost.updateAfterEvent});
       function legacyProperty(target, index) {
         if(!Number.isInteger(Number(index))||Number(index)<0||Number(index)>21)throw new RangeError('AS2 property index must be between 0 and 21.');
@@ -502,6 +512,10 @@
       if(global.NeoFlashAS2Boxing&&legacyGlobals.strings){as2BoxingHost=global.NeoFlashAS2Boxing.create({execute:request=>wasm.as2_box_json(request),strings:legacyGlobals.strings});legacyGlobals=Object.freeze({...legacyGlobals,boxing:as2BoxingHost});}
       if(global.NeoFlashAS3Strings)legacyGlobals=Object.freeze({...legacyGlobals,strings3:global.NeoFlashAS3Strings.create({execute:request=>wasm.as3_string_json(request)})});
       if(global.NeoFlashMath)legacyGlobals=Object.freeze({...legacyGlobals,math:global.NeoFlashMath.create(wasm)});
+      legacyGlobals=Object.freeze({...legacyGlobals,objects3:Object.freeze({
+        execute:request=>JSON.parse(wasm.as3_object_json(JSON.stringify(request))),
+        arrayPlan:(method,length,index)=>JSON.parse(wasm.as3_array_plan_json(method,length,index)),
+      })});
       if(global.NeoFlashDate)legacyGlobals=Object.freeze({...legacyGlobals,date:global.NeoFlashDate.create(wasm)});
       if(geometryHost.Color)legacyGlobals=Object.freeze({...legacyGlobals,Color:geometryHost.Color});
       initializeProgram();
@@ -527,6 +541,7 @@
       if(as2PlatformHost){builtins['mx.utils.Delegate']=as2PlatformHost.Delegate;builtins['mx.events.EventDispatcher']=as2PlatformHost.EventDispatcher;}
       builtins.__nfAs2Method=as2.method;builtins.__nfAs2Value=as2.value;
       builtins.__nfDisplay=display;builtins.__nfLegacy=legacyGlobals;
+      builtins.__nfObjectExecute=legacyGlobals.objects3.execute;
       if(global.NeoFlashGeom3D){
         const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
         geometry3dHost=global.NeoFlashGeom3D.create(wasm,{getPoint:()=>geometryHost.Point});
@@ -815,7 +830,7 @@
           return true;
         },
       });
-      references.set(proxy,{path:path?[...path]:null,objectRef,key,lifetime,nativeHas,customKeys:()=>Object.keys(custom)});
+      references.set(proxy,{path:path?[...path]:null,objectRef,key,lifetime,nativeHas,nativeKeys:()=>[...Object.keys(methods),...Object.keys(propertyMap),'onEnterFrame','onPress','onRelease','onReleaseOutside','onRollOver','onRollOut','onDragOver','onDragOut','_root','_parent','_visible','_currentframe','_totalframes'],customKeys:()=>Object.keys(custom)});
       if(display)Object.assign(methods,display.methods(proxy));
       if(eventHub)Object.assign(methods,eventHub.methods(proxy));
       as2.register(methods.gotoAndPlay, proxy, 'gotoAndPlay', value => goto('goto_and_play', value, true));

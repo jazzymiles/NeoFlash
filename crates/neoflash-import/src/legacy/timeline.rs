@@ -81,7 +81,8 @@ pub enum TimelineRelation {
 }
 
 /// Every successfully resolved pointer, including nulls, in wire order. A new
-/// object can remain incomplete. A rejected shared child pointer is still retained.
+/// object can remain incomplete. Shared child targets reuse the original identity;
+/// a rejected cyclic child pointer is still retained.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TimelinePointer {
     pub source: Option<u32>,
@@ -100,6 +101,8 @@ pub struct TimelineBase {
     pub registration_words: Option<[i32; 2]>,
     pub drawing_object_flags: Option<u8>,
     pub cache_as_bitmap: Option<u8>,
+    #[serde(default)]
+    pub identifier: Option<TimelineByteSpan>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TimelinePage {
@@ -123,6 +126,10 @@ pub struct TimelineLayer {
     pub legacy_flag: Option<u8>,
     pub mask_or_open: Option<u8>,
     pub auto_named: Option<u8>,
+    #[serde(default)]
+    pub animation_type: Option<u8>,
+    #[serde(default)]
+    pub animation_values: Vec<u32>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -179,6 +186,129 @@ pub struct TimelineFrame {
     pub bookmark: Option<u32>,
     pub single_ease_curve: Option<u32>,
     pub custom_ease_present: Option<u32>,
+    /// Six target curves: position, rotation, scale, color, filters, all.
+    /// Each knot retains incoming handle, anchor, outgoing handle as x/y pairs.
+    #[serde(default)]
+    pub custom_ease: Vec<Vec<[f64; 6]>>,
+    #[serde(default)]
+    pub motion_xml: Option<TimelineString>,
+    #[serde(default)]
+    pub visible_animation_keyframes: Option<u32>,
+    #[serde(default)]
+    pub tween_instance_name: Option<TimelineString>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelineColorTransform {
+    pub revision: Option<u8>,
+    /// Signed archive multipliers, in RGBA order; divisor is 256.
+    pub multipliers: [i16; 4],
+    pub offsets: [i16; 4],
+    pub effect_type: Option<u16>,
+    pub effect_percent: Option<i16>,
+    pub effect_rgba: Option<u32>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelineAccessibility {
+    pub revision: u32,
+    pub flags: Option<u32>,
+    pub name: Option<TimelineString>,
+    pub description: Option<TimelineString>,
+    pub shortcut: Option<TimelineString>,
+    pub tab_index: Option<TimelineString>,
+    pub reserved: Option<TimelineString>,
+    pub force_simple: Option<u32>,
+    pub auto_labeling: Option<u32>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelineInstance {
+    pub revision: Option<u8>,
+    pub matrix_words: Option<[i32; 6]>,
+    pub first_frame: Option<u16>,
+    pub loop_mode: Option<u16>,
+    pub color_transform: Option<TimelineColorTransform>,
+    pub legacy_name: Option<TimelineString>,
+    pub library_id: Option<u32>,
+    pub is_extensible: Option<u8>,
+    pub blend_mode: Option<u8>,
+    pub selected_effect_index: Option<u16>,
+    pub matrix_3d: Option<[f32; 16]>,
+    pub rotation_3d: Option<[f64; 3]>,
+    pub center_point_3d: Option<[i32; 3]>,
+    pub animation_frame_settings: Vec<[u16; 2]>,
+    pub extension_revision: Option<u8>,
+    pub instance_name: Option<TimelineString>,
+    pub actions: Option<TimelineActions>,
+    pub track_as_menu: Option<u8>,
+    pub property_count: Option<u32>,
+    pub property_inspector_state: Option<u32>,
+    pub accessibility: Option<TimelineAccessibility>,
+    pub component_xml: Option<TimelineString>,
+    /// Exact known metadata blocks, retained independently of their semantics.
+    pub metadata: Vec<TimelineByteSpan>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelineTextStyle {
+    pub revision: u8,
+    pub font_size_twips: Option<u16>,
+    pub font_family: Option<TimelineString>,
+    pub font_face: Option<TimelineString>,
+    pub font_flags: Option<u32>,
+    pub color_rgba: Option<u32>,
+    pub pitch_and_family: Option<u8>,
+    pub char_set: Option<u8>,
+    pub bold: Option<u8>,
+    pub italic: Option<u8>,
+    pub use_screen_spacing: Option<u8>,
+    pub auto_kern: Option<u8>,
+    pub character_position: Option<u8>,
+    pub alignment: Option<u8>,
+    pub line_spacing: Option<i16>,
+    pub indent: Option<i16>,
+    pub left_margin: Option<i16>,
+    pub right_margin: Option<i16>,
+    pub letter_spacing: Option<i16>,
+    pub url: Option<TimelineString>,
+    pub vertical: Option<u8>,
+    pub right_to_left: Option<u8>,
+    pub rotation: Option<u8>,
+    pub bitmap_rendering: Option<u8>,
+    pub target: Option<TimelineString>,
+    pub anti_alias: Option<TimelineByteSpan>,
+    pub url_override: Option<TimelineString>,
+    pub legacy_font_name: Option<TimelineString>,
+    pub legacy_font_value: Option<u32>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TimelineTextRun {
+    pub characters: TimelineString,
+    pub style: TimelineTextStyle,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelineText {
+    pub revision: Option<u8>,
+    pub matrix_words: Option<[i32; 6]>,
+    pub bounds_words: Option<[i32; 4]>,
+    pub auto_expand: Option<u8>,
+    pub reserved: Option<u8>,
+    pub flags: Option<u32>,
+    pub max_characters: Option<u16>,
+    pub variable_name: Option<TimelineString>,
+    pub font_library_name: Option<TimelineString>,
+    pub embed_variant_glyphs: Option<u8>,
+    pub default_style: Option<TimelineTextStyle>,
+    pub runs: Vec<TimelineTextRun>,
+    pub instance_name: Option<TimelineString>,
+    pub accessibility: Option<TimelineAccessibility>,
+    pub scrollable: Option<u32>,
+    pub localization_id: Option<TimelineString>,
+    pub embed_ranges: Option<TimelineString>,
+    pub selected_effect_index: Option<u16>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TimelineBitmap {
@@ -194,6 +324,8 @@ pub enum TimelinePayload {
     Layer(TimelineLayer),
     Frame(Box<TimelineFrame>),
     Bitmap(TimelineBitmap),
+    Instance(Box<TimelineInstance>),
+    Text(Box<TimelineText>),
     Shape,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -202,8 +334,9 @@ pub struct TimelineObject {
     pub class: TimelineClass,
     pub schema: u16,
     pub introduced_by_pointer: usize,
-    /// Only a newly introduced CPicObj child has an owning parent. Referenced
-    /// related layers/sound/morph objects must not be treated as owned children.
+    /// Parent at first serialization, only when introduced as a CPicObj child.
+    /// Ordered children and pointers also retain subsequent child references to
+    /// objects first serialized through related-layer or other metadata links.
     pub owner: Option<u32>,
     pub children: Vec<u32>,
     /// Start includes the class/object envelope; end is consumed progress, not

@@ -187,6 +187,38 @@ pub struct LayerProperties {
     pub outline_color: Option<[u8; 3]>,
     #[serde(default)]
     pub collapsed: bool,
+    /// Authoring groups share selection/transforms without creating a runtime
+    /// display object or changing the authored stacking order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<AuthoringGroup>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthoringGroup {
+    pub id: Id,
+    pub name: String,
+    pub members: Vec<Id>,
+}
+impl Project {
+    /// Remove obsolete authoring selection links after destructive edits. Artwork,
+    /// runtime identities and scripts are never changed by this housekeeping.
+    pub fn prune_authoring_groups(&mut self) {
+        for layer in self.symbols.iter_mut().flat_map(|s| &mut s.timeline.layers) {
+            let members: std::collections::HashSet<_> = layer
+                .keyframes
+                .iter()
+                .flat_map(|k| &k.elements)
+                .map(|e| e.id.as_str())
+                .collect();
+            for group in &mut layer.properties.groups {
+                group.members.retain(|id| members.contains(id.as_str()));
+            }
+            layer
+                .properties
+                .groups
+                .retain(|group| group.members.len() > 1);
+        }
+    }
 }
 impl LayerProperties {
     pub fn is_default(&self) -> bool {
@@ -210,7 +242,16 @@ pub enum Easing {
     EaseIn,
     EaseOut,
     EaseInOut,
-    CubicBezier { x1: f64, y1: f64, x2: f64, y2: f64 },
+    CubicBezier {
+        x1: f64,
+        y1: f64,
+        x2: f64,
+        y2: f64,
+    },
+    /// Classic Flash acceleration: -100 is quadratic ease-in, +100 ease-out.
+    Flash {
+        acceleration: f64,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -254,6 +295,15 @@ pub struct Transform {
     pub scale_y: f64,
     pub rotation: f64,
     pub alpha: f64,
+    /// Angle of the y axis relative to the x-axis rotation, in degrees.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub skew: f64,
+    #[serde(default, skip_serializing_if = "crate::ColorTransform::is_identity")]
+    pub color_transform: crate::ColorTransform,
+}
+
+fn is_zero(value: &f64) -> bool {
+    *value == 0.
 }
 
 impl Default for Transform {
@@ -265,7 +315,33 @@ impl Default for Transform {
             scale_y: 1.,
             rotation: 0.,
             alpha: 1.,
+            skew: 0.,
+            color_transform: crate::ColorTransform::default(),
         }
+    }
+}
+
+impl Transform {
+    /// Preserve both matrix axis angles, including reflection and shear.
+    pub fn from_matrix(matrix: [f64; 6]) -> Option<Self> {
+        if matrix
+            .iter()
+            .enumerate()
+            .any(|(i, v)| !v.is_finite() || v.abs() > if i < 4 { 1e4 } else { 1e9 })
+        {
+            return None;
+        }
+        let [a, b, c, d, x, y] = matrix;
+        let rotation = b.atan2(a);
+        Some(Self {
+            x,
+            y,
+            scale_x: a.hypot(b),
+            scale_y: c.hypot(d),
+            rotation: rotation.to_degrees(),
+            skew: ((-c).atan2(d) - rotation).to_degrees(),
+            ..Self::default()
+        })
     }
 }
 
@@ -305,6 +381,18 @@ pub enum ElementKind {
         stroke: Color,
         stroke_width: f64,
     },
+    /// Authored path paints share the runtime gradient representation.
+    #[serde(rename = "gradient_path")]
+    PaintedPath {
+        commands: Vec<PathCommand>,
+        #[serde(default)]
+        fill_rule: FillRule,
+        fill: Color,
+        stroke: Color,
+        fill_gradient: Option<crate::GradientPaint>,
+        stroke_gradient: Option<crate::GradientPaint>,
+        stroke_width: f64,
+    },
     TextBox {
         text: String,
         width: f64,
@@ -332,7 +420,10 @@ pub enum ElementKind {
 pub enum InstancePlayback {
     Independent,
     Loop,
+    /// Parent-synchronized graphic playback starting at a zero-based frame.
+    LoopFrom(u32),
     PlayOnce,
+    PlayOnceFrom(u32),
     SingleFrame(u32),
 }
 
@@ -341,6 +432,7 @@ pub enum InstancePlayback {
 pub enum ScriptLanguage {
     JavaScript,
     TypeScript,
+    ActionScript1,
     ActionScript2,
     ActionScript3,
 }

@@ -2,7 +2,7 @@
 
 ## How to read this record
 
-These are scoped observations from **27 October 2026**, retained for the development preview. They describe the named revisions and workflows; later implementations do not inherit their results. Current contracts and declaration decisions are in the [compatibility matrix](COMPATIBILITY.md) and [ActionScript audit](progress/ACTIONSCRIPT.md). The [normalized audit](progress/actionscript-audit.json) preserves per-entry provenance.
+These are scoped observations from **27–28 October 2026**, retained for the development preview. They describe the named revisions and workflows; later implementations do not inherit their results. Current contracts and declaration decisions are in the [compatibility matrix](COMPATIBILITY.md) and [ActionScript audit](progress/ACTIONSCRIPT.md). The [normalized audit](progress/actionscript-audit.json) preserves per-entry provenance.
 
 Ordinary HTML5 exports were exercised with the shared Rust/WASM runtime. Unless explicitly named otherwise, browser observations used the Codex in-app browser without independent engine/version identification. Original Flash was not executed. DOM readiness, automated execution and observed interaction are separate evidence; startup-only projects do not receive full behavior acceptance. Screenshot comparisons establish consistency within the observed browser profile, not Flash raster equivalence.
 
@@ -135,6 +135,10 @@ Pretty-print setters, direct methods not invoked, full filters/default namespace
 
 Audit `TYPED-COLLECTIONS-HTML5-20261027T0525Z`, revision `6396fd0`: specialized Vector models, identity-keyed Dictionary, JSON public getters and AS2 record enumeration produced the expected inventory. Recycled cards retained listeners and identity; fixed/bounds/type refusals accompanied working controls and Restart. Weak-key GC, arbitrary mutation/order/reentry, other specializations and native enumeration remain outside the evidence.
 
+The bounded coordinator review [COORD-AS3-FOUNDATIONS-20261028](progress/reviews/as3-foundations-20261028.json) extends this same inventory workflow with numeric Class aliases/limits and bound formatting, dynamic property visibility, public source-class reflection without getter execution, and dense Array insertion/removal. Actual exported WASM/Canvas in the in-app browser showed totals 13, 16 and 17 with formatted roots 3.61, 4.00 and 4.12; object/reflection indicators remained true and Restart restored the initial inventory and history. The shared project runner collected all 24 families; a TextField newline expectation was corrected from LF to the established CR result, then only the affected family was rerun successfully. Source fingerprints and the working-tree/coordinator boundary are in the review. Native/interface/bytecode reflection, sparse mutation and full VM/rounding conformance are outside this evidence.
+
+The follow-up [COORD-AS3-OBJECT-IDENTITY-20261028](progress/reviews/as3-object-identity-20261028.json) covers ordinary source-class Class aliases, prototype/constructor links, inherited/unrelated isPrototypeOf results, valueOf identity and default short labels with preserved custom overrides. The same exported inventory displayed `identity true` initially, after two actions and after Restart. Its shared regression collection passed 140 Rust tests, 91 emitted-script fixtures, 25 project workflows and 63 web tests. These observations are scoped to the captured AS3 implementation; later shared-tree Button changes are not independently accepted by this review.
+
 Audit `TRANSFORMS-HTML5-20261027T0502Z`, revision `852c8b7`: affine/skew preservation, world-pose-preserving reparenting, independent bitmap tints, alpha visibility/hits, copied values and Restart were observed. World matrices agreed with independent arithmetic. AS2 `.rgb` failed silently while `.color` worked (`TRANSFORM-AS2-RGB-001`). Exact rendering, every transform combination and native editing were not established. See [collections](decisions/0019-typed-collections-and-enumeration.md) and [transforms](decisions/0018-runtime-display-transforms.md) decisions.
 
 <a id="independent-data-processing-verification-of-7ed1605"></a>
@@ -218,6 +222,12 @@ The strict solid-contour adapter accepted a small subset of inspected Flash 3 sh
 
 <a id="native-workspace-increment--27-october"></a>
 ## Native workspace
+
+The 28 October authoring batch added ten tools, Modify commands, Align/Transform/Color panels, compact timing fields and Button/Graphic controls. One shared core/editor pass covered the existing families; an outdated default-panel visibility expectation was corrected and rerun alone. A later clipboard review found and fixed version inference for grouped/skewed artwork; only its existing round-trip family was replayed for the affected group, affine and easing cases. Workspace Clippy, Rust/WASM packaging and standalone HTML5 export passed. No authoring test families were added.
+
+Native observations confirmed FPS/duration coupling with unchanged frame count, Brush with Undo, the Align controls, dragging an Align tab into a native floating window, returning it through Dock Top, and importing a PNG through the File menu onto the Stage. Finder-to-Stage dragging and dragging back between separate windows did **not** produce confirmed acceptance in this session. The routing model supports edge/tab/group destinations, but that is not evidence that every native gesture works. Drops on floating panels now receive explicit Stage guidance.
+
+The exported authoring example ran in the in-app browser: a Button called AS2 and AS3 click handlers, satisfied `is SimpleButton`, and accepted a click in its invisible Hit margin. Graphic Loop/Play once with a starting frame and Restart were observed; no browser errors were recorded. This is a bounded linked/authored Button workflow, not arbitrary SimpleButton state-object API coverage. The local Flash CS4 book informed tool, group, symbol and panel behavior; implementation limits remain in [Workspace controls](WORKSPACE.md).
 
 Native checks observed persistent detached Actions/Dark theme, accessible Check Script controls, F9 reopening/focus, docking, readable Light theme, compact Timeline footer reachability and synchronized scrolling in a large authored fixture. Detached tool choice and text selection/clipboard state survived docking in their checked build.
 

@@ -482,6 +482,12 @@ impl Editor {
                     .mask
                     .as_ref()
                     .and_then(|id| mapping.get(id).cloned());
+                for group in &mut layer.properties.groups {
+                    group.id = new_id("group");
+                    for member in &mut group.members {
+                        *member = mapping[member].clone();
+                    }
+                }
                 for element in layer.keyframes.iter_mut().flat_map(|k| &mut k.elements) {
                     element.id = mapping[&element.id].clone();
                 }

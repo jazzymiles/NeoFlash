@@ -12,3 +12,5 @@ thiserror.workspace = true
 roxmltree = "0.21"
 zip = { version = "8.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 cfb = "0.15"
+image.workspace = true
+flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }

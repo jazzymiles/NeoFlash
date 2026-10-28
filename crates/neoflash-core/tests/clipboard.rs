@@ -209,8 +209,11 @@ fn text_roundtrip_has_only_reachable_library_in_original_order_and_preserves_dat
             .is_err()
     );
     assert!(project.add_library_folder("../outside").is_err());
-    let project = Project::from_json(&project.to_json().unwrap()).unwrap();
+    let mut project = Project::from_json(&project.to_json().unwrap()).unwrap();
     assert_eq!(project.format_version, 4);
+    project.format_version = 5;
+    project.symbol_mut("parent").unwrap().timeline.layers[0].keyframes[0].tween =
+        Some(Easing::Flash { acceleration: 40. });
     let before = project.clone();
     let mut selection = selected(&project);
     selection.reverse();
@@ -233,6 +236,84 @@ fn text_roundtrip_has_only_reachable_library_in_original_order_and_preserves_dat
     assert_eq!(decoded.anchor(), [-10., 30.]);
     assert_eq!(as_value(&decoded), value);
     assert_eq!(project, before);
+
+    // Flat authoring groups and affine/color transforms must survive capture,
+    // text roundtrip and insertion into an older blank document together.
+    for version in [4, 5] {
+        let mut source = Project::blank();
+        source.format_version = version;
+        let mut artwork = vec![
+            shape("group-a", 0.),
+            shape("group-b", 30.),
+            shape("group-c", 60.),
+            shape("group-d", 90.),
+        ];
+        if version == 5 {
+            artwork[0].transform.skew = 17.;
+            artwork[0].transform.color_transform.offsets[0] = 12.;
+        }
+        let root = source.symbol_mut(&source.root.clone()).unwrap();
+        root.timeline.frame_count = 2;
+        let mut first = root.timeline.layers[0].clone();
+        first.keyframes = vec![
+            key(0, artwork[..2].to_vec(), None, ""),
+            key(1, vec![shape("later-group-member", 0.)], None, ""),
+        ];
+        first.properties.groups = vec![AuthoringGroup {
+            id: "layer-local-group".into(),
+            name: "First".into(),
+            members: vec![
+                "group-a".into(),
+                "group-b".into(),
+                "later-group-member".into(),
+            ],
+        }];
+        let mut second = first.clone();
+        second.id = "second-group-layer".into();
+        second.keyframes = vec![key(0, artwork[2..].to_vec(), None, "")];
+        second.properties.groups[0].name = "Second".into();
+        second.properties.groups[0].members = vec!["group-c".into(), "group-d".into()];
+        root.timeline.layers = vec![first, second];
+        source.validate().unwrap();
+        let capture =
+            ClipboardPayload::capture(&source, artwork.clone(), "group-source", [0., 0.]).unwrap();
+        let capture = ClipboardPayload::from_text(&capture.to_text().unwrap())
+            .unwrap()
+            .unwrap();
+        let destination = Project::blank();
+        let root_id = destination.root.clone();
+        let layer_id = destination.symbol(&root_id).unwrap().timeline.layers[0]
+            .id
+            .clone();
+        let pasted = capture
+            .paste_into(
+                &destination,
+                "group-destination",
+                &root_id,
+                &layer_id,
+                0,
+                [0., 0.],
+            )
+            .unwrap();
+        assert_eq!(pasted.project.format_version, version);
+        pasted.project.validate().unwrap();
+        let layer = &pasted.project.symbol(&root_id).unwrap().timeline.layers[0];
+        assert_eq!(layer.properties.groups.len(), 2);
+        assert_ne!(layer.properties.groups[0].id, layer.properties.groups[1].id);
+        assert!(
+            layer
+                .properties
+                .groups
+                .iter()
+                .all(|group| group.members.len() == 2)
+        );
+        for (original, copied) in artwork.iter().zip(&layer.keyframes[0].elements) {
+            assert_eq!(original.transform, copied.transform);
+            assert_eq!(original.kind, copied.kind);
+            assert_eq!(original.scripts, copied.scripts);
+            assert_ne!(original.id, copied.id);
+        }
+    }
 }
 
 #[test]

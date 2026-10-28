@@ -1,12 +1,12 @@
 //! Native panels share one Editor. Only visibility and geometry are preferences.
 use crate::{
     app::Editor,
-    clipboard::ClipboardCommand,
+    clipboard::{ClipboardCommand, ClipboardTarget},
     dock_grid::{DockGroupTarget, DockViewportTarget, edge_targets, surface_viewport},
     native_screens::available_work_areas,
     workspace::{
-        DockDestination, DockSurface, PanelId, PanelPlacement, ScreenRect, WindowGeometry,
-        recover_geometry,
+        DockDestination, DockEdge, DockSurface, PanelId, PanelPlacement, ScreenRect,
+        WindowGeometry, recover_geometry,
     },
 };
 use eframe::egui;
@@ -28,6 +28,7 @@ pub(crate) struct DetachedState {
     pub(crate) content_header: Option<PanelId>,
     pub(crate) dock_viewports: Vec<DockViewportTarget>,
     pub(crate) activation: u64,
+    context_menu_open: bool,
 }
 
 /// A header gesture keeps its source viewport until release. This avoids
@@ -35,6 +36,7 @@ pub(crate) struct DetachedState {
 #[derive(Clone, Copy)]
 struct PanelDrag {
     panel: PanelId,
+    group: Option<(DockSurface, DockEdge, u32)>,
     source: egui::ViewportId,
     started: egui::Pos2,
     pointer: egui::Pos2,
@@ -68,6 +70,26 @@ impl Editor {
         &mut self,
         ui: &egui::Ui,
         panel: PanelId,
+        response: &egui::Response,
+    ) {
+        self.panel_drag_handle_inner(ui, panel, None, response);
+    }
+
+    pub(crate) fn panel_group_drag_handle(
+        &mut self,
+        ui: &egui::Ui,
+        panel: PanelId,
+        group: (DockSurface, DockEdge, u32),
+        response: &egui::Response,
+    ) {
+        self.panel_drag_handle_inner(ui, panel, Some(group), response);
+    }
+
+    fn panel_drag_handle_inner(
+        &mut self,
+        ui: &egui::Ui,
+        panel: PanelId,
+        group: Option<(DockSurface, DockEdge, u32)>,
         response: &egui::Response,
     ) {
         if !ui.is_enabled() {
@@ -126,6 +148,7 @@ impl Editor {
             let global = (inner.min + pos.to_vec2()) * zoom;
             self.detached.drag = Some(PanelDrag {
                 panel,
+                group,
                 source,
                 started: global,
                 pointer: global,
@@ -229,13 +252,26 @@ impl Editor {
         if !drag.moved {
             return;
         }
+        let panels = drag
+            .group
+            .and_then(|(surface, edge, group)| {
+                self.current_dock_group(surface, edge, group)
+                    .map(|g| g.tabs.clone())
+            })
+            .unwrap_or_else(|| vec![drag.panel]);
         if let Some(hit) = self.dock_hit(drag.pointer, ctx.zoom_factor()) {
-            self.dock_panel_at(ctx, drag.panel, hit.destination);
+            if drag.group.is_some() {
+                self.workspace
+                    .dock_group(&panels, drag.panel, hit.destination);
+                self.focus_dock_panel(ctx, drag.panel);
+            } else {
+                self.dock_panel_at(ctx, drag.panel, hit.destination);
+            }
         } else {
             let grouped = self
                 .workspace
                 .floating_window(drag.panel)
-                .is_some_and(|window| window.panels().len() > 1);
+                .is_some_and(|window| window.panels().len() > panels.len());
             let mut geometry = if grouped {
                 None
             } else {
@@ -245,10 +281,13 @@ impl Editor {
                 outer_position: [0., 0.],
                 inner_size: crate::workspace::default_window_size(drag.panel),
             });
-            let position =
-                drag.pointer - drag.grab_offset - egui::vec2(0., 28. + 26. * ctx.zoom_factor());
+            let position = drag.pointer - drag.grab_offset - egui::vec2(0., 28.);
             geometry.outer_position = [position.x, position.y];
-            let window = self.workspace.float_panel(drag.panel, Some(geometry));
+            let window = if drag.group.is_some() {
+                self.workspace.float_group(&panels, drag.panel, geometry)
+            } else {
+                self.workspace.float_panel(drag.panel, Some(geometry))
+            };
             self.workspace.remember_floating_geometry(window, geometry);
             self.bottom = self.workspace.active_bottom;
             self.detached.focus = Some(drag.panel);
@@ -325,6 +364,10 @@ impl Editor {
         destination: DockDestination,
     ) {
         self.workspace.dock_panel(panel, destination);
+        self.focus_dock_panel(ctx, panel);
+    }
+
+    fn focus_dock_panel(&mut self, ctx: &egui::Context, panel: PanelId) {
         self.bottom = self.workspace.active_bottom;
         let surface = self.workspace.panel_surface(panel);
         if surface == DockSurface::Main {
@@ -438,7 +481,7 @@ impl Editor {
             });
             desired.inner_size = [
                 desired.inner_size[0].max(minimum[0]),
-                desired.inner_size[1].max(minimum[1] + 26. * zoom),
+                desired.inner_size[1].max(minimum[1]),
             ];
             let geometry =
                 recover_geometry(panel, Some(desired), &self.detached.monitors, fallback);
@@ -448,6 +491,7 @@ impl Editor {
                 "{} — NeoFlash",
                 panels
                     .iter()
+                    .filter(|panel| self.workspace.is_panel_visible(**panel))
                     .map(|panel| panel.title())
                     .collect::<Vec<_>>()
                     .join(" + ")
@@ -456,7 +500,7 @@ impl Editor {
                 .with_title(&title)
                 .with_min_inner_size([
                     minimum[0].min(geometry.inner_size[0]) / zoom,
-                    (minimum[1] + 26. * zoom).min(geometry.inner_size[1]) / zoom,
+                    minimum[1].min(geometry.inner_size[1]) / zoom,
                 ]);
             if initial {
                 builder = builder
@@ -496,13 +540,26 @@ impl Editor {
                 self.detached.focus = None;
             }
             ctx.show_viewport_immediate(id, builder, |ctx, class| {
+                self.detached.context_menu_open = false;
+                // Native file events belong to the receiving window. A panel
+                // has no Stage drop coordinates, so never silently consume a
+                // Finder drop or place artwork at an unrelated remembered point.
+                let dropped_on_panel = ctx.input_mut(|input| {
+                    let dropped = !input.raw.dropped_files.is_empty();
+                    input.raw.dropped_files.clear();
+                    dropped
+                });
+                if dropped_on_panel {
+                    self.message("Drop graphics onto the Stage in the main window, or use File → Import graphics to Stage.");
+                    ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Focus);
+                    ctx.request_repaint_of(egui::ViewportId::ROOT);
+                }
                 if class == egui::ViewportClass::Embedded {
                     let mut open = true;
                     egui::Window::new(&title)
                         .id(egui::Id::new(("floating-dock", window_id)))
                         .open(&mut open)
                         .show(ctx, |ui| {
-                            self.floating_header(ui, window_id);
                             self.floating_dock_contents(ui, window_id);
                         });
                     if !open {
@@ -512,6 +569,7 @@ impl Editor {
                     }
                     self.continue_panel_drag(ctx);
                     self.docking_overlay(ctx, DockSurface::Floating(window_id));
+                    self.finish_floating_context_menu(ctx);
                     return;
                 }
                 if !recovering
@@ -557,9 +615,6 @@ impl Editor {
                 let has_input = ctx.input(|i| !i.events.is_empty());
                 self.continue_panel_drag(ctx);
                 self.shortcuts(ctx);
-                egui::TopBottomPanel::top(egui::Id::new(("floating-toolbar", window_id)))
-                    .exact_height(26.)
-                    .show(ctx, |ui| self.floating_header(ui, window_id));
                 if self.workspace.floating.iter().any(|window| {
                     window.id == window_id
                         && window
@@ -572,6 +627,7 @@ impl Editor {
                         .show(ctx, |ui| self.floating_dock_contents(ui, window_id));
                 }
                 self.docking_overlay(ctx, DockSurface::Floating(window_id));
+                self.finish_floating_context_menu(ctx);
                 if has_input {
                     ctx.request_repaint_of(egui::ViewportId::ROOT);
                     if self.confirm.is_some() {
@@ -590,67 +646,66 @@ impl Editor {
         }
     }
 
-    fn floating_header(&mut self, ui: &mut egui::Ui, window: PanelId) {
-        if self.symbol_conversion.is_some() {
-            ui.disable();
-        }
+    pub(crate) fn floating_panel_commands(
+        &mut self,
+        ui: &mut egui::Ui,
+        window: PanelId,
+        target: &ClipboardTarget,
+    ) {
         let ctx = ui.ctx().clone();
-        let target = self.clipboard_target(&ctx);
-        let mut edit_open = false;
-        ui.horizontal(|ui| {
-            ui.menu_button("Edit", |ui| {
-                edit_open = true;
-                if !self.clipboard.menu_open
-                    || self.clipboard.menu_viewport != Some(ctx.viewport_id())
-                {
-                    self.clipboard.menu_target = Some(target.clone());
-                }
-                let text = self
-                    .clipboard
-                    .menu_target
-                    .as_ref()
-                    .is_some_and(|t| t.is_text());
-                for (name, shortcut, command) in [
-                    ("Cut", "⌘X", ClipboardCommand::Cut),
-                    ("Copy", "⌘C", ClipboardCommand::Copy),
-                    ("Paste", "⌘V", ClipboardCommand::Paste),
-                ] {
-                    let enabled = text
-                        || if command == ClipboardCommand::Paste {
-                            self.layer_editable()
-                        } else {
-                            !self.selection.is_empty()
-                        };
-                    if ui
-                        .add_enabled(enabled, egui::Button::new(name).shortcut_text(shortcut))
-                        .clicked()
-                    {
-                        self.request_clipboard(&ctx, command);
-                        ui.close();
-                    }
-                }
-            });
+        self.detached.context_menu_open = true;
+        if !self.clipboard.menu_open || self.clipboard.menu_viewport != Some(ctx.viewport_id()) {
+            self.clipboard.menu_target = Some(target.clone());
+        }
+        self.clipboard.menu_open = true;
+        self.clipboard.menu_viewport = Some(ctx.viewport_id());
+        let text = self
+            .clipboard
+            .menu_target
+            .as_ref()
+            .is_some_and(|t| t.is_text());
+        for (name, shortcut, command) in [
+            ("Cut", "⌘X", ClipboardCommand::Cut),
+            ("Copy", "⌘C", ClipboardCommand::Copy),
+            ("Paste", "⌘V", ClipboardCommand::Paste),
+        ] {
+            let enabled = text
+                || if command == ClipboardCommand::Paste {
+                    self.layer_editable()
+                } else {
+                    !self.selection.is_empty()
+                };
             if ui
-                .button("Dock all")
-                .on_hover_text("Return all panels in this window to their last main-window groups")
+                .add_enabled(enabled, egui::Button::new(name).shortcut_text(shortcut))
                 .clicked()
             {
-                let panels = self
-                    .workspace
-                    .floating
-                    .iter()
-                    .find(|w| w.id == window)
-                    .map(|w| w.panels())
-                    .unwrap_or_default();
-                for panel in panels {
-                    self.set_panel_placement(&ctx, panel, PanelPlacement::Docked);
-                }
+                self.request_clipboard(&ctx, command);
+                ui.close();
             }
-        });
-        if edit_open {
-            self.clipboard.menu_open = true;
-            self.clipboard.menu_viewport = Some(ctx.viewport_id());
-        } else if self.clipboard.menu_viewport == Some(ctx.viewport_id()) {
+        }
+        ui.separator();
+        if ui.button("Dock all panels in this window").clicked() {
+            let panels = self
+                .workspace
+                .floating
+                .iter()
+                .find(|w| w.id == window)
+                .map(|w| w.panels())
+                .unwrap_or_default();
+            for panel in panels {
+                let visible = self.workspace.is_panel_visible(panel);
+                self.set_panel_placement(&ctx, panel, PanelPlacement::Docked);
+                self.set_panel_visible(panel, visible);
+            }
+            ui.close();
+        }
+        ui.separator();
+    }
+
+    fn finish_floating_context_menu(&mut self, ctx: &egui::Context) {
+        if !self.detached.context_menu_open
+            && self.clipboard.menu_viewport == Some(ctx.viewport_id())
+        {
             self.clipboard.menu_open = false;
             self.clipboard.menu_target = None;
             self.clipboard.menu_viewport = None;

@@ -10,6 +10,7 @@ use std::ops::RangeInclusive;
 pub(crate) struct PropertyEdit {
     scope: egui::Id,
     control: egui::Id,
+    context: egui::Id,
 }
 
 #[derive(Default)]
@@ -71,28 +72,43 @@ pub(crate) fn numeric_row(
     range: RangeInclusive<f64>,
     speed: f64,
 ) -> Response {
-    property_row(ui, label, |ui| {
-        ui.add_sized(
-            [ui.available_width(), CONTROL_HEIGHT],
-            egui::DragValue::new(value)
-                .range(range)
-                .speed(speed)
-                .max_decimals(2),
-        )
-    })
+    property_row(ui, label, |ui| compact_number(ui, value, range, speed, ""))
+}
+
+/// A single click edits text; dragging scrubs. Typed text is committed by
+/// Enter/blur, while Escape discards it without touching authoring history.
+pub(crate) fn compact_number(
+    ui: &mut egui::Ui,
+    value: &mut f64,
+    range: RangeInclusive<f64>,
+    speed: f64,
+    unit: &str,
+) -> Response {
+    let before = *value;
+    let mut response = ui.add_sized(
+        [ui.available_width().min(96.), CONTROL_HEIGHT],
+        egui::DragValue::new(value)
+            .range(range)
+            .clamp_existing_to_range(false)
+            .speed(speed)
+            .max_decimals(2)
+            .update_while_editing(false)
+            .suffix(unit),
+    );
+    // TextEdit also marks changes while a pending number is being typed.
+    // Consumers should begin a document transaction only for applied values.
+    response
+        .flags
+        .set(egui::response::Flags::CHANGED, *value != before);
+    response.on_hover_text(
+        "Click to type · drag to scrub · Shift for precision · Enter to apply · Esc to cancel",
+    )
 }
 
 pub(crate) fn percent_row(ui: &mut egui::Ui, label: &str, value: &mut f64) -> Response {
     let mut percent = *value * 100.;
     let response = property_row(ui, label, |ui| {
-        ui.add_sized(
-            [ui.available_width(), CONTROL_HEIGHT],
-            egui::DragValue::new(&mut percent)
-                .range(0. ..=100.)
-                .speed(0.5)
-                .max_decimals(1)
-                .suffix(" %"),
-        )
+        compact_number(ui, &mut percent, 0. ..=100., 0.5, " %")
     });
     if response.changed() {
         *value = percent / 100.;
@@ -169,30 +185,47 @@ pub(crate) fn compact_paint(ui: &mut egui::Ui, id: &str, label: &str, value: &mu
 }
 
 impl Editor {
+    fn property_context(&self) -> egui::Id {
+        egui::Id::new((
+            &self.clipboard.session,
+            self.symbol_id(),
+            self.frame,
+            self.layer,
+            self.selection
+                .targets
+                .iter()
+                .map(|target| (&target.layer, &target.element))
+                .collect::<Vec<_>>(),
+        ))
+    }
     pub(crate) fn finish_property_edit(&mut self) {
         if self.property_edit.take().is_some() {
             self.history.commit(&self.project);
         }
     }
     pub(crate) fn begin_property_edit(&mut self, scope: egui::Id, control: egui::Id) {
-        if self
-            .property_edit
-            .as_ref()
-            .is_some_and(|edit| edit.scope == scope && edit.control == control)
-        {
+        let context = self.property_context();
+        if self.property_edit.as_ref().is_some_and(|edit| {
+            edit.scope == scope && edit.control == control && edit.context == context
+        }) {
             return;
         }
         self.finish_edits();
         self.playing = false;
         self.accumulator = 0.;
         self.history.begin(&self.project);
-        self.property_edit = Some(PropertyEdit { scope, control });
+        self.property_edit = Some(PropertyEdit {
+            scope,
+            control,
+            context,
+        });
     }
-    pub(crate) fn property_edit_scope(&mut self, scope: egui::Id) {
+    pub(crate) fn property_edit_scope(&mut self, _scope: egui::Id) {
+        let context = self.property_context();
         if self
             .property_edit
             .as_ref()
-            .is_some_and(|edit| edit.scope != scope)
+            .is_some_and(|edit| edit.context != context)
         {
             self.finish_property_edit();
         }

@@ -1,13 +1,13 @@
 //! Bounded native textures for the pure authoring scene. Pixels remain resources.
 use eframe::egui::{self, TextureHandle, TextureId, TextureOptions};
-use neoflash_core::{ElementKind, Project};
+use neoflash_core::{ColorTransform, ElementKind, Project};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
 
 const MAX_TEXTURE_BYTES: usize = 64 * 1024 * 1024;
-type Key = (String, bool);
+type Key = (String, bool, [u64; 8]);
 
 struct Texture {
     source: Arc<str>,
@@ -26,7 +26,7 @@ pub(crate) struct BitmapTextures {
 impl BitmapTextures {
     pub fn begin_frame(&mut self, project: &Project) {
         self.used.clear();
-        self.textures.retain(|(id, _), texture| {
+        self.textures.retain(|(id, _, _), texture| {
             project.resources.iter().any(|resource| {
                 resource.id == *id && Arc::ptr_eq(&resource.data_base64, &texture.source)
             })
@@ -39,11 +39,12 @@ impl BitmapTextures {
         });
     }
 
-    pub fn texture(
+    pub fn texture_transformed(
         &mut self,
         ctx: &egui::Context,
         project: &Project,
         kind: &ElementKind,
+        color: ColorTransform,
     ) -> Option<TextureId> {
         let ElementKind::Bitmap {
             resource_id,
@@ -57,7 +58,17 @@ impl BitmapTextures {
             .resources
             .iter()
             .find(|resource| resource.id == *resource_id)?;
-        let key = (resource_id.clone(), *smoothing);
+        let channels: Vec<_> = color
+            .multipliers
+            .into_iter()
+            .chain(color.offsets)
+            .map(f64::to_bits)
+            .collect();
+        let key = (
+            resource_id.clone(),
+            *smoothing,
+            channels.try_into().unwrap(),
+        );
         self.used.insert(key.clone());
         if let Some(texture) = self.textures.get(&key) {
             return Some(texture.handle.id());
@@ -93,9 +104,16 @@ impl BitmapTextures {
             );
             return None;
         }
+        let mut pixels = decoded.rgba.clone();
+        if !color.is_identity() {
+            for pixel in Arc::make_mut(&mut pixels).as_chunks_mut::<4>().0 {
+                let transformed = color.apply([pixel[0], pixel[1], pixel[2], pixel[3]]);
+                pixel.copy_from_slice(&transformed);
+            }
+        }
         let image = egui::ColorImage::from_rgba_unmultiplied(
             [decoded.width as usize, decoded.height as usize],
-            &decoded.rgba,
+            &pixels,
         );
         let handle = ctx.load_texture(
             format!("bitmap-{resource_id}-{smoothing}"),

@@ -284,6 +284,7 @@ fn conversion_preserves_appearance_identity_and_scripts_on_the_new_instance() {
         scale_y: 1.5,
         rotation: 30.,
         alpha: 0.7,
+        ..Default::default()
     };
     let before = editor.project.clone();
     let visible = evaluate(&editor.project, editor.symbol_id(), editor.frame);

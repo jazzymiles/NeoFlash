@@ -14,6 +14,8 @@ pub struct DrawItem<K = ElementKind> {
     /// Canvas-compatible affine matrix [a,b,c,d,tx,ty].
     pub transform: [f64; 6],
     pub alpha: f64,
+    #[serde(default, skip_serializing_if = "crate::ColorTransform::is_identity")]
+    pub color_transform: crate::ColorTransform,
     pub kind: K,
 }
 
@@ -28,6 +30,7 @@ where
             && self.layer_id == other.layer_id
             && self.transform == other.transform
             && self.alpha == other.alpha
+            && self.color_transform == other.color_transform
             && self.kind == other.kind
     }
 }
@@ -40,6 +43,7 @@ impl<K> DrawItem<K> {
             layer_id: self.layer_id,
             transform: self.transform,
             alpha: self.alpha,
+            color_transform: self.color_transform,
             kind: map(self.kind),
         }
     }
@@ -82,6 +86,7 @@ pub(crate) struct DisplayPatch {
     pub name: Option<String>,
     pub text: Option<String>,
     pub text_color: Option<u32>,
+    pub button_frame: Option<u32>,
 }
 
 impl DisplayPatch {
@@ -120,11 +125,12 @@ pub fn affine_multiply(a: [f64; 6], b: [f64; 6]) -> [f64; 6] {
 
 pub fn transform_matrix(t: Transform) -> [f64; 6] {
     let (s, c) = t.rotation.to_radians().sin_cos();
+    let (sy, cy) = (t.rotation + t.skew).to_radians().sin_cos();
     [
         c * t.scale_x,
         s * t.scale_x,
-        -s * t.scale_y,
-        c * t.scale_y,
+        -sy * t.scale_y,
+        cy * t.scale_y,
         t.x,
         t.y,
     ]
@@ -135,6 +141,14 @@ pub fn easing(t: f64, ease: Easing) -> f64 {
     let t = t.clamp(0., 1.);
     match ease {
         Easing::Linear => t,
+        Easing::Flash { acceleration } => {
+            let amount = (acceleration / 100.).clamp(-1., 1.);
+            if amount < 0. {
+                t + (-amount) * (t * t - t)
+            } else {
+                t + amount * ((1. - (1. - t).powi(2)) - t)
+            }
+        }
         Easing::EaseIn => t * t,
         Easing::EaseOut => 1. - (1. - t) * (1. - t),
         Easing::EaseInOut => {
@@ -182,6 +196,23 @@ fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
         scale_y: lerp(x.scale_y, y.scale_y, t),
         rotation: lerp(x.rotation, y.rotation, t),
         alpha: lerp(x.alpha, y.alpha, t),
+        skew: lerp(x.skew, y.skew, t),
+        color_transform: crate::ColorTransform {
+            multipliers: std::array::from_fn(|i| {
+                lerp(
+                    x.color_transform.multipliers[i],
+                    y.color_transform.multipliers[i],
+                    t,
+                )
+            }),
+            offsets: std::array::from_fn(|i| {
+                lerp(
+                    x.color_transform.offsets[i],
+                    y.color_transform.offsets[i],
+                    t,
+                )
+            }),
+        },
     };
     match (&a.kind, &b.kind, &mut e.kind) {
         (
@@ -411,6 +442,7 @@ pub(crate) fn snapshot_mode(
             matrix: world,
             alpha: transform.alpha,
             visible,
+            color_transform: transform.color_transform.with_alpha(transform.alpha),
         },
         0,
     );
@@ -430,6 +462,7 @@ struct InheritedDisplay {
     matrix: [f64; 6],
     alpha: f64,
     visible: bool,
+    color_transform: crate::ColorTransform,
 }
 
 impl Walker<'_> {
@@ -467,6 +500,7 @@ impl Walker<'_> {
                 path.push(e.id.clone());
                 let patch = (self.patch)(&path);
                 let visible = patch.as_ref().and_then(|p| p.visible).unwrap_or(true);
+                let button_frame = patch.as_ref().and_then(|p| p.button_frame).unwrap_or(0);
                 if let Some(patch) = patch {
                     patch.apply(&mut e.transform);
                     match &mut e.kind {
@@ -496,6 +530,11 @@ impl Walker<'_> {
                 }
                 let world = affine_multiply(inherited.matrix, transform_matrix(e.transform));
                 let opacity = inherited.alpha * e.transform.alpha.clamp(0., 1.);
+                let color_transform = e
+                    .transform
+                    .color_transform
+                    .with_alpha(e.transform.alpha)
+                    .then(inherited.color_transform);
                 let effective_visible = inherited.visible && visible;
                 let mut node = Node {
                     path: path.clone(),
@@ -522,17 +561,26 @@ impl Walker<'_> {
                     };
                     let count = child.timeline.frame_count.max(1);
                     let age = frame.saturating_sub(placement_start(layer, frame, &e.id));
-                    let child_frame = match playback {
-                        InstancePlayback::Independent => {
-                            (self.clock)(&path).unwrap_or(age % count) % count
+                    let child_frame = if child.kind == SymbolKind::Button {
+                        button_frame.min(2).min(count - 1)
+                    } else {
+                        match playback {
+                            InstancePlayback::Independent => {
+                                (self.clock)(&path).unwrap_or(age % count) % count
+                            }
+                            InstancePlayback::Loop => age % count,
+                            InstancePlayback::LoopFrom(start) => age.saturating_add(*start) % count,
+                            InstancePlayback::PlayOnce => age.min(count - 1),
+                            InstancePlayback::PlayOnceFrom(start) => {
+                                age.saturating_add(*start).min(count - 1)
+                            }
+                            InstancePlayback::SingleFrame(f) => (*f).min(count - 1),
                         }
-                        InstancePlayback::Loop => age % count,
-                        InstancePlayback::PlayOnce => age.min(count - 1),
-                        InstancePlayback::SingleFrame(f) => (*f).min(count - 1),
                     };
                     node.symbol_id = Some(child.id.clone());
                     node.frame = child_frame;
-                    node.independent = matches!(playback, InstancePlayback::Independent);
+                    node.independent = child.kind != SymbolKind::Button
+                        && matches!(playback, InstancePlayback::Independent);
                     self.result.nodes.push(node);
                     // Invisible clips still exist and advance their timelines.
                     self.walk(
@@ -543,6 +591,7 @@ impl Walker<'_> {
                             matrix: world,
                             alpha: opacity,
                             visible: effective_visible,
+                            color_transform,
                         },
                         depth + 1,
                     );
@@ -557,6 +606,7 @@ impl Walker<'_> {
                             layer_id: layer.id.clone(),
                             transform: world,
                             alpha: opacity,
+                            color_transform,
                             kind: e.kind,
                         });
                     }

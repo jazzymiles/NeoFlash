@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-28 — Drawing tools and symbol authoring
+
+- Add ten tools, Modify commands and Align/Transform/Color panels, including exact spacing and group-aware layout.
+- Use compact numeric fields and linked timeline FPS/duration; retain the frame count when timing changes.
+- Add empty symbol creation, Button state editing and AS2/AS3 input/type linkage, plus Graphic first-frame playback.
+- Move floating Edit/Dock controls into the header menu and distinguish tab dragging from whole-group dragging. Preserve skew during transform gestures.
+
 ## 2026-10-28 — Layers and configurable authoring workspace
 
 - Keep graphic imports visible on the page, including Finder drops and placement while a hidden, locked or special layer is selected. Add Library-to-Stage dragging and a direct Import graphics control.
@@ -41,6 +48,7 @@ See the [compatibility matrix](docs/COMPATIBILITY.md) for current support and li
 
 ### Scripting and data
 
+- Add AS3 numeric Class aliases, int/uint bounds and bound numeric method values; ordinary object property/enumerability controls, public source-class reflection, source-class prototype/constructor identity and dense Array insertAt/removeAt. Extend the existing inventory example with visible calculations, metadata and recent batches.
 - Add ActionScript functions, closures, structured control flow, exceptions, optional/rest arguments and Function.call/apply. Improve HTML5 diagnostics for arbitrary thrown values.
 - Add AS2/AS3 project classes and imports, linked MovieClip construction, AS3 access control, final/dynamic classes, interfaces and inherited accessors. Preserve distinct AS2 class and receiver semantics.
 - Extend Array/String, numeric/URI operations, Date, JSON, RegExp, finite geometry, easing/Tween/CustomEase, callback timers and AsBroadcaster. Individual upstream algorithms are adapted into Rust with attribution.
@@ -60,7 +68,10 @@ See the [compatibility matrix](docs/COMPATIBILITY.md) for current support and li
 
 ### Import, coverage and tooling
 
-- Add strict binary FLA inspection for containers, shapes, document settings and typed timelines, plus an opt-in solid-contour adapter. Preserve unsupported content through explicit refusals.
+- Separate AS3 reporting into ordered Flash Player foundations, later media/services, AIR-only APIs, external libraries and unresolved availability. Show purpose and all four audit statuses without changing the complete catalogue denominator or treating existing partial APIs as new work.
+- Add direct native Flash MX/CS4 FLA import for the supported `Clock.fla` and `300x600.fla` profiles. Preserve nested symbols/layers, classic tweens, masks, text, bitmap media and original ActionScript; embed the exact FLA and source provenance. Missing installed fonts are nonblocking.
+- Extend document version 5 with authored affine skew, gradient paths, color transforms and Flash easing. Imported buttons retain separate Up/Over/Down/Hit frames; Hit geometry remains invisible during playback.
+- Add a bounded AS1 timeline profile for Clock, retaining its language/source and resolving dynamic names with SWF6 case rules. Unsupported binary records and script features continue to diagnose.
 - Expand XFL preservation, hidden-layer handling and AS2 frame-label/callback support. Import one licensed real CS6 FLA as an editable project; general FLA/SWF import remains incomplete.
 - Add a pinned, licensed public FLA corpus with source provenance.
 - Base ActionScript coverage on the complete declaration catalogue, with separate implemented-subset, partial, missing and needs-review states. Keep the generated dashboard, daily history and repository summary consistent and in English.

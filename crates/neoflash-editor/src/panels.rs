@@ -168,7 +168,16 @@ impl Editor {
                             ui.close();
                         }
                     });
+                    self.modify_menu_ui(ui);
                     ui.menu_button("Insert", |ui| {
+                        if ui
+                            .add(egui::Button::new("New Symbol…").shortcut_text("⌘F8"))
+                            .clicked()
+                        {
+                            self.begin_new_symbol();
+                            ui.close();
+                        }
+                        ui.separator();
                         if ui
                             .add_enabled(
                                 self.layer_editable(),
@@ -257,6 +266,9 @@ impl Editor {
                             ("Actions", PanelId::Actions),
                             ("Accessibility", PanelId::Accessibility),
                             ("Output", PanelId::Output),
+                            ("Align", PanelId::Align),
+                            ("Transform", PanelId::Transform),
+                            ("Color", PanelId::Color),
                         ] {
                             let mut visible = self.workspace.is_panel_visible(panel);
                             let response = ui
@@ -290,6 +302,9 @@ impl Editor {
                             ("Actions", PanelId::Actions),
                             ("Accessibility", PanelId::Accessibility),
                             ("Output", PanelId::Output),
+                            ("Align", PanelId::Align),
+                            ("Transform", PanelId::Transform),
+                            ("Color", PanelId::Color),
                         ] {
                             let detached =
                                 self.workspace.placement(panel) == PanelPlacement::Detached;
@@ -474,12 +489,7 @@ impl Editor {
                         self.clear_selection();
                     }
                 }
-                ui.label(format!(
-                    "{} FPS   {} F   {:.2} s",
-                    self.project.fps,
-                    self.frame + 1,
-                    self.frame as f64 / self.project.fps as f64
-                ));
+                self.timeline_timing_ui(ui);
                 ui.separator();
                 crate::theme::timeline_controls(ui, |ui| {
                     ui.spacing_mut().slider_width = 84.;
@@ -503,6 +513,8 @@ impl Editor {
             if zoom_changed {
                 self.timeline_key_drag = None;
             }
+            let button_states = self.symbol().kind == SymbolKind::Button;
+            let cell_width = if button_states { 64. } else { self.timeline_cell };
             ui.separator();
             // The frame canvas may be much wider than the viewport. Freeze the
             // toolbar width before allocating it so scrolling frames cannot
@@ -715,7 +727,7 @@ impl Editor {
                             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
-                                let width = (count.saturating_add(4).max(72) as f32 * self.timeline_cell)
+                                let width = ((if button_states { count.saturating_add(1) } else { count.saturating_add(4).max(72) }) as f32 * cell_width)
                                     .max(ui.available_width());
                                 let (rect, response) = ui.allocate_exact_size(
                                     Vec2::new(width, (content_height + 8.).max(height - 18.)),
@@ -723,7 +735,7 @@ impl Editor {
                                 );
                                 grid_rect = rect;
                                 grid_clip = ui.clip_rect().intersect(rect);
-                                let hit = |pos| timeline_cell_at(pos, rect.min, self.timeline_cell, count, layers.len());
+                                let hit = |pos| timeline_cell_at(pos, rect.min, cell_width, count, layers.len());
                                 // Native platforms can batch a complete press/move/release
                                 // between paints. Capture its press position, even when the
                                 // button is already up and egui has no ongoing drag response.
@@ -779,10 +791,10 @@ impl Editor {
                                         if symbol == self.symbol_id()
                                             && let Some(layer) = layers.iter().position(|layer| &layer.id == layer_id)
                                         {
-                                            self.frame = frame_at_x(pos.x, rect.left(), self.timeline_cell, count);
+                                            self.frame = frame_at_x(pos.x, rect.left(), cell_width, count);
                                             self.layer = layer_indices[layer];
                                         }
-                                    } else if let Some((frame, layer)) = timeline_cell_at(pos, rect.min, self.timeline_cell, count, layers.len()) {
+                                    } else if let Some((frame, layer)) = timeline_cell_at(pos, rect.min, cell_width, count, layers.len()) {
                                         self.frame = frame;
                                         self.layer = layer_indices[layer];
                                         self.script_target = ScriptTarget::Frame;
@@ -802,7 +814,7 @@ impl Editor {
                                         && pos.y >= grid_clip.top()
                                         && pos.y < grid_clip.bottom().min(rect.top() + content_height)
                                     {
-                                        let to = frame_at_x(pos.x, rect.left(), self.timeline_cell, count);
+                                        let to = frame_at_x(pos.x, rect.left(), cell_width, count);
                                         self.move_key(layer_indices[layer], from, to, copy);
                                     }
                                 } else if ui.input(|i| i.pointer.primary_released()) {
@@ -811,17 +823,17 @@ impl Editor {
                                 let painter = ui.painter_at(rect);
                                 painter.rect_filled(rect, 0, palette.panel_fill);
                                 let first = (((grid_clip.left() - rect.left())
-                                        / self.timeline_cell)
+                                        / cell_width)
                                         .max(0.)
                                         as u32)
                                         .min(count);
                                 let last =
-                                    (((grid_clip.right() - rect.left()) / self.timeline_cell)
+                                    (((grid_clip.right() - rect.left()) / cell_width)
                                         .ceil()
                                         .max(0.) as u32)
                                         .min(count);
                                 for f in first..last {
-                                    let x = rect.left() + f as f32 * self.timeline_cell;
+                                    let x = rect.left() + f as f32 * cell_width;
                                     let color = if f == self.frame {
                                         palette.timeline_active_frame
                                     } else if f % 5 == 4 {
@@ -832,7 +844,7 @@ impl Editor {
                                     painter.rect_filled(
                                         Rect::from_min_size(
                                             Pos2::new(x, rect.top()),
-                                            Vec2::new(self.timeline_cell, rect.height()),
+                                            Vec2::new(cell_width, rect.height()),
                                         ),
                                         0,
                                         color,
@@ -864,8 +876,8 @@ impl Editor {
                                         if next < first || key.frame > last {
                                             continue;
                                         }
-                                        let x = rect.left() + key.frame as f32 * self.timeline_cell;
-                                        let end = rect.left() + next.min(count) as f32 * self.timeline_cell;
+                                        let x = rect.left() + key.frame as f32 * cell_width;
+                                        let end = rect.left() + next.min(count) as f32 * cell_width;
                                         let span = Rect::from_min_max(Pos2::new(x, y + 1.), Pos2::new(end, y + ROW_HEIGHT - 1.));
                                         p.rect_filled(span, 0, if key.elements.is_empty() {
                                             palette.timeline_blank_key
@@ -875,16 +887,16 @@ impl Editor {
                                         p.line_segment([span.left_top(), span.right_top()], Stroke::new(0.5_f32, palette.timeline_grid));
                                         p.line_segment([span.left_bottom(), span.right_bottom()], Stroke::new(0.5_f32, palette.timeline_grid));
                                         for frame in key.frame.max(first)..next.min(last) {
-                                            let cell_x = rect.left() + frame as f32 * self.timeline_cell;
+                                            let cell_x = rect.left() + frame as f32 * cell_width;
                                             p.line_segment([Pos2::new(cell_x, y + 1.), Pos2::new(cell_x, y + ROW_HEIGHT - 1.)], Stroke::new(0.5_f32, palette.timeline_grid));
                                         }
                                         if next > key.frame + 1 && !key.elements.is_empty() {
-                                            let last_x = end - self.timeline_cell / 2.;
+                                            let last_x = end - cell_width / 2.;
                                             p.rect_stroke(Rect::from_center_size(Pos2::new(last_x, y + ROW_HEIGHT / 2.), Vec2::new(4., 6.)), 0, Stroke::new(1.0_f32, palette.timeline_key), egui::StrokeKind::Inside);
                                         }
                                         if key.tween.is_some() && ki + 1 < layer.keyframes.len() {
                                             let end =
-                                                rect.left() + next as f32 * self.timeline_cell;
+                                                rect.left() + next as f32 * cell_width;
                                             p.rect_filled(
                                                 Rect::from_min_max(
                                                     Pos2::new(x, y + 1.),
@@ -903,7 +915,7 @@ impl Editor {
                                         }
                                         p.circle(
                                             Pos2::new(
-                                                x + self.timeline_cell / 2.,
+                                                x + cell_width / 2.,
                                                 y + ROW_HEIGHT / 2.,
                                             ),
                                             3.,
@@ -933,16 +945,16 @@ impl Editor {
                                     );
                                 }
                                 let selected_cell = Rect::from_min_size(
-                                    Pos2::new(rect.left() + self.frame as f32 * self.timeline_cell, rect.top() + layer_indices.iter().position(|i| *i == self.layer).unwrap_or(0) as f32 * ROW_HEIGHT),
-                                    Vec2::new(self.timeline_cell, ROW_HEIGHT),
+                                    Pos2::new(rect.left() + self.frame as f32 * cell_width, rect.top() + layer_indices.iter().position(|i| *i == self.layer).unwrap_or(0) as f32 * ROW_HEIGHT),
+                                    Vec2::new(cell_width, ROW_HEIGHT),
                                 );
                                 painter.rect_stroke(selected_cell, 0, Stroke::new(1.5_f32, palette.selection_stroke), egui::StrokeKind::Inside);
-                                let end_x = rect.left() + count as f32 * self.timeline_cell;
+                                let end_x = rect.left() + count as f32 * cell_width;
                                 painter.line_segment([Pos2::new(end_x, rect.top()), Pos2::new(end_x, rect.top() + content_height)], Stroke::new(1.5_f32, palette.border));
                                 if response.hovered()
                                     && let Some(pos) = response.hover_pos()
                                 {
-                                    if let Some((frame, layer)) = timeline_cell_at(pos, rect.min, self.timeline_cell, count, layers.len()) {
+                                    if let Some((frame, layer)) = timeline_cell_at(pos, rect.min, cell_width, count, layers.len()) {
                                         let key = layers[layer].key_at(frame);
                                         let label = match key {
                                             Some(key) if key.frame == frame && key.elements.is_empty() => "Blank keyframe".to_owned(),
@@ -975,8 +987,8 @@ impl Editor {
                                     painter.text(
                                         Pos2::new(
                                             rect.left()
-                                                + script.frame as f32 * self.timeline_cell
-                                                + self.timeline_cell / 2.,
+                                                + script.frame as f32 * cell_width
+                                                + cell_width / 2.,
                                             rect.top() + 3.,
                                         ),
                                         Align2::CENTER_TOP,
@@ -986,8 +998,8 @@ impl Editor {
                                     );
                                 }
                                 let playx = rect.left()
-                                    + self.frame as f32 * self.timeline_cell
-                                    + self.timeline_cell / 2.;
+                                    + self.frame as f32 * cell_width
+                                    + cell_width / 2.;
                                 painter.line_segment(
                                     [
                                         Pos2::new(playx, rect.top()),
@@ -996,7 +1008,7 @@ impl Editor {
                                     Stroke::new(1.5_f32, palette.playhead),
                                 );
                                 if response.context_menu_opened()
-                                    || response.interact_pointer_pos().is_some_and(|pos| timeline_cell_at(pos, rect.min, self.timeline_cell, count, layers.len()).is_some())
+                                    || response.interact_pointer_pos().is_some_and(|pos| timeline_cell_at(pos, rect.min, cell_width, count, layers.len()).is_some())
                                 {
                                 response.context_menu(|ui| {
                                     ui.label(format!("{} · Frame {}", self.symbol().timeline.layers[self.layer].name, self.frame + 1));
@@ -1040,7 +1052,7 @@ impl Editor {
                         if zoom_changed {
                             let mut state = frames.state;
                             let maximum = (frames.content_size.x - frames.inner_rect.width()).max(0.);
-                            state.offset.x = ((self.frame as f32 + 0.5) * self.timeline_cell
+                            state.offset.x = ((self.frame as f32 + 0.5) * cell_width
                                 - frames.inner_rect.width() * 0.5).clamp(0., maximum);
                             state.store(ui.ctx(), frames.id);
                             ui.ctx().request_repaint();
@@ -1128,35 +1140,35 @@ impl Editor {
                 let outline_header = Rect::from_center_size(Pos2::new(header.left() + layer_column_width - crate::timeline_paint::LAYER_CONTROL_WIDTH / 2., header.center().y), Vec2::splat(10.));
                 ui.painter().rect_stroke(outline_header, 0, Stroke::new(1.0_f32, palette.muted_text), egui::StrokeKind::Inside);
                 ui.interact(outline_header, ui.id().with("layer-outline-column"), Sense::hover()).on_hover_text("Layer outline and color");
-                let first = (((ruler.left() - grid_rect.left()) / self.timeline_cell).max(0.)
+                let first = (((ruler.left() - grid_rect.left()) / cell_width).max(0.)
                     as u32)
                     .min(count);
-                let last = (((ruler.right() - grid_rect.left()) / self.timeline_cell)
+                let last = (((ruler.right() - grid_rect.left()) / cell_width)
                     .ceil()
                     .max(0.) as u32)
                     .min(count);
-                let label_step = crate::timeline_paint::ruler_label_step(self.timeline_cell, count);
+                let label_step = crate::timeline_paint::ruler_label_step(cell_width, count);
                 for f in first..last {
-                    let x = grid_rect.left() + f as f32 * self.timeline_cell;
+                    let x = grid_rect.left() + f as f32 * cell_width;
                     if f == 0 || (f + 1) % label_step == 0 {
                         p.text(
-                            Pos2::new(x + self.timeline_cell / 2., ruler.bottom() - 6.),
+                            Pos2::new(x + cell_width / 2., ruler.bottom() - 6.),
                             Align2::CENTER_CENTER,
-                            (f + 1).to_string(),
+                            if button_states { crate::authoring_symbols::BUTTON_STATES.get(f as usize).unwrap_or(&"—").to_string() } else { (f + 1).to_string() },
                             FontId::proportional(10.),
                             palette.muted_text,
                         );
                     }
                 }
                 let fps = self.project.fps.max(1);
-                let seconds_step = ((46. / (self.timeline_cell * fps as f32)).ceil() as u32).max(1);
+                let seconds_step = ((46. / (cell_width * fps as f32)).ceil() as u32).max(1);
                 for f in first..last {
-                    if f.is_multiple_of(fps) && (f / fps).is_multiple_of(seconds_step) {
-                        let x = grid_rect.left() + f as f32 * self.timeline_cell;
+                    if !button_states && f.is_multiple_of(fps) && (f / fps).is_multiple_of(seconds_step) {
+                        let x = grid_rect.left() + f as f32 * cell_width;
                         p.text(Pos2::new(x + 3., ruler.top() + 5.), Align2::LEFT_CENTER, format!("{}s", f / fps), FontId::proportional(9.), palette.muted_text);
                     }
                 }
-                let end_x = grid_rect.left() + count as f32 * self.timeline_cell;
+                let end_x = grid_rect.left() + count as f32 * cell_width;
                 if end_x >= ruler.left() && end_x <= ruler.right() {
                     p.line_segment([Pos2::new(end_x, ruler.top()), Pos2::new(end_x, ruler.bottom())], Stroke::new(1.5_f32, palette.border));
                     p.text(Pos2::new(end_x + 5., ruler.center().y), Align2::LEFT_CENTER, "End", FontId::proportional(10.), palette.muted_text);
@@ -1169,15 +1181,15 @@ impl Editor {
                     self.finish_edits();
                     self.timeline_key_drag = None;
                     self.set_playing(false);
-                    if pos.x < grid_rect.left() + count as f32 * self.timeline_cell {
-                        self.frame = frame_at_x(pos.x, grid_rect.left(), self.timeline_cell, count);
+                    if pos.x < grid_rect.left() + count as f32 * cell_width {
+                        self.frame = frame_at_x(pos.x, grid_rect.left(), cell_width, count);
                         self.script_target = ScriptTarget::Frame;
                         self.clear_selection();
                     }
                 }
                 let playx = grid_rect.left()
-                    + self.frame as f32 * self.timeline_cell
-                    + self.timeline_cell / 2.;
+                    + self.frame as f32 * cell_width
+                    + cell_width / 2.;
                 p.line_segment(
                     [
                         Pos2::new(playx, ruler.top()),
@@ -1192,8 +1204,8 @@ impl Editor {
                 );
                 if self.onion {
                     let (start, end) = self.onion_range();
-                    let left = grid_rect.left() + start as f32 * self.timeline_cell;
-                    let right = grid_rect.left() + (end + 1) as f32 * self.timeline_cell;
+                    let left = grid_rect.left() + start as f32 * cell_width;
+                    let right = grid_rect.left() + (end + 1) as f32 * cell_width;
                     p.line_segment(
                         [
                             Pos2::new(left, ruler.bottom() - 3.),
@@ -1215,7 +1227,7 @@ impl Editor {
                         if handle.dragged()
                             && let Some(pos) = handle.interact_pointer_pos()
                         {
-                            let f = (((pos.x - grid_rect.left()) / self.timeline_cell)
+                            let f = (((pos.x - grid_rect.left()) / cell_width)
                                 .round()
                                 .max(0.) as u32)
                                 .min(count - 1);
@@ -1439,16 +1451,26 @@ impl Editor {
                 .show(ui, |ui| {
                     let tools = [
                         (Tool::Select, Icon::Select, "Selection (V)"),
-                        (Tool::Transform, Icon::Transform, "Free Transform (Q)"),
                         (Tool::Subselect, Icon::Subselect, "Subselection (A)"),
+                        (Tool::Transform, Icon::Transform, "Free Transform (Q)"),
+                        (Tool::Gradient, Icon::Gradient, "Gradient Transform (F)"),
+                        (Tool::Lasso, Icon::Lasso, "Lasso (L)"),
                         (Tool::Pen, Icon::Pen, "Pen (P)"),
-                        (Tool::Pencil, Icon::Pencil, "Pencil (Y)"),
+                        (Tool::Text, Icon::Text, "Text (T)"),
+                        (Tool::Line, Icon::Line, "Line (N)"),
                         (Tool::Rectangle, Icon::Rectangle, "Rectangle (R)"),
                         (Tool::Ellipse, Icon::Ellipse, "Oval (O)"),
-                        (Tool::Text, Icon::Text, "Text (T)"),
+                        (Tool::Pencil, Icon::Pencil, "Pencil (Y)"),
+                        (Tool::Brush, Icon::Brush, "Brush (B)"),
+                        (Tool::Ink, Icon::Ink, "Ink Bottle (S)"),
+                        (Tool::Bucket, Icon::Bucket, "Paint Bucket (K)"),
+                        (Tool::Eyedropper, Icon::Eyedropper, "Eyedropper (I)"),
+                        (Tool::Eraser, Icon::Eraser, "Eraser (E)"),
+                        (Tool::Hand, Icon::Hand, "Hand (H / hold Space)"),
+                        (Tool::Zoom, Icon::ZoomIn, "Zoom (Z / M)"),
                     ];
                     let columns =
-                        ((ui.available_width() + 4.) / 36.).floor().clamp(1., 4.) as usize;
+                        ((ui.available_width() + 4.) / 36.).floor().clamp(1., 2.) as usize;
                     for row in tools.chunks(columns) {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 4.;
@@ -1467,6 +1489,7 @@ impl Editor {
                         });
                     }
                     ui.separator();
+                    self.authoring_tool_options(ui);
                     if ui.available_width() >= 170. {
                         crate::paint_controls::paint_row(ui, "tool-fill", "Fill", &mut self.fill);
                         crate::paint_controls::paint_row(
@@ -1648,7 +1671,7 @@ impl Editor {
                             ui.small(format!("{width} × {height} px"));
                             changes.note(ui.checkbox(smoothing, "Smoothing"));
                         }
-                        ElementKind::Path { commands, fill_rule, fill, stroke, stroke_width } => {
+                        ElementKind::Path { commands, fill_rule, fill, stroke, stroke_width } | ElementKind::PaintedPath { commands, fill_rule, fill, stroke, stroke_width, .. } => {
                             ui.strong("Vector path");
                             ui.small(format!("{} commands", commands.len()));
                             changes.note(paint_row(ui, "path-fill", "Fill", fill));
@@ -1667,20 +1690,7 @@ impl Editor {
                             ui.strong("Instance");
                             let name = self.project.symbol(symbol_id).map(|s| s.name.as_str()).unwrap_or("Missing");
                             property_row(ui, "Symbol", |ui| { ui.add(egui::Label::new(name).truncate()).on_hover_text(name); });
-                            let before = *playback;
-                            let title = match playback { InstancePlayback::Independent => "Independent", InstancePlayback::Loop => "Loop", InstancePlayback::PlayOnce => "Play once", InstancePlayback::SingleFrame(_) => "Single frame" };
-                            let mut response = property_row(ui, "Playback", |ui| egui::ComboBox::from_id_salt("playback").width(ui.available_width()).selected_text(title).show_ui(ui, |ui| {
-                                for (value, label) in [(InstancePlayback::Independent,"Independent"), (InstancePlayback::Loop,"Loop"), (InstancePlayback::PlayOnce,"Play once"), (InstancePlayback::SingleFrame(0),"Single frame")] { ui.selectable_value(playback, value, label); }
-                            }).response);
-                            if *playback != before { response.mark_changed(); }
-                            changes.note(response);
-                            if let InstancePlayback::SingleFrame(frame) = playback {
-                                let mut displayed = frame.saturating_add(1);
-                                let max = self.project.symbol(symbol_id).map(|s| s.timeline.frame_count).unwrap_or(1);
-                                let response = property_row(ui, "Frame", |ui| ui.add_sized([ui.available_width(), crate::theme::CONTROL_HEIGHT], egui::DragValue::new(&mut displayed).range(1..=max)));
-                                if response.changed() { *frame = displayed - 1; }
-                                changes.note(response);
-                            }
+                            if let Some(control) = self.instance_playback_ui(ui, symbol_id, playback) { changes.control = Some(control); }
                             if ui.button("Edit symbol").clicked() { edit_symbol = Some(symbol_id.clone()); }
                         }
                     }
@@ -1716,8 +1726,8 @@ impl Editor {
                 let frame = self.frame;
                 ui.strong("Document");
                 changes.note(text_row(ui, "Name", &mut document.name));
-                for (label, value, max) in [("Width", &mut document.width,8192), ("Height", &mut document.height,8192), ("FPS", &mut document.fps,120)] {
-                    changes.note(property_row(ui, label, |ui| ui.add_sized([ui.available_width(),crate::theme::CONTROL_HEIGHT],egui::DragValue::new(value).range(1..=max))));
+                for (label, value, max) in [("Width", &mut document.width,8192), ("Height", &mut document.height,8192), ("FPS", &mut document.fps,1000)] {
+                    changes.note(property_row(ui, label, |ui| ui.add_sized([96.,crate::theme::CONTROL_HEIGHT],egui::DragValue::new(value).range(1..=max).update_while_editing(false))));
                 }
                 changes.note(paint_row(ui, "background", "Background", &mut document.background));
                 ui.separator();
@@ -1725,12 +1735,12 @@ impl Editor {
                 let timeline = &mut document.symbol_mut(&symbol_id).unwrap().timeline;
                 changes.note(text_row(ui, "Layer", &mut timeline.layers[layer].name));
                 let min = timeline.layers.iter().flat_map(|l| &l.keyframes).map(|k| k.frame+1).chain(timeline.scripts.iter().map(|s|s.frame+1)).max().unwrap_or(1);
-                changes.note(property_row(ui,"Frames",|ui|ui.add_sized([ui.available_width(),crate::theme::CONTROL_HEIGHT],egui::DragValue::new(&mut timeline.frame_count).range(min..=10000))));
+                changes.note(property_row(ui,"Frames",|ui|ui.add_sized([96.,crate::theme::CONTROL_HEIGHT],egui::DragValue::new(&mut timeline.frame_count).range(min..=10000).update_while_editing(false))));
                 ui.add_enabled_ui(self.layer_editable(), |ui| {
                     if let Some(key) = timeline.layers[layer].key_at_mut(frame) {
                         changes.note(text_row(ui, "Frame label", &mut key.label));
                         let before = key.tween;
-                        let mut response = property_row(ui, "Tween", |ui| egui::ComboBox::from_id_salt("tween").width(ui.available_width()).selected_text(match key.tween { None=>"No tween",Some(Easing::Linear)=>"Linear",Some(Easing::EaseIn)=>"Ease in",Some(Easing::EaseOut)=>"Ease out",Some(Easing::EaseInOut)=>"Ease in/out",Some(Easing::CubicBezier{..})=>"Custom curve" }).show_ui(ui, |ui| {
+                        let mut response = property_row(ui, "Tween", |ui| egui::ComboBox::from_id_salt("tween").width(ui.available_width()).selected_text(match key.tween { None=>"No tween",Some(Easing::Linear)=>"Linear",Some(Easing::EaseIn)=>"Ease in",Some(Easing::EaseOut)=>"Ease out",Some(Easing::EaseInOut)=>"Ease in/out",Some(Easing::CubicBezier{..})=>"Custom curve",Some(Easing::Flash{..})=>"Flash ease" }).show_ui(ui, |ui| {
                             for (label,value) in [("No tween",None),("Linear",Some(Easing::Linear)),("Ease in",Some(Easing::EaseIn)),("Ease out",Some(Easing::EaseOut)),("Ease in/out",Some(Easing::EaseInOut)),("Custom curve",Some(Easing::CubicBezier{x1:0.25,y1:0.1,x2:0.25,y2:1.}))] { ui.selectable_value(&mut key.tween,value,label); }
                         }).response);
                         if key.tween != before { response.mark_changed(); }
@@ -1867,6 +1877,13 @@ impl Editor {
             ui.label("Select one editable object to edit its actions, or select Frame above.");
             return;
         }
+        if self.symbol().kind == SymbolKind::Button
+            && self.script_target == ScriptTarget::Frame
+            && !has_frame_script
+        {
+            ui.label("Button states contain artwork. Attach actions to the named Button instance on its parent timeline, or use its linked class in Project files.");
+            return;
+        }
         let object_id = self.selected_element().map(|element| element.id.clone());
         let original = match self.script_target {
             ScriptTarget::Source => unreachable!("Project files use their own editor"),
@@ -1889,6 +1906,7 @@ impl Editor {
             let label = match script.language {
                 ScriptLanguage::JavaScript => "JavaScript",
                 ScriptLanguage::TypeScript => "TypeScript",
+                ScriptLanguage::ActionScript1 => "AS1 (legacy)",
                 ScriptLanguage::ActionScript2 => "AS2",
                 ScriptLanguage::ActionScript3 => "AS3",
             };
@@ -1899,6 +1917,7 @@ impl Editor {
                     for (language, label) in [
                         (ScriptLanguage::JavaScript, "JavaScript"),
                         (ScriptLanguage::TypeScript, "TypeScript"),
+                        (ScriptLanguage::ActionScript1, "AS1 (legacy)"),
                         (ScriptLanguage::ActionScript2, "AS2"),
                         (ScriptLanguage::ActionScript3, "AS3"),
                     ] {

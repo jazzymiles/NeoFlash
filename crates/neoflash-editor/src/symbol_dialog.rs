@@ -9,6 +9,7 @@ pub(crate) struct SymbolConversion {
     frame: u32,
     selection: Selection,
     sampled: Vec<(crate::selection::SelectionTarget, Element)>,
+    new_symbol: bool,
     pub name: String,
     pub kind: SymbolKind,
     pub folder: String,
@@ -22,6 +23,37 @@ pub(crate) struct SymbolConversion {
 }
 
 impl Editor {
+    pub(crate) fn begin_new_symbol(&mut self) {
+        self.set_playing(false);
+        let mut name = "Symbol".to_owned();
+        let mut suffix = 2;
+        while self
+            .project
+            .symbols
+            .iter()
+            .any(|symbol| symbol.name == name)
+        {
+            name = format!("Symbol {suffix}");
+            suffix += 1;
+        }
+        self.symbol_conversion = Some(SymbolConversion {
+            symbol: self.symbol_id().to_owned(),
+            frame: self.frame,
+            selection: self.selection.clone(),
+            sampled: vec![],
+            new_symbol: true,
+            name: name.clone(),
+            kind: SymbolKind::MovieClip,
+            folder: self.library_panel.selected_folder.clone(),
+            registration: 4,
+            export_enabled: false,
+            linkage_id: name,
+            class_name: String::new(),
+            focus_name: true,
+            error: None,
+        });
+    }
+
     pub(crate) fn can_convert_selection(&self) -> bool {
         self.selection.symbol == self.symbol_id()
             && !self.selection.is_empty()
@@ -92,6 +124,7 @@ impl Editor {
             frame: self.frame,
             selection: self.selection.clone(),
             sampled,
+            new_symbol: false,
             name: unique_name.clone(),
             kind: SymbolKind::MovieClip,
             folder: self.library_panel.selected_folder.clone(),
@@ -112,7 +145,7 @@ impl Editor {
         let mut cancel = false;
         let response = egui::Modal::new(egui::Id::new("convert-to-symbol")).show(ctx, |ui| {
             ui.set_width(520.);
-            ui.heading("Convert to Symbol");
+            ui.heading(if draft.new_symbol { "Create New Symbol" } else { "Convert to Symbol" });
             ui.separator();
             ui.add_space(6.);
             ui.horizontal_top(|ui| {
@@ -138,7 +171,7 @@ impl Editor {
                             });
                             ui.add_space(8.);
                             ui.label("Registration:");
-                            registration_selector(ui, &mut draft.registration);
+                            ui.add_enabled_ui(!draft.new_symbol, |ui| registration_selector(ui, &mut draft.registration));
                         });
                         ui.end_row();
                         ui.label("Folder:");
@@ -157,11 +190,11 @@ impl Editor {
             ui.small(match draft.kind {
                 SymbolKind::MovieClip => "Movie Clips have an independent timeline.",
                 SymbolKind::Graphic => "Graphics follow the parent timeline in loop mode.",
-                SymbolKind::Button => "Buttons show one frame and support object events. Up/Over/Down/Hit state authoring is not available yet.",
+                SymbolKind::Button => "Buttons have Up, Over, Down and Hit frames. Add keyframes to customize each state; held artwork is shared until then.",
             });
             ui.add_space(5.);
             egui::CollapsingHeader::new("ActionScript linkage").default_open(false).show(ui, |ui| {
-                ui.add_enabled_ui(draft.kind == SymbolKind::MovieClip, |ui| {
+                ui.add_enabled_ui(draft.kind != SymbolKind::Graphic, |ui| {
                     ui.checkbox(&mut draft.export_enabled, "Export for ActionScript");
                     ui.add_enabled_ui(draft.export_enabled, |ui| {
                         egui::Grid::new("symbol-linkage").num_columns(2).spacing([12., 8.]).show(ui, |ui| {
@@ -173,14 +206,14 @@ impl Editor {
                             ui.end_row();
                         });
                     });
-                    ui.small("Use the identifier with attachMovie. Define the optional class and its base class in Project files.");
+                    ui.small("Use the identifier for runtime creation. Define the optional class and its base class in Project files.");
                 });
             });
             if let Some(error) = &draft.error { ui.colored_label(ui.visuals().error_fg_color, error); }
             if ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
                 accept = !draft.name.trim().is_empty();
             }
-            conversion_bounds(self, &draft, ui.painter())
+            if draft.new_symbol { Some(Rect::from_min_size(Pos2::ZERO, egui::Vec2::ZERO)) } else { conversion_bounds(self, &draft, ui.painter()) }
         });
         if cancel || response.should_close() {
             return;
@@ -201,11 +234,38 @@ impl Editor {
         self.symbol_conversion = Some(draft);
     }
 
+    fn commit_empty_symbol(&mut self, draft: &SymbolConversion) -> Result<(), String> {
+        let id = new_id("symbol");
+        let symbol = symbol_from_draft(draft, id.clone(), vec![], vec![])?;
+        let export = symbol.linkage_id.is_some();
+        let mut project = self.project.clone();
+        project.add_library_folder(&draft.folder)?;
+        project.symbols.push(symbol);
+        if export {
+            project.enable_program();
+        }
+        project.validate().map_err(|error| error.to_string())?;
+        self.transact(|editor| {
+            editor.project = project;
+            editor.library_selected = Some(id.clone());
+        });
+        self.enter_symbol(id);
+        self.message(format!(
+            "Created {} ‘{}’. Edit its artwork around the registration point.",
+            kind_name(draft.kind),
+            draft.name.trim()
+        ));
+        Ok(())
+    }
+
     pub(crate) fn commit_symbol_conversion(
         &mut self,
         draft: &SymbolConversion,
         bounds: Rect,
     ) -> Result<(), String> {
+        if draft.new_symbol {
+            return self.commit_empty_symbol(draft);
+        }
         if self.symbol_id() != draft.symbol
             || self.frame != draft.frame
             || self.selection != draft.selection
@@ -280,36 +340,33 @@ impl Editor {
             symbol_id: id.clone(),
             playback,
         };
-        let export = draft.export_enabled && draft.kind == SymbolKind::MovieClip;
-        if export && draft.linkage_id.trim().is_empty() {
-            return Err("Enter an export identifier for runtime creation.".into());
-        }
-        let symbol = Symbol {
-            id: id.clone(),
-            name: name.to_owned(),
-            folder: draft.folder.clone(),
-            kind: draft.kind,
-            class_name: (export && !draft.class_name.trim().is_empty())
-                .then(|| draft.class_name.trim().to_owned()),
-            linkage_id: export.then(|| draft.linkage_id.trim().to_owned()),
-            timeline: Timeline {
-                frame_count: 1,
-                layers: vec![Layer {
-                    properties: Default::default(),
-                    id: new_id("layer"),
-                    name: "Layer 1".into(),
-                    visible: true,
-                    locked: false,
-                    keyframes: vec![Keyframe {
-                        frame: 0,
-                        elements,
-                        tween: None,
-                        label: String::new(),
-                    }],
-                }],
-                scripts: vec![],
-            },
-        };
+        let remapped: std::collections::HashMap<_, _> = draft
+            .sampled
+            .iter()
+            .zip(&elements)
+            .map(|((_, source), content)| (source.id.clone(), content.id.clone()))
+            .collect();
+        let groups = self
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .find(|layer| layer.id == draft.sampled[0].0.layer)
+            .into_iter()
+            .flat_map(|layer| &layer.properties.groups)
+            .filter(|group| group.members.iter().all(|id| remapped.contains_key(id)))
+            .map(|group| AuthoringGroup {
+                id: new_id("group"),
+                name: group.name.clone(),
+                members: group
+                    .members
+                    .iter()
+                    .map(|id| remapped[id].clone())
+                    .collect(),
+            })
+            .collect();
+        let symbol = symbol_from_draft(draft, id.clone(), elements, groups)?;
+        let export = symbol.linkage_id.is_some();
         // Validate the complete proposed document before creating an undo entry.
         let mut project = self.project.clone();
         let layer = project
@@ -347,11 +404,24 @@ impl Editor {
             .count();
         key.elements.retain(|element| !selected(element));
         key.elements.insert(insertion, instance.clone());
+        // Groups may also cover other keys: retain their old member IDs where
+        // artwork still exists, and let the replacement participate here.
+        for group in &mut layer.properties.groups {
+            if group
+                .members
+                .iter()
+                .any(|id| draft.sampled.iter().any(|(_, source)| &source.id == id))
+                && !group.members.contains(&instance.id)
+            {
+                group.members.push(instance.id.clone());
+            }
+        }
         project.add_library_folder(&draft.folder)?;
         project.symbols.push(symbol);
         if export {
             project.enable_program();
         }
+        project.prune_authoring_groups();
         project.validate().map_err(|error| error.to_string())?;
         self.transact(|editor| {
             editor.project = project;
@@ -361,6 +431,55 @@ impl Editor {
         self.message(format!("Created {} ‘{}’.", kind_name(draft.kind), name));
         Ok(())
     }
+}
+
+fn symbol_from_draft(
+    draft: &SymbolConversion,
+    id: Id,
+    elements: Vec<Element>,
+    groups: Vec<AuthoringGroup>,
+) -> Result<Symbol, String> {
+    let name = draft.name.trim();
+    if name.is_empty() || name.chars().any(char::is_control) {
+        return Err("Enter a symbol name without control characters.".into());
+    }
+    let export = draft.export_enabled && draft.kind != SymbolKind::Graphic;
+    if export && draft.linkage_id.trim().is_empty() {
+        return Err("Enter an export identifier for runtime creation.".into());
+    }
+    Ok(Symbol {
+        id,
+        name: name.to_owned(),
+        folder: draft.folder.clone(),
+        kind: draft.kind,
+        class_name: (export && !draft.class_name.trim().is_empty())
+            .then(|| draft.class_name.trim().to_owned()),
+        linkage_id: export.then(|| draft.linkage_id.trim().to_owned()),
+        timeline: Timeline {
+            frame_count: if draft.kind == SymbolKind::Button {
+                4
+            } else {
+                1
+            },
+            layers: vec![Layer {
+                properties: LayerProperties {
+                    groups,
+                    ..Default::default()
+                },
+                id: new_id("layer"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements,
+                    tween: None,
+                    label: String::new(),
+                }],
+            }],
+            scripts: vec![],
+        },
+    })
 }
 
 fn registration_selector(ui: &mut egui::Ui, registration: &mut usize) {

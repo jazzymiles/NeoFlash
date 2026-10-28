@@ -7,9 +7,52 @@ Audit: `neoflash-as-2026-10-27-f05cd2e` · 2026-10-26T23:21:26.344721+00:00 (UTC
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | AS2 | 2,307 | 15 | 1,518 | 737 | 37 |
-| AS3 | 43,740 | 15 | 1,254 | 42,308 | 163 |
+| AS3 | 43,740 | 15 | 1,275 | 42,300 | 150 |
 
 These are documented declarations, not thousands of independently executed tests or equally sized features. **Implemented subset** means only the linked rule's bounded behavior. All entries lack full Flash compatibility certification; this does not mean nothing works. Most missing entries are architectural absence inferences. Original Flash differential testing was not performed.
+
+## AS3 adaptation priorities
+
+Planning partitions of the complete declaration audit. Existing subset and partial evidence is retained; only missing behavior is an adaptation gap.
+
+This planning view partitions the existing AS3 catalogue; it does not change any declaration status or the complete AS2/AS3 totals. **Audit missing** means missing in the dated audit, not a freshly demonstrated absence in the current source. Partial and unreviewed entries are not counted as complete or automatically assigned as new work.
+
+### Important foundation and later work
+
+| AS3 scope | Entries | Implemented subset | Partial | Audit missing | Needs review | Purpose |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Important now: classic foundation | 1,939 | 15 | 725 | 1,052 | 147 | Stages 1–6: mathematics, objects, MovieClip, display, drawing and text, in that order. |
+| Next: file audio and video | 91 | 0 | 35 | 54 | 2 | Stage 7: ordinary audio/video playback after the classic foundation. |
+| Later: services and advanced Player APIs | 2,134 | 0 | 358 | 1,776 | 0 | Stage 8: capture, networking, files, platform integration, storage, 3D, workers and specialized APIs. |
+| Far future: AIR extensions | 1,448 | 0 | 32 | 1,416 | 0 | Declarations documented for AIR without Player availability. Far-future backlog, with no scheduled adaptation; revisit only after an explicit priority change. |
+| Far future: libraries and platform extensions | 37,990 | 0 | 124 | 37,866 | 0 | Flash components, Flex/Spark, TLF and other supplied libraries. Far-future backlog, with no scheduled adaptation; executing on Player does not make them built-in APIs. |
+| Platform not resolved | 138 | 0 | 1 | 136 | 1 | The reference does not establish Player or AIR availability; review before assigning an adaptation target. |
+
+### Classic implementation order
+
+The numbered stages subdivide the first three groups above; they are not additional entries. Implement only the remaining behavior after checking the current source; existing bounded methods are not repeated. Cameras, networking and other external facilities follow the language, objects and display foundation. The [roadmap](../ROADMAP.md) lists the remaining adaptation work separately from historical audit statuses.
+
+| AS3 scope | Entries | Implemented subset | Partial | Audit missing | Needs review | Purpose |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 1. Mathematics and 2D geometry | 155 | 0 | 141 | 3 | 11 | Numbers, mathematical operations, points, rectangles, matrices and color transforms. |
+| 2. Objects, language and collections | 582 | 14 | 311 | 121 | 136 | Object and class semantics, functions, collections, strings, errors, dates, regular expressions, XML and binary data. |
+| 3. MovieClip and timeline | 37 | 0 | 11 | 26 | 0 | MovieClip playback, frame labels, scenes and frame lifecycle events. |
+| 4. Display, events and basic input | 678 | 1 | 106 | 571 | 0 | Display trees, stage behavior, event dispatch, keyboard/mouse input and timers. |
+| 5. Graphics, bitmaps and filters | 313 | 0 | 114 | 199 | 0 | 2D drawing, bitmap pixels, image encoding and conventional visual filters. |
+| 6. Text and fonts | 174 | 0 | 42 | 132 | 0 | Classic text fields, text formatting, stylesheets, font access and text metrics. |
+| 7. File audio and video playback | 91 | 0 | 35 | 54 | 2 | Sound channels and transforms, video display and the file-playback part of NetStream. |
+| 8. Services and advanced Player APIs | 2,134 | 0 | 358 | 1,776 | 0 | Camera/microphone capture, network/files/platform/storage, loading, 3D, workers, Flash Text Engine and specialized profiles. |
+
+Classification source: [AS3 priority manifest](as3-priorities.json), based on reference generation 2018-12-06; 43,740 declarations. Reference and catalogue identity SHA-256 values are pinned in the manifest; the generated site snapshot also records the manifest SHA-256. Counts retain the audit's evidence boundaries.
+
+Classification limits:
+
+- Counts cover declarations of all kinds, not only functions, and are not a Flash compatibility percentage.
+- Player labels retain version, sandbox and profile limits; the list is not a promise of unrestricted HTML5 behavior.
+- AIR-documented without a Player label is a separate documentation bucket, not proof that every unlabeled historical runtime is incompatible.
+- Foundation priority is not an implementation status. implemented_subset and partial remain bounded; needs_review is neither implemented nor missing.
+- The audit is a dated evidence snapshot. This classification does not run tests or promote current source conformance.
+- A stage includes only its declared members: advanced members of shared classes may be deferred to stage 8.
 
 ## Follow-up acceptance
 
@@ -85,6 +128,8 @@ The counts combine the historical baseline with explicitly reviewed declaration 
 | `COORD-AS2-RUNTIME-TWO-HOUR-20261028-DISPLAY` | coordinator | `fea2333c209d` + source manifest | 2026-10-28T14:22:34.980391+00:00 | 2026-10-28T14:22:34.980391+00:00 | Codex in-app browser, actual browser controls and local HTTP |
 | `COORD-AS2-RUNTIME-TWO-HOUR-20261028-INCLUDES-LOCALE` | coordinator | `fea2333c209d` + source manifest | 2026-10-28T14:22:34.980391+00:00 | 2026-10-28T14:22:34.980391+00:00 | Codex in-app browser, actual browser controls and local HTTP |
 | `COORD-AS2-RUNTIME-TWO-HOUR-20261028-PRINT` | coordinator | `fea2333c209d` + source manifest | 2026-10-28T14:22:34.980391+00:00 | 2026-10-28T14:22:34.980391+00:00 | Codex in-app browser; authored Print scene click and capture/send trace; popup preview surface unavailable |
+| `COORD-AS3-FOUNDATIONS-20261028` | coordinator | `f014b7bdb82c` + source manifest | 2026-10-28T19:15:55.872169+00:00 | 2026-10-28T19:18:44Z | Codex in-app browser |
+| `COORD-AS3-OBJECT-IDENTITY-20261028` | coordinator | `f014b7bdb82c` + source manifest | 2026-10-28T19:27:45.727068+00:00 | 2026-10-28T19:32:02Z | Codex in-app browser |
 
 Exact manifest fingerprints, engine limitations and documented-only reference boundaries remain in the audit metadata and each linked evidence rule.
 
@@ -101,11 +146,11 @@ The full reference includes AIR, Flex and component libraries. Even the core/lan
 | AS2 | platform_extension | 10 | 0 | 0 | 10 | 0 |
 | AS2 | runtime | 908 | 1 | 810 | 96 | 1 |
 | AS3 | component | 2,039 | 0 | 124 | 1,915 | 0 |
-| AS3 | core | 376 | 0 | 205 | 13 | 158 |
+| AS3 | core | 376 | 0 | 222 | 9 | 145 |
 | AS3 | framework | 35,790 | 0 | 0 | 35,790 | 0 |
 | AS3 | language | 124 | 14 | 94 | 13 | 3 |
 | AS3 | platform_extension | 161 | 0 | 0 | 161 | 0 |
-| AS3 | runtime | 5,250 | 1 | 831 | 4,416 | 2 |
+| AS3 | runtime | 5,250 | 1 | 835 | 4,412 | 2 |
 
 ## Inspect individual declarations
 
@@ -3660,3 +3705,48 @@ Rust scene capture/PNG and print policy produce bitmap pages for an owned browse
 - `as2:PrintJob.html#start()` — **partial**: Change accounting: new. Virtual CSS A4 portrait bitmap page profile; actual shared scene PNGs and browser print preview, no physical printer facts, explicit printAsBitmap/current frame only.
 
 Evidence: [crates/neoflash-core/src/as2_platform.rs](../../crates/neoflash-core/src/as2_platform.rs), [crates/neoflash-export/src/lib.rs](../../crates/neoflash-export/src/lib.rs), [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-web/src/as2_platform.rs](../../crates/neoflash-web/src/as2_platform.rs), [docs/AS2-PRINT-BATCH.md](../../docs/AS2-PRINT-BATCH.md), [examples/as2-capture-batch.nflash](../../examples/as2-capture-batch.nflash), [web/as2-print.js](../../web/as2-print.js), [web/runtime.js](../../web/runtime.js)
+
+### COORD-AS3-FOUNDATIONS-20261028 — AS3 mathematics and object foundation in an ordinary inventory export
+
+Bounded coordinator acceptance of the existing typed-collections ordinary export: numeric Class aliases and bound numeric methods, public source-object properties/reflection and Array insertion/removal. Shared-delivery and affected-replay evidence retains the timing boundaries below; visible inventory commands/Restart are accepted only for the unchanged AS3 feature paths of the captured source snapshot; later unrelated source edits are excluded. Final snapshot captured after the shared run collected all 24 project families (23 passed; typed-collections required a fixture LF/CR expectation correction) and after the numeric fixtures passed following restoration of native toString/valueOf behavior. Affected typed-family replay and final browser observations are recorded separately. This is not a fresh all-family run on the final snapshot. Bounded AS3 foundation scenario accepted. The original shared run collected all 24 project workflows: 23 passed and typed-collections failed only its fixture LF-versus-TextField-CR expectation. The focused typed-collections replay passed after correcting that expectation. Numeric fixture replay passed after preserving previous native toString/valueOf semantics. Browser observations before that numeric change covered initial quantity 13/sqrt 3.61 and two actions 16/4.00 and 17/4.12, with object/reflection flags true. A fresh export after the numeric change passed initial state, first action and Restart back to 13/3.61. No full all-family rerun on the final snapshot or original Flash differential execution is claimed. The review retains the 19:15:55 UTC source fingerprints. Subsequent concurrent AS1/SWF6 case-name routing and button-state additions in shared compiler/containers/runtime/web registration files are excluded. The AS3-owned implementation and test files were confirmed unchanged. Later export/Restart observations do not independently accept those unrelated additions, and currentSourceVerified remains false.
+
+Bounded coordinator evidence only. Ordinary AS3 source classes and plain records, with explicit unsupported reflection diagnostics; no full native/AS2/bytecode/ApplicationDomain/prototype/AVM2 conformance. Existing partial decisions stay partial. Original Flash differential execution is not claimed. Browser observation and automated real-WASM execution must be recorded separately. The recorded HEAD does not by itself identify the working-tree bytes. The review retains the 19:15:55 UTC source fingerprints. Subsequent concurrent AS1/SWF6 case-name routing and button-state additions in shared compiler/containers/runtime/web registration files are excluded. The AS3-owned implementation and test files were confirmed unchanged. Later export/Restart observations do not independently accept those unrelated additions, and currentSourceVerified remains false.
+
+- `AS3:class:int.html#` — **partial**: First-class int Class value assigned to a local Class-typed variable and used for numeric construction; exact MIN_VALUE/MAX_VALUE reads. No complete class/prototype/AVM2 type identity claim.
+- `AS3:class:uint.html#` — **partial**: First-class uint Class value assigned to a local Class-typed variable and used for wrapping construction; exact MIN_VALUE/MAX_VALUE reads. No complete class/prototype/AVM2 type identity claim.
+- `AS3:constructor:int.html#int()` — **partial**: Ordinary exported AS3 project uses new through an int Class alias on the finite numeric string 42.9 and observes 42. Other conversion and initialization paths retain their existing limits.
+- `AS3:constructor:uint.html#uint()` — **partial**: Ordinary exported AS3 project uses new through a uint Class alias on -1 and observes 4294967295. General coercion and all boundary/error paths are not inferred from this representative check.
+- `AS3:constant:int.html#MIN_VALUE` — **partial**: The AS3 int class exposes MIN_VALUE as -2147483648 in the combined ordinary-export inventory scenario.
+- `AS3:constant:int.html#MAX_VALUE` — **partial**: The AS3 int class exposes MAX_VALUE as 2147483647 in the combined ordinary-export inventory scenario.
+- `AS3:constant:uint.html#MIN_VALUE` — **partial**: The AS3 uint class exposes MIN_VALUE as 0 in the combined ordinary-export inventory scenario.
+- `AS3:constant:uint.html#MAX_VALUE` — **partial**: The AS3 uint class exposes MAX_VALUE as 4294967295 in the combined ordinary-export inventory scenario.
+- `AS3:method:Math.html#sqrt()` — **partial**: Existing shared Rust-backed sqrt is extracted as a Function and called on changing inventory totals 13, 16 and 17; this refreshes bounded integration evidence rather than claiming a new complete Math implementation.
+- `AS3:method:Number.html#toFixed()` — **partial**: Number.toFixed extracted from sqrt(total) retains its numeric receiver for direct calls, call with another receiver and apply(null,[2]); observed results 3.61, 4.00 and 4.12. This does not certify all rounding/exponent/range/coercion cases.
+- `AS3:method:Object.html#hasOwnProperty()` — **partial**: Plain record hidden dynamic property remains owned and readable; an ordinary AS3 source-class public quantity slot is reported as own. Native display/AS2/hidden trait and general AVM2 object conformance are outside this scenario.
+- `AS3:method:Object.html#propertyIsEnumerable()` — **partial**: Plain record dynamic metadata marked hidden reports false; ordinary AS3 source-class fixed public quantity slot also remains nonenumerable. The visible record properties remain the for-in keys count and quantity.
+- `AS3:method:Object.html#setPropertyIsEnumerable()` — **partial**: Hiding an existing own configurable dynamic metadata property removes it from for-in without deleting ownership, membership or its readable value. Fixed/native/AS2 traits are not made dynamic.
+- `AS3:function:flash/utils/package.html#getQualifiedClassName()` — **partial**: An ordinary source-class app.Item instance reports app::Item during the published inventory workflow. This does not infer complete primitive/native/bytecode type identity.
+- `AS3:function:flash/utils/package.html#getQualifiedSuperclassName()` — **partial**: An ordinary source-class app.Item instance rooted in Object reports Object during the published inventory workflow; arbitrary native-base hierarchies are outside this evidence.
+- `AS3:function:flash/utils/package.html#getDefinitionByName()` — **partial**: Public registered app.Item source class resolves by both app.Item and app::Item and retains equality with its class value. Arbitrary loaded bytecode, ApplicationDomain and hidden definitions are not supported by this scope.
+- `AS3:function:flash/utils/package.html#describeType()` — **partial**: Ordinary source-class app.Item instance produces XML with public quantity:int variable and stockLabel accessor metadata without invoking that getter. Native-base, interface and unsupported rest-parameter descriptions retain explicit diagnostics; no complete AVM2 reflection claim.
+- `AS3:method:Array.html#insertAt()` — **partial**: An ordinary AS3 Array inserts the newest batch at index 0 in place, preserving the recent-history array across actions. This Player 19 API is not attributed to earlier Player versions.
+- `AS3:method:Array.html#removeAt()` — **partial**: An ordinary AS3 Array removes and returns its last entry using index -1, preserving the newest two batches across repeated actions and reset. General sparse/large-index/coercion cases need their own existing evidence.
+
+Evidence: [crates/neoflash-core/src/as3_collections.rs](../../crates/neoflash-core/src/as3_collections.rs), [crates/neoflash-core/src/as3_object.rs](../../crates/neoflash-core/src/as3_object.rs), [crates/neoflash-core/src/lib.rs](../../crates/neoflash-core/src/lib.rs), [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/src/actionscript/collections.js](../../crates/neoflash-script/src/actionscript/collections.js), [crates/neoflash-script/src/actionscript/containers.js](../../crates/neoflash-script/src/actionscript/containers.js), [crates/neoflash-script/src/actionscript/intrinsics.js](../../crates/neoflash-script/src/actionscript/intrinsics.js), [crates/neoflash-script/src/actionscript/project-runtime.js](../../crates/neoflash-script/src/actionscript/project-runtime.js), [crates/neoflash-script/src/actionscript/project.rs](../../crates/neoflash-script/src/actionscript/project.rs), [crates/neoflash-script/src/actionscript/scope.rs](../../crates/neoflash-script/src/actionscript/scope.rs), [crates/neoflash-script/tests/intrinsic-fixtures.mjs](../../crates/neoflash-script/tests/intrinsic-fixtures.mjs), [crates/neoflash-script/tests/intrinsics.rs](../../crates/neoflash-script/tests/intrinsics.rs), [crates/neoflash-script/tests/rust-runtime-host.mjs](../../crates/neoflash-script/tests/rust-runtime-host.mjs), [crates/neoflash-script/tests/typed-collections.mjs](../../crates/neoflash-script/tests/typed-collections.mjs), [crates/neoflash-web/src/as3_collections.rs](../../crates/neoflash-web/src/as3_collections.rs), [crates/neoflash-web/src/as3_object.rs](../../crates/neoflash-web/src/as3_object.rs), [crates/neoflash-web/src/lib.rs](../../crates/neoflash-web/src/lib.rs), [examples/as-intrinsics.nflash](../../examples/as-intrinsics.nflash), [examples/typed-collections.nflash](../../examples/typed-collections.nflash), [web/math.js](../../web/math.js), [web/runtime.js](../../web/runtime.js)
+
+### COORD-AS3-OBJECT-IDENTITY-20261028 — Ordinary AS3 source-class identity and default Object labels
+
+Bounded coordinator acceptance of the second ordinary source-class identity extension in the existing typed-collections export. The 19:27:45 UTC source snapshot was unchanged when checked after the shared suite. Its recorded source hashes are retained; subsequent unrelated Button registrations in the shared project compiler are excluded. The earlier mathematics/property/reflection review remains a separate historical record.
+
+Only ordinary public AS3 source classes rooted in Object and plain records are covered. The supported Class-valued construction path does not establish the Class metaclass or complete AVM2 type objects. Native-derived/AS2 object paths, arbitrary prototype replacement/mutation, constructor-function models and Object() construction are outside this delta. Default locale labeling is not locale-sensitive numeric/date formatting. No original Flash differential or broad current-tree conformance claim. Existing concurrent AS1/Button shared-tree additions are excluded from acceptance. New describeType/getQualifiedClassName behavior for prototype objects is not promoted without a corresponding scenario. Explicit toString/toLocaleString labeling does not establish Flash-equivalent implicit String or concatenation coercion. Native-derived/AS2 prototype behavior is not newly accepted. This review does not claim the pending final Clippy run.
+
+- `AS3:class:Class.html#` — **partial**: Bounded first-class public source-class value: getDefinitionByName(app.Item) assigned to Class and invoked with new constructs an Item, retaining class/constructor/prototype identity. This is ordinary source-class value behavior, not general Class metaclass construction, loaded bytecode or native class conformance.
+- `AS3:class:Object.html#` — **partial**: Ordinary AS3 source classes rooted in Object have an instance-to-class-prototype-to-source-base-prototype chain and bounded inherited Object identity/default-label operations. Plain records preserve authored string-method overrides. Object construction, arbitrary prototype mutation, native-derived and AS2 object models are not accepted by this delta.
+- `AS3:property:Object.html#constructor` — **partial**: Item constructed through a public Class alias inherits constructor===Item. DerivedRecord.prototype owns a nonenumerable constructor===DerivedRecord. Only this ordinary source-class identity path is accepted; prototype writes, constructor functions and native/AS2 constructor semantics are outside the scenario.
+- `AS3:property:Object.html#prototype` — **partial**: Ordinary source-class prototype identities are stable along Item and DerivedRecord/BaseRecord chains. The scenario observes prototype lookup, own nonenumerable constructor, direct/base ancestry and unrelated-class negatives. No prototype replacement or complete dynamic prototype mutation contract is claimed.
+- `AS3:method:Object.html#isPrototypeOf()` — **partial**: Observed on ordinary source-class prototypes: own Item and DerivedRecord prototypes and the BaseRecord ancestor recognize their instances; unrelated Item/BaseRecord pairs return false. No full native/AS2/proxy/custom-prototype conformance is inferred.
+- `AS3:method:Object.html#toLocaleString()` — **partial**: Default method on ordinary source Item returns [object Item]; default method on a plain record returns [object Object] without invoking its authored custom toString. An explicit authored toLocaleString override remains callable. This is default Object labeling, not locale-sensitive formatting of arbitrary native objects.
+- `AS3:method:Object.html#toString()` — **partial**: Shared Rust label formatting returns short-name [object Item] and [object DerivedRecord] for ordinary source instances and [class Item] for the class value. A plain-record authored toString returns its custom label and runs once. Numeric/native-derived/AS2 stringification and complete coercion remain separate.
+- `AS3:method:Object.html#valueOf()` — **partial**: Default Object valueOf returns the same ordinary source Item instance constructed through a Class alias. Primitive unboxing, custom native objects and full AVM2 coercion are not accepted by this bounded identity observation.
+
+Evidence: [crates/neoflash-core/src/as3_collections.rs](../../crates/neoflash-core/src/as3_collections.rs), [crates/neoflash-core/src/as3_object.rs](../../crates/neoflash-core/src/as3_object.rs), [crates/neoflash-core/src/lib.rs](../../crates/neoflash-core/src/lib.rs), [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/src/actionscript/collections.js](../../crates/neoflash-script/src/actionscript/collections.js), [crates/neoflash-script/src/actionscript/containers.js](../../crates/neoflash-script/src/actionscript/containers.js), [crates/neoflash-script/src/actionscript/intrinsics.js](../../crates/neoflash-script/src/actionscript/intrinsics.js), [crates/neoflash-script/src/actionscript/project-runtime.js](../../crates/neoflash-script/src/actionscript/project-runtime.js), [crates/neoflash-script/src/actionscript/project.rs](../../crates/neoflash-script/src/actionscript/project.rs), [crates/neoflash-script/src/actionscript/scope.rs](../../crates/neoflash-script/src/actionscript/scope.rs), [crates/neoflash-script/tests/intrinsic-fixtures.mjs](../../crates/neoflash-script/tests/intrinsic-fixtures.mjs), [crates/neoflash-script/tests/intrinsics.rs](../../crates/neoflash-script/tests/intrinsics.rs), [crates/neoflash-script/tests/project-execute.mjs](../../crates/neoflash-script/tests/project-execute.mjs), [crates/neoflash-script/tests/rust-runtime-host.mjs](../../crates/neoflash-script/tests/rust-runtime-host.mjs), [crates/neoflash-script/tests/typed-collections.mjs](../../crates/neoflash-script/tests/typed-collections.mjs), [crates/neoflash-web/src/as3_collections.rs](../../crates/neoflash-web/src/as3_collections.rs), [crates/neoflash-web/src/as3_object.rs](../../crates/neoflash-web/src/as3_object.rs), [crates/neoflash-web/src/lib.rs](../../crates/neoflash-web/src/lib.rs), [examples/as-intrinsics.nflash](../../examples/as-intrinsics.nflash), [examples/typed-collections.nflash](../../examples/typed-collections.nflash), [web/math.js](../../web/math.js), [web/runtime.js](../../web/runtime.js)

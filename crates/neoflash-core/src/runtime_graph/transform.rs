@@ -1,4 +1,4 @@
-//! Runtime-only affine/color overrides. Authoring TRS and document JSON stay pure.
+//! Shared authored/runtime affine and color transforms.
 use super::*;
 
 /// Straight RGBA channel transform. Offsets are expressed in 0..255 channel units.
@@ -18,6 +18,13 @@ impl Default for ColorTransform {
     }
 }
 impl ColorTransform {
+    pub fn is_identity(&self) -> bool {
+        *self == Self::default()
+    }
+    /// Authored alpha multiplies the complete authored channel transform.
+    pub fn with_alpha(self, alpha: f64) -> Self {
+        self.then(Self::from_alpha(alpha))
+    }
     pub fn is_finite(self) -> bool {
         self.multipliers
             .into_iter()
@@ -69,6 +76,21 @@ impl ColorTransform {
             | ElementKind::Path { fill, stroke, .. } => {
                 *fill = self.apply(*fill);
                 *stroke = self.apply(*stroke);
+            }
+            ElementKind::PaintedPath {
+                fill,
+                stroke,
+                fill_gradient,
+                stroke_gradient,
+                ..
+            } => {
+                *fill = self.apply(*fill);
+                *stroke = self.apply(*stroke);
+                for paint in [fill_gradient, stroke_gradient].into_iter().flatten() {
+                    for stop in &mut paint.stops {
+                        stop.color = self.apply(stop.color);
+                    }
+                }
             }
             ElementKind::Text { color, .. } => *color = self.apply(*color),
             _ => {}
@@ -182,6 +204,7 @@ impl AffineState {
         display.transform.x = self.matrix[4];
         display.transform.y = self.matrix[5];
         display.transform.rotation = self.rotation.to_degrees();
+        display.transform.skew = self.skew.to_degrees();
         display.transform.scale_x = self.scale_x;
         display.transform.scale_y = self.scale_y;
     }
@@ -281,7 +304,7 @@ impl Player {
             return Ok(*value);
         }
         self.source_transform(project, reference)
-            .map(|value| ColorTransform::from_alpha(value.alpha))
+            .map(|value| value.color_transform.with_alpha(value.alpha))
             .ok_or_else(|| error("ColorTransform requires a live display object"))
     }
     pub fn object_set_color_transform(

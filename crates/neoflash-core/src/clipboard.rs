@@ -35,6 +35,8 @@ pub struct ClipboardPayload {
     source_session: String,
     anchor: [f64; 2],
     elements: Vec<Element>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    groups: Vec<AuthoringGroup>,
     symbols: Vec<Symbol>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     sources: Vec<SourceUnit>,
@@ -65,6 +67,29 @@ impl ClipboardPayload {
         }
         validate_project(project, "source document")?;
         let closure = reachable(&elements, &project.symbols)?;
+        let selected: HashSet<_> = elements.iter().map(|element| element.id.as_str()).collect();
+        let groups = project
+            .symbols
+            .iter()
+            .flat_map(|s| &s.timeline.layers)
+            .flat_map(|l| &l.properties.groups)
+            .filter_map(|group| {
+                let members = group
+                    .members
+                    .iter()
+                    .filter(|id| selected.contains(id.as_str()))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                // A group can span several keys. Capture its currently copied
+                // members, not absent placements from another frame. Group IDs
+                // are layer-local, while the clipboard has one selection layer.
+                (members.len() >= 2).then(|| AuthoringGroup {
+                    id: new_id("group"),
+                    name: group.name.clone(),
+                    members,
+                })
+            })
+            .collect();
         let payload = Self {
             format_version: VERSION,
             source_session: source_session.to_owned(),
@@ -74,6 +99,7 @@ impl ClipboardPayload {
             sources: project.sources.clone(),
             resources: project.resources.clone(),
             elements,
+            groups,
             symbols: project
                 .symbols
                 .iter()
@@ -116,6 +142,51 @@ impl ClipboardPayload {
 
     pub fn anchor(&self) -> [f64; 2] {
         self.anchor
+    }
+
+    /// The wrapper selection and every imported definition share one document
+    /// version. Inference must include top-level placements, not just symbols.
+    fn document_version(&self) -> u32 {
+        if self
+            .elements
+            .iter()
+            .chain(self.symbols.iter().flat_map(symbol_elements))
+            .any(|element| {
+                element.transform.skew != 0.
+                    || !element.transform.color_transform.is_identity()
+                    || matches!(element.kind, ElementKind::PaintedPath { .. })
+            })
+            || self
+                .symbols
+                .iter()
+                .flat_map(|symbol| &symbol.timeline.layers)
+                .flat_map(|layer| &layer.keyframes)
+                .any(|key| matches!(key.tween, Some(Easing::Flash { .. })))
+        {
+            5
+        } else if !self.groups.is_empty()
+            || self.symbols.iter().any(|symbol| {
+                !symbol.folder.is_empty()
+                    || symbol
+                        .timeline
+                        .layers
+                        .iter()
+                        .any(|layer| !layer.properties.is_default())
+            })
+        {
+            4
+        } else if !self.resources.is_empty() {
+            3
+        } else if !self.sources.is_empty()
+            || self
+                .symbols
+                .iter()
+                .any(|symbol| symbol.class_name.is_some() || symbol.linkage_id.is_some())
+        {
+            2
+        } else {
+            1
+        }
     }
 
     /// Same-session live symbols retain their identity and current definition.
@@ -255,6 +326,7 @@ impl ClipboardPayload {
             }
         }
         let mut candidate = destination.clone();
+        candidate.format_version = candidate.format_version.max(self.document_version());
         for resource in &self.resources {
             if let Some(existing) = candidate
                 .resources
@@ -313,6 +385,11 @@ impl ClipboardPayload {
                     .mask
                     .as_ref()
                     .map(|id| identities[id].clone());
+                for group in &mut layer.properties.groups {
+                    for member in &mut group.members {
+                        *member = identities[member].clone();
+                    }
+                }
                 for element in layer.keyframes.iter_mut().flat_map(|k| &mut k.elements) {
                     element.id = identities[&element.id].clone();
                     remap_reference(element, &identities);
@@ -339,8 +416,11 @@ impl ClipboardPayload {
         }
         let mut pasted = self.elements.clone();
         let mut element_ids = Vec::with_capacity(pasted.len());
+        let mut placement_ids = HashMap::new();
         for element in &mut pasted {
+            let old = element.id.clone();
             element.id = fresh_id("object", &mut occupied, &forbidden);
+            placement_ids.insert(old, element.id.clone());
             element_ids.push(element.id.clone());
             remap_reference(element, &identities);
             element.transform.x += offset[0];
@@ -372,6 +452,17 @@ impl ClipboardPayload {
             .unwrap()
             .elements
             .extend(pasted);
+        for original in &self.groups {
+            let mut group = original.clone();
+            group.id = new_id("group");
+            for member in &mut group.members {
+                *member = placement_ids[member].clone();
+            }
+            layer.properties.groups.push(group);
+        }
+        if !self.groups.is_empty() {
+            candidate.format_version = candidate.format_version.max(4);
+        }
         validate_project(&candidate, "pasted document")?;
         crate::model::reserve_ids(&candidate);
         Ok(PasteResult {
@@ -408,7 +499,10 @@ impl ClipboardPayload {
                 frame_count: 1,
                 scripts: vec![],
                 layers: vec![Layer {
-                    properties: Default::default(),
+                    properties: LayerProperties {
+                        groups: self.groups.clone(),
+                        ..Default::default()
+                    },
                     id: wrapper_layer,
                     name: "Selection".into(),
                     visible: true,
@@ -435,26 +529,7 @@ impl ClipboardPayload {
                 sources: self.sources.clone(),
                 resources: self.resources.clone(),
                 document_class: None,
-                format_version: if self.symbols.iter().any(|symbol| {
-                    !symbol.folder.is_empty()
-                        || symbol
-                            .timeline
-                            .layers
-                            .iter()
-                            .any(|layer| !layer.properties.is_default())
-                }) {
-                    4
-                } else if !self.resources.is_empty() {
-                    3
-                } else if self.sources.is_empty()
-                    && !symbols
-                        .iter()
-                        .any(|symbol| symbol.class_name.is_some() || symbol.linkage_id.is_some())
-                {
-                    1
-                } else {
-                    2
-                },
+                format_version: self.document_version(),
                 name: "Clipboard validation".into(),
                 width: 1,
                 height: 1,
@@ -583,6 +658,8 @@ fn canonical_symbol_closure(
                 result.id = identities[&result.id].clone();
                 for layer in &mut result.timeline.layers {
                     layer.id = identities[&layer.id].clone();
+                    // Selection groups do not affect reusable runtime content.
+                    layer.properties.groups.clear();
                     layer.properties.parent = layer
                         .properties
                         .parent
@@ -655,7 +732,9 @@ fn check_budgets(payload: &ClipboardPayload) -> Result<(), ClipboardError> {
         .chain(payload.symbols.iter().flat_map(symbol_elements))
     {
         scripts = scripts.saturating_add(element.scripts.len());
-        if let ElementKind::Path { commands: path, .. } = &element.kind {
+        if let ElementKind::Path { commands: path, .. }
+        | ElementKind::PaintedPath { commands: path, .. } = &element.kind
+        {
             commands = commands.saturating_add(path.len());
         }
     }

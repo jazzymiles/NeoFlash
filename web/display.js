@@ -42,7 +42,7 @@
   const within = (path, parent) => path.length >= parent.length && parent.every((id, i) => path[i] === id);
   const point = (m, x, y) => ({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] });
   const multiply = (a, b) => [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1], a[0]*b[2]+a[2]*b[3], a[1]*b[2]+a[3]*b[3], a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]];
-  function matrix(t) { const r=t.rotation*Math.PI/180,c=Math.cos(r),s=Math.sin(r); return [c*t.scale_x,s*t.scale_x,-s*t.scale_y,c*t.scale_y,t.x,t.y]; }
+  function matrix(t) { const r=t.rotation*Math.PI/180,y=r+(t.skew||0)*Math.PI/180; return [Math.cos(r)*t.scale_x,Math.sin(r)*t.scale_x,-Math.sin(y)*t.scale_y,Math.cos(y)*t.scale_y,t.x,t.y]; }
   function inverse(m) {
     const d=m[0]*m[3]-m[1]*m[2];
     if (!Number.isFinite(d) || Math.abs(d)<1e-12) throw new RangeError('Coordinate conversion requires an invertible target transform.');
@@ -445,6 +445,9 @@
       }
       return false;
     }
+    function buttonHit(node,x,y) {
+      return (node.button_hits||[]).some(item=>leafHit({...node,world:multiply(node.world,item.transform),kind:item.kind,graphics:[],text:null,video:null,bitmap:null},x,y));
+    }
     function shapeHit(target,x,y,snapshot=JSON.parse(player.runtime_snapshot_json()),respectVisibility=false){
       const list=snapshot.objects,source=descriptor(target,list);
       for(const node of list)if(descendant(node,source,list)&&(!respectVisibility||node.effective_visible)&&(!node.clip_ids?.length||clipsContain?.(snapshot,node.clip_ids,x,y))&&leafHit(node,x,y))return true;
@@ -456,6 +459,8 @@
       for(let node=descriptor(target,list);node;node=parentNode(node,list)){
         if(node.on_stage===false||node.effective_visible===false)return null;
         const input=inputOf(node);if(!input)continue;
+        if(node.owner==='button'&&node.button_hits?.length&&x!==null&&!buttonHit(node,x,y))return null;
+        if(node.owner==='button'&&input.mouse_enabled)chosen=node;
         if(!chosen&&input.mouse_enabled)chosen=node;
         if(input.mouse_children===false&&nodeKey(node)!==referenceOf(target).key){if(!input.mouse_enabled)return null;chosen=node;}
       }
@@ -479,7 +484,7 @@
       for(let i=list.length-1;i>=0;i--){const node=list[i];if(node.on_stage===false||node.effective_visible===false||(excluded&&descendant(node,excluded,list)))continue;
         if(node.clip_ids?.length&&!clipsContain?.(snapshot,node.clip_ids,x,y))continue;
         const area=node.input?.hit_area;
-        const hit=area?shapeHit(proxyForRef(area),x,y,snapshot):painted.has(nodeKey(node))&&leafHit(node,x,y);
+        const hit=area?shapeHit(proxyForRef(area),x,y,snapshot):node.owner==='button'&&node.button_hits?.length?buttonHit(node,x,y):painted.has(nodeKey(node))&&leafHit(node,x,y);
         if(!hit)continue;const result=inputRoute(nodeProxy(node),list,x,y);if(result)return result;
       }
       return null;
@@ -495,8 +500,18 @@
     function legacyPath(target){if(!target||!alive(target))return '';const names=[];for(let current=target;current&&current!==getStage();current=parentSpace(current)){const node=descriptor(current);if(!node.parent_ref)break;if(!node.name||/[/.]/.test(node.name))throw new TypeError('AS2 _droptarget paths require named placements without slash or dot; use dropTarget for stable object identity.');names.push(node.name);}return '/'+names.reverse().join('/');}
     function callbackOwner(target,names){while(target&&target!==getStage()&&alive(target)){const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(as2Input(target).enabled&&names.some(name=>callback(record,name)))return target;target=parentSpace(target);}return null;}
     function callLegacy(target,name,args=[]){if(!target||!alive(target))return;if(buttonCallbacks.has(name)&&!as2Input(target).enabled)return;const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime),fn=callback(record,name);if(fn&&alive(target))Reflect.apply(fn,target,args);}
+    let buttonOver=null,buttonPressed=null;
+    function authoredButton(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current))if(descriptor(current).owner==='button')return current;return null;}
+    function buttonState(target,state){if(target&&alive(target))player.object_button_state?.(referenceOf(target).key,state);}
     function pointer(type,target,event={}){
       prune();
+      if(['mouseMove','mouseDown','mouseUp'].includes(type)){
+        const next=authoredButton(target);
+        if(buttonOver!==next){buttonState(buttonOver,0);buttonOver=next;}
+        if(type==='mouseDown'&&(event.button===undefined||event.button===0))buttonPressed=next;
+        if(type==='mouseUp'&&(event.button===undefined||event.button===0)){buttonState(buttonPressed,buttonPressed===next?1:0);buttonPressed=null;}
+        buttonState(next,buttonPressed===next?2:buttonPressed?0:1);
+      }
       if(type==='click'&&target&&target!==getStage()&&descriptor(target).owner==='text'){getAS2Text()?.link(referenceOf(target).key,mousePoint(target),event);return;}
       if(type==='mouseWheel'&&target&&target!==getStage()&&descriptor(target).owner==='text'){getAS2Text()?.wheel(referenceOf(target).key,event);return;}
       if(type==='keyDown' ||type==='keyUp'){
@@ -518,7 +533,7 @@
       if(type==='mouseDown'&&(event.button===undefined||event.button===0)){pressed=callbackOwner(target,[...buttonCallbacks]);pressedInside=Boolean(pressed);callLegacy(pressed,'onPress');}
       if(type==='mouseUp'&&(event.button===undefined||event.button===0)){const old=pressed;pressed=null;pressedInside=false;if(old&&alive(old)){const inside=target&&target!==getStage()&&alive(target)&&descendant(descriptor(target),descriptor(old),nodes());callLegacy(old,inside?'onRelease':'onReleaseOutside');}}
     }
-    function cancelPointer(){dragging=null;pressed=null;hovered=null;pressedInside=false;}
+    function cancelPointer(){buttonState(buttonOver,0);buttonState(buttonPressed,0);buttonOver=null;buttonPressed=null;dragging=null;pressed=null;hovered=null;pressedInside=false;}
     function as2FocusBounds(){const target=getStage()?.focus;if(!target||target===getStage()||!alive(target)||!['movie_clip','button'].includes(descriptor(target).owner)||as2Input(target).focus_rect!==true)return null;const rect=bounds(target,getStage(),true);return {x:rect.x,y:rect.y,width:rect.width,height:rect.height};}
     function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&as2Input(current).enabled&&(node.input.button_mode||[...buttonCallbacks].some(name=>callback(record,name))))return true;}return false;}
     function methods(target) {
@@ -738,18 +753,18 @@
     function initializeBitmap(receiver,args){const [data,snap,smooth]=bitmapArguments(args);set(receiver,'bitmapData',data);set(receiver,'pixelSnapping',snap);set(receiver,'smoothing',smooth);}
     const builtins={'flash.display.Graphics':Graphics,'flash.geom.Point':Point,'flash.geom.Rectangle':Rectangle,'flash.geom.Matrix':Matrix,'flash.geom.ColorTransform':ColorTransform,'flash.geom.Transform':Transform};
     for(const[name,type]of Object.entries(graphicsEnums))builtins['flash.display.'+name]=type;
-    for(const[name,owners]of Object.entries({DisplayObject:null,DisplayObjectContainer:['movie_clip','sprite','graphic','button','loader'],MovieClip:['movie_clip'],Sprite:['movie_clip','sprite','graphic','button'],Shape:['shape'],Bitmap:['bitmap'],TextField:['text']})) {
+    for(const[name,owners]of Object.entries({DisplayObject:null,DisplayObjectContainer:['movie_clip','sprite','graphic','loader'],MovieClip:['movie_clip'],SimpleButton:['button'],Sprite:['movie_clip','sprite','graphic'],Shape:['shape'],Bitmap:['bitmap'],TextField:['text']})) {
       const allocation={Sprite:'sprite',Shape:'shape',MovieClip:'movie_clip',Bitmap:'bitmap',TextField:'text_field'}[name];
       function allocate(){if(!graph||!allocation)throw new TypeError(`Dynamic new ${name}() is not supported. Use an authored instance for this owner.`);return proxyForRef(JSON.parse(player.create_display(allocation)));}
       function NativeDisplay(...args){if(name==='Bitmap'){bitmapArguments(args);const receiver=allocate();initializeBitmap(receiver,args);return receiver;}if(args.length)throw new TypeError(`${name} construction requires no arguments.`);return allocate();}
-      if(allocation&&graph)NativeDisplay.__nfAllocate=({className}={})=>{
+      if((allocation||name==='SimpleButton')&&graph)NativeDisplay.__nfAllocate=({className}={})=>{
         const symbol=project?.symbols.find(symbol=>symbol.linkage_id&&symbol.class_name===className);
         if(!symbol)return allocate();
         const receiver=proxyForRef(JSON.parse(player.create_linked(symbol.linkage_id)));
         prepareLinked(receiver,true);return receiver;
       };
       NativeDisplay.__nfIs=value=>{if(value&&value===getStage())return name==='DisplayObject'||name==='DisplayObjectContainer';try{const node=descriptor(value);return owners===null||owners.includes(node.owner);}catch(_){return false;}};
-      NativeDisplay.__nfInitialize=(receiver,args)=>{if(name==='Bitmap'){if(!NativeDisplay.__nfIs(receiver))throw new TypeError('Bitmap base initialization requires a Bitmap display object.');initializeBitmap(receiver,args);return;}if(args.length||!NativeDisplay.__nfIs(receiver))throw new TypeError(`${name} base initialization requires an existing compatible display instance and no arguments.`);if(name==='MovieClip')refreshLegacyCallbacks(receiver);};
+      NativeDisplay.__nfInitialize=(receiver,args)=>{if(name==='Bitmap'){if(!NativeDisplay.__nfIs(receiver))throw new TypeError('Bitmap base initialization requires a Bitmap display object.');initializeBitmap(receiver,args);return;}if(args.length||!NativeDisplay.__nfIs(receiver))throw new TypeError(`${name} base initialization requires an existing compatible display instance and no arguments.`);if(name==='MovieClip'||name==='SimpleButton')refreshLegacyCallbacks(receiver);};
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});
       builtins[(name==='TextField'?'flash.text.':'flash.display.')+name]=NativeDisplay;
     }

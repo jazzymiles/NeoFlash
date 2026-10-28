@@ -170,6 +170,9 @@ impl Writer {
         }
     }
     fn layer_tail(&mut self, name: &str, related: u16) {
+        self.layer_tail_with(name, |writer| writer.word(related));
+    }
+    fn layer_tail_with(&mut self, name: &str, related: impl FnOnce(&mut Self)) {
         self.byte(8);
         self.string(name);
         self.bytes.extend([1, 2, 3]);
@@ -178,7 +181,7 @@ impl Writer {
         self.dword(0);
         self.dword(1);
         self.byte(0);
-        self.word(related);
+        related(self);
         self.word(0);
         self.byte(1);
     }
@@ -362,7 +365,7 @@ fn unknown_child_keeps_pending_parent_and_its_ordered_identity_edge() {
     let mut w = Writer::new();
     w.begin("CPicPage");
     w.base_start();
-    w.begin("CPicText");
+    w.begin("CPicMorphShape");
     let end = w.bytes.len();
     w.bytes.extend([199; 50]);
     let d = a.read(&w.bytes);
@@ -386,7 +389,7 @@ fn unknown_child_keeps_pending_parent_and_its_ordered_identity_edge() {
     );
 }
 #[test]
-fn cyclic_or_shared_child_is_an_explicit_rejected_reference_not_new_ownership() {
+fn cyclic_child_is_an_explicit_rejected_reference_not_new_ownership() {
     let a = Archive::new();
     let mut w = Writer::new();
     let root = w.begin("CPicPage");
@@ -409,6 +412,67 @@ fn cyclic_or_shared_child_is_an_explicit_rejected_reference_not_new_ownership() 
             .stop_code
             .as_deref(),
         Some("fla_mfc_object_reference_unsupported")
+    );
+}
+#[test]
+fn layer_first_serialized_by_related_pointer_reuses_identity_in_page_children() {
+    let archive = Archive::new();
+    let mut writer = Writer::new();
+    let root = writer.begin("CPicPage");
+    writer.base_start();
+    let first = writer.begin("CPicLayer");
+    writer.base_start();
+    writer.base_end();
+    let mut related = 0;
+    writer.layer_tail_with("masked layer", |writer| {
+        related = writer.begin("CPicLayer");
+        writer.base_start();
+        writer.frame(3, "mask frame", None, false);
+        writer.base_end();
+        writer.layer_tail("mask layer", 0);
+    });
+    writer.word(related);
+    writer.base_end();
+    writer.page_tail();
+    let document = archive.read(&writer.bytes);
+    let stream = &document.streams[0];
+    assert_graph(stream);
+    assert!(stream.objects.iter().all(|object| object.complete));
+    assert_eq!(
+        object(stream, root.into()).children,
+        [u32::from(first), u32::from(related)]
+    );
+    let target = object(stream, related.into());
+    assert_eq!(target.owner, None);
+    assert_eq!(
+        stream.pointers[target.introduced_by_pointer].relation,
+        TimelineRelation::RelatedLayer
+    );
+    let reused = stream
+        .pointers
+        .iter()
+        .find(|pointer| {
+            pointer.relation == TimelineRelation::Child && pointer.target == Some(related.into())
+        })
+        .unwrap();
+    assert!(reused.is_reference);
+    assert_eq!(reused.source, Some(root.into()));
+    assert_eq!(
+        stream
+            .objects
+            .iter()
+            .filter(|object| object.object_id == u32::from(related))
+            .count(),
+        1
+    );
+    assert!(
+        document
+            .inspection
+            .streams
+            .iter()
+            .find(|inspection| inspection.index == stream.index)
+            .unwrap()
+            .structure_complete
     );
 }
 #[test]
@@ -666,12 +730,233 @@ fn timeline_retention_budget_is_shared_and_keeps_a_valid_partial_graph() {
             .any(|s| s.stop_code.as_deref() == Some("fla_timeline_document_limit"))
     );
     assert!(d.streams[1].objects.len() < d.streams[0].objects.len());
-    let ordinary = inspect(&path).unwrap().binary_fla.unwrap();
-    assert!(
-        ordinary
+    // Import readiness now uses the same retained graph as editable conversion.
+    // Aggregate reporting must not bypass the shared document budget and claim
+    // completeness for a document that cannot be represented safely.
+    let report = inspect(&path).unwrap();
+    assert!(!report.can_import);
+    assert!(report.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "fla_timeline_document_limit" && diagnostic.severity == Severity::Error
+    }));
+    let ordinary = report.binary_fla.unwrap();
+    let retained: Vec<_> = d
+        .inspection
+        .streams
+        .iter()
+        .map(|stream| (stream.index, stream.bytes_consumed, &stream.stop_code))
+        .collect();
+    let inspected: Vec<_> = ordinary
+        .streams
+        .iter()
+        .map(|stream| (stream.index, stream.bytes_consumed, &stream.stop_code))
+        .collect();
+    assert_eq!(inspected, retained);
+}
+
+impl Writer {
+    fn placement(&mut self, class: &'static str, name: &str, source: &str) {
+        self.begin(class);
+        self.base_start();
+        self.base_end();
+        self.byte(22); // CS4 placement, independent of extension revision.
+        for n in [65536, 0, 0, 65536, 120, 240] {
+            self.dword(n);
+        }
+        self.word(3);
+        self.word(1);
+        self.byte(1); // versioned color transform, alpha then RGB pairs.
+        for pair in [[128, 0], [256, 4], [256, 5], [256, 6]] {
+            self.word(pair[0]);
+            self.word(pair[1]);
+        }
+        self.word(0);
+        self.word(0);
+        self.dword(0);
+        self.string("");
+        self.dword(19);
+        self.bytes.extend([0, 0, 0, 0, 0]); // effects, persistent, extensible, filters, blend.
+        self.word(0);
+        for i in 0..16 {
+            self.bytes
+                .extend((if i % 5 == 0 { 1.0_f32 } else { 0.0 }).to_le_bytes());
+        }
+        for _ in 0..3 {
+            self.bytes.extend(0.0_f64.to_le_bytes());
+        }
+        for _ in 0..3 {
+            self.dword(0);
+        }
+        self.word(0); // animation settings.
+        self.byte(if class == "CPicSprite" { 8 } else { 11 });
+        self.dword(1);
+        self.dword(1);
+        self.dword(77);
+        self.dword(0);
+        self.string(source);
+        if class == "CPicButton" {
+            self.byte(0);
+        }
+        self.string(name);
+        if class == "CPicSprite" {
+            self.byte(2);
+            self.dword(0);
+            self.dword(1);
+        }
+        self.dword(0); // accessibility.
+        if class == "CPicSprite" {
+            self.dword(0);
+            self.byte(0);
+            self.dword(0);
+            self.string(""); // component XML.
+        }
+    }
+    fn static_text(&mut self) {
+        self.begin("CPicText");
+        self.base_start();
+        self.base_end();
+        self.byte(8);
+        for n in [65536, 0, 0, 65536, 0, 0, 0, 2000, 0, 400] {
+            self.dword(n);
+        }
+        self.bytes.extend([1, 0]);
+        self.dword(0);
+        self.word(0);
+        self.string("");
+        self.word(5);
+        self.byte(8);
+        self.word(240);
+        self.string("Arial\0");
+        self.dword(0xff336699);
+        self.bytes.extend([0, 0, 1, 0, 0, 1, 0, 2]);
+        for _ in 0..5 {
+            self.word(0);
+        }
+        self.string("");
+        self.bytes.extend([0, 0, 0, 0]);
+        self.string("");
+        self.bytes.extend(b"Hello");
+        self.word(0);
+        self.string("");
+        self.dword(0);
+    }
+}
+
+fn placement_text_ease_family() -> Vec<u8> {
+    let mut w = Writer::new();
+    w.begin("CPicPage");
+    w.base_start();
+    w.begin("CPicLayer");
+    w.base_start();
+    w.begin("CPicFrame");
+    w.base_start();
+    w.placement("CPicSprite", "child", "trace('clip');");
+    w.placement("CPicButton", "button", "on(release) { trace('release'); }");
+    w.static_text();
+    w.base_end();
+    w.shape();
+    w.frame_fields(24, 12, "moving", Some("trace('frame');"));
+    w.dword(0);
+    w.dword(1);
+    w.dword(1); // bookmark, single-curve, custom present.
+    for _ in 0..6 {
+        w.dword(2);
+        for knot in [[0., 0., 0., 0., 0.25, 0.1], [0.75, 0.9, 1., 1., 1., 1.]] {
+            for value in knot {
+                w.bytes.extend(f64::to_le_bytes(value));
+            }
+        }
+    }
+    w.base_end();
+    w.layer_tail("motion", 0);
+    w.base_end();
+    w.page_tail();
+    w.bytes
+}
+
+#[test]
+fn placements_text_actions_and_custom_ease_keep_typed_ownership_and_raw_spans() {
+    let archive = Archive::new();
+    let bytes = placement_text_ease_family();
+    let d = archive.read(&bytes);
+    let s = &d.streams[0];
+    let status = d
+        .inspection
+        .streams
+        .iter()
+        .find(|x| x.index == s.index)
+        .unwrap();
+    assert!(status.structure_complete, "{status:?}");
+    assert_graph(s);
+    let mut places = 0;
+    let mut texts = 0;
+    for object in &s.objects {
+        match object.payload.as_ref().unwrap() {
+            TimelinePayload::Instance(value) => {
+                places += 1;
+                assert_eq!(value.library_id, Some(19));
+                assert_eq!(value.first_frame, Some(3));
+                assert_eq!(value.loop_mode, Some(1));
+                assert_eq!(
+                    value.color_transform.as_ref().unwrap().multipliers,
+                    [256, 256, 256, 128]
+                );
+                assert!(value.actions.as_ref().unwrap().complete);
+                assert_eq!(
+                    value.actions.as_ref().unwrap().presence,
+                    TimelineActionPresence::Source
+                );
+                assert!(object.owner.is_some());
+                assert_eq!(value.matrix_3d.unwrap()[15], 1.);
+            }
+            TimelinePayload::Text(value) => {
+                texts += 1;
+                assert_eq!(value.runs.len(), 1);
+                let run = &value.runs[0];
+                assert_eq!(text(s, &run.characters), b"Hello");
+                assert_eq!(text(s, run.style.font_family.as_ref().unwrap()), b"Arial");
+                assert_eq!(run.style.font_size_twips, Some(240));
+                assert_eq!(run.style.alignment, Some(2));
+            }
+            TimelinePayload::Frame(value) => {
+                assert_eq!(value.duration, Some(12));
+                assert_eq!(value.custom_ease.len(), 6);
+                assert!(value.custom_ease.iter().all(|v| v.len() == 2));
+                assert_eq!(value.custom_ease[0][0][4], 0.25);
+                assert_eq!(
+                    text(s, value.actions.as_ref().unwrap().source.as_ref().unwrap()),
+                    b"trace('frame');"
+                );
+            }
+            _ => {}
+        }
+    }
+    assert_eq!((places, texts), (2, 1));
+    // Cut inside every newly decoded payload and within the final easing table.
+    // Completed ancestors must never be fabricated from a partial stream.
+    let mut cuts: Vec<_> = s
+        .objects
+        .iter()
+        .filter(|o| {
+            matches!(
+                o.class,
+                TimelineClass::Sprite | TimelineClass::Button | TimelineClass::Text
+            )
+        })
+        .flat_map(|o| [o.body_offset + 1, o.encoded.end - 1])
+        .collect();
+    cuts.extend([bytes.len() - 40, bytes.len() - 100]);
+    for end in cuts {
+        let partial = archive.read(&bytes[..end]);
+        let p = &partial.streams[0];
+        assert_graph(p);
+        let status = partial
+            .inspection
             .streams
             .iter()
-            .filter(|s| s.role == BinaryStreamRole::Scene)
-            .all(|s| s.structure_complete)
-    );
+            .find(|x| x.index == p.index)
+            .unwrap();
+        assert!(!status.structure_complete);
+        assert!(status.bytes_consumed <= end);
+        assert!(!object(p, p.root.unwrap()).complete);
+    }
 }
