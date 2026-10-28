@@ -125,11 +125,11 @@ def catalog_report(catalog):
              "| Language | Scope | Entries | Implemented subset | Partial | Missing | Needs review |", "| --- | --- | ---: | ---: | ---: | ---: | ---: |"]
     runs = meta.get("independentVerifications", [])
     if runs:
-        later = ["## Independent follow-up acceptance", "",
+        later = ["## Follow-up acceptance", "",
                  "The counts combine the historical baseline with explicitly reviewed declaration overrides below. Each follow-up has its own frozen source fingerprint; none certifies the current working tree. Product/import runs may add evidence without changing AS declaration counts.", "",
-                 "| Run | Recorded HEAD | Source capture | Verification recorded | Browser |",
-                 "| --- | --- | --- | --- | --- |"]
-        later.extend(f"| `{run['id']}` | `{run['recordedHead'][:12]}` + source manifest | {run['sourceCapturedAt']} | {run['verifiedAt']} | {run['browser']} |" for run in runs)
+                 "| Run | Review | Recorded HEAD | Source capture | Verification recorded | Browser |",
+                 "| --- | --- | --- | --- | --- | --- |"]
+        later.extend(f"| `{run['id']}` | {run.get('reviewKind', 'independent')} | `{run['recordedHead'][:12]}` + source manifest | {run['sourceCapturedAt']} | {run['verifiedAt']} | {run['browser']} |" for run in runs)
         later.extend(["", "Exact manifest fingerprints, engine limitations and documented-only reference boundaries remain in the audit metadata and each linked evidence rule.", ""])
         position = lines.index("## Scope breakdown")
         lines[position:position] = later

@@ -1,0 +1,443 @@
+{
+  "format_version": 2,
+  "name": "Rust AS3 event families",
+  "width": 960,
+  "height": 570,
+  "fps": 24,
+  "background": [
+    14,
+    24,
+    33,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 42,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / RUST EVENT FAMILIES",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        115,
+                        213,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 42,
+                      "y": 82,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ActionScript events \u00b7 one shared Rust payload",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 42,
+                      "y": 125,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Errors, data, status, gestures and touch through the existing dispatcher.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel",
+                    "name": "panel",
+                    "transform": {
+                      "x": 32,
+                      "y": 175,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 890,
+                      "height": 195,
+                      "fill": [
+                        25,
+                        42,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "result",
+                    "name": "result",
+                    "transform": {
+                      "x": 52,
+                      "y": 205,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Running checks\u2026",
+                      "font_family": "Arial",
+                      "font_size": 25,
+                      "color": [
+                        115,
+                        229,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pipeline",
+                    "name": "pipeline",
+                    "transform": {
+                      "x": 52,
+                      "y": 248,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Text pipeline",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "casing",
+                    "name": "casing",
+                    "transform": {
+                      "x": 52,
+                      "y": 286,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Historical casing",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "codec",
+                    "name": "codec",
+                    "transform": {
+                      "x": 52,
+                      "y": 324,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "URL codecs",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rerun",
+                    "name": "rerun",
+                    "transform": {
+                      "x": 42,
+                      "y": 397,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "run-button",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.runReuse();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 285,
+                      "y": 417,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run again recreates and dispatches all 22 event classes.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "counts",
+                    "name": "counts",
+                    "transform": {
+                      "x": 42,
+                      "y": 480,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Awaiting runtime results",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 42,
+                      "y": 522,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Manual dispatch profile. Browser gestures, sensors, native IME and uncaught-error capture are not enabled.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "run-button",
+      "name": "run-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "run-button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 56,
+                      "fill": [
+                        32,
+                        116,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 35,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RUN AGAIN",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": "",
+                "scripts": []
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "document_class": "app.EventFamiliesExample",
+  "sources": [
+    {
+      "id": "event-families-main",
+      "path": "app/EventFamiliesExample.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;\n import flash.events.Event;\n import flash.events.TextEvent;\n import flash.events.EventDispatcher;\n import flash.events.ErrorEvent;\n import flash.events.SecurityErrorEvent;\n import flash.events.AsyncErrorEvent;\n import flash.events.DataEvent;\n import flash.events.StatusEvent;\n import flash.events.ActivityEvent;\n import flash.events.FullScreenEvent;\n import flash.events.SyncEvent;\n import flash.events.ContextMenuEvent;\n import flash.events.IMEEvent;\n import flash.events.UncaughtErrorEvent;\n import flash.events.SampleDataEvent;\n import flash.events.AccelerometerEvent;\n import flash.events.GestureEvent;\n import flash.events.TransformGestureEvent;\n import flash.events.PressAndTapGestureEvent;\n import flash.events.TouchEvent;\n import flash.events.GesturePhase;\n import flash.events.GeolocationEvent;\n import flash.events.NetDataEvent;\n import flash.events.StageOrientationEvent;\n import flash.events.ThrottleEvent;\n import flash.events.ThrottleType;\n import flash.events.SoftKeyboardEvent;\n import flash.events.SoftKeyboardTrigger;\n import flash.events.IOErrorEvent;\n import flash.utils.ByteArray;\n public dynamic class EventFamiliesExample extends MovieClip {\n  public var runs:int=0; public var checks:Array; public var failures:Array;\n  public var delivered:int=0; public var packet:ByteArray;\n  public function EventFamiliesExample(){super();stop();runReuse();}\n  public function check(name:String,pass:Boolean):void{checks.push(name);if(!pass)failures.push(name);}\n  public function receive(event:Event):void{delivered++; if(event.cancelable)event.preventDefault();}\n  public function runReuse():void{\n   runs++;checks=[];failures=[];delivered=0;packet=new ByteArray();packet.writeUTFBytes(\"shared\");\n   var fault:Error=new Error(\"callback failed\");\n   var changes:Array=[{code:\"change\",name:\"score\"}];\n   var events:Array=[\n    new ErrorEvent(ErrorEvent.ERROR,false,false,\"message\",71),\n    new SecurityErrorEvent(SecurityErrorEvent.SECURITY_ERROR,false,false,\"denied\",72),\n    new AsyncErrorEvent(AsyncErrorEvent.ASYNC_ERROR,false,false,\"async\",fault),\n    new DataEvent(DataEvent.DATA,false,false,\"packet\"),\n    new StatusEvent(StatusEvent.STATUS,false,false,\"ready\",\"status\"),\n    new ActivityEvent(ActivityEvent.ACTIVITY,false,false,true),\n    new FullScreenEvent(FullScreenEvent.FULL_SCREEN,false,false,true,true),\n    new SyncEvent(SyncEvent.SYNC,false,false,changes),\n    new ContextMenuEvent(ContextMenuEvent.MENU_SELECT,false,false,this,this),\n    new IMEEvent(IMEEvent.IME_COMPOSITION,false,false,\"text\",this),\n    new UncaughtErrorEvent(UncaughtErrorEvent.UNCAUGHT_ERROR,true,true,fault),\n    new SampleDataEvent(SampleDataEvent.SAMPLE_DATA,false,false,2048,packet),\n    new AccelerometerEvent(AccelerometerEvent.UPDATE,false,false,100,1,2,3),\n    new GestureEvent(GestureEvent.GESTURE_TWO_FINGER_TAP,true,false,GesturePhase.ALL,10,20),\n    new TransformGestureEvent(TransformGestureEvent.GESTURE_ZOOM,true,false,GesturePhase.UPDATE,10,20,2,3,45,4,5),\n    new PressAndTapGestureEvent(PressAndTapGestureEvent.GESTURE_PRESS_AND_TAP,true,false,GesturePhase.BEGIN,10,20,30,40),\n    new TouchEvent(TouchEvent.TOUCH_BEGIN,true,false,7,true,10,20,4,5,0.75,this,true,false,true),\n    new GeolocationEvent(GeolocationEvent.UPDATE,false,false,34.7,33.1,50,2,3,4,90,100),\n    new NetDataEvent(NetDataEvent.MEDIA_TYPE_DATA,false,false,120,{name:\"cue\"}),\n    new StageOrientationEvent(StageOrientationEvent.ORIENTATION_CHANGE,false,false,\"default\",\"rotatedRight\"),\n    new ThrottleEvent(ThrottleEvent.THROTTLE,false,false,ThrottleType.THROTTLE,12),\n    new SoftKeyboardEvent(SoftKeyboardEvent.SOFT_KEYBOARD_ACTIVATE,false,false,this,SoftKeyboardTrigger.USER_TRIGGERED)\n   ];\n   var hub:EventDispatcher=new EventDispatcher();\n   for(var i:int=0;i<events.length;i++){\n    var e:Event=events[i]; var copy:Event=e.clone();\n    hub.addEventListener(e.type,receive);\n    var accepted:Boolean=hub.dispatchEvent(copy);\n    check(\"family \"+i,copy!==e&&copy.type==e.type&&copy.target===hub&&copy.toString().indexOf(\"Event\")>0&&accepted==!copy.cancelable);\n    hub.removeEventListener(e.type,receive);\n   }\n   var data:DataEvent=events[3];data.data=\"changed\";check(\"data/text alias\",data.text==\"changed\");data.text=\"restored\";check(\"text/data alias\",data.data==\"restored\");\n   check(\"error inheritance\",events[0] is TextEvent && events[1] is ErrorEvent && events[2] is ErrorEvent && events[10] is ErrorEvent);\n   check(\"error IDs\",events[0].errorID==71&&events[1].clone().errorID==72);\n   check(\"reference identity\",events[2].clone().error===fault&&events[7].clone().changeList===changes&&events[8].clone().mouseTarget===this&&events[9].clone().imeClient===this&&events[10].clone().error===fault&&events[11].clone().data===packet);\n   check(\"activity hierarchy\",events[6] is ActivityEvent && events[6].fullScreen && events[6].interactive);\n   check(\"gesture hierarchy\",events[14] is GestureEvent&&events[15] is GestureEvent&&events[14].scaleY==3&&events[15].tapLocalX==30);\n   check(\"sensor/touch payload\",events[12].accelerationZ==3&&events[16].touchPointID==7&&events[16].pressure==0.75);\n   var io:IOErrorEvent=new IOErrorEvent(IOErrorEvent.IO_ERROR,false,false,\"network\",73);check(\"existing I/O hierarchy\",io is ErrorEvent&&io is TextEvent&&io.errorID==73&&io.clone().errorID==73);\n   check(\"formatter\",data.formatToString(\"Payload\",\"data\",\"bubbles\")==\"[Payload data=\\\"restored\\\" bubbles=false]\");\n   var writeFailed:Boolean=false;try{events[0].errorID=1;}catch(error:Error){writeFailed=true;}check(\"read-only field\",writeFailed&&events[0].errorID==71);\n   events[14].updateAfterEvent();events[16].updateAfterEvent();\n   check(\"adjacent payloads\",events[17].latitude==34.7&&events[17].timestamp==100&&events[18].clone().info===events[18].info&&events[19].afterOrientation==\"rotatedRight\"&&events[20].targetFrameRate==12&&events[21].relatedObject===this);\n   events[4].level=\"warning\";events[5].activating=false;events[12].accelerationX=8;events[14].scaleX=4;events[16].touchPointID=9;events[17].latitude=35;\n   check(\"shared payload mutation\",events[4].clone().level==\"warning\"&&!events[5].clone().activating&&events[12].clone().accelerationX==8&&events[14].clone().scaleX==4&&events[16].clone().touchPointID==9&&events[17].clone().latitude==35);\n   check(\"constant groups\",Event.CLOSE==\"close\"&&Event.COPY==\"copy\"&&GesturePhase.END==\"end\"&&ThrottleType.RESUME==\"resume\"&&SoftKeyboardTrigger.CONTENT_TRIGGERED==\"contentTriggered\");\n   check(\"dispatch count\",delivered==22);\n   result.text=(checks.length-failures.length)+\" / \"+checks.length+\" grouped checks passed \u00b7 run \"+runs;\n   pipeline.text=\"22 concrete event classes \u00b7 22 dispatched clones \u00b7 shared reference payloads\";\n   casing.text=\"ErrorEvent \u2192 TextEvent \u00b7 FullScreenEvent \u2192 ActivityEvent \u00b7 gesture inheritance\";\n   codec.text=\"Data/text alias, cancellation, read-only fields and Rust formatting\";\n   counts.text=\"116 new API paths: 47 methods + 69 properties; constructors/constants counted separately.\";\n   trace(\"EVENT_FAMILIES_RESULT \"+JSON.stringify({checks:checks.length,passed:checks.length-failures.length,failed:failures.length,classes:22,delivered:delivered,run:runs,failures:failures}));\n  }\n }\n}"
+    }
+  ]
+}

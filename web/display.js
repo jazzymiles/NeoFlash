@@ -521,7 +521,9 @@
       if(name==='filters'){
         descriptor(target);const host=getFilters();if(!host)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
         const specs=host.toSpecs(value);beforeFilters(target,specs);
-        player.object_set_filters(referenceOf(target).key,JSON.stringify(specs));return true;
+        try{player.object_set_filters(referenceOf(target).key,JSON.stringify(specs));}
+        catch(error){throw error instanceof Error?error:new RangeError(String(error));}
+        return true;
       }
       if(name==='loaderInfo'||(['content','contentLoaderInfo'].includes(name)&&descriptor(target).owner==='loader'))throw new TypeError(`Display ${name} is read-only.`);
       if(name==='transform')throw new TypeError('Replacing DisplayObject.transform is not supported; set transform.matrix or transform.colorTransform.');

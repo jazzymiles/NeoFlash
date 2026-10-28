@@ -24,6 +24,8 @@ const AS3_STRINGS: &str = include_str!("../../../web/as3-strings.js");
 const SCRIPT_EASING: &str = include_str!("../../../web/easing.js");
 const SCRIPT_BROADCASTER: &str = include_str!("../../../web/broadcaster.js");
 const SCRIPT_MATH: &str = include_str!("../../../web/math.js");
+const SCRIPT_DATE: &str = include_str!("../../../web/date.js");
+const SCRIPT_NUMBER_FORMAT: &str = include_str!("../../../web/number-format.js");
 const ALGORITHM_NOTICES: &str = include_str!("../../../THIRD_PARTY_NOTICES.txt");
 const TIMERS: &str = include_str!("../../../web/timers.js");
 const BYTE_ARRAY: &str = include_str!("../../../web/byte-array.js");
@@ -274,6 +276,8 @@ pub fn export_project(
         ("as3-strings.js", AS3_STRINGS),
         ("easing.js", SCRIPT_EASING),
         ("math.js", SCRIPT_MATH),
+        ("date.js", SCRIPT_DATE),
+        ("number-format.js", SCRIPT_NUMBER_FORMAT),
         ("broadcaster.js", SCRIPT_BROADCASTER),
         ("THIRD_PARTY_NOTICES.txt", ALGORITHM_NOTICES),
         ("timers.js", TIMERS),
@@ -370,6 +374,8 @@ fn html_document(title: &str) -> String {
   <script defer src="as3-strings.js"></script>
   <script defer src="easing.js"></script>
   <script defer src="math.js"></script>
+  <script defer src="date.js"></script>
+  <script defer src="number-format.js"></script>
   <script defer src="broadcaster.js"></script>
   <script defer src="timers.js"></script>
   <script defer src="byte-array.js"></script>

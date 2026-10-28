@@ -6,6 +6,8 @@ Open-source authoring environment inspired by classic Macromedia/Adobe Flash, bu
 
 The wider project is paused. The latest bounded [AS2/AS3 runtime hour](docs/AS-RUNTIME-HOUR.md) adds 192 partial API paths and moves 117 existing entries into Rust, with five ordinary HTML5 examples and controlled grouped verification. It follows the [initial reuse experiment](docs/AS-REUSE-EXPERIMENT.md). The declaration table below remains the separately dated audit, not a recount of these increments.
 
+Latest AS runtime batch: **198 new partial method/property paths and 54 existing members moved to Rust**, with four ordinary HTML5 exports checked in a browser. Date/number formatting, rendered filters and 22 event payload classes share the Rust core. [Report and limits](docs/AS-RUNTIME-HOUR-2.md).
+
 <!-- progress:start -->
 ## Where we are
 
@@ -15,8 +17,8 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 352 | 1,831 | 109 |
-| AS3 | 43,740 | 15 | 568 | 42,937 | 220 |
+| AS2 | 2,307 | 15 | 563 | 1,665 | 64 |
+| AS3 | 43,740 | 15 | 1,254 | 42,308 | 163 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
 

@@ -54,3 +54,8 @@ Methodology **v2** corrects the earlier AS2/AS3 denominator. The original 35/36 
 Public `progress.json` contains the compact product data, AS aggregates and audit freshness; `history.json` contains daily counts. The 46,047-row list stays in the repository for detailed local work. The `Progress Pages` workflow validates on pull requests and builds/publishes on pushes to `main`. GitHub Pages uses the **GitHub Actions** source setting.
 
 The presentation is inspired by [AnyPS5 coverage](https://boykopovar.github.io/AnyPS5/progress.html) and [history](https://boykopovar.github.io/AnyPS5/history.html). NeoFlash preserves distinctions between declaration status, product capability groups and full Flash conformance.
+
+
+### Scoped reviews against the normalized catalogue
+
+Completed runtime batches can append explicit per-entry decisions without re-importing an unrelated or newer local research snapshot. Author a reviewed record with the exact current catalogue SHA-256, source fingerprints, bounded scope and browser evidence, then run `python3 scripts/progress_catalog.py --review docs/progress/reviews/2026-10-28-runtime-batches.json`. Apply each record once; unknown IDs, mismatched input hashes and replayed review IDs are rejected. The importer preserves previous decisions and superseded evidence. Coordinator reviews are labelled separately from independent acceptance. Regenerate reports with `python3 scripts/progress.py --write-reports`; counts remain complete-catalogue counts, not full Flash compatibility.

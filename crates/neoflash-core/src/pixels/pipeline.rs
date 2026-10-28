@@ -145,11 +145,15 @@ impl PixelArena {
         if opaque
             && matches!(
                 filter,
-                FilterSpec::Glow { .. } | FilterSpec::DropShadow { .. }
+                FilterSpec::Glow { .. }
+                    | FilterSpec::DropShadow { .. }
+                    | FilterSpec::Bevel { .. }
+                    | FilterSpec::GradientGlow { .. }
+                    | FilterSpec::GradientBevel { .. }
             )
         {
             return Err(error(
-                "GlowFilter/DropShadowFilter require a transparent destination",
+                "Glow, shadow, bevel and gradient filters require a transparent destination",
             ));
         }
         let affected = self.generate_filter_rect(src, rect, filter)?;

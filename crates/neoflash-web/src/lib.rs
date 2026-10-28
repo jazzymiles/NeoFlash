@@ -5,8 +5,11 @@ mod as3_geom;
 mod as3_strings;
 mod as_binary;
 mod as_broadcaster;
+mod as_date;
 mod as_easing;
+mod as_events;
 mod as_math;
+mod as_number_format;
 mod as_timers;
 
 pub use as2_strings::as2_string_json;

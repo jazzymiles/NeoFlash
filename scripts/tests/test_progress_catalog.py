@@ -213,6 +213,71 @@ class CatalogTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must not claim current implementation"):
             progress_catalog.validate_catalog(data)
 
+    def test_normalized_followup_preserves_history_and_rejects_invalid_or_replayed_reviews(self):
+        original = self.import_catalog()
+        catalog_path = self.root / progress_catalog.CATALOG_PATH
+        audit_path = self.root / progress_catalog.AUDIT_PATH
+        original_catalog, original_audit = catalog_path.read_bytes(), audit_path.read_bytes()
+        targets = [row for row in original["entries"] if row["status"] == "missing"]
+        review_path = self.root / "docs/progress/reviews/family.json"
+        verification = {
+            "id": "coordinator-family", "recordedHead": "b" * 40,
+            "sourceCapturedAt": "2026-10-28T07:30:00Z", "verifiedAt": "2026-10-28T07:35:00Z",
+            "sourceManifestSha256": "c" * 64, "browser": "IAB", "engine": "Chromium",
+            "originalFlashComparison": "not_run", "decision": "bounded_family_pass",
+            "currentSourceVerified": False, "reviewKind": "coordinator",
+        }
+        document = {"schemaVersion": 1, "baseCatalogSha256": fingerprint(catalog_path), "reviews": [{
+            "id": verification["id"], "title": "Coordinator family review", "reason": "Bounded package passed.",
+            "limitations": "Partial behavior only.",
+            # The recorded source is historical and need not exist in this working tree.
+            "evidence": [{"path": "web/historical-family.js", "sha256": "d" * 64}],
+            "verification": verification,
+            "reviewedEntries": [{"catalogId": row["catalog_id"], "status": "partial",
+                                 "evidenceKind": "coordinator_browser", "scopeNote": "Authored family scenario."}
+                                for row in targets],
+        }]}
+        invalid = json.loads(json.dumps(document))
+        invalid["baseCatalogSha256"] = "0" * 64
+        write_json(review_path, invalid)
+        with self.assertRaisesRegex(ValueError, "hash differs"):
+            progress_catalog.apply_review(review_path, self.root)
+        invalid = json.loads(json.dumps(document))
+        invalid["reviews"][0]["reviewedEntries"][0]["catalogId"] = "AS3:unknown"
+        write_json(review_path, invalid)
+        with self.assertRaisesRegex(ValueError, "Unknown catalogue ID"):
+            progress_catalog.apply_review(review_path, self.root)
+        invalid = json.loads(json.dumps(document))
+        invalid["reviews"][0]["reviewedEntries"].append(invalid["reviews"][0]["reviewedEntries"][0])
+        write_json(review_path, invalid)
+        with self.assertRaisesRegex(ValueError, "Duplicate reviewed catalogue ID"):
+            progress_catalog.apply_review(review_path, self.root)
+        invalid = json.loads(json.dumps(document))
+        invalid["reviews"][0]["reviewedEntries"][0]["catalogId"] = next(row["catalog_id"] for row in original["entries"] if row["status"] == "implemented_subset")
+        write_json(review_path, invalid)
+        with self.assertRaisesRegex(ValueError, "Do not override implemented_subset"):
+            progress_catalog.apply_review(review_path, self.root)
+        self.assertEqual(catalog_path.read_bytes(), original_catalog)
+        self.assertEqual(audit_path.read_bytes(), original_audit)
+        write_json(review_path, document)
+        result = progress_catalog.apply_review(review_path, self.root)
+        self.assertEqual(result["summary"]["total"], {"implemented_subset": 2, "partial": 4, "missing": 0, "needs_review": 2, "total": 8})
+        for key in ("baselineRevision", "inputHashes", "implementationSourceHashes", "sourceFiles"):
+            self.assertEqual(result["metadata"][key], original["metadata"][key])
+        unchanged = {row["catalog_id"]: row for row in original["entries"] if row not in targets}
+        self.assertEqual({row["catalog_id"]: row for row in result["entries"] if row["catalog_id"] in unchanged}, unchanged)
+        self.assertEqual(result["metadata"]["independentVerifications"][-1], verification)
+        self.assertEqual(result["metadata"]["normalizedReviewInputs"][-1]["sha256"], fingerprint(review_path))
+        self.assertEqual(result["metadata"]["supersededRules"][0]["id"], "missing")
+        rule = next(rule for rule in result["rules"] if rule["id"] == verification["id"])
+        self.assertEqual([item["status"] for item in rule["previousEntries"]], ["missing", "missing"])
+        self.assertEqual(rule["evidence"], document["reviews"][0]["evidence"])
+        updated_catalog, updated_audit = catalog_path.read_bytes(), audit_path.read_bytes()
+        with self.assertRaisesRegex(ValueError, "already-used review ID"):
+            progress_catalog.apply_review(review_path, self.root)
+        self.assertEqual(catalog_path.read_bytes(), updated_catalog)
+        self.assertEqual(audit_path.read_bytes(), updated_audit)
+
     def test_source_references_cannot_escape_the_repository(self):
         path = self.source / "implementation-evidence.json"
         evidence = json.loads(path.read_text())

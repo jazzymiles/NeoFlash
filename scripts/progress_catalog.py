@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Import and read the complete, frozen ActionScript declaration audit.
+"""Import, review and read the complete ActionScript declaration audit.
 
 The importer verifies the original catalogue/evidence hashes before joining every
 catalogue ID to its audited decision. It does not inspect current implementation,
 rerun the audit or promote any previously partial API to full compatibility.
+Authored --review records append bounded decisions to the normalized snapshot
+while retaining original audit fingerprints and superseded evidence.
 """
 
 from __future__ import annotations
@@ -123,7 +125,7 @@ def reviewed_rules(evidence, entries):
             continue  # Product/import checks do not classify AS declarations.
         definitions[run["id"]] = {
             "id": run["id"],
-            "title": "Independent HTML5 acceptance: " + run["id"],
+            "title": ("Coordinator HTML5 acceptance: " if run.get("review_kind") == "coordinator" else "Independent HTML5 acceptance: ") + run["id"],
             "reason": run["decision"].replace("_", " "),
             "limitations": " ".join(run.get("limitations", [])),
             "evidence": [reference(path, run["source_files"]) for path in sorted(run["source_files"])
@@ -150,6 +152,7 @@ def verification_summary(run):
         "browser": run["browser"]["name"], "engine": run["browser"]["engine"],
         "originalFlashComparison": run["browser"]["original_flash_comparison"],
         "decision": run["decision"], "currentSourceVerified": False,
+        "reviewKind": run.get("review_kind", "independent"),
     }
 
 
@@ -245,6 +248,112 @@ def import_catalog(source, root=ROOT):
     return load_catalog(root)
 
 
+def apply_review(review_path, root=ROOT):
+    """Apply an authored review to the existing normalized snapshot only.
+
+    Evidence hashes identify captured bytes, which may belong to older commits;
+    they are deliberately not compared with today's working-tree files.
+    """
+    root = Path(root).resolve()
+    path = Path(review_path)
+    path = (root / path).resolve() if not path.is_absolute() else path.resolve()
+    try:
+        relative = path.relative_to(root).as_posix()
+    except ValueError as error:
+        raise ValueError("Review must be a repository-relative file") from error
+    safe_path(relative)
+    if not relative.startswith("docs/progress/reviews/") or path.suffix != ".json":
+        raise ValueError("Authored reviews belong under docs/progress/reviews/*.json")
+    raw = path.read_bytes()
+    review = json.loads(raw)
+    if set(review) != {"schemaVersion", "baseCatalogSha256", "reviews"} or review["schemaVersion"] != 1:
+        raise ValueError("Unsupported normalized review schema")
+    if not isinstance(review["reviews"], list) or not review["reviews"]:
+        raise ValueError("Review file must contain a nonempty reviews list")
+    data = load_catalog(root)
+    metadata = data["metadata"]
+    existing_ids = {rule["id"] for rule in data["rules"]}
+    existing_ids.update(rule["id"] for rule in metadata.get("supersededRules", []))
+    existing_ids.update(run["id"] for run in metadata.get("independentVerifications", []))
+    existing_ids.update(identifier for item in metadata.get("normalizedReviewInputs", []) for identifier in item.get("reviewIds", []))
+    review_ids = [item.get("id") for item in review["reviews"]]
+    if any(not isinstance(identifier, str) or not identifier.strip() for identifier in review_ids):
+        raise ValueError("Review IDs must be nonempty strings")
+    if len(set(review_ids)) != len(review_ids) or existing_ids.intersection(review_ids):
+        raise ValueError("Duplicate or already-used review ID")
+    checked_hash((root / CATALOG_PATH).read_bytes(), review["baseCatalogSha256"], "baseCatalogSha256")
+    by_id = {entry["catalog_id"]: entry for entry in data["entries"]}
+    seen_entries, added_rules, verifications = set(), [], []
+    rule_fields = {"id", "title", "reason", "limitations", "evidence", "verification", "reviewedEntries"}
+    verification_fields = {"id", "recordedHead", "sourceCapturedAt", "verifiedAt", "sourceManifestSha256",
+                           "browser", "engine", "originalFlashComparison", "decision", "currentSourceVerified", "reviewKind"}
+    for item in review["reviews"]:
+        if set(item) != rule_fields:
+            raise ValueError("Unexpected normalized review rule fields")
+        for key in ("title", "reason", "limitations"):
+            if not isinstance(item[key], str) or not item[key].strip():
+                raise ValueError(f"Review requires explanatory {key}")
+        if not isinstance(item["evidence"], list) or not item["evidence"]:
+            raise ValueError("Review requires captured source evidence")
+        for evidence in item["evidence"]:
+            if set(evidence) != {"path", "sha256"}:
+                raise ValueError("Review evidence requires path and sha256 only")
+            safe_path(evidence["path"])
+            if not isinstance(evidence["sha256"], str) or not HASH.fullmatch(evidence["sha256"]):
+                raise ValueError("Invalid review evidence fingerprint")
+        verification = item["verification"]
+        if set(verification) != verification_fields or verification["id"] != item["id"]:
+            raise ValueError("Unexpected review verification fields or identity")
+        if verification["currentSourceVerified"] is not False or verification["reviewKind"] != "coordinator":
+            raise ValueError("Normalized follow-up review must retain bounded coordinator provenance")
+        if not re.fullmatch(r"[a-f0-9]{40}", str(verification["recordedHead"])) or not HASH.fullmatch(str(verification["sourceManifestSha256"])):
+            raise ValueError("Invalid review verification source fingerprint")
+        for key in ("sourceCapturedAt", "verifiedAt", "browser", "engine", "originalFlashComparison", "decision"):
+            if not isinstance(verification[key], str) or not verification[key].strip():
+                raise ValueError(f"Review verification requires {key}")
+        if not isinstance(item["reviewedEntries"], list) or not item["reviewedEntries"]:
+            raise ValueError("Review must classify at least one catalogue entry")
+        previous = []
+        for change in item["reviewedEntries"]:
+            if set(change) != {"catalogId", "status", "evidenceKind", "scopeNote"}:
+                raise ValueError("Unexpected reviewed entry fields")
+            identifier = change["catalogId"]
+            if identifier not in by_id:
+                raise ValueError(f"Unknown catalogue ID: {identifier}")
+            if identifier in seen_entries:
+                raise ValueError(f"Duplicate reviewed catalogue ID: {identifier}")
+            seen_entries.add(identifier)
+            if change["status"] != "partial":
+                raise ValueError("Bounded follow-up reviews can classify partial support only")
+            if by_id[identifier]["status"] == "implemented_subset":
+                raise ValueError(f"Do not override implemented_subset entry: {identifier}")
+            for key in ("evidenceKind", "scopeNote"):
+                if not isinstance(change[key], str) or not change[key].strip():
+                    raise ValueError(f"Reviewed entry requires {key}")
+            entry = by_id[identifier]
+            previous.append({"catalogId": identifier, "status": entry["status"],
+                             "ruleId": entry["rule_id"], "evidenceKind": entry["evidence_kind"]})
+            entry.update(status="partial", rule_id=item["id"], evidence_kind=change["evidenceKind"])
+        added_rules.append({**item, "previousEntries": previous})
+        verifications.append(verification)
+    used = {entry["rule_id"] for entry in data["entries"]}
+    superseded = [rule for rule in data["rules"] if rule["id"] not in used]
+    if superseded:
+        metadata.setdefault("supersededRules", []).extend(superseded)
+    data["rules"] = [rule for rule in data["rules"] if rule["id"] in used] + added_rules
+    metadata.setdefault("independentVerifications", []).extend(verifications)
+    metadata.setdefault("normalizedReviewInputs", []).append({"path": relative, "sha256": sha256(raw),
+        "baseCatalogSha256": review["baseCatalogSha256"], "reviewIds": review_ids})
+    data["summary"] = aggregate(data["entries"])
+    validate_catalog(data)
+    payload = catalogue_bytes(data["entries"])
+    frozen = {"schemaVersion": 1, "catalogSha256": sha256(payload),
+              **{key: data[key] for key in ("metadata", "summary", "rules")}}
+    (root / CATALOG_PATH).write_bytes(payload)
+    (root / AUDIT_PATH).write_text(json.dumps(frozen, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return load_catalog(root)
+
+
 @lru_cache(maxsize=8)
 def _blob(root, object_id):
     # Different days often share the same catalogue blob; avoid repeated reads.
@@ -321,6 +430,7 @@ def load_catalog(root=ROOT, revision=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, help="import from an original docs/actionscript-reference directory")
+    parser.add_argument("--review", type=Path, help="apply a bounded authored review to the current normalized catalogue")
     parser.add_argument("--revision", help="read a committed normalized snapshot instead of working-tree files")
     parser.add_argument("--summary", action="store_true", help="show exact status counts (for all entries or the selected entries)")
     parser.add_argument("--language", choices=("AS2", "AS3"))
@@ -331,9 +441,9 @@ def main():
     parser.add_argument("--query", help="case-insensitive search in ID, owner and name")
     parser.add_argument("--json", action="store_true", help="print matching entries as JSON")
     args = parser.parse_args()
-    if args.source and args.revision:
-        parser.error("--source and --revision cannot be combined")
-    data = import_catalog(args.source) if args.source else load_catalog(ROOT, args.revision)
+    if sum(bool(value) for value in (args.source, args.review, args.revision)) > 1:
+        parser.error("--source, --review and --revision cannot be combined")
+    data = apply_review(args.review) if args.review else import_catalog(args.source) if args.source else load_catalog(ROOT, args.revision)
     filters = {key: value for key, value in (("language", args.language), ("scope", args.scope),
                ("status", args.status), ("owner", args.owner), ("catalog_id", args.catalog_id)) if value is not None}
     entries = [row for row in data["entries"] if all(row[key] == value for key, value in filters.items())

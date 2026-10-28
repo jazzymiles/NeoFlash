@@ -1,0 +1,443 @@
+{
+  "format_version": 2,
+  "name": "Rust NumberFormatter locale pipeline",
+  "width": 960,
+  "height": 570,
+  "fps": 24,
+  "background": [
+    14,
+    24,
+    33,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 42,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / RUST NUMBER FORMATTING",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        115,
+                        213,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 42,
+                      "y": 82,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Localized numbers · one Rust formatter",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 42,
+                      "y": 125,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "The browser supplies locale metadata. Rust formats and parses authored values.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel",
+                    "name": "panel",
+                    "transform": {
+                      "x": 32,
+                      "y": 175,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 890,
+                      "height": 195,
+                      "fill": [
+                        25,
+                        42,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "result",
+                    "name": "result",
+                    "transform": {
+                      "x": 52,
+                      "y": 205,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Running checks…",
+                      "font_family": "Arial",
+                      "font_size": 25,
+                      "color": [
+                        115,
+                        229,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pipeline",
+                    "name": "pipeline",
+                    "transform": {
+                      "x": 52,
+                      "y": 248,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Text pipeline",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "casing",
+                    "name": "casing",
+                    "transform": {
+                      "x": 52,
+                      "y": 286,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Historical casing",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "codec",
+                    "name": "codec",
+                    "transform": {
+                      "x": 52,
+                      "y": 324,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "URL codecs",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rerun",
+                    "name": "rerun",
+                    "transform": {
+                      "x": 42,
+                      "y": 397,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "run-button",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.runReuse();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 285,
+                      "y": 417,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run again repeats the grouped formatter scenario. Restart creates fresh formatters.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "counts",
+                    "name": "counts",
+                    "transform": {
+                      "x": 42,
+                      "y": 480,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Awaiting runtime results",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 42,
+                      "y": 522,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Partial globalization profile: decimal numbers, 33 digit sets, grouping and five negative formats.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "run-button",
+      "name": "run-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "run-button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 56,
+                      "fill": [
+                        32,
+                        116,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 35,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RUN AGAIN",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": "",
+                "scripts": []
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "document_class": "app.NumberFormatExample",
+  "sources": [
+    {
+      "id": "math-main",
+      "path": "app/NumberFormatExample.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;import flash.globalization.NumberFormatter;import flash.globalization.NumberParseResult;\n public dynamic class NumberFormatExample extends MovieClip {\n  public var runs:int=0;public var checks:Array;public var failures:Array;\n  public function NumberFormatExample(){super();stop();runReuse();}\n  public function check(name:String,pass:Boolean):void{checks.push(name);if(!pass)failures.push(name);}\n  public function runReuse():void{\n   runs++;checks=[];failures=[];\n   var en:NumberFormatter=new NumberFormatter(\"en-US\");en.useGrouping=true;en.fractionalDigits=2;en.trailingZeros=true;\n   var english:String=en.formatNumber(1234567.5);check(\"US rendering\",english==\"1,234,567.50\");check(\"locale identity\",en.requestedLocaleIDName==\"en-US\"&&en.actualLocaleIDName.length>0&&en.lastOperationStatus==\"noError\");\n   var keys:Array=[\"decimalSeparator\",\"digitsType\",\"fractionalDigits\",\"groupingPattern\",\"groupingSeparator\",\"leadingZero\",\"negativeNumberFormat\",\"negativeSymbol\",\"trailingZeros\",\"useGrouping\"];var same:Boolean=true;for(var i:int=0;i<keys.length;i++){var key:String=keys[i];var original:*=en[key];en[key]=original;if(en[key]!==original)same=false;}check(\"ten mutable properties\",same);\n   en.groupingPattern=\"3;2;*\";check(\"Indian grouping\",en.formatNumber(1234567.5)==\"12,34,567.50\");en.groupingPattern=\"3;*\";\n   var expected:Array=[\"(1,234.50)\",\"-1,234.50\",\"- 1,234.50\",\"1,234.50-\",\"1,234.50 -\"];var signs:Boolean=true;for(i=0;i<5;i++){en.negativeNumberFormat=i;var negative:String=en.formatNumber(-1234.5);if(negative!=expected[i]||en.parseNumber(negative)!=-1234.5)signs=false;}check(\"five negative formats round trip\",signs);en.negativeNumberFormat=1;\n   en.leadingZero=false;check(\"leading zero\",en.formatNumber(0.5)==\".50\");en.trailingZeros=false;check(\"trailing zeros\",en.formatNumber(0.5)==\".5\");en.leadingZero=true;\n   en.useGrouping=false;en.fractionalDigits=0;check(\"int conversion\",en.formatInt(4294967295)==\"-1\");check(\"uint conversion\",en.formatUint(-1)==\"4294967295\");check(\"fixed notation\",en.formatNumber(1e21)==\"1000000000000000000000\");\n   en.fractionalDigits=2;en.useGrouping=true;var parsed:NumberParseResult=en.parse(\"💡 total -1,234.50 USD\");check(\"parse result\",parsed.value==-1234.5&&parsed.startIndex==9&&parsed.endIndex==18);check(\"strict parse\",isNaN(en.parseNumber(\"total 12\"))&&en.parseNumber(\" 12.5 \")==12.5);check(\"failed parse\",isNaN(en.parse(\"nothing\").value)&&en.parse(\"nothing\").startIndex==2147483647&&en.lastOperationStatus==\"parseError\");\n   var direct:NumberParseResult=new NumberParseResult(2.5,4,7);check(\"parse result constructor\",direct.value==2.5&&direct.startIndex==4&&direct.endIndex==7);\n   var fr:NumberFormatter=new NumberFormatter(\"fr-FR\");fr.useGrouping=true;fr.fractionalDigits=2;fr.trailingZeros=true;var french:String=fr.formatNumber(1234567.5);check(\"French round trip\",fr.decimalSeparator==\",\"&&fr.parseNumber(french)==1234567.5);\n   var ar:NumberFormatter=new NumberFormatter(\"ar-EG\");ar.useGrouping=true;ar.fractionalDigits=2;ar.trailingZeros=true;var arabic:String=ar.formatNumber(1234567.5);check(\"Arabic digit round trip\",ar.digitsType==0x660&&ar.parseNumber(arabic)==1234567.5);\n   en.digitsType=0x966;var indic:String=en.formatNumber(1234.5);check(\"explicit digit set\",indic.indexOf(\"१\")>=0&&en.parseNumber(indic)==1234.5);en.digitsType=0x30;\n   en.negativeSymbol=\"~\";check(\"custom negative symbol\",en.parseNumber(en.formatNumber(-2.5))==-2.5);\n   var rejected:Boolean=false;try{en.fractionalDigits=999;}catch(error:Error){rejected=true;}check(\"invalid setter atomic\",rejected&&en.fractionalDigits==2&&en.lastOperationStatus==\"illegalArgumentError\");\n   result.text=(checks.length-failures.length)+\" / \"+checks.length+\" checks passed · run \"+runs;\n   pipeline.text=\"en-US  \"+english;casing.text=\"fr-FR  \"+french;codec.text=\"ar-EG  \"+arabic;\n   counts.text=\"21 member paths · 2 constructors · all number algorithms and formatter state in Rust\";\n   trace(\"NUMBER_FORMAT_RESULT \"+JSON.stringify({checks:checks.length,passed:checks.length-failures.length,failed:failures.length,run:runs,failures:failures,english:english,french:french,arabic:arabic}));\n  }\n }\n}"
+    }
+  ]
+}

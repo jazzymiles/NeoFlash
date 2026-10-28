@@ -1,0 +1,1215 @@
+[
+  {
+    "name": "ErrorEvent",
+    "parent": "TextEvent",
+    "fields": [
+      {
+        "name": "text",
+        "kind": "string",
+        "default": "",
+        "readonly": false
+      },
+      {
+        "name": "errorID",
+        "kind": "int",
+        "default": 0,
+        "readonly": true
+      }
+    ],
+    "ownFields": [
+      "errorID"
+    ],
+    "params": [
+      "text",
+      "errorID"
+    ],
+    "constants": {
+      "ERROR": "error"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "text"
+    ]
+  },
+  {
+    "name": "SecurityErrorEvent",
+    "parent": "ErrorEvent",
+    "fields": [
+      {
+        "name": "text",
+        "kind": "string",
+        "default": "",
+        "readonly": false
+      },
+      {
+        "name": "errorID",
+        "kind": "int",
+        "default": 0,
+        "readonly": true
+      }
+    ],
+    "ownFields": [],
+    "params": [
+      "text",
+      "errorID"
+    ],
+    "constants": {
+      "SECURITY_ERROR": "securityError"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "text"
+    ]
+  },
+  {
+    "name": "AsyncErrorEvent",
+    "parent": "ErrorEvent",
+    "fields": [
+      {
+        "name": "text",
+        "kind": "string",
+        "default": "",
+        "readonly": false
+      },
+      {
+        "name": "errorID",
+        "kind": "int",
+        "default": 0,
+        "readonly": true
+      },
+      {
+        "name": "error",
+        "kind": "error",
+        "default": null,
+        "readonly": false
+      }
+    ],
+    "ownFields": [
+      "error"
+    ],
+    "params": [
+      "text",
+      "error"
+    ],
+    "constants": {
+      "ASYNC_ERROR": "asyncError"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "text",
+      "error"
+    ]
+  },
+  {
+    "name": "DataEvent",
+    "parent": "TextEvent",
+    "fields": [
+      {
+        "name": "text",
+        "kind": "string",
+        "default": "",
+        "readonly": false
+      },
+      {
+        "name": "data",
+        "kind": "string",
+        "default": "",
+        "readonly": false,
+        "alias": "text"
+      }
+    ],
+    "ownFields": [
+      "data"
+    ],
+    "params": [
+      "data"
+    ],
+    "constants": {
+      "DATA": "data",
+      "UPLOAD_COMPLETE_DATA": "uploadCompleteData"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "data"
+    ]
+  },
+  {
+    "name": "StatusEvent",
+    "parent": "Event",
+    "fields": [
+      {
+        "name": "code",
+        "kind": "string",
+        "default": "",
+        "readonly": false
+      },
+      {
+        "name": "level",
+        "kind": "string",
+        "default": "",
+        "readonly": false
+      }
+    ],
+    "ownFields": [
+      "code",
+      "level"
+    ],
+    "params": [
+      "code",
+      "level"
+    ],
+    "constants": {
+      "STATUS": "status"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "code",
+      "level"
+    ]
+  },
+  {
+    "name": "ActivityEvent",
+    "parent": "Event",
+    "fields": [
+      {
+        "name": "activating",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      }
+    ],
+    "ownFields": [
+      "activating"
+    ],
+    "params": [
+      "activating"
+    ],
+    "constants": {
+      "ACTIVITY": "activity"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "activating"
+    ]
+  },
+  {
+    "name": "FullScreenEvent",
+    "parent": "ActivityEvent",
+    "fields": [
+      {
+        "name": "activating",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "fullScreen",
+        "kind": "bool",
+        "default": false,
+        "readonly": true
+      },
+      {
+        "name": "interactive",
+        "kind": "bool",
+        "default": false,
+        "readonly": true
+      }
+    ],
+    "ownFields": [
+      "fullScreen",
+      "interactive"
+    ],
+    "params": [
+      "fullScreen",
+      "interactive"
+    ],
+    "constants": {
+      "FULL_SCREEN": "fullScreen",
+      "FULL_SCREEN_INTERACTIVE_ACCEPTED": "fullScreenInteractiveAccepted"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "fullScreen",
+      "interactive"
+    ]
+  },
+  {
+    "name": "SyncEvent",
+    "parent": "Event",
+    "fields": [
+      {
+        "name": "changeList",
+        "kind": "array",
+        "default": null,
+        "readonly": false
+      }
+    ],
+    "ownFields": [
+      "changeList"
+    ],
+    "params": [
+      "changeList"
+    ],
+    "constants": {
+      "SYNC": "sync"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "changeList"
+    ]
+  },
+  {
+    "name": "ContextMenuEvent",
+    "parent": "Event",
+    "fields": [
+      {
+        "name": "mouseTarget",
+        "kind": "display",
+        "default": null,
+        "readonly": false
+      },
+      {
+        "name": "contextMenuOwner",
+        "kind": "display",
+        "default": null,
+        "readonly": false
+      },
+      {
+        "name": "isMouseTargetInaccessible",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      }
+    ],
+    "ownFields": [
+      "mouseTarget",
+      "contextMenuOwner",
+      "isMouseTargetInaccessible"
+    ],
+    "params": [
+      "mouseTarget",
+      "contextMenuOwner"
+    ],
+    "constants": {
+      "MENU_SELECT": "menuSelect",
+      "MENU_ITEM_SELECT": "menuItemSelect"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "mouseTarget",
+      "contextMenuOwner"
+    ]
+  },
+  {
+    "name": "IMEEvent",
+    "parent": "TextEvent",
+    "fields": [
+      {
+        "name": "text",
+        "kind": "string",
+        "default": "",
+        "readonly": false
+      },
+      {
+        "name": "imeClient",
+        "kind": "ref",
+        "default": null,
+        "readonly": false
+      }
+    ],
+    "ownFields": [
+      "imeClient"
+    ],
+    "params": [
+      "text",
+      "imeClient"
+    ],
+    "constants": {
+      "IME_COMPOSITION": "imeComposition",
+      "IME_START_COMPOSITION": "imeStartComposition"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "text",
+      "imeClient"
+    ]
+  },
+  {
+    "name": "UncaughtErrorEvent",
+    "parent": "ErrorEvent",
+    "fields": [
+      {
+        "name": "text",
+        "kind": "string",
+        "default": "",
+        "readonly": false
+      },
+      {
+        "name": "errorID",
+        "kind": "int",
+        "default": 0,
+        "readonly": true
+      },
+      {
+        "name": "error",
+        "kind": "any",
+        "default": null,
+        "readonly": true
+      }
+    ],
+    "ownFields": [
+      "error"
+    ],
+    "params": [
+      "error"
+    ],
+    "constants": {
+      "UNCAUGHT_ERROR": "uncaughtError"
+    },
+    "bubbles": true,
+    "cancelable": true,
+    "format": [
+      "error"
+    ]
+  },
+  {
+    "name": "SampleDataEvent",
+    "parent": "Event",
+    "fields": [
+      {
+        "name": "position",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "data",
+        "kind": "byteArray",
+        "default": null,
+        "readonly": false
+      }
+    ],
+    "ownFields": [
+      "position",
+      "data"
+    ],
+    "params": [
+      "position",
+      "data"
+    ],
+    "constants": {
+      "SAMPLE_DATA": "sampleData"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "position",
+      "data"
+    ]
+  },
+  {
+    "name": "AccelerometerEvent",
+    "parent": "Event",
+    "fields": [
+      {
+        "name": "timestamp",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "accelerationX",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "accelerationY",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "accelerationZ",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      }
+    ],
+    "ownFields": [
+      "timestamp",
+      "accelerationX",
+      "accelerationY",
+      "accelerationZ"
+    ],
+    "params": [
+      "timestamp",
+      "accelerationX",
+      "accelerationY",
+      "accelerationZ"
+    ],
+    "constants": {
+      "UPDATE": "update"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "timestamp",
+      "accelerationX",
+      "accelerationY",
+      "accelerationZ"
+    ]
+  },
+  {
+    "name": "GestureEvent",
+    "parent": "Event",
+    "fields": [
+      {
+        "name": "phase",
+        "kind": "string",
+        "default": null,
+        "readonly": false
+      },
+      {
+        "name": "localX",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "localY",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "ctrlKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "altKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "shiftKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "commandKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "controlKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "stageX",
+        "kind": "coordinate",
+        "default": 0,
+        "readonly": true
+      },
+      {
+        "name": "stageY",
+        "kind": "coordinate",
+        "default": 0,
+        "readonly": true
+      }
+    ],
+    "ownFields": [
+      "phase",
+      "localX",
+      "localY",
+      "ctrlKey",
+      "altKey",
+      "shiftKey",
+      "commandKey",
+      "controlKey",
+      "stageX",
+      "stageY"
+    ],
+    "params": [
+      "phase",
+      "localX",
+      "localY",
+      "ctrlKey",
+      "altKey",
+      "shiftKey",
+      "commandKey",
+      "controlKey"
+    ],
+    "constants": {
+      "GESTURE_TWO_FINGER_TAP": "gestureTwoFingerTap"
+    },
+    "bubbles": true,
+    "cancelable": false,
+    "format": [
+      "phase",
+      "localX",
+      "localY",
+      "ctrlKey",
+      "altKey",
+      "shiftKey",
+      "commandKey",
+      "controlKey",
+      "stageX",
+      "stageY"
+    ]
+  },
+  {
+    "name": "TransformGestureEvent",
+    "parent": "GestureEvent",
+    "fields": [
+      {
+        "name": "phase",
+        "kind": "string",
+        "default": null,
+        "readonly": false
+      },
+      {
+        "name": "localX",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "localY",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "ctrlKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "altKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "shiftKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "commandKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "controlKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "stageX",
+        "kind": "coordinate",
+        "default": 0,
+        "readonly": true
+      },
+      {
+        "name": "stageY",
+        "kind": "coordinate",
+        "default": 0,
+        "readonly": true
+      },
+      {
+        "name": "scaleX",
+        "kind": "number",
+        "default": 1,
+        "readonly": false
+      },
+      {
+        "name": "scaleY",
+        "kind": "number",
+        "default": 1,
+        "readonly": false
+      },
+      {
+        "name": "rotation",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "offsetX",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "offsetY",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      }
+    ],
+    "ownFields": [
+      "scaleX",
+      "scaleY",
+      "rotation",
+      "offsetX",
+      "offsetY"
+    ],
+    "params": [
+      "phase",
+      "localX",
+      "localY",
+      "scaleX",
+      "scaleY",
+      "rotation",
+      "offsetX",
+      "offsetY",
+      "ctrlKey",
+      "altKey",
+      "shiftKey"
+    ],
+    "constants": {
+      "GESTURE_PAN": "gesturePan",
+      "GESTURE_ROTATE": "gestureRotate",
+      "GESTURE_SWIPE": "gestureSwipe",
+      "GESTURE_ZOOM": "gestureZoom"
+    },
+    "bubbles": true,
+    "cancelable": false,
+    "format": [
+      "phase",
+      "localX",
+      "localY",
+      "scaleX",
+      "scaleY",
+      "rotation",
+      "offsetX",
+      "offsetY"
+    ]
+  },
+  {
+    "name": "PressAndTapGestureEvent",
+    "parent": "GestureEvent",
+    "fields": [
+      {
+        "name": "phase",
+        "kind": "string",
+        "default": null,
+        "readonly": false
+      },
+      {
+        "name": "localX",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "localY",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "ctrlKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "altKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "shiftKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "commandKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "controlKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "stageX",
+        "kind": "coordinate",
+        "default": 0,
+        "readonly": true
+      },
+      {
+        "name": "stageY",
+        "kind": "coordinate",
+        "default": 0,
+        "readonly": true
+      },
+      {
+        "name": "tapLocalX",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "tapLocalY",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "tapStageX",
+        "kind": "coordinate",
+        "default": 0,
+        "readonly": true
+      },
+      {
+        "name": "tapStageY",
+        "kind": "coordinate",
+        "default": 0,
+        "readonly": true
+      }
+    ],
+    "ownFields": [
+      "tapLocalX",
+      "tapLocalY",
+      "tapStageX",
+      "tapStageY"
+    ],
+    "params": [
+      "phase",
+      "localX",
+      "localY",
+      "tapLocalX",
+      "tapLocalY",
+      "ctrlKey",
+      "altKey",
+      "shiftKey"
+    ],
+    "constants": {
+      "GESTURE_PRESS_AND_TAP": "gesturePressAndTap"
+    },
+    "bubbles": true,
+    "cancelable": false,
+    "format": [
+      "tapLocalX",
+      "tapLocalY",
+      "tapStageX",
+      "tapStageY"
+    ]
+  },
+  {
+    "name": "TouchEvent",
+    "parent": "Event",
+    "fields": [
+      {
+        "name": "touchPointID",
+        "kind": "int",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "isPrimaryTouchPoint",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "localX",
+        "kind": "number",
+        "default": "NaN",
+        "readonly": false
+      },
+      {
+        "name": "localY",
+        "kind": "number",
+        "default": "NaN",
+        "readonly": false
+      },
+      {
+        "name": "sizeX",
+        "kind": "number",
+        "default": "NaN",
+        "readonly": false
+      },
+      {
+        "name": "sizeY",
+        "kind": "number",
+        "default": "NaN",
+        "readonly": false
+      },
+      {
+        "name": "pressure",
+        "kind": "number",
+        "default": "NaN",
+        "readonly": false
+      },
+      {
+        "name": "relatedObject",
+        "kind": "display",
+        "default": null,
+        "readonly": false
+      },
+      {
+        "name": "ctrlKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "altKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "shiftKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "isRelatedObjectInaccessible",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "stageX",
+        "kind": "coordinate",
+        "default": "NaN",
+        "readonly": true
+      },
+      {
+        "name": "stageY",
+        "kind": "coordinate",
+        "default": "NaN",
+        "readonly": true
+      }
+    ],
+    "ownFields": [
+      "touchPointID",
+      "isPrimaryTouchPoint",
+      "localX",
+      "localY",
+      "sizeX",
+      "sizeY",
+      "pressure",
+      "relatedObject",
+      "ctrlKey",
+      "altKey",
+      "shiftKey",
+      "isRelatedObjectInaccessible",
+      "stageX",
+      "stageY"
+    ],
+    "params": [
+      "touchPointID",
+      "isPrimaryTouchPoint",
+      "localX",
+      "localY",
+      "sizeX",
+      "sizeY",
+      "pressure",
+      "relatedObject",
+      "ctrlKey",
+      "altKey",
+      "shiftKey"
+    ],
+    "constants": {
+      "PROXIMITY_BEGIN": "proximityBegin",
+      "PROXIMITY_END": "proximityEnd",
+      "PROXIMITY_MOVE": "proximityMove",
+      "PROXIMITY_OUT": "proximityOut",
+      "PROXIMITY_OVER": "proximityOver",
+      "PROXIMITY_ROLL_OUT": "proximityRollOut",
+      "PROXIMITY_ROLL_OVER": "proximityRollOver",
+      "TOUCH_BEGIN": "touchBegin",
+      "TOUCH_END": "touchEnd",
+      "TOUCH_MOVE": "touchMove",
+      "TOUCH_OUT": "touchOut",
+      "TOUCH_OVER": "touchOver",
+      "TOUCH_ROLL_OUT": "touchRollOut",
+      "TOUCH_ROLL_OVER": "touchRollOver",
+      "TOUCH_TAP": "touchTap"
+    },
+    "bubbles": true,
+    "cancelable": false,
+    "format": [
+      "touchPointID",
+      "isPrimaryTouchPoint",
+      "localX",
+      "localY",
+      "sizeX",
+      "sizeY",
+      "pressure",
+      "relatedObject",
+      "ctrlKey",
+      "altKey",
+      "shiftKey",
+      "isRelatedObjectInaccessible",
+      "stageX",
+      "stageY"
+    ]
+  },
+  {
+    "name": "GeolocationEvent",
+    "parent": "Event",
+    "fields": [
+      {
+        "name": "latitude",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "longitude",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "altitude",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "horizontalAccuracy",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "verticalAccuracy",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "speed",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "heading",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "timestamp",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      }
+    ],
+    "ownFields": [
+      "latitude",
+      "longitude",
+      "altitude",
+      "horizontalAccuracy",
+      "verticalAccuracy",
+      "speed",
+      "heading",
+      "timestamp"
+    ],
+    "params": [
+      "latitude",
+      "longitude",
+      "altitude",
+      "horizontalAccuracy",
+      "verticalAccuracy",
+      "speed",
+      "heading",
+      "timestamp"
+    ],
+    "constants": {
+      "UPDATE": "update"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "latitude",
+      "longitude",
+      "altitude",
+      "horizontalAccuracy",
+      "verticalAccuracy",
+      "speed",
+      "heading",
+      "timestamp"
+    ]
+  },
+  {
+    "name": "NetDataEvent",
+    "parent": "Event",
+    "fields": [
+      {
+        "name": "timestamp",
+        "kind": "number",
+        "default": 0,
+        "readonly": true
+      },
+      {
+        "name": "info",
+        "kind": "ref",
+        "default": null,
+        "readonly": true
+      }
+    ],
+    "ownFields": [
+      "timestamp",
+      "info"
+    ],
+    "params": [
+      "timestamp",
+      "info"
+    ],
+    "constants": {
+      "MEDIA_TYPE_DATA": "mediaTypeData"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "timestamp"
+    ]
+  },
+  {
+    "name": "StageOrientationEvent",
+    "parent": "Event",
+    "fields": [
+      {
+        "name": "beforeOrientation",
+        "kind": "string",
+        "default": null,
+        "readonly": true
+      },
+      {
+        "name": "afterOrientation",
+        "kind": "string",
+        "default": null,
+        "readonly": true
+      }
+    ],
+    "ownFields": [
+      "beforeOrientation",
+      "afterOrientation"
+    ],
+    "params": [
+      "beforeOrientation",
+      "afterOrientation"
+    ],
+    "constants": {
+      "ORIENTATION_CHANGE": "orientationChange",
+      "ORIENTATION_CHANGING": "orientationChanging"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "beforeOrientation",
+      "afterOrientation"
+    ]
+  },
+  {
+    "name": "ThrottleEvent",
+    "parent": "Event",
+    "fields": [
+      {
+        "name": "state",
+        "kind": "string",
+        "default": null,
+        "readonly": true
+      },
+      {
+        "name": "targetFrameRate",
+        "kind": "number",
+        "default": 0,
+        "readonly": true
+      }
+    ],
+    "ownFields": [
+      "state",
+      "targetFrameRate"
+    ],
+    "params": [
+      "state",
+      "targetFrameRate"
+    ],
+    "constants": {
+      "THROTTLE": "throttle"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "state",
+      "targetFrameRate"
+    ]
+  },
+  {
+    "name": "SoftKeyboardEvent",
+    "parent": "Event",
+    "fields": [
+      {
+        "name": "relatedObject",
+        "kind": "display",
+        "default": null,
+        "readonly": false
+      },
+      {
+        "name": "triggerType",
+        "kind": "string",
+        "default": null,
+        "readonly": true
+      }
+    ],
+    "ownFields": [
+      "relatedObject",
+      "triggerType"
+    ],
+    "params": [
+      "relatedObject",
+      "triggerType"
+    ],
+    "constants": {
+      "SOFT_KEYBOARD_ACTIVATE": "softKeyboardActivate",
+      "SOFT_KEYBOARD_ACTIVATING": "softKeyboardActivating",
+      "SOFT_KEYBOARD_DEACTIVATE": "softKeyboardDeactivate"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "relatedObject",
+      "triggerType"
+    ],
+    "requiredArguments": 5
+  }
+]

@@ -42,6 +42,11 @@ const BUILTINS: &[&str] = &[
     "flash.filters.GlowFilter",
     "flash.filters.DropShadowFilter",
     "flash.filters.ColorMatrixFilter",
+    "flash.filters.ConvolutionFilter",
+    "flash.filters.BevelFilter",
+    "flash.filters.GradientGlowFilter",
+    "flash.filters.GradientBevelFilter",
+    "flash.filters.BitmapFilterType",
     "mx.transitions.easing.Back",
     "mx.transitions.easing.Bounce",
     "mx.transitions.easing.Elastic",
@@ -79,6 +84,12 @@ const BUILTINS: &[&str] = &[
     "flash.geom.Utils3D",
     "flash.geom.PerspectiveProjection",
     "flash.geom.Transform",
+    "flash.globalization.DateTimeFormatter",
+    "flash.globalization.DateTimeStyle",
+    "flash.globalization.DateTimeNameStyle",
+    "flash.globalization.DateTimeNameContext",
+    "flash.globalization.NumberFormatter",
+    "flash.globalization.NumberParseResult",
     "flash.geom.ColorTransform",
     "flash.utils.Timer",
     "flash.utils.ByteArray",
@@ -103,6 +114,31 @@ const BUILTINS: &[&str] = &[
     "flash.events.KeyboardEvent",
     "flash.events.FocusEvent",
     "flash.events.TextEvent",
+    "flash.events.ErrorEvent",
+    "flash.events.SecurityErrorEvent",
+    "flash.events.AsyncErrorEvent",
+    "flash.events.DataEvent",
+    "flash.events.StatusEvent",
+    "flash.events.ActivityEvent",
+    "flash.events.FullScreenEvent",
+    "flash.events.SyncEvent",
+    "flash.events.ContextMenuEvent",
+    "flash.events.IMEEvent",
+    "flash.events.UncaughtErrorEvent",
+    "flash.events.SampleDataEvent",
+    "flash.events.AccelerometerEvent",
+    "flash.events.GestureEvent",
+    "flash.events.TransformGestureEvent",
+    "flash.events.PressAndTapGestureEvent",
+    "flash.events.TouchEvent",
+    "flash.events.GesturePhase",
+    "flash.events.GeolocationEvent",
+    "flash.events.NetDataEvent",
+    "flash.events.StageOrientationEvent",
+    "flash.events.ThrottleEvent",
+    "flash.events.SoftKeyboardEvent",
+    "flash.events.ThrottleType",
+    "flash.events.SoftKeyboardTrigger",
     "flash.events.EventPhase",
     "flash.external.ExternalInterface",
 ];
@@ -901,6 +937,7 @@ fn parse_class(
     }
     if base.as_ref().is_some_and(|base| {
         base.starts_with("flash.net.")
+            || base.starts_with("flash.globalization.")
             || matches!(
                 base.as_str(),
                 "flash.events.ProgressEvent"
@@ -917,12 +954,40 @@ fn parse_class(
     }
     if matches!(
         base.as_deref(),
-        Some("flash.events.FocusEvent" | "flash.events.TextEvent")
+        Some(
+            "flash.events.FocusEvent"
+                | "flash.events.TextEvent"
+                | "flash.events.ErrorEvent"
+                | "flash.events.SecurityErrorEvent"
+                | "flash.events.AsyncErrorEvent"
+                | "flash.events.DataEvent"
+                | "flash.events.StatusEvent"
+                | "flash.events.ActivityEvent"
+                | "flash.events.FullScreenEvent"
+                | "flash.events.SyncEvent"
+                | "flash.events.ContextMenuEvent"
+                | "flash.events.IMEEvent"
+                | "flash.events.UncaughtErrorEvent"
+                | "flash.events.SampleDataEvent"
+                | "flash.events.AccelerometerEvent"
+                | "flash.events.GestureEvent"
+                | "flash.events.TransformGestureEvent"
+                | "flash.events.PressAndTapGestureEvent"
+                | "flash.events.TouchEvent"
+                | "flash.events.GesturePhase"
+                | "flash.events.GeolocationEvent"
+                | "flash.events.NetDataEvent"
+                | "flash.events.StageOrientationEvent"
+                | "flash.events.ThrottleEvent"
+                | "flash.events.SoftKeyboardEvent"
+                | "flash.events.ThrottleType"
+                | "flash.events.SoftKeyboardTrigger"
+        )
     ) {
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "FocusEvent and TextEvent native subclass initialization is outside this profile; construct the event facade and use typed listeners through composition.",
+            "This native event family does not support subclass initialization; construct its event facade and use typed listeners through composition. GesturePhase supplies constants only.",
         ));
     }
     let as2 = header.script.language == ScriptLanguage::ActionScript2;
@@ -1846,7 +1911,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         return Err(errors);
     }
     let code = format!(
-        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
+        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
         embedded_helpers(),
         include_str!("project-runtime.js"),
         registrations

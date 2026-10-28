@@ -116,3 +116,8 @@ The pointer family connects transformed dragging, collision queries, hit-area ow
 ### Web page integration
 
 A coordinated ExternalInterface/navigation family connects authored AS2/AS3 projects to ordinary HTML applications. Callback ownership, synchronous return values, native GET/form POST navigation and response-free sends share publication lifetime. Browser-native transport and same-page JavaScript are the initial profile; arbitrary plugin security domains, executable marshalling and desktop/AIR channels remain later work. See ADR 0033.
+
+
+### Bounded runtime hour 2 — complete
+
+Delivered 198 new partial member paths and 54 Date migrations, four ordinary HTML5 exports, and the requested exact-ID catalogue refresh. Completed scripting experiments are ready for main-branch publication. Remaining work includes deeper event producer integration, locale/rounding/calendar fidelity and filter parity; no further implementation is authorized after this hour. UI, FLA, the separate TextField checkpoint and existing monitor automations remain paused. See [the report](AS-RUNTIME-HOUR-2.md).

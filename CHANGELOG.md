@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-28 — second bounded AS runtime batch
+
+- Add four rendered Rust filter families, 22 event payload classes, DateTimeFormatter and NumberFormatter/NumberParseResult; migrate Date arithmetic to Rust.
+- Deliver 198 new partial member paths and 54 migrations, with four real HTML5 examples and controlled shared regression checks.
+- Merge completed scripting experiments and refresh exact declaration audit entries with preserved evidence; keep UI/FLA and unfinished TextField work paused.
+- See [the runtime-hour report](docs/AS-RUNTIME-HOUR-2.md) for counts, provenance and explicit boundaries.
+
 ## Unreleased
 
 - Completed the bounded AS2/AS3 runtime hour: 192 new partial method/function/property paths and 117 existing entries moved to Rust across String/URI, geometry/Color, easing/Tween/CustomEase, callback timers, AsBroadcaster, ByteArray and Math. Five ordinary HTML5 examples passed grouped browser execution and Restart; binary text uses 38 codec profiles. [Counts, costs, reuse and limitations](docs/AS-RUNTIME-HOUR.md). Editor, FLA and the wider project remain paused.

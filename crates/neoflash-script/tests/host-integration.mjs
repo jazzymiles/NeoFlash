@@ -26,6 +26,8 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
     NeoFlashStage:require(resolve(root,'web/stage.js')), NeoFlashLegacyInput:require(resolve(root,'web/legacy-input.js')), NeoFlashAccessibility:require(resolve(root,'web/accessibility.js')) };
   globals.NeoFlashAS2Strings=require(resolve(root,'web/as2-strings.js'));
   globals.NeoFlashAS3Strings=require(resolve(root,'web/as3-strings.js'));
+  globals.NeoFlashDate=require(resolve(root,'web/date.js'));
+  globals.NeoFlashNumberFormat=require(resolve(root,'web/number-format.js'));
   globals.NeoFlashGeom3D=require(resolve(root,'web/geom3d.js'));
   globals.NeoFlashEasing=require(resolve(root,'web/easing.js'));
   globals.NeoFlashBroadcaster=require(resolve(root,'web/broadcaster.js'));

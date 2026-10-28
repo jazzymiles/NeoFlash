@@ -1,0 +1,451 @@
+{
+  "format_version": 2,
+  "name": "Rust AS2/AS3 Date calendar",
+  "width": 960,
+  "height": 570,
+  "fps": 24,
+  "background": [
+    14,
+    24,
+    33,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 42,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / RUST DATE FAMILY",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        115,
+                        213,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 42,
+                      "y": 82,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ActionScript Date + DateTimeFormatter",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 42,
+                      "y": 125,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Rust calendar and pattern formatting; locale data from the browser.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel",
+                    "name": "panel",
+                    "transform": {
+                      "x": 32,
+                      "y": 175,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 890,
+                      "height": 195,
+                      "fill": [
+                        25,
+                        42,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "result",
+                    "name": "result",
+                    "transform": {
+                      "x": 52,
+                      "y": 205,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Running checks\u2026",
+                      "font_family": "Arial",
+                      "font_size": 25,
+                      "color": [
+                        115,
+                        229,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pipeline",
+                    "name": "pipeline",
+                    "transform": {
+                      "x": 52,
+                      "y": 248,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Text pipeline",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "casing",
+                    "name": "casing",
+                    "transform": {
+                      "x": 52,
+                      "y": 286,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Historical casing",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "codec",
+                    "name": "codec",
+                    "transform": {
+                      "x": 52,
+                      "y": 324,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "URL codecs",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rerun",
+                    "name": "rerun",
+                    "transform": {
+                      "x": 42,
+                      "y": 397,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "run-button",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script3",
+                          "source": "this.root.runReuse();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 285,
+                      "y": 417,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run again repeats the complete authored Date scenario.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "counts",
+                    "name": "counts",
+                    "transform": {
+                      "x": 42,
+                      "y": 480,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Awaiting runtime results",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 42,
+                      "y": 522,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Partial profile: modern host timezone, locale and parsing; no original-player parity claim.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "var legacy:Date=new Date(99,0,1,12,0,0,0);var yearOk:Boolean=legacy.getYear()==99;legacy.setYear(5);var changed:Boolean=legacy.getFullYear()==1905;var epoch:Date=new Date(Date.UTC(2000,1,29));epoch.setUTCDate(30);var carry:Boolean=epoch.getUTCMonth()==2&&epoch.getUTCDate()==1;trace(\"DATE_AS2_RESULT \"+(yearOk&&changed&&carry));"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-button",
+      "name": "run-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "run-button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 56,
+                      "fill": [
+                        32,
+                        116,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 35,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RUN AGAIN",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": "",
+                "scripts": []
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "document_class": "app.DateExample",
+  "sources": [
+    {
+      "id": "date-main",
+      "path": "app/DateExample.as",
+      "language": "action_script3",
+      "source": "package app {\n import flash.display.MovieClip;\n import flash.globalization.DateTimeFormatter;\n import flash.globalization.DateTimeStyle;\n import flash.globalization.DateTimeNameStyle;\n import flash.globalization.DateTimeNameContext;\n public dynamic class DateExample extends MovieClip {\n  public var runs:int=0; public var checks:Array; public var failures:Array;\n  public function DateExample(){super();stop();runReuse();}\n  public function check(name:String,pass:Boolean):void{checks.push(name);if(!pass)failures.push(name);}\n  public function runReuse():void{\n   runs++;checks=[];failures=[];\n   var d:Date=new Date(Date.UTC(2000,1,29,23,59,59,999));\n   check(\"UTC calendar\",d.getUTCFullYear()==2000&&d.getUTCMonth()==1&&d.getUTCDate()==29&&d.getUTCDay()==2);\n   check(\"UTC clock\",d.getUTCHours()==23&&d.getUTCMinutes()==59&&d.getUTCSeconds()==59&&d.getUTCMilliseconds()==999);\n   check(\"UTC properties\",d.fullYearUTC==2000&&d.monthUTC==1&&d.dateUTC==29&&d.dayUTC==2&&d.hoursUTC==23&&d.minutesUTC==59&&d.secondsUTC==59&&d.millisecondsUTC==999);\n   check(\"time value\",d.getTime()==951868799999&&d.time==d.valueOf());\n   d.setUTCSeconds(60,0);check(\"leap day carry\",d.getUTCMonth()==2&&d.getUTCDate()==1&&d.getUTCHours()==0);\n   d.setUTCFullYear(2024,1,29);check(\"full year components\",d.fullYearUTC==2024&&d.monthUTC==1&&d.dateUTC==29);\n   d.setUTCMonth(12,1);check(\"month carry\",d.fullYearUTC==2025&&d.monthUTC==0&&d.dateUTC==1);\n   d.setUTCDate(0);check(\"day carry\",d.fullYearUTC==2024&&d.monthUTC==11&&d.dateUTC==31);\n   d.setUTCHours(24,61,62,1001);check(\"clock carry\",d.fullYearUTC==2025&&d.dateUTC==1&&d.hoursUTC==1&&d.minutesUTC==2&&d.secondsUTC==3&&d.millisecondsUTC==1);\n   d.setUTCMinutes(0,0,0);d.setUTCMilliseconds(-1);check(\"negative millisecond carry\",d.hoursUTC==0&&d.minutesUTC==59&&d.secondsUTC==59&&d.millisecondsUTC==999);\n   d.fullYearUTC=2000;d.monthUTC=1;d.dateUTC=29;d.hoursUTC=12;d.minutesUTC=34;d.secondsUTC=56;d.millisecondsUTC=789;\n   check(\"UTC property setters\",d.time==Date.UTC(2000,1,29,12,34,56,789));\n   var local:Date=new Date(2024,1,29,12,34,56,789);\n   check(\"local constructor\",local.getFullYear()==2024&&local.getMonth()==1&&local.getDate()==29&&local.getDay()==4);\n   check(\"local clock\",local.getHours()==12&&local.getMinutes()==34&&local.getSeconds()==56&&local.getMilliseconds()==789);\n   check(\"local properties\",local.fullYear==2024&&local.month==1&&local.date==29&&local.day==4&&local.hours==12&&local.minutes==34&&local.seconds==56&&local.milliseconds==789);\n   check(\"timezone service\",local.timezoneOffset==local.getTimezoneOffset());\n   local.setFullYear(2025,0,15);local.setMonth(1,15);local.setDate(16);local.setHours(13,14,15,16);local.setMinutes(17,18,19);local.setSeconds(20,21);local.setMilliseconds(22);\n   check(\"local setters\",local.fullYear==2025&&local.month==1&&local.date==16&&local.hours==13&&local.minutes==17&&local.seconds==20&&local.milliseconds==22);\n   local.fullYear=2024;local.month=2;local.date=15;local.hours=11;local.minutes=22;local.seconds=33;local.milliseconds=44;\n   check(\"local property setters\",local.getFullYear()==2024&&local.getMonth()==2&&local.getDate()==15&&local.getHours()==11&&local.getMinutes()==22&&local.getSeconds()==33&&local.getMilliseconds()==44);\n   var before:Date=new Date(-1);check(\"pre epoch\",before.fullYearUTC==1969&&before.monthUTC==11&&before.dateUTC==31&&before.millisecondsUTC==999);\n   check(\"UTC formatting\",new Date(0).toUTCString()==\"Thu, 01 Jan 1970 00:00:00 GMT\");\n   check(\"short constructor year\",new Date(99,0,1).fullYear==1999&&Date.UTC(99,0)==Date.UTC(1999,0));\n   var invalid:Date=new Date(NaN);check(\"invalid propagation\",isNaN(invalid.getUTCDate())&&invalid.toUTCString()==\"Invalid Date\");\n   invalid.setUTCFullYear(2024);check(\"invalid year recovery\",invalid.time==Date.UTC(2024,0));\n   invalid.setTime(8640000000000001);check(\"time clipping\",isNaN(invalid.time));invalid.time=-0.5;check(\"time truncation\",invalid.time==0&&1/invalid.time==Infinity);\n   check(\"host parse retained\",Date.parse(\"2000-02-29T12:34:56.789Z\")==d.time);\n   var formatter:DateTimeFormatter=new DateTimeFormatter(\"en-US\",DateTimeStyle.LONG,DateTimeStyle.NONE);\n   check(\"formatter locale\",formatter.requestedLocaleIDName==\"en-US\"&&formatter.actualLocaleIDName.indexOf(\"en\")>=0&&formatter.lastOperationStatus==\"noError\");\n   check(\"formatter styles\",formatter.getDateStyle()==DateTimeStyle.LONG&&formatter.getTimeStyle()==DateTimeStyle.NONE&&formatter.getDateTimePattern().length>0);\n   check(\"formatter style output\",formatter.formatUTC(d).indexOf(\"February\")>=0&&formatter.format(local).length>0);\n   formatter.setDateTimePattern(\"yyyy-MM-dd'T'HH:mm:ss.SSS Z\");\n   check(\"formatter custom UTC\",formatter.formatUTC(d)==\"2000-02-29T12:34:56.789 +0000\"&&formatter.getDateStyle()==DateTimeStyle.CUSTOM&&formatter.getTimeStyle()==DateTimeStyle.CUSTOM);\n   formatter.setDateTimePattern(\"yyyy-MM-dd HH:mm:ss\");check(\"formatter local\",formatter.format(local)==\"2024-03-15 11:22:33\");\n   var monthNames:Vector.<String>=formatter.getMonthNames(DateTimeNameStyle.FULL,DateTimeNameContext.STANDALONE);\n   var weekdayNames:Vector.<String>=formatter.getWeekdayNames(DateTimeNameStyle.FULL,DateTimeNameContext.FORMAT);\n   check(\"formatter names\",monthNames.length==12&&monthNames[0]==\"January\"&&weekdayNames.length==7&&weekdayNames[0]==\"Sunday\"&&formatter.getFirstWeekday()==0);\n   check(\"formatter abbreviations\",formatter.getMonthNames(DateTimeNameStyle.LONG_ABBREVIATION).length==12&&formatter.getWeekdayNames(DateTimeNameStyle.SHORT_ABBREVIATION).length==7);\n   var locales:Vector.<String>=DateTimeFormatter.getAvailableLocaleIDNames();check(\"formatter available locales\",locales.indexOf(\"en-US\")>=0);\n   var failedPattern:Boolean=false;try{formatter.setDateTimePattern(\"yyyy Q\");}catch(error:TypeError){failedPattern=formatter.lastOperationStatus==\"illegalArgumentError\";}\n   check(\"formatter atomic diagnostics\",failedPattern&&formatter.getDateTimePattern()==\"yyyy-MM-dd HH:mm:ss\");\n   formatter.setDateTimeStyles(DateTimeStyle.SHORT,DateTimeStyle.MEDIUM);check(\"formatter style reset\",formatter.getDateStyle()==DateTimeStyle.SHORT&&formatter.getTimeStyle()==DateTimeStyle.MEDIUM&&formatter.formatUTC(d).length>0);\n   var french:DateTimeFormatter=new DateTimeFormatter(\"fr-FR\",DateTimeStyle.LONG,DateTimeStyle.NONE);check(\"formatter locale names\",french.actualLocaleIDName.indexOf(\"fr\")>=0&&french.getMonthNames()[0]!=\"January\");\n   result.text=(checks.length-failures.length)+\" / \"+checks.length+\" AS3 checks passed \u00b7 run \"+runs;\n   pipeline.text=\"Rust Gregorian calendar \u00b7 UTC/local getters and setters \u00b7 normalization\";\n   casing.text=\"UTC leap day: \"+d.toUTCString();\n   codec.text=\"Browser timezone offset: \"+local.getTimezoneOffset()+\" minutes; AS2 legacy year methods included.\";\n   counts.text=\"11 formatter methods + 3 properties; Date arithmetic moved to Rust.\";\n   trace(\"DATE_RESULT \"+JSON.stringify({checks:checks.length,passed:checks.length-failures.length,failed:failures.length,run:runs,failures:failures}));\n  }\n }\n}"
+    }
+  ]
+}

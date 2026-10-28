@@ -6,6 +6,7 @@
   'use strict';
   const states = new WeakMap();
   const dispatchers = new WeakSet();
+  let formatRust = null;
   const EventPhase = Object.freeze({ CAPTURING_PHASE: 1, AT_TARGET: 2, BUBBLING_PHASE: 3 });
   function state(event) {
     const value = states.get(event);
@@ -35,6 +36,12 @@
     preventDefault() { const s = state(this); if (s.cancelable) s.prevented = true; }
     isDefaultPrevented() { return state(this).prevented; }
     clone() { return new Event(this.type, this.bubbles, this.cancelable); }
+    formatToString(className, ...fields) {
+      if (!formatRust) throw new Error('Event formatting requires the Rust runtime. Re-export this publication.');
+      if (fields.length > 64) throw new RangeError('Event formatting exceeds 64 fields.');
+      const entries = fields.map(field => { const key = String(field), value = this[key]; return [key, String(value), typeof value === 'string']; });
+      return formatRust(String(className), JSON.stringify(entries));
+    }
     toString() { return `[Event type="${this.type}" bubbles=${this.bubbles} cancelable=${this.cancelable} eventPhase=${this.eventPhase}]`; }
   }
   Object.assign(Event, { ENTER_FRAME: 'enterFrame', EXIT_FRAME: 'exitFrame', FRAME_CONSTRUCTED: 'frameConstructed',
@@ -100,9 +107,118 @@
   }
   Object.assign(TextEvent,{TEXT_INPUT:'textInput',LINK:'link'});
 
+  // The Rust schema supplies family inheritance, defaults, field types and constants.
+  // JS owns only native object references and the existing event hub connection.
+  function createFamilies(wasm, options = {}) {
+    if (!wasm?.ScriptEventPayload || !wasm?.as_event_schema_json || !wasm?.as_event_format_json)
+      throw new Error('Event families require the Rust runtime. Re-export this publication.');
+    formatRust = wasm.as_event_format_json;
+    const definitions = JSON.parse(wasm.as_event_schema_json()), payloads = new WeakMap();
+    const families = { Event, TextEvent };
+    const references = new Set(['ref', 'array', 'error', 'display', 'byteArray', 'any']);
+    function record(receiver) {
+      const result = payloads.get(receiver);
+      if (!result) throw new TypeError('Expected a Rust-backed event payload.');
+      return result;
+    }
+    function encode(field, value, refs) {
+      const key = field.alias || field.name;
+      if (references.has(field.kind)) {
+        if (value === null) { refs.delete(key); return null; }
+        if (field.kind === 'array' && !Array.isArray(value)) throw new TypeError(`${field.name} requires an Array or null.`);
+        if (field.kind !== 'any' && field.kind !== 'array' && (value === undefined || (typeof value !== 'object' && typeof value !== 'function')))
+          throw new TypeError(`${field.name} requires an object or null.`);
+        if (field.kind === 'byteArray' && options.isByteArray && !options.isByteArray(value)) throw new TypeError('SampleDataEvent.data requires ByteArray.');
+        refs.set(key, value); return 0;
+      }
+      switch (field.kind) {
+        case 'bool': return Boolean(value);
+        case 'int': return Number(value) | 0;
+        case 'number': { const n = Number(value); return Number.isFinite(n) ? n : String(n); }
+        case 'string': return value == null ? null : String(value);
+        default: throw new TypeError(`Unsupported event field ${field.name}.`);
+      }
+    }
+    for (const definition of definitions) {
+      const Parent = families[definition.parent], fields = new Map(definition.fields.map(field => [field.name, field]));
+      if (!Parent) throw new Error(`Missing event parent ${definition.parent}.`);
+      const Constructor = { [definition.name]: class extends Parent {
+        constructor(type, bubbles = definition.bubbles, cancelable = definition.cancelable, ...values) {
+          if (type === undefined && definition.name === 'UncaughtErrorEvent') type = 'uncaughtError';
+          if (definition.requiredArguments && arguments.length < definition.requiredArguments) throw new TypeError(`${definition.name} requires ${definition.requiredArguments} constructor arguments.`);
+          super(type, bubbles, cancelable);
+          if (values.length > definition.params.length) throw new TypeError(`${definition.name} constructor arguments exceed this supported profile.`);
+          const old = payloads.get(this);
+          if (old) old.rust.free();
+          for (const field of definition.fields) if (Object.hasOwn(this, field.name)) delete this[field.name];
+          const refs = new Map(), input = {};
+          definition.params.forEach((name, i) => {
+            const field = fields.get(name);
+            const value = i < values.length ? values[i] : field.default;
+            input[name] = encode(field, value, refs);
+          });
+          const rust = new wasm.ScriptEventPayload(definition.name, JSON.stringify(input));
+          payloads.set(this, { rust, refs });
+          const gesture = definition.name.includes('GestureEvent'), touch = definition.name === 'TouchEvent';
+          Object.assign(state(this), { kind: gesture ? 'gesture' : touch ? 'touch' : 'event-family',
+            stageX: gesture || touch ? this.localX : 0, stageY: gesture || touch ? this.localY : 0,
+            tapStageX: fields.has('tapLocalX') ? this.tapLocalX : undefined,
+            tapStageY: fields.has('tapLocalY') ? this.tapLocalY : undefined, stagePointSet: false });
+        }
+        clone() {
+          return new Constructor(this.type, this.bubbles, this.cancelable, ...definition.params.map(name => this[name]));
+        }
+        toString() {
+          return this.formatToString(definition.name, 'type', 'bubbles', 'cancelable', 'eventPhase', ...definition.format);
+        }
+      } }[definition.name];
+      for (const field of definition.fields) {
+        Object.defineProperty(Constructor.prototype, field.name, {
+          enumerable: true, configurable: true,
+          get() {
+            if (field.kind === 'coordinate') return state(this)[field.name];
+            const current = record(this), value = JSON.parse(current.rust.get(field.name));
+            if (references.has(field.kind)) return value === null ? null : current.refs.get(field.alias || field.name);
+            return field.kind === 'number' && typeof value === 'string' ? Number(value) : value;
+          },
+          set(value) {
+            // TextEvent's superclass initialization runs before our payload exists.
+            if (!payloads.has(this)) { Object.defineProperty(this, field.name, { value, writable: true, enumerable: true, configurable: true }); return; }
+            if (field.readonly) throw new TypeError(`${definition.name}.${field.name} is read-only.`);
+            const current = record(this), refs = new Map(current.refs), encoded = encode(field, value, refs);
+            current.rust.set(field.name, JSON.stringify(encoded)); current.refs = refs;
+            if (!state(this).stagePointSet && ['localX','localY','tapLocalX','tapLocalY'].includes(field.name)) {
+              const destination = { localX: 'stageX', localY: 'stageY', tapLocalX: 'tapStageX', tapLocalY: 'tapStageY' }[field.name];
+              state(this)[destination] = this[field.name];
+            }
+          },
+        });
+      }
+      Object.assign(Constructor, definition.constants);
+      Constructor.__nfIs = value => states.has(value) && value instanceof Constructor;
+      Constructor.__nfInitialize = () => { throw new TypeError(`${definition.name} native subclass initialization is not supported; construct the event and use listeners through composition.`); };
+      if (['GestureEvent','TouchEvent'].includes(definition.name)) Constructor.prototype.updateAfterEvent = function () {
+        state(this);
+        if (typeof options.requestRender !== 'function') throw new Error(`${definition.name}.updateAfterEvent requires the host render-request hook.`);
+        options.requestRender();
+      };
+      if (definition.name === 'TouchEvent') {
+        for (const method of ['getSamples','isToolButtonDown']) Constructor.prototype[method] = () => { throw new Error(`TouchEvent.${method} requires a browser touch-sample adapter, outside this profile.`); };
+      }
+      families[definition.name] = Constructor;
+    }
+    for (const [name, constants] of Object.entries(JSON.parse(wasm.as_event_constants_json()))) {
+      if (name === 'Event') { Object.assign(Event, constants); continue; }
+      const Holder = { [name]: class { constructor() { throw new TypeError(`${name} supplies constants only.`); } } }[name];
+      Object.assign(Holder, constants); families[name] = Object.freeze(Holder);
+    }
+    delete families.Event; delete families.TextEvent;
+    return Object.freeze(families);
+  }
+
   // Host-only coordinate initializer. Dispatch does not expose mutable event target fields.
   function setStagePoint(event, x, y) {
-    if (state(event).kind !== 'mouse') throw new TypeError('Stage coordinates require MouseEvent.');
+    if (!['mouse','gesture','touch'].includes(state(event).kind)) throw new TypeError('Stage coordinates require a mouse, gesture or touch event.');
     Object.assign(state(event), { stageX: numeric(x, 'stageX'), stageY: numeric(y, 'stageY'), stagePointSet: true });
     return event;
   }
@@ -206,9 +322,13 @@
       if (s.target !== null || s.dispatching) throw new TypeError('Event.clone() must return a fresh Event.');
       if (depth >= maxDepth) throw new Error('Event dispatch recursion limit exceeded.');
       const parents = s.bubbles ? (captured ?? ancestry(target)) : [];
-      if (s.kind === 'mouse' && !s.stagePointSet && options.globalPoint) {
+      if (['mouse','gesture','touch'].includes(s.kind) && !s.stagePointSet && options.globalPoint && Number.isFinite(event.localX) && Number.isFinite(event.localY)) {
         const point = options.globalPoint(target, event.localX, event.localY);
         if (point) setStagePoint(event, point[0], point[1]);
+        if (Number.isFinite(event.tapLocalX) && Number.isFinite(event.tapLocalY)) {
+          const tap = options.globalPoint(target, event.tapLocalX, event.tapLocalY);
+          if (tap) { s.tapStageX = tap[0]; s.tapStageY = tap[1]; }
+        }
       }
       if (depth === 0 && batches === 0) invocations = 0;
       depth++; s.target = target; s.dispatching = true;
@@ -272,14 +392,14 @@
     if (!dispatchers.has(receiver)) Object.assign(receiver, standalone.methods(receiver));
   };
   for (const [Constructor, kind] of [[Event, 'event'], [MouseEvent, 'mouse'], [KeyboardEvent, 'keyboard'], [FocusEvent,'focus'], [TextEvent,'text']]) {
-    Constructor.__nfIs = value => states.has(value) && (kind === 'event' || state(value).kind === kind);
+    Constructor.__nfIs = value => states.has(value) && (kind === 'event' || state(value).kind === kind || value instanceof Constructor);
     Constructor.__nfInitialize = (receiver, args = []) => {
       const initialized = new Constructor(...args);
       states.set(receiver, state(initialized));
       Object.assign(receiver, initialized);
     };
   }
-  const api = Object.freeze({ Event, MouseEvent, KeyboardEvent, FocusEvent, TextEvent, EventPhase, EventDispatcher, create, setStagePoint });
+  const api = Object.freeze({ Event, MouseEvent, KeyboardEvent, FocusEvent, TextEvent, EventPhase, EventDispatcher, create, createFamilies, setStagePoint });
   global.NeoFlashEvents = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

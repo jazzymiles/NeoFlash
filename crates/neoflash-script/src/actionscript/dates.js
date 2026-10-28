@@ -1,18 +1,13 @@
-// Original Date adapter, using the browser's native calendar/time-zone backend.
-// Contracts: AIR Date reference; Adobe avmplus core/Date.as and DateClass.cpp
-// at 858d034a3bd3a54d9b70909386435cf4aec81d21. No upstream code is copied.
-// Numeric UTC/local operations are supported in both dialects. Parsing accepts
-// the browser's date strings (including ISO offsets, RFC UTC and toString output);
-// historical Flash parsing, DST databases and locale formatting are not emulated.
+// Date arithmetic delegates to the shared Rust calendar. Browser Date slots
+// retain identity/AMF interoperability, timezone, locale and existing parse facilities.
+// Deliberate partial boundaries and licensed adaptations: RUNTIME-DATE-PROVENANCE.md.
 // Native Date internal slots provide identity across independently compiled units.
 // No browser prototype is changed and no global registry is required.
 const __nfDateNative = Date;
 const __nfDateNumber = Number;
 const __nfDateString = String;
 const __nfDateApply = Reflect.apply;
-const __nfDateConstruct = Reflect.construct;
 const __nfDateParseNative = Date.parse;
-const __nfDateUTCNative = Date.UTC;
 const __nfDateMethods = Object.freeze(Object.fromEntries(
     Reflect.ownKeys(Date.prototype)
         .map(name => [name, Object.getOwnPropertyDescriptor(Date.prototype, name).value])
@@ -47,6 +42,12 @@ const __nfDateAliases = Object.freeze({
 
 function __nfDateUnsupported(detail) {
     throw new __nfTypeError('Unsupported ActionScript Date operation: ' + detail);
+}
+function __nfDateService() {
+    if (typeof __nfLegacy === 'undefined' || !__nfLegacy || !__nfLegacy.date) {
+        __nfDateUnsupported('Rust Date bindings are missing; rebuild and re-export this project.');
+    }
+    return __nfLegacy.date;
 }
 function __nfDateIs(value) {
     if (value === null || typeof value !== 'object') return false;
@@ -95,10 +96,10 @@ function __nfDateDecorate(value, as3) {
         const getter = __nfDateMethods['get' + suffix], setter = __nfDateMethods['set' + suffix];
         Object.defineProperty(value, name, {
             // AS3 native properties are not enumerable dynamic data members.
-            get() { return __nfDateApply(getter, this, []); },
+            get() { return __nfDateService().get(this, 'get' + suffix); },
             set: setter ? function(next) {
                 const number = __nfDateNumberValue(next, name);
-                __nfDateApply(setter, this, [number]);
+                __nfDateService().set(this, 'set' + suffix, [number]);
             } : function() { throw new __nfTypeError('Date.' + name + ' is read-only.'); },
         });
     }
@@ -115,7 +116,7 @@ function __nfDateCreate(as3, args) {
         // Adobe's constructor ignores values beyond the seventh component.
         parts = __nfDateNumbers(args, 7, 'constructor');
     }
-    return __nfDateDecorate(__nfDateConstruct(__nfDateNative, parts), Boolean(as3));
+    return __nfDateDecorate(__nfDateService().create(parts), Boolean(as3));
 }
 function __nfDateClass(as3) {
     as3 = Boolean(as3);
@@ -134,7 +135,7 @@ function __nfDateClass(as3) {
                 // UTC requires year and month; modern JS defaults month for a
                 // one-argument call, whereas Flash's missing month is NaN.
                 while (parts.length < 2) parts.push(NaN);
-                return __nfDateApply(__nfDateUTCNative, undefined, parts);
+                return __nfDateService().utc(parts);
             } },
             __nfIs: { value: __nfDateIs },
             [Symbol.hasInstance]: { value: __nfDateIs },
@@ -163,8 +164,13 @@ function __nfDateMethod(receiver, name, as3) {
             if (!as3) __nfDateUnsupported('toJSON is an AS3 Date method.');
             return __nfDateApply(__nfDateJSON, receiver, args);
         }
-        if (__nfDateGetters.has(name) || __nfDateFormats.has(name) || (!as3 && name === 'getYear')) {
+        if (__nfDateGetters.has(name) || (!as3 && name === 'getYear')) {
+            if (args.length) __nfDateUnsupported(__nfDateString(name) + ' arguments are outside this profile.');
+            return __nfDateService().get(receiver, name);
+        }
+        if (__nfDateFormats.has(name)) {
             if (args.length) __nfDateUnsupported(__nfDateString(name) + ' arguments, including Intl locale/options, are outside this profile.');
+            if (name === 'toUTCString') return __nfDateService().utcString(receiver);
             return __nfDateApply(method, receiver, []);
         }
         const maximum = !as3 && name === 'setYear' ? 1 : __nfDateSetters[name];
@@ -172,7 +178,7 @@ function __nfDateMethod(receiver, name, as3) {
             if (args.length > maximum) __nfDateUnsupported(name + ' excess-argument behavior is not verified.');
             // Convert the complete supported argument list before changing the
             // receiver. Missing first values deliberately produce Invalid Date.
-            return __nfDateApply(method, receiver, __nfDateNumbers(args, maximum, name));
+            return __nfDateService().set(receiver, name, __nfDateNumbers(args, maximum, name));
         }
         __nfDateUnsupported(__nfDateString(name) + ' is outside the supported Date profile.');
     };

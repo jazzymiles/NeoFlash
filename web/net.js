@@ -115,8 +115,8 @@
       clone(){return new ProgressEvent(this.type,this.bubbles,this.cancelable,this.bytesLoaded,this.bytesTotal);}
     }
     ProgressEvent.PROGRESS='progress';noBase(ProgressEvent,'ProgressEvent',value=>progressEvents.has(value));
-    class IOErrorEvent extends events.Event {
-      constructor(type,bubbles=false,cancelable=false,message='',id=0){super(type,bubbles,cancelable);this.text=text(message,'IOErrorEvent text');Object.defineProperty(this,'errorID',{value:id,enumerable:true});ioEvents.add(this);}
+    class IOErrorEvent extends (events.ErrorEvent || events.Event) {
+      constructor(type,bubbles=false,cancelable=false,message='',id=0){super(type,bubbles,cancelable,message,id);this.text=text(message,'IOErrorEvent text');if(!events.ErrorEvent)Object.defineProperty(this,'errorID',{value:id,enumerable:true});ioEvents.add(this);}
       clone(){return new IOErrorEvent(this.type,this.bubbles,this.cancelable,this.text,this.errorID);}
     }
     IOErrorEvent.IO_ERROR='ioError';noBase(IOErrorEvent,'IOErrorEvent',value=>ioEvents.has(value));
