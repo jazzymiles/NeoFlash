@@ -1,4 +1,5 @@
 //! Original, font-independent editor icons in logical point coordinates.
+use crate::theme::{DesignUi as _, ScrollTheme as _};
 use eframe::egui::{self, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, Vec2, Widget};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -351,7 +352,7 @@ impl<'a> IconButton<'a> {
             icon,
             label,
             selected: None,
-            size: Vec2::new(30., 26.),
+            size: Vec2::splat(crate::theme::CONTROL_HEIGHT),
             text: false,
             flat: false,
             fixed_width: false,
@@ -379,7 +380,7 @@ impl Widget for IconButton<'_> {
     fn ui(self, ui: &mut egui::Ui) -> Response {
         let galley = self.text.then(|| {
             let width = if self.fixed_width {
-                (self.size.x - 34.).max(1.)
+                (self.size.x - 32.).max(1.)
             } else {
                 f32::INFINITY
             };
@@ -396,10 +397,10 @@ impl Widget for IconButton<'_> {
         let size = Vec2::new(
             self.size
                 .x
-                .max(galley.as_ref().map_or(0., |g| g.size().x + 34.)),
+                .max(galley.as_ref().map_or(0., |g| g.size().x + 32.)),
             self.size
                 .y
-                .max(galley.as_ref().map_or(0., |g| g.size().y + 8.)),
+                .max(galley.as_ref().map_or(0., |g| g.size().y + 4.)),
         );
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
         response.widget_info(|| {
@@ -432,36 +433,33 @@ impl Widget for IconButton<'_> {
                     egui::StrokeKind::Inside,
                 );
             }
+            if response.has_focus() {
+                ui.painter().rect_stroke(
+                    rect.shrink(1.),
+                    3,
+                    Stroke::new(2.0_f32, crate::theme::UiPalette::current(ui.ctx()).focus),
+                    egui::StrokeKind::Inside,
+                );
+            }
             let icon_rect = if self.text {
                 Rect::from_center_size(
-                    Pos2::new(rect.left() + 15., rect.center().y),
-                    Vec2::splat(18.),
+                    Pos2::new(rect.left() + 12., rect.center().y),
+                    Vec2::splat(crate::theme::ICON_SIZE),
                 )
             } else {
-                Rect::from_center_size(
-                    rect.center(),
-                    Vec2::splat((rect.height() - 10.).clamp(12., 22.)),
-                )
+                Rect::from_center_size(rect.center(), Vec2::splat(crate::theme::ICON_SIZE))
             };
             paint_icon(
                 ui.painter(),
                 icon_rect,
                 self.icon,
-                Stroke::new(1.5_f32, visuals.fg_stroke.color),
+                Stroke::new(crate::theme::ICON_STROKE, visuals.fg_stroke.color),
             );
             if let Some(galley) = galley {
                 ui.painter().galley_with_override_text_color(
-                    Pos2::new(rect.left() + 29., rect.center().y - galley.size().y / 2.),
+                    Pos2::new(rect.left() + 24., rect.center().y - galley.size().y / 2.),
                     galley,
                     visuals.fg_stroke.color,
-                );
-            }
-            if response.has_focus() {
-                ui.painter().rect_stroke(
-                    rect.shrink(1.),
-                    2.,
-                    ui.visuals().selection.stroke,
-                    egui::StrokeKind::Inside,
                 );
             }
         }
@@ -477,6 +475,215 @@ pub(crate) fn inline_icon(ui: &mut egui::Ui, icon: Icon, size: f32) {
         icon,
         Stroke::new(1.5_f32, ui.visuals().weak_text_color()),
     );
+}
+
+/// Shared popup metrics. A popup never inherits the full dock/window width.
+pub(crate) fn menu_style(style: &mut egui::Style) {
+    egui::containers::menu::menu_style(style);
+    style.spacing.button_padding = egui::vec2(8., 0.);
+    style.spacing.item_spacing = egui::vec2(8., 0.);
+    style.spacing.interact_size.y = crate::theme::CONTROL_HEIGHT;
+}
+
+/// Size from actual labels/shortcuts, with the design-system compact bounds.
+pub(crate) fn menu_width(ui: &egui::Ui, label: &str, shortcut: &str) -> f32 {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let width = |text: &str| {
+        ui.painter()
+            .layout_no_wrap(text.to_owned(), font.clone(), ui.visuals().text_color())
+            .size()
+            .x
+    };
+    // Long measured labels use the documented wider variant, bounded by screen.
+    (width(label) + width(shortcut) + 80.)
+        .max(220.)
+        .min((ui.ctx().content_rect().width() - 16.).max(80.))
+}
+
+pub(crate) fn menu_contents<R>(
+    ui: &mut egui::Ui,
+    width: f32,
+    content: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    menu_style(ui.style_mut());
+    ui.set_width(
+        width
+            .max(220.)
+            .min((ui.ctx().content_rect().width() - 16.).max(80.)),
+    );
+    egui::ScrollArea::vertical()
+        .id_salt("menu-commands")
+        .max_height((ui.ctx().content_rect().height() - 16.).max(80.))
+        .auto_shrink([false, true])
+        .themed()
+        .show(ui, content)
+        .inner
+}
+
+pub(crate) fn menu_item(ui: &mut egui::Ui, label: &str, shortcut: &str) -> Response {
+    menu_item_enabled(ui, true, label, shortcut)
+}
+
+/// All menu rows share check/icon, label, shortcut and chevron columns.
+/// Explicit painting avoids centering a narrow Checkbox inside a full-width row.
+fn menu_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    shortcut: &str,
+    checked: Option<bool>,
+    submenu: bool,
+) -> Response {
+    let (rect, response) = ui.allocate_exact_size(
+        Vec2::new(ui.available_width().max(1.), crate::theme::CONTROL_HEIGHT),
+        Sense::click(),
+    );
+    let palette = crate::theme::UiPalette::current(ui.ctx());
+    let visuals = ui.style().interact(&response);
+    if ui.is_rect_visible(rect) {
+        if response.is_pointer_button_down_on() {
+            ui.painter().rect_filled(rect, 3., palette.pressed);
+        } else if response.hovered() {
+            ui.painter().rect_filled(rect, 3., palette.hover);
+        }
+        let font = egui::TextStyle::Button.resolve(ui.style());
+        let shortcut_galley = ui.painter().layout_no_wrap(
+            shortcut.to_owned(),
+            font.clone(),
+            ui.visuals().weak_text_color(),
+        );
+        let shortcut_right = rect.right() - 32.;
+        let label_right = if shortcut.is_empty() {
+            shortcut_right
+        } else {
+            shortcut_right - shortcut_galley.size().x - 16.
+        };
+        let label_rect = Rect::from_min_max(
+            Pos2::new(rect.left() + 32., rect.top()),
+            Pos2::new(label_right.max(rect.left() + 32.), rect.bottom()),
+        );
+        ui.painter()
+            .with_clip_rect(ui.clip_rect().intersect(label_rect))
+            .text(
+                Pos2::new(label_rect.left(), rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                label,
+                font,
+                visuals.text_color(),
+            );
+        ui.painter().galley(
+            Pos2::new(
+                shortcut_right - shortcut_galley.size().x,
+                rect.center().y - shortcut_galley.size().y / 2.,
+            ),
+            shortcut_galley,
+            visuals.text_color(),
+        );
+        if checked == Some(true) {
+            let center = Pos2::new(rect.left() + 16., rect.center().y);
+            ui.painter().add(Shape::line(
+                vec![
+                    center + egui::vec2(-5., 0.),
+                    center + egui::vec2(-1., 4.),
+                    center + egui::vec2(6., -5.),
+                ],
+                Stroke::new(1.5_f32, visuals.text_color()),
+            ));
+        }
+        if submenu {
+            paint_icon(
+                ui.painter(),
+                Rect::from_center_size(rect.right_center() - egui::vec2(16., 0.), Vec2::splat(16.)),
+                Icon::ChevronRight,
+                Stroke::new(1.5_f32, visuals.text_color()),
+            );
+        }
+        if response.has_focus() {
+            ui.painter().rect_stroke(
+                rect.shrink(1.),
+                3.,
+                Stroke::new(2.0_f32, palette.focus),
+                egui::StrokeKind::Inside,
+            );
+        }
+    }
+    let accessible = if shortcut.is_empty() {
+        label.to_owned()
+    } else {
+        format!("{label} ({shortcut})")
+    };
+    response.widget_info(|| match checked {
+        Some(selected) => egui::WidgetInfo::selected(
+            egui::WidgetType::Checkbox,
+            ui.is_enabled(),
+            selected,
+            &accessible,
+        ),
+        None => egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &accessible),
+    });
+    response.on_hover_text(accessible)
+}
+
+pub(crate) fn menu_item_enabled(
+    ui: &mut egui::Ui,
+    enabled: bool,
+    label: &str,
+    shortcut: &str,
+) -> Response {
+    ui.add_enabled_ui_semantic(enabled, |ui| menu_row(ui, label, shortcut, None, false))
+        .inner
+}
+
+pub(crate) fn menu_toggle(
+    ui: &mut egui::Ui,
+    value: &mut bool,
+    label: &str,
+    shortcut: &str,
+) -> Response {
+    let mut response = menu_row(ui, label, shortcut, Some(*value), false);
+    if response.clicked() {
+        *value = !*value;
+        response.mark_changed();
+    }
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::Checkbox,
+            ui.is_enabled(),
+            *value,
+            if shortcut.is_empty() {
+                label.to_owned()
+            } else {
+                format!("{label} ({shortcut})")
+            },
+        )
+    });
+    response
+}
+
+pub(crate) fn menu_popup<R>(
+    ui: &mut egui::Ui,
+    label: &str,
+    widest_label: &str,
+    widest_shortcut: &str,
+    content: impl FnOnce(&mut egui::Ui) -> R,
+) {
+    let contents = |ui: &mut egui::Ui| {
+        let width = menu_width(ui, widest_label, widest_shortcut);
+        menu_contents(ui, width, content)
+    };
+    if egui::containers::menu::is_in_menu(ui) {
+        menu_submenu(ui, label, contents);
+    } else {
+        ui.menu_button(label, contents);
+    }
+}
+
+pub(crate) fn menu_submenu<R>(
+    ui: &mut egui::Ui,
+    label: &str,
+    content: impl FnOnce(&mut egui::Ui) -> R,
+) {
+    let response = menu_row(ui, label, "", None, true);
+    egui::containers::menu::SubMenu::new().show(ui, &response, content);
 }
 
 #[cfg(test)]

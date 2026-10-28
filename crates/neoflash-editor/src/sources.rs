@@ -1,4 +1,5 @@
 //! Project code editing shares the existing Actions workspace and Undo history.
+use crate::theme::{DesignUi as _, ScrollTheme as _};
 use crate::{
     app::Editor,
     paint_controls::{property_row, text_row},
@@ -77,7 +78,8 @@ impl Editor {
         {
             egui::ScrollArea::vertical()
                 .id_salt("code_feedback")
-                .max_height(110.)
+                .max_height(54.)
+                .themed()
                 .show(ui, |ui| {
                     let color = if feedback.success {
                         ui.visuals().text_color()
@@ -119,10 +121,13 @@ impl Editor {
                     }
                 });
         });
-        ui.horizontal(|ui| {
-            let button_width=((ui.available_width()-2.*ui.spacing().item_spacing.x)/3.).max(1.);
+        ui.menu_button("Source commands", |ui| {
+                    crate::ui_icons::menu_contents(ui, 240., |ui| {
+
+
+            let button_width=ui.available_width();
             ui.allocate_ui_with_layout(egui::vec2(button_width,CONTROL_HEIGHT),egui::Layout::left_to_right(egui::Align::Center),|ui| {
-                ui.menu_button("New…", |ui| {
+                crate::ui_icons::menu_popup(ui, "New…", "New AS3 class", "", |ui| {
             for (label, language) in [("New AS2 class", ScriptLanguage::ActionScript2), ("New AS3 class", ScriptLanguage::ActionScript3)] {
               if ui.button(label).clicked() {
                 let mut index = 1;
@@ -159,12 +164,21 @@ impl Editor {
                     Err(error) => self.message(format!("Could not read source: {error}")),
                 }
             }
-            if ui.add_enabled(self.selected_source.is_some(), egui::Button::new("Remove").min_size(egui::vec2(button_width,CONTROL_HEIGHT))).clicked() {
+            if ui.add_enabled_semantic(self.selected_source.is_some(), egui::Button::new("Remove").min_size(egui::vec2(button_width,CONTROL_HEIGHT))).clicked() {
                 let selected=self.selected_source.clone();
                 self.transact(|editor|editor.project.sources.retain(|source|Some(&source.id)!=selected.as_ref()));
                 self.selected_source=None;
             }
-        });
+            if ui.button("Check project").clicked() {
+                let result = neoflash_script::compile_project(&self.project).map(|_| ());
+                if let Some(unit) = self.project.sources.iter().find(|unit| Some(&unit.id)==self.selected_source.as_ref()).cloned() {
+                    self.record_code_check(&Script {language: unit.language, source: unit.source}, result);
+                }
+                ui.close();
+            }
+
+                    });
+                });
         let mut document_class = self.project.document_class.clone().unwrap_or_default();
         let mut symbol_class = self.symbol().class_name.clone().unwrap_or_default();
         let mut linkage_id = self.symbol().linkage_id.clone().unwrap_or_default();
@@ -223,45 +237,29 @@ impl Editor {
         };
         let original = self.project.sources[index].clone();
         let mut unit = original.clone();
-        ui.separator();
-        text_row(ui, "Path", &mut unit.path);
-        property_row(ui, "Language", |ui| {
-            egui::ComboBox::from_id_salt("source_language")
-                .width(ui.available_width())
-                .truncate()
-                .selected_text(source_language_name(unit.language))
-                .show_ui(ui, |ui| {
-                    for language in [
-                        ScriptLanguage::ActionScript3,
-                        ScriptLanguage::ActionScript2,
-                        ScriptLanguage::TypeScript,
-                        ScriptLanguage::JavaScript,
-                    ] {
-                        ui.selectable_value(
-                            &mut unit.language,
-                            language,
-                            source_language_name(language),
-                        );
-                    }
-                });
-        });
-        ui.horizontal(|ui| {
-            if ui
-                .add_sized(
-                    [ui.available_width(), CONTROL_HEIGHT],
-                    egui::Button::new("Check project"),
-                )
-                .clicked()
-            {
-                let result = neoflash_script::compile_project(&self.project).map(|_| ());
-                self.record_code_check(
-                    &Script {
-                        language: unit.language,
-                        source: unit.source.clone(),
-                    },
-                    result,
-                );
-            }
+        ui.collapsing("File properties", |ui| {
+            ui.separator();
+            text_row(ui, "Path", &mut unit.path);
+            property_row(ui, "Language", |ui| {
+                egui::ComboBox::from_id_salt("source_language")
+                    .width(ui.available_width())
+                    .truncate()
+                    .selected_text(source_language_name(unit.language))
+                    .show_ui(ui, |ui| {
+                        for language in [
+                            ScriptLanguage::ActionScript3,
+                            ScriptLanguage::ActionScript2,
+                            ScriptLanguage::TypeScript,
+                            ScriptLanguage::JavaScript,
+                        ] {
+                            ui.selectable_value(
+                                &mut unit.language,
+                                language,
+                                source_language_name(language),
+                            );
+                        }
+                    });
+            });
         });
         self.show_code_feedback(
             ui,
@@ -271,14 +269,17 @@ impl Editor {
             },
         );
         let editor_id = self.actions_editor_id();
+        let mut code_layout = code_layout;
         egui::ScrollArea::vertical()
             .id_salt(("project_source_scroll", editor_id))
+            .themed()
             .show(ui, |ui| {
                 let response = ui.add_sized(
                     [ui.available_width(), ui.available_height().max(80.)],
                     egui::TextEdit::multiline(&mut unit.source)
                         .id(editor_id)
-                        .font(egui::TextStyle::Monospace)
+                        .font(egui::FontId::monospace(12.))
+                        .layouter(&mut code_layout)
                         .code_editor(),
                 );
                 if response.has_focus() && self.playing {
@@ -291,7 +292,7 @@ impl Editor {
     }
 }
 
-fn source_language_name(language: ScriptLanguage) -> &'static str {
+pub(crate) fn source_language_name(language: ScriptLanguage) -> &'static str {
     match language {
         ScriptLanguage::ActionScript1 => "ActionScript 1",
         ScriptLanguage::ActionScript2 => "ActionScript 2",
@@ -299,4 +300,25 @@ fn source_language_name(language: ScriptLanguage) -> &'static str {
         ScriptLanguage::JavaScript => "JavaScript",
         ScriptLanguage::TypeScript => "TypeScript",
     }
+}
+
+/// Shared code typography without replacing TextEdit IDs or input state.
+pub(crate) fn code_layout(
+    ui: &egui::Ui,
+    text: &dyn egui::TextBuffer,
+    wrap_width: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::default();
+    job.append(
+        text.as_str(),
+        0.,
+        egui::TextFormat {
+            font_id: egui::FontId::monospace(crate::theme::PANEL_FONT),
+            line_height: Some(18.),
+            color: ui.visuals().text_color(),
+            ..Default::default()
+        },
+    );
+    job.wrap.max_width = wrap_width;
+    ui.fonts_mut(|fonts| fonts.layout_job(job))
 }

@@ -473,12 +473,18 @@ impl Editor {
                             UiPalette::current(p.ctx()).overlay_halo,
                         );
                         p.rect_filled(
-                            Rect::from_center_size(point, Vec2::splat(7.)),
+                            Rect::from_center_size(
+                                point,
+                                Vec2::splat(crate::theme::TRANSFORM_HANDLE),
+                            ),
                             0.,
                             UiPalette::current(p.ctx()).handle_fill,
                         );
                         p.rect_stroke(
-                            Rect::from_center_size(point, Vec2::splat(7.)),
+                            Rect::from_center_size(
+                                point,
+                                Vec2::splat(crate::theme::TRANSFORM_HANDLE),
+                            ),
                             0.,
                             Stroke::new(1.0_f32, UiPalette::current(p.ctx()).overlay),
                             StrokeKind::Inside,

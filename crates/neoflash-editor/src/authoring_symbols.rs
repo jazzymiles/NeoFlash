@@ -1,4 +1,5 @@
 //! Symbol authoring and the compact, frame-preserving timeline timing controls.
+use crate::theme::DesignUi as _;
 use crate::{app::Editor, paint_controls::property_row};
 use eframe::egui;
 use neoflash_core::{InstancePlayback, SymbolKind};
@@ -24,7 +25,7 @@ impl Editor {
             }
             for (frame, label) in BUTTON_STATES.iter().enumerate() {
                 if ui
-                    .add_enabled(
+                    .add_enabled_semantic(
                         frame < self.symbol().timeline.frame_count as usize,
                         egui::Button::new(*label).selected(self.frame == frame as u32),
                     )

@@ -1,5 +1,6 @@
 //! Timeline layer commands commit a complete, valid document in one undo step.
 use crate::app::Editor;
+use crate::theme::DesignUi as _;
 use eframe::egui;
 use neoflash_core::*;
 use std::collections::{HashMap, HashSet};
@@ -317,11 +318,13 @@ impl Editor {
                 "Click to toggle this layer's outlines. Right-click to change its color.",
             )
             .context_menu(|ui| {
-                ui.label(&layer.name);
-                if ui.button("Outline color…").clicked() {
-                    self.begin_layer_outline_color(ui.ctx(), layer);
-                    ui.close();
-                }
+                crate::ui_icons::menu_contents(ui, 240., |ui| {
+                    ui.label(&layer.name);
+                    if ui.button("Outline color…").clicked() {
+                        self.begin_layer_outline_color(ui.ctx(), layer);
+                        ui.close();
+                    }
+                })
             });
     }
     pub(crate) fn layer_outline_color_dialog(&mut self, ctx: &egui::Context) {
@@ -571,6 +574,9 @@ impl Editor {
     }
     /// Returns true when the caller should enter its inline name editor.
     pub(crate) fn timeline_layer_menu(&mut self, ui: &mut egui::Ui, index: usize) -> bool {
+        crate::ui_icons::menu_contents(ui, 280., |ui| self.timeline_layer_commands(ui, index))
+    }
+    fn timeline_layer_commands(&mut self, ui: &mut egui::Ui, index: usize) -> bool {
         let mut rename = false;
         let layer = self.symbol().timeline.layers[index].clone();
         let ctx = ui.ctx().clone();
@@ -683,7 +689,7 @@ impl Editor {
         action!("Copy Layers", self.copy_timeline_layers(&ctx, index));
         let clipboard = ctx.data(|data| data.get_temp::<LayerClipboard>(self.layer_clipboard_id()));
         if ui
-            .add_enabled(clipboard.is_some(), egui::Button::new("Paste Layers"))
+            .add_enabled_semantic(clipboard.is_some(), egui::Button::new("Paste Layers"))
             .clicked()
         {
             self.paste_timeline_layers(clipboard.unwrap(), index);
@@ -713,7 +719,7 @@ impl Editor {
                         && next.keyframes.iter().all(|key| key.label.is_empty())
                 });
         if ui
-            .add_enabled(can_merge, egui::Button::new("Merge with Next Layer"))
+            .add_enabled_semantic(can_merge, egui::Button::new("Merge with Next Layer"))
             .on_hover_text("Preserve both layers’ animation; tweened frames are sampled into keys")
             .clicked()
         {
@@ -760,7 +766,7 @@ impl Editor {
         }
         let group = group_indices(&self.symbol().timeline.layers, index);
         let contiguous = group.last().copied().unwrap_or(index) - index + 1 == group.len();
-        ui.add_enabled_ui(contiguous, |ui| {
+        ui.add_enabled_ui_semantic(contiguous, |ui| {
             ui.menu_button("Convert Layers to Symbol…", |ui| {
                 let name_id = ui.id().with("layer-symbol-name");
                 let mut name = ctx
@@ -770,7 +776,7 @@ impl Editor {
                 ui.text_edit_singleline(&mut name);
                 ctx.data_mut(|data| data.insert_temp(name_id, name.clone()));
                 if ui
-                    .add_enabled(
+                    .add_enabled_semantic(
                         !name.trim().is_empty(),
                         egui::Button::new("Create Movie Clip"),
                     )

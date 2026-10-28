@@ -1,4 +1,5 @@
 //! Contextual authoring inspector. Shared field controls live in paint_controls.
+use crate::theme::DesignUi as _;
 use crate::{
     app::{Editor, Tool},
     theme::UiPalette,
@@ -23,10 +24,12 @@ impl Editor {
         if tool_tab {
             self.finish_property_edit();
             ui.strong("Tool settings");
-            self.authoring_tool_options(ui);
-            paint_row(ui, "inspector-tool-fill", "Fill", &mut self.fill);
-            paint_row(ui, "inspector-tool-stroke", "Stroke", &mut self.stroke);
-            numeric_row(ui, "Stroke width", &mut self.stroke_width, 0. ..=100., 0.25);
+            inspector_section(ui, "Options", |ui| self.authoring_tool_options(ui));
+            inspector_section(ui, "Drawing defaults", |ui| {
+                paint_row(ui, "inspector-tool-fill", "Fill", &mut self.fill);
+                paint_row(ui, "inspector-tool-stroke", "Stroke", &mut self.stroke);
+                numeric_row(ui, "Stroke width", &mut self.stroke_width, 0. ..=100., 0.25);
+            });
             return;
         }
         if self.selection.len() > 1 {
@@ -58,16 +61,18 @@ impl Editor {
                 let original = element.clone();
                 let mut edit_symbol = None;
                 let mut convert_text = false;
-                ui.add_enabled_ui(self.selected_editable(), |ui| {
+                ui.add_enabled_ui_semantic(self.selected_editable(), |ui| {
                     ui.strong("Object");
-                    changes.note(text_row(ui, "Name", &mut element.name));
-                    changes.note(percent_row(ui, "Opacity", &mut element.transform.alpha));
+                    inspector_section(ui, "Identity", |ui| {
+                        changes.note(text_row(ui, "Name", &mut element.name));
+                    });
                     inspector_section(ui, "Transform", |ui| {
                         for r in numeric_pair(ui, ["X", "Y"], [&mut element.transform.x, &mut element.transform.y], -1_000_000. ..=1_000_000., 1.) { changes.note(r); }
                         for r in numeric_pair(ui, ["Scale X", "Scale Y"], [&mut element.transform.scale_x, &mut element.transform.scale_y], -1000. ..=1000., 0.01) { changes.note(r); }
                         changes.note(numeric_row(ui, "Rotation", &mut element.transform.rotation, -36000. ..=36000., 1.));
                     });
-                    inspector_section(ui, "Appearance & behavior", |ui| {
+                    inspector_section(ui, "Appearance", |ui| {
+                    changes.note(percent_row(ui, "Opacity", &mut element.transform.alpha));
                     match &mut element.kind {
                         ElementKind::Rectangle { width, height, fill, stroke, stroke_width }
                         | ElementKind::Ellipse { width, height, fill, stroke, stroke_width } => {
@@ -132,10 +137,28 @@ impl Editor {
                             ui.strong("Instance");
                             let name = self.project.symbol(symbol_id).map(|s| s.name.as_str()).unwrap_or("Missing");
                             property_row(ui, "Symbol", |ui| { ui.add(egui::Label::new(name).truncate()).on_hover_text(name); });
-                            if let Some(control) = self.instance_playback_ui(ui, symbol_id, playback) { changes.control = Some(control); }
-                            if ui.button("Edit symbol").clicked() { edit_symbol = Some(symbol_id.clone()); }
+                            let _ = playback;
                         }
                     }
+                    });
+                    inspector_section(ui, "Behavior / linkage", |ui| {
+                        if let ElementKind::Instance { symbol_id, playback } = &mut element.kind {
+                            if let Some(control) = self.instance_playback_ui(ui, symbol_id, playback) { changes.control = Some(control); }
+                            if let Some(symbol) = self.project.symbol(symbol_id) {
+                                for (label, value) in [("Linkage", symbol.linkage_id.as_deref()), ("Class", symbol.class_name.as_deref())] {
+                                    if let Some(value) = value { property_row(ui, label, |ui| { ui.add(egui::Label::new(value).truncate()).on_hover_text(value); }); }
+                                }
+                            }
+                            if ui.button("Edit symbol").clicked() { edit_symbol = Some(symbol_id.clone()); }
+                        }
+                        if ui.button("Object actions…").clicked() {
+                            self.script_target = crate::app::ScriptTarget::Object;
+                            self.show_panel(crate::workspace::PanelId::Actions);
+                        }
+                    });
+                    inspector_section(ui, "Accessibility", |ui| {
+                        ui.label(element.accessibility.as_ref().map(|a| a.name.as_str()).unwrap_or("Not exposed to assistive technology"));
+                        if ui.button("Edit accessibility…").clicked() { self.show_panel(crate::workspace::PanelId::Accessibility); }
                     });
                 });
                 if convert_text && let ElementKind::Text { text, font_family, font_size, color } = &element.kind {
@@ -182,37 +205,50 @@ impl Editor {
                 let timeline = &mut document.symbol_mut(&symbol_id).unwrap().timeline;
                 if frame_context {
                     ui.strong("Frame");
-                    if let Some((start, end, layers)) = self.selected_frame_range() {
-                        ui.label(format!("Frames {}–{} · {} layer{}", start + 1, end + 1, layers, if layers == 1 { "" } else { "s" }));
-                    }
-                    changes.note(text_row(ui, "Layer", &mut timeline.layers[layer].name));
-                    let mut end = timeline.layers[layer].properties.end_frame.unwrap_or(timeline.frame_count);
-                    let end_response = property_row(ui, "Layer end", |ui| ui.add_sized([96., crate::theme::CONTROL_HEIGHT], egui::DragValue::new(&mut end).range(1..=10000).update_while_editing(false)));
-                    if end_response.changed() { self.set_layer_duration(end); return; }
-                }
-                let min = timeline.layers.iter().flat_map(|l| &l.keyframes).map(|k| k.frame+1).chain(timeline.scripts.iter().map(|s|s.frame+1)).chain(timeline.layers.iter().filter_map(|l|l.properties.end_frame)).max().unwrap_or(1);
-                inspector_section(ui, "Playback", |ui| {
-                    if !frame_context { changes.note(property_row(ui,"FPS",|ui|ui.add_sized([96.,crate::theme::CONTROL_HEIGHT],egui::DragValue::new(&mut fps).range(1..=1000).update_while_editing(false)))); }
-                    changes.note(property_row(ui,"Frames",|ui|ui.add_sized([96.,crate::theme::CONTROL_HEIGHT],egui::DragValue::new(&mut timeline.frame_count).range(min..=10000).update_while_editing(false))));
-                });
-                if frame_context {
-                inspector_section(ui, "Keyframe", |ui| {
-                ui.add_enabled_ui(self.layer_editable(), |ui| {
-                    if let Some(key) = timeline.layers[layer].key_at_mut(frame) {
-                        changes.note(text_row(ui, "Frame label", &mut key.label));
-                        let before = key.tween;
-                        let mut response = property_row(ui, "Tween", |ui| egui::ComboBox::from_id_salt("tween").width(ui.available_width()).selected_text(match key.tween { None=>"No tween",Some(Easing::Linear)=>"Linear",Some(Easing::EaseIn)=>"Ease in",Some(Easing::EaseOut)=>"Ease out",Some(Easing::EaseInOut)=>"Ease in/out",Some(Easing::CubicBezier{..})=>"Custom curve",Some(Easing::Flash{..})=>"Flash ease" }).show_ui(ui, |ui| {
-                            for (label,value) in [("No tween",None),("Linear",Some(Easing::Linear)),("Ease in",Some(Easing::EaseIn)),("Ease out",Some(Easing::EaseOut)),("Ease in/out",Some(Easing::EaseInOut)),("Custom curve",Some(Easing::CubicBezier{x1:0.25,y1:0.1,x2:0.25,y2:1.}))] { ui.selectable_value(&mut key.tween,value,label); }
-                        }).response);
-                        if key.tween != before { response.mark_changed(); }
-                        changes.note(response);
-                        if let Some(Easing::CubicBezier{x1,y1,x2,y2})=&mut key.tween {
-                            for (label,value) in [("Curve X1",x1),("Curve Y1",y1),("Curve X2",x2),("Curve Y2",y2)] { changes.note(numeric_row(ui,label,value,0. ..=1.,0.01)); }
+                    let mut layer_end = None;
+                    inspector_section(ui, "Range / duration", |ui| {
+                        if let Some((start, end, layers)) = self.selected_frame_range() {
+                            ui.label(format!("Frames {}–{} · {} layer{}", start + 1, end + 1, layers, if layers == 1 { "" } else { "s" }));
                         }
-                    }
-                });
-                });
-                if ui.button("Frame script…  F9").clicked() { self.open_frame_actions(); }
+                        changes.note(text_row(ui, "Layer", &mut timeline.layers[layer].name));
+                        let mut end = timeline.layers[layer].properties.end_frame.unwrap_or(timeline.frame_count);
+                        let response = property_row(ui, "Layer end", |ui| ui.add_sized([96., crate::theme::CONTROL_HEIGHT], egui::DragValue::new(&mut end).range(1..=10000).update_while_editing(false)));
+                        if response.changed() { layer_end = Some(end); }
+                    });
+                    if let Some(end) = layer_end { self.set_layer_duration(end); return; }
+                    inspector_section(ui, "Tween", |ui| {
+                        ui.add_enabled_ui_semantic(self.layer_editable(), |ui| {
+                            if let Some(key) = timeline.layers[layer].key_at_mut(frame) {
+                                let before = key.tween;
+                                let mut response = property_row(ui, "Easing", |ui| egui::ComboBox::from_id_salt("tween").width(ui.available_width()).selected_text(match key.tween { None=>"No tween",Some(Easing::Linear)=>"Linear",Some(Easing::EaseIn)=>"Ease in",Some(Easing::EaseOut)=>"Ease out",Some(Easing::EaseInOut)=>"Ease in/out",Some(Easing::CubicBezier{..})=>"Custom curve",Some(Easing::Flash{..})=>"Flash ease" }).show_ui(ui, |ui| {
+                                    for (label,value) in [("No tween",None),("Linear",Some(Easing::Linear)),("Ease in",Some(Easing::EaseIn)),("Ease out",Some(Easing::EaseOut)),("Ease in/out",Some(Easing::EaseInOut)),("Custom curve",Some(Easing::CubicBezier{x1:0.25,y1:0.1,x2:0.25,y2:1.}))] { ui.selectable_value(&mut key.tween,value,label); }
+                                }).response);
+                                if key.tween != before { response.mark_changed(); }
+                                changes.note(response);
+                                if let Some(Easing::CubicBezier{x1,y1,x2,y2})=&mut key.tween {
+                                    for (labels, values) in [(["X1","Y1"],[x1,y1]),(["X2","Y2"],[x2,y2])] {
+                                        for r in numeric_pair(ui, labels, values,0. ..=1.,0.01) { changes.note(r); }
+                                    }
+                                }
+                            } else { ui.weak("Select a frame with a keyframe to edit its tween."); }
+                        });
+                    });
+                    inspector_section(ui, "Label / script", |ui| {
+                        ui.add_enabled_ui_semantic(self.layer_editable(), |ui| {
+                            if let Some(key) = timeline.layers[layer].key_at_mut(frame) { changes.note(text_row(ui, "Frame label", &mut key.label)); }
+                        });
+                        if ui.button("Frame script…  F9").clicked() { self.open_frame_actions(); }
+                    });
+                } else {
+                    let min = timeline.layers.iter().flat_map(|l| &l.keyframes).map(|k| k.frame+1).chain(timeline.scripts.iter().map(|s|s.frame+1)).chain(timeline.layers.iter().filter_map(|l|l.properties.end_frame)).max().unwrap_or(1);
+                    inspector_section(ui, "Playback", |ui| {
+                        changes.note(property_row(ui,"FPS",|ui|ui.add_sized([96.,crate::theme::CONTROL_HEIGHT],egui::DragValue::new(&mut fps).range(1..=1000).update_while_editing(false))));
+                        changes.note(property_row(ui,"Frames",|ui|ui.add_sized([96.,crate::theme::CONTROL_HEIGHT],egui::DragValue::new(&mut timeline.frame_count).range(min..=10000).update_while_editing(false))));
+                    });
+                    inspector_section(ui, "Publish", |ui| {
+                        ui.label("HTML5 · Rust / WebAssembly");
+                        if ui.button("Publish HTML5…").clicked() { self.export(false); }
+                    });
                 }
                 document.fps = fps;
                 if document != self.project && let Some(control) = changes.control {
@@ -238,10 +274,20 @@ impl Editor {
     }
 }
 
-fn inspector_section<R>(ui: &mut egui::Ui, title: &str, content: impl FnOnce(&mut egui::Ui) -> R) {
+pub(crate) fn inspector_section<R>(
+    ui: &mut egui::Ui,
+    title: &str,
+    content: impl FnOnce(&mut egui::Ui) -> R,
+) {
     ui.add_space(4.);
-    egui::CollapsingHeader::new(title)
-        .id_salt(title)
-        .default_open(true)
-        .show(ui, content);
+    ui.scope(|ui| {
+        ui.spacing_mut().interact_size.y = crate::theme::CONTROL_HEIGHT;
+        egui::CollapsingHeader::new(egui::RichText::new(title).strong())
+            .id_salt(title)
+            .default_open(!matches!(
+                title,
+                "Behavior / linkage" | "Accessibility" | "Publish"
+            ))
+            .show(ui, content);
+    });
 }

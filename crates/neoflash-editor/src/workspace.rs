@@ -175,10 +175,10 @@ pub struct PanelSizes {
 impl Default for PanelSizes {
     fn default() -> Self {
         Self {
-            timeline_height: 207.,
+            timeline_height: crate::theme::TIMELINE_HEIGHT,
             bottom_height: 190.,
-            library_width: 228.,
-            layer_column_width: 210.,
+            library_width: 280.,
+            layer_column_width: 200.,
         }
     }
 }
@@ -194,14 +194,19 @@ impl PanelSizes {
                 fallback
             }
         };
-        self.timeline_height = size(self.timeline_height, default.timeline_height, 130., 380.);
+        self.timeline_height = size(
+            self.timeline_height,
+            default.timeline_height,
+            crate::theme::TIMELINE_MIN_HEIGHT,
+            380.,
+        );
         self.bottom_height = size(self.bottom_height, default.bottom_height, 145., 420.);
-        self.library_width = size(self.library_width, default.library_width, 190., 480.);
+        self.library_width = size(self.library_width, default.library_width, 248., 360.);
         self.layer_column_width = size(
             self.layer_column_width,
             default.layer_column_width,
-            170.,
-            600.,
+            140.,
+            320.,
         );
     }
 }
@@ -622,7 +627,7 @@ impl Default for DockLayout {
         };
         Self {
             top: DockArea {
-                size: 207.,
+                size: crate::theme::TIMELINE_HEIGHT,
                 groups: vec![group(1, vec![PanelId::Timeline])],
             },
             bottom: DockArea {
@@ -633,11 +638,11 @@ impl Default for DockLayout {
                 )],
             },
             left: DockArea {
-                size: 90.,
+                size: crate::theme::TOOLS_WIDTH + 6.,
                 groups: vec![group(3, vec![PanelId::Tools])],
             },
             right: DockArea {
-                size: 248.,
+                size: 280.,
                 groups: vec![
                     DockGroup {
                         weight: 0.6,
@@ -1007,10 +1012,10 @@ impl ScreenRect {
 
 pub fn minimum_window_size(panel: PanelId) -> [f32; 2] {
     match panel {
-        PanelId::Tools => [80., 300.],
+        PanelId::Tools => [88., 300.],
         PanelId::Timeline => [320., 180.],
-        PanelId::Library => [220., 300.],
-        PanelId::Align | PanelId::Transform | PanelId::Color => [240., 200.],
+        PanelId::Library => [248., 300.],
+        PanelId::Align | PanelId::Transform | PanelId::Color => [248., 200.],
         _ => [320., 220.],
     }
 }
@@ -1151,6 +1156,32 @@ impl WorkspacePrefs {
         storage
             .and_then(|s| s.get_string(PREFS_KEY))
             .map_or_else(Self::default, |json| Self::from_json(&json))
+    }
+    /// Choose a compact default once, never rewrite a saved user layout on resize.
+    pub fn load_for_viewport(storage: Option<&dyn eframe::Storage>, size: [f32; 2]) -> Self {
+        let mut prefs = Self::load(storage);
+        if storage.and_then(|s| s.get_string(PREFS_KEY)).is_none() {
+            prefs.compact_default(size);
+        }
+        prefs
+    }
+    pub fn compact_default(&mut self, size: [f32; 2]) {
+        if size[0] <= 1120. || size[1] <= 800. {
+            let tabs = self
+                .dock
+                .right
+                .groups
+                .iter()
+                .flat_map(|g| g.tabs.iter().copied())
+                .collect();
+            self.dock.right.groups = vec![DockGroup {
+                id: 4,
+                tabs,
+                active: PanelId::Properties,
+                weight: 1.,
+            }];
+            self.dock.bottom.size = 144.;
+        }
     }
     /// Only this small JSON key is written. Eframe owns flushing the storage;
     /// this never serializes Editor, Project, clipboard or arbitrary egui memory.
@@ -1693,7 +1724,7 @@ mod tests {
         prefs.sizes = PanelSizes {
             timeline_height: 380.,
             bottom_height: 420.,
-            library_width: 480.,
+            library_width: 360.,
             layer_column_width: 420.,
         };
         prefs.restore_layout();
@@ -1722,10 +1753,10 @@ mod tests {
         assert_eq!(
             loaded.sizes,
             PanelSizes {
-                timeline_height: 207.,
+                timeline_height: crate::theme::TIMELINE_HEIGHT,
                 bottom_height: 190.,
-                library_width: 190.,
-                layer_column_width: 210.,
+                library_width: 248.,
+                layer_column_width: 200.,
             }
         );
         assert!(prefs.sizes.timeline_height.is_nan());
@@ -1737,8 +1768,8 @@ mod tests {
             PanelSizes {
                 timeline_height: 380.,
                 bottom_height: 145.,
-                library_width: 480.,
-                layer_column_width: 210.,
+                library_width: 360.,
+                layer_column_width: 200.,
             }
         );
     }

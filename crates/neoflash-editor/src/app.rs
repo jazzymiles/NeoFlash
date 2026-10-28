@@ -110,7 +110,10 @@ pub enum Pending {
 impl Editor {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut s = Self::from_project(&cc.egui_ctx, Project::demo());
-        s.workspace = WorkspacePrefs::load(cc.storage);
+        s.workspace = WorkspacePrefs::load_for_viewport(
+            cc.storage,
+            cc.egui_ctx.viewport_rect().size().into(),
+        );
         s.workspace.theme.apply(&cc.egui_ctx);
         s.bottom = s.workspace.active_bottom;
         if let Some(path) = std::env::args().nth(1) {
@@ -183,6 +186,8 @@ impl Editor {
     }
     pub(crate) fn restore_workspace(&mut self, ctx: &egui::Context) {
         self.workspace.restore_layout();
+        self.workspace
+            .compact_default(ctx.viewport_rect().size().into());
         self.detached = crate::detached::DetachedState::default();
         self.bottom = self.workspace.active_bottom;
         // Reset only the panel geometry that we own. Editor drafts, focus and
@@ -810,6 +815,7 @@ impl Editor {
     pub fn draw_dialogs(&mut self, ctx: &egui::Context) {
         if self.show_about {
             egui::Window::new("About NeoFlash")
+                .default_width(360.)
                 .collapsible(false)
                 .resizable(false)
                 .open(&mut self.show_about)
@@ -827,6 +833,7 @@ impl Editor {
         if let Some(pending) = self.confirm {
             let mut action = None;
             egui::Window::new("Unsaved changes")
+                .default_width(360.)
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)

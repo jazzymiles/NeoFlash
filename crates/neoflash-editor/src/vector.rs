@@ -115,7 +115,7 @@ pub(crate) fn paint_path(
                     screen(Pos2::ZERO),
                     egui::Align2::LEFT_TOP,
                     message,
-                    egui::FontId::monospace(12.),
+                    egui::FontId::monospace(crate::theme::PANEL_FONT),
                     UiPalette::current(p.ctx()).error_text,
                 );
             }
@@ -935,7 +935,7 @@ pub(crate) fn paint_gradient_path(
                     screen(Pos2::ZERO),
                     egui::Align2::LEFT_TOP,
                     error,
-                    egui::FontId::monospace(12.),
+                    egui::FontId::monospace(crate::theme::PANEL_FONT),
                     UiPalette::current(painter.ctx()).error_text,
                 );
                 continue;
@@ -995,7 +995,7 @@ pub(crate) fn paint_gradient_path(
             screen(Pos2::ZERO),
             egui::Align2::LEFT_TOP,
             "Gradient preview mesh limit",
-            egui::FontId::monospace(12.),
+            egui::FontId::monospace(crate::theme::PANEL_FONT),
             UiPalette::current(painter.ctx()).error_text,
         );
     }

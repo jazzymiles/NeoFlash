@@ -1,5 +1,6 @@
 //! Configurable workspace docks. Geometry here is transient; the ordered
 //! groups, tab selection and split weights live in WorkspacePrefs.
+use crate::theme::{DesignUi as _, ScrollTheme as _};
 use crate::{
     app::Editor,
     workspace::{
@@ -9,11 +10,11 @@ use crate::{
 };
 use eframe::egui;
 
-const HEADER: f32 = 26.;
-const SPLITTER: f32 = 5.;
-const AREA_GRIP: f32 = 9.;
-const MIN_STAGE_HEIGHT: f32 = 160.;
-const MIN_STAGE_WIDTH: f32 = 160.;
+const HEADER: f32 = crate::theme::HEADER_HEIGHT;
+const SPLITTER: f32 = 6.;
+const AREA_GRIP: f32 = 6.;
+const MIN_STAGE_HEIGHT: f32 = 240.;
+const MIN_STAGE_WIDTH: f32 = 320.;
 
 #[derive(Clone, Copy)]
 struct AreaResize {
@@ -145,13 +146,19 @@ impl Editor {
         let tools_only = groups.len() == 1 && groups[0].tabs == [PanelId::Tools];
         let available = ctx.available_rect();
         let (minimum, maximum) = if edge.vertical() {
-            let min = if tools_only { 90. } else { 170. };
+            let min = if tools_only {
+                crate::theme::TOOLS_WIDTH
+                    + AREA_GRIP
+                    + if available.height() < 472. { 12. } else { 0. }
+            } else {
+                248.
+            };
             let reserve = if edge == DockEdge::Left && self.dock_edge_visible(DockEdge::Right) {
                 self.workspace
                     .dock
                     .right
                     .size
-                    .clamp(170., (available.width() - MIN_STAGE_WIDTH - min).max(170.))
+                    .clamp(248., (available.width() - MIN_STAGE_WIDTH - min).max(248.))
             } else {
                 0.
             };
@@ -160,7 +167,11 @@ impl Editor {
                 (available.width() - MIN_STAGE_WIDTH - reserve).clamp(min, 1000.),
             )
         } else {
-            let min = 110.;
+            let min = if groups.iter().any(|g| g.tabs.contains(&PanelId::Timeline)) {
+                crate::theme::TIMELINE_MIN_HEIGHT
+            } else {
+                110.
+            };
             let reserve = if edge == DockEdge::Top && self.dock_edge_visible(DockEdge::Bottom) {
                 self.workspace.dock.bottom.size.clamp(
                     110.,
@@ -494,8 +505,13 @@ impl Editor {
             rect.min,
             egui::pos2(rect.right(), (rect.top() + HEADER).min(rect.bottom())),
         );
-        let body =
-            egui::Rect::from_min_max(egui::pos2(rect.left(), header.bottom()), rect.max).shrink(5.);
+        let padding = if group.active == PanelId::Tools {
+            2.
+        } else {
+            crate::theme::PANEL_PADDING
+        };
+        let body = egui::Rect::from_min_max(egui::pos2(rect.left(), header.bottom()), rect.max)
+            .shrink(padding);
         let ctx = parent.ctx().clone();
         let clipboard_target = self.clipboard_target(&ctx);
         let zoom = ctx.zoom_factor();
@@ -515,8 +531,8 @@ impl Editor {
             tabs: Vec::new(),
         };
         let tabs_rect = egui::Rect::from_min_max(
-            header.min + egui::vec2(15., 1.),
-            header.max - egui::vec2(25., 1.),
+            header.min + egui::vec2(12., 0.),
+            header.max - egui::vec2(24., 0.),
         );
         let mut header_ui = parent.new_child(
             egui::UiBuilder::new()
@@ -526,7 +542,7 @@ impl Editor {
         );
         header_ui.set_clip_rect(parent.clip_rect().intersect(tabs_rect));
         if self.symbol_conversion.is_some() {
-            header_ui.disable();
+            header_ui.disable_semantic();
         }
         header_ui
             .painter()
@@ -535,37 +551,112 @@ impl Editor {
             .id_salt(("dock-tab-scroll", surface, group.id))
             .auto_shrink([false, false])
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .themed()
             .show(&mut header_ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 3.;
-                    for panel in &group.tabs {
-                        let response = ui.add(
-                            egui::Button::new(egui::RichText::new(panel.title()).size(12.))
-                                .selected(group.active == *panel)
-                                .frame(true)
-                                .min_size(egui::vec2(34., 22.))
-                                .sense(egui::Sense::click_and_drag()),
-                        );
-                        let visible_rect = response.rect.intersect(tabs_rect);
-                        if visible_rect.is_positive() {
-                            target.tabs.push((*panel, global(visible_rect)));
-                            if group.active == *panel {
-                                ui.painter().hline(
-                                    visible_rect.x_range(),
-                                    header.bottom() - 1.,
-                                    egui::Stroke::new(2.0_f32, ui.visuals().selection.bg_fill),
+                // ui.horizontal starts with interact_size.y (24), centering its
+                // child two points down in this 28-point header. A 28-point tab
+                // then overflows the header and clips its active marker.
+                let row_size = egui::vec2(ui.available_width(), HEADER);
+                ui.allocate_ui_with_layout(
+                    row_size,
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.spacing_mut().item_spacing.x = 4.;
+                        for panel in &group.tabs {
+                            let active = group.active == *panel;
+                            let palette = crate::theme::UiPalette::current(ui.ctx());
+                            let text =
+                                egui::RichText::new(panel.title()).size(crate::theme::PANEL_FONT);
+                            let galley = egui::WidgetText::from(text).into_galley(
+                                ui,
+                                Some(egui::TextWrapMode::Extend),
+                                f32::INFINITY,
+                                egui::TextStyle::Button,
+                            );
+                            let (tab_rect, response) = ui.allocate_exact_size(
+                                egui::vec2(galley.size().x + 16., HEADER),
+                                egui::Sense::click_and_drag(),
+                            );
+                            let visible_rect =
+                                tab_rect.intersect(tabs_rect).intersect(ui.clip_rect());
+                            if visible_rect.is_positive() {
+                                target.tabs.push((*panel, global(visible_rect)));
+                                if response.is_pointer_button_down_on() || response.hovered() {
+                                    ui.painter().rect_filled(
+                                        tab_rect,
+                                        0.,
+                                        if response.is_pointer_button_down_on() {
+                                            palette.pressed
+                                        } else {
+                                            palette.hover
+                                        },
+                                    );
+                                }
+                                ui.painter().galley_with_override_text_color(
+                                    egui::pos2(
+                                        tab_rect.left() + 8.,
+                                        tab_rect.center().y - galley.size().y / 2.,
+                                    ),
+                                    galley,
+                                    if active {
+                                        palette.selection_stroke
+                                    } else {
+                                        palette.text
+                                    },
                                 );
+                                if active {
+                                    ui.painter().rect_stroke(
+                                        visible_rect.shrink(0.5),
+                                        0.,
+                                        egui::Stroke::new(1.0_f32, palette.selection_stroke),
+                                        egui::StrokeKind::Inside,
+                                    );
+                                    // Keep the marker inside the tab's clip rect, not below it.
+                                    ui.painter().rect_filled(
+                                        egui::Rect::from_min_max(
+                                            egui::pos2(
+                                                visible_rect.left(),
+                                                visible_rect.bottom() - 2.,
+                                            ),
+                                            visible_rect.max,
+                                        ),
+                                        0.,
+                                        palette.accent,
+                                    );
+                                }
+                                if response.has_focus() {
+                                    ui.painter().rect_stroke(
+                                        tab_rect.shrink(1.),
+                                        3.,
+                                        egui::Stroke::new(2.0_f32, palette.focus),
+                                        egui::StrokeKind::Inside,
+                                    );
+                                }
                             }
+                            response.widget_info(|| {
+                                egui::WidgetInfo::selected(
+                                    egui::WidgetType::SelectableLabel,
+                                    ui.is_enabled(),
+                                    active,
+                                    panel.title(),
+                                )
+                            });
+                            ui.ctx().accesskit_node_builder(response.id, |node| {
+                                node.set_role(egui::accesskit::Role::Tab);
+                                node.clear_toggled();
+                                node.set_selected(active);
+                            });
+                            let response = response.on_hover_text(panel.title());
+                            if response.clicked() {
+                                self.show_panel(*panel);
+                            }
+                            self.panel_drag_handle(ui, *panel, &response);
+                            response.context_menu(|ui| {
+                                self.dock_header_menu(ui, *panel, surface, &clipboard_target)
+                            });
                         }
-                        if response.clicked() {
-                            self.show_panel(*panel);
-                        }
-                        self.panel_drag_handle(ui, *panel, &response);
-                        response.context_menu(|ui| {
-                            self.dock_header_menu(ui, *panel, surface, &clipboard_target)
-                        });
-                    }
-                });
+                    },
+                );
             });
         let blank_start = target
             .tabs
@@ -586,7 +677,22 @@ impl Editor {
                 &response,
             );
             response.context_menu(|ui| {
-                self.dock_header_menu(ui, group.active, surface, &clipboard_target)
+                crate::ui_icons::menu_contents(ui, 240., |ui| {
+                    if group.tabs.len() > 1 {
+                        ui.label(egui::RichText::new("Panels in this group").small());
+                        for panel in &group.tabs {
+                            let mut active = group.active == *panel;
+                            if crate::ui_icons::menu_toggle(ui, &mut active, panel.title(), "")
+                                .clicked()
+                            {
+                                self.show_panel(*panel);
+                                ui.close();
+                            }
+                        }
+                        ui.separator();
+                    }
+                    self.dock_header_commands(ui, group.active, surface, &clipboard_target)
+                })
             });
         }
         // A small grip stays reachable when the tab strip is full. The blank
@@ -600,7 +706,7 @@ impl Editor {
         );
         grip_ui.set_clip_rect(parent.clip_rect().intersect(grip));
         if self.symbol_conversion.is_some() {
-            grip_ui.disable();
+            grip_ui.disable_semantic();
         }
         let response = grip_ui.interact(grip, grip_ui.id(), egui::Sense::click_and_drag());
         for y in [-4., 0., 4.] {
@@ -625,15 +731,30 @@ impl Editor {
         );
         menu_ui.set_clip_rect(parent.clip_rect().intersect(menu_rect));
         if self.symbol_conversion.is_some() {
-            menu_ui.disable();
+            menu_ui.disable_semantic();
         }
         menu_ui.spacing_mut().button_padding = egui::vec2(3., 0.);
         menu_ui
             .menu_button("...", |ui| {
-                self.dock_header_menu(ui, group.active, surface, &clipboard_target)
+                crate::ui_icons::menu_contents(ui, 240., |ui| {
+                    if group.tabs.len() > 1 {
+                        ui.label(egui::RichText::new("Panels in this group").small());
+                        for panel in &group.tabs {
+                            let mut active = group.active == *panel;
+                            if crate::ui_icons::menu_toggle(ui, &mut active, panel.title(), "")
+                                .clicked()
+                            {
+                                self.show_panel(*panel);
+                                ui.close();
+                            }
+                        }
+                        ui.separator();
+                    }
+                    self.dock_header_commands(ui, group.active, surface, &clipboard_target)
+                })
             })
             .response
-            .on_hover_text("Panel menu");
+            .on_hover_text("Panel commands and tabs");
         parent.painter().hline(
             header.x_range(),
             header.bottom(),
@@ -875,7 +996,7 @@ impl Editor {
 
     pub(crate) fn dock_panel_contents(&mut self, ui: &mut egui::Ui, panel: PanelId) {
         if self.symbol_conversion.is_some() {
-            ui.disable();
+            ui.disable_semantic();
         }
         self.detached.content_header = Some(panel);
         match panel {
@@ -893,23 +1014,35 @@ impl Editor {
     pub(crate) fn panel_dock_menu(&mut self, ui: &mut egui::Ui, panel: PanelId) {
         let ctx = ui.ctx().clone();
         for edge in DockEdge::ALL {
-            if ui.button(format!("Dock {}", edge.title())).clicked() {
+            if crate::ui_icons::menu_item(ui, &format!("Dock {}", edge.title()), "").clicked() {
                 self.dock_panel_at(&ctx, panel, DockDestination::Edge(edge));
                 ui.close();
             }
         }
         ui.separator();
-        if ui.button("Detach").clicked() {
+        if crate::ui_icons::menu_item(ui, "Detach", "").clicked() {
             self.set_panel_placement(&ctx, panel, PanelPlacement::Detached);
             ui.close();
         }
-        if ui.button("Hide").clicked() {
+        if crate::ui_icons::menu_item(ui, "Hide", "").clicked() {
             self.set_panel_visible(panel, false);
             ui.close();
         }
     }
 
     fn dock_header_menu(
+        &mut self,
+        ui: &mut egui::Ui,
+        panel: PanelId,
+        surface: DockSurface,
+        target: &crate::clipboard::ClipboardTarget,
+    ) {
+        crate::ui_icons::menu_contents(ui, 240., |ui| {
+            self.dock_header_commands(ui, panel, surface, target)
+        });
+    }
+
+    fn dock_header_commands(
         &mut self,
         ui: &mut egui::Ui,
         panel: PanelId,

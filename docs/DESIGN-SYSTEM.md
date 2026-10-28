@@ -7,7 +7,7 @@ Authored artwork and published project content retain their own colors, typograp
 The machine-readable values live in [tokens.json](design-system/tokens.json); the [reference preview](design-system/preview.html) illustrates their use.
 This document defines behavior and composition. Keep the document, tokens and preview consistent when changing the standard.
 Current workflows and implementation boundaries remain in [Workspace](WORKSPACE.md) and [Verification](VERIFICATION.md).
-**MUST** is a requirement; **SHOULD** permits an explained exception; **MAY** denotes an optional variant.
+**MUST** is a requirement. Optional behavior is permitted only as an explicitly documented system variant. There are no panel-specific visual exceptions: an uncovered case must be resolved in this system and the shared component before shipping.
 
 ## Principles
 
@@ -56,13 +56,14 @@ Use spacing and weight before adding boxes or decorative surfaces. Avoid a borde
 Larger accessibility targets MAY be provided without enlarging icon geometry or changing command meaning.
 Do not shrink text, hit areas or line height to conceal an overflow problem.
 Pixel snapping MUST preserve these logical dimensions on Retina and other display scales.
+Stage selection/transform overlays use a 1 pt outline with a 3 pt halo behind it. The outline/halo pair has at least 9:1 contrast between its colors, so one member reaches at least 3:1 against a uniform authored background luminance. Verify the pair across the grayscale and representative artwork; never recolor authored content to improve editor contrast. Handles remain 6 pt in screen space.
 
 ## Color, hierarchy and states
 
 Light and Dark use the same semantic roles from the token file: surfaces, text, muted text, borders, selection, focus, error and warning.
 Timeline, pasteboard and stage overlays MUST also use these roles; authored colors MUST remain unchanged by theme switching.
 Normal text MUST reach 4.5:1 contrast against its actual surface; meaningful control boundaries and focus indicators MUST reach 3:1.
-Check composed states and overlays, not only isolated palette swatches. Never use hue alone to convey a state.
+Check composed states and overlays, not only isolated palette swatches. Timeline grid reaches at least 2.5:1 and `timelineDivider` reaches at least 3:1 against normal, major, tween and selected timeline surfaces. The generic structural `divider` is not a substitute for this timeline role. Never use hue alone to convey a state.
 
 | State | Required presentation and behavior |
 | --- | --- |
@@ -84,8 +85,7 @@ Theme changes MUST preserve focus, scroll, selection, active edits and authored 
 Every field MUST have a visible label or an unambiguous nearby context plus a full accessible name.
 Property labels use a 76 pt column, with 8 pt between label and value and 8 pt content padding.
 Long labels MUST retain their full meaning through disclosure or tooltip and accessibility; silent truncation is insufficient.
-Paired fields such as X/Y and W/H use an 8 pt gap. Short visible labels retain full accessible names and units.
-When space is insufficient, switch to one column; do not change input semantics or clip values.
+**Paired fields / compact variant:** X/Y and W/H use short visible labels with full accessible names and units. Each field reserves 12 pt for its label, a 4 pt label/control gap and at least 64 pt for its control; the pair gap is 8 pt. The baseline minimum is **168 pt**: `2 × (12 + 4 + 64) + 8`. Measure actual remaining content width after panel padding, disclosure indentation and any reserved non-overlay scrollbar strip. A standard **280 pt inspector MUST show these pairs side by side**. Use one column only when that remaining width is below the measured pair minimum. Longer labels, units or values increase the measured minimum and require an adaptive layout; never clip them or shrink text/targets. Both layouts retain the same input semantics.
 
 - Numeric fields support click-to-type and drag-to-scrub with units and appropriate precision.
 - Enter or blur applies typed values; Escape cancels the pending edit.
@@ -112,6 +112,10 @@ Every panel uses one shared shell: 28 pt header, content region and optional 28 
 Tabs, panel menu, group-drag grip and resize grip MUST be visually distinct and keyboard reachable where applicable.
 Overflow MUST have a discoverable continuation or overflow control; hidden scrolling alone is insufficient.
 Keep headers and essential actions fixed while the relevant content region scrolls independently.
+
+**Flat tabs / shared variant:** use a 28 pt row, 8 pt horizontal padding per tab and 4 pt between tabs. Labels use 12 pt body text at normal weight 400 in every state; selection MUST NOT change their weight. Inactive tabs remain quiet and readable; hover adds the semantic hover treatment without movement. Selection has a persistent **2 pt bottom marker and 1 pt boundary**, both using the semantic `selectionStroke` role (`selection_stroke` in native UI), never hue alone. The 2 pt focus indicator remains distinct and additive to selection. Every tab exposes its full accessible name, tab role and selected state; keyboard navigation MUST reach, activate and leave the tab group, including overflowed tabs.
+
+**Scrollbar / shared variant:** reserve a 12 pt strip with an 8 pt thumb centered by 2 pt insets and a minimum thumb length of 24 pt. Track, normal thumb, hover, drag and focus use dedicated semantic muted-gray roles, never the main-text token. The thumb MUST contrast at least 3:1 against its track in every state in both themes; focus remains distinguishable without relying on hue. The strip never overlays content or interactive targets, and hover/drag MUST NOT change the space reserved for it.
 
 All panels MUST support true native detachment through the same shell and shared content implementation.
 Detaching MUST move the existing view, not create another document or divergent panel state.
@@ -152,6 +156,8 @@ Rows are 24 pt; prioritize Name, with Type optional when width permits. Secondar
 Folder hierarchy and selected state MUST remain legible without relying on color alone.
 Search/filter state MUST be visible and easy to clear.
 
+**Library / previewOverflow variant:** reserve the measured header, search, sort and footer heights, their spacing and at least three list rows (**72 pt**) before calculating the preview budget. When the remaining height accommodates a **24 pt preview header + 64 pt minimum preview + measured metadata**, show the user's open preview inline at **64–160 pt**, within that budget. Otherwise retain a **24 pt Preview row** with an explicit opening glyph and the accessible action **Open symbol preview**. Activation opens a bounded popover anchored to that row, using the same renderer and preview state, without autoplay. Escape or an outside click closes it and returns focus to the row. Preserve the user's preview-open preference and chosen preview height across layout changes; automatically restore inline presentation when space permits and the preference is open. Neither the compact row nor its popover may create horizontal overflow in a small panel or exceed the usable viewport.
+
 The footer exposes **New Symbol**, **New Folder** and **Import**; **Delete** is a separate destructive action.
 Use concise icons with full names when labels do not fit. Do not combine destructive and creation actions ambiguously.
 Distinguish importing/placing graphics from merely adding a stored resource.
@@ -165,6 +171,7 @@ Organize tools into three visible semantic groups: **Selection**, **Drawing**, *
 Keep group and tool locations stable as selection changes; indicate the active tool clearly.
 Long settings belong in the explicit Tool inspector instead of extending a narrow vertical toolbar indefinitely.
 Fill and stroke controls sit at the bottom and remain reachable in supported window sizes.
+**Tools rail / scroll variant:** 64 pt is the content width; the 6 pt docking resize target is outside it. When the tool list overflows vertically, reserve a separate 12 pt scroll strip, making the content width 76 pt (82 pt including an applicable dock splitter). The 24/4/24 grid and glyph size do not change. Reserve this strip for the whole overflow state, not only on hover; do not cover tools with an overlay scrollbar or switch to pagination. A detached Tools window must accommodate this minimum. Bottom paint/actions remain fixed; only the list scrolls.
 Tool changes and temporary Hand navigation MUST preserve the user's authored selection and unfinished edit according to the tool contract.
 
 ## Timeline
@@ -200,11 +207,25 @@ Use full consistent names, conventional ellipses for commands requiring more inp
 Alignment and distribution MUST use distinct symbols/help even where both involve left, center or right edges.
 Menus, dialogs and popovers follow the same typography, spacing, states and focus rules as panels.
 
+All top-level, context and panel menus use the same menu-row component: 24 pt height, 8 pt horizontal inset and at least 16 pt between the label and shortcut. Check/icon, label, shortcut and submenu arrow have separate measured columns. Width comes from these columns, never the parent workspace's available width or a stretching right-to-left layout. Ordinary popups use 220–320 pt; the long-label variant grows only to its measured content and remains within the screen's usable width minus 16 pt. Height is capped by the usable screen minus 16 pt, with a scrollable body and visible continuation when necessary. These are system variants, not individual menu overrides.
+
+Window shows panel visibility once, then **Detach Panel** and **Dock Panel** submenus containing the applicable panels, **Restore Workspace**, **Appearance** (Light/Dark) and **About NeoFlash**. Native dock/undock remains available from each panel's common menu. Do not repeat all panels as a second flat list of docking commands.
+
+Keyboard chords use one renderer and accessible names. A missing modifier glyph uses the named modifier (for example, Shift) through the shared renderer; missing-glyph squares are never an accepted fallback. Menu focus, keyboard navigation, submenu positioning and focus return are shared behavior. Disabled explanations remain discoverable without enabling an unavailable action.
+
+## Dialog and mixed-value variants
+
+**Symbol dialog / registration grid:** use the common 76 pt label column and 8 pt gap. The nine registration positions form a 3 × 3 grid of 24 pt targets with 4 pt gaps. Each target has a full position name, persistent selected indication and the common focus treatment. Keyboard navigation must reach and choose every position. A right-aligned action row uses 24 pt buttons, Cancel followed by the specific primary action (Create or Convert). Validation stays near its field and preserves the entered values; cancel returns focus without authoring changes.
+
+**Color / mixed selection:** Fill, Stroke and Width independently show Mixed when selected editable objects disagree. Never show one object's value as the combined value. A field's explicit draft and Apply operation changes only that field across the selected objects, as one Undo operation. Other mixed fields remain untouched; choosing a fill must not overwrite stroke or width. Mixed, None/transparent and a concrete value are distinct presentations. Apply remains unavailable until that field has a valid deliberate draft. The panel states the affected selection and excludes non-editable targets according to the shared selection contract.
+
 ## Mandatory contract for future UI
 
 Before introducing a panel or control, define its target, primary operation, empty state and selection/mixed-value behavior.
 Specify narrow layout, overflow, keyboard order, accessible names, focus, errors, Undo and persistence boundaries.
 Use existing tokens and components; a new visual role requires an update to this standard, tokens and reference preview.
+A recurring case is promoted into a named component variant with its trigger, geometry, states and behavior. A case encountered once still uses an existing pattern or receives a defined pattern before implementation. Do not accumulate temporary per-panel styling patches.
+The same rule covers menus, tooltips, color pickers, numeric fields, tree/list rows, empty/error states, dialogs, code controls and manually drawn overlays. Each delivery records coverage of every affected surface; “most controls migrated” does not establish compliance for the remaining controls.
 New panels MUST work docked and detached without duplicated state or a second custom shell.
 Keep product wording independent of implementation details unless those details help users make a decision.
 
@@ -220,6 +241,10 @@ Validate coherent UI changes in one representative delivery pass; repeat only a 
 | 1024 × 720 and 1440 × 960, Light and Dark | Stage priority, correct default right-side composition, legible content, no clipped essential controls. |
 | Keyboard and focus | Tab order, visible focus, shortcuts, numeric Enter/Escape/blur, mixed values and disabled explanations. |
 | Dense and empty content | Long names, many layers/symbols, narrow inspectors, overflow disclosure and independent scrolling. |
+| Library preview overflow | Shrink/grow across the measured threshold while preserving three list rows, preview preference and height; open the compact Preview row by keyboard, close with Escape/outside click with focus return, and restore inline preview without autoplay or horizontal overflow. |
+| Standard 280 pt inspector | X/Y and W/H remain paired after padding, disclosure indentation and a reserved scrollbar strip; longer content adapts without clipping, with full accessible names and unchanged editing behavior. |
+| Flat tabs, pointer and keyboard | Labels remain 12 pt at normal weight 400; selection has a persistent 2 pt bottom marker and 1 pt boundary in `selectionStroke`. Hover does not shift layout, the additive 2 pt focus remains distinct, full names and selected state are exposed, and overflowed tabs remain reachable. |
+| Scrollbars, Light and Dark | 12 pt strip, 8 pt thumb, 2 pt insets and 24 pt minimum length; thumb/track contrast ≥3:1 in normal, hover, drag and focus, with no content overlay or geometry jump. |
 | Menus and dialogs | Shortcut alignment, clear action names, safe cancellation, focus return and reachable primary actions. |
 | Detach → move/resize → dock → reopen | One shared state, preserved edits/caret/scroll, offscreen recovery and no authored dirty change. |
 | Retina / supported scaling | Stable logical sizes, crisp icons, fixed marker geometry and readable boundaries. |

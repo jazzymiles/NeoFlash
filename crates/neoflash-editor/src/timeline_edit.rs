@@ -1,5 +1,6 @@
 //! Transient frame selection and pointer gestures. Authored edits live in the core.
 use crate::app::{Editor, ScriptTarget};
+use crate::theme::DesignUi as _;
 use crate::timeline_paint::{ROW_HEIGHT, frame_at_x, timeline_cell_at};
 use eframe::egui::{self, Pos2, Rect, Vec2};
 use neoflash_core::{
@@ -354,7 +355,7 @@ impl Editor {
             let enabled = self.frame_range().is_some()
                 && (action != 2 || self.timeline_edit.clipboard.is_some());
             if ui
-                .add_enabled(enabled, egui::Button::new(label).shortcut_text(shortcut))
+                .add_enabled_semantic(enabled, egui::Button::new(label).shortcut_text(shortcut))
                 .clicked()
             {
                 match action {

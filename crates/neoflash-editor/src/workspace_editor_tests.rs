@@ -306,6 +306,80 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
     });
     text_editor.undo();
     assert_eq!(text_editor.project, original);
+
+    // Resizing a paired property into stacked rows preserves its live draft,
+    // not just its authored value. Enter remains the only commit here.
+    let fields_ctx = egui::Context::default();
+    crate::theme::initialize_editor_style(&fields_ctx);
+    let mut values = [3., 4.];
+    let mut render_fields = |width: f32, events| {
+        let mut responses = None;
+        let _ = fields_ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, 300.),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let [ref mut x, ref mut y] = values;
+                    responses = Some(crate::paint_controls::numeric_pair(
+                        ui,
+                        ["X", "Y"],
+                        [x, y],
+                        -1000. ..=1000.,
+                        1.,
+                    ));
+                });
+            },
+        );
+        (responses.unwrap(), values)
+    };
+    let (initial_fields, _) = render_fields(280., vec![]);
+    let field = initial_fields[0].id;
+    fields_ctx.memory_mut(|memory| memory.request_focus(field));
+    render_fields(280., vec![]);
+    let (wrapped, uncommitted) = render_fields(
+        160.,
+        vec![
+            egui::Event::Key {
+                key: egui::Key::A,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers {
+                    command: true,
+                    mac_cmd: true,
+                    ..Default::default()
+                },
+            },
+            egui::Event::Text("123".into()),
+        ],
+    );
+    assert_eq!(wrapped[0].id, field);
+    assert!(wrapped[0].has_focus());
+    assert_eq!(uncommitted[0], 3.);
+    assert_eq!(
+        fields_ctx
+            .data(|data| data.get_temp::<String>(field))
+            .as_deref(),
+        Some("123")
+    );
+    let (unwrapped, committed) = render_fields(
+        280.,
+        vec![egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert_eq!(unwrapped[0].id, field);
+    assert_eq!(committed[0], 123.);
 }
 
 #[test]

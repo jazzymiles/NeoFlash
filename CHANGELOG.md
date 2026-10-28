@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Shared native design system
+
+- Apply shared Light/Dark tokens, compact panel shells, fields and icon targets across the authoring workspace. Keep authored colors separate from editor chrome.
+- Use bounded menus with aligned shortcuts and grouped Window commands. Keep Tools paint controls and Library commands reachable while their lists scroll.
+- Organize contextual Properties and supporting panels into aligned sections; expose mixed paint values explicitly and apply each property independently.
+- Keep timeline rows and marks at fixed logical sizes, with compact onion options in narrow panels and stronger grid/overlay contrast.
+
 ## 2026-10-29 — Frame ranges and contextual panels
 
 - Select rectangular frame ranges across layers; copy, cut, paste, move, clear, insert and remove time with one Undo per operation. Include symbol-level frame scripts explicitly; code collisions reject the whole edit.

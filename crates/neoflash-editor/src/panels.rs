@@ -1,4 +1,5 @@
 use crate::app::*;
+use crate::theme::{DesignUi as _, ScrollTheme as _};
 use crate::{
     theme::{ThemeMode, UiPalette},
     timeline_paint::{ROW_HEIGHT, RULER_HEIGHT, frame_at_x, paint_tween_arrow, timeline_cell_at},
@@ -10,359 +11,302 @@ use neoflash_core::*;
 
 impl Editor {
     pub fn menu(&mut self, ctx: &egui::Context) {
+        use crate::ui_icons::{menu_item, menu_item_enabled, menu_popup, menu_toggle};
         let clipboard_target = self.clipboard_target(ctx);
         let mut edit_open = false;
         egui::TopBottomPanel::top("menu")
-            .exact_height(32.)
+            .exact_height(28.)
             .show(ctx, |ui| {
-                egui::MenuBar::new().ui(ui, |ui| {
-                    ui.strong("NeoFlash");
-                    ui.separator();
-                    ui.menu_button("File", |ui| {
-                        if ui
-                            .add(egui::Button::new("New").shortcut_text("⌘N"))
-                            .clicked()
-                        {
-                            self.request(Pending::New, ctx);
-                            ui.close();
-                        }
-                        if ui
-                            .add(egui::Button::new("Open…").shortcut_text("⌘O"))
-                            .clicked()
-                        {
-                            self.request(Pending::Open, ctx);
-                            ui.close();
-                        }
-                        if ui.button("Import legacy Flash…").clicked() {
-                            self.request(Pending::Import, ctx);
-                            ui.close();
-                        }
-                        if ui.button("Import graphics to Stage…").clicked() {
-                            self.import_graphics_dialog();
-                            ui.close();
-                        }
-                        if ui
-                            .add(egui::Button::new("Save").shortcut_text("⌘S"))
-                            .clicked()
-                        {
-                            self.save(false);
-                            ui.close();
-                        }
-                        if ui.button("Save As…").clicked() {
-                            self.save(true);
-                            ui.close();
-                        }
+                egui::MenuBar::new()
+                    .config(
+                        egui::containers::menu::MenuConfig::new()
+                            .style(crate::ui_icons::menu_style),
+                    )
+                    .ui(ui, |ui| {
+                        ui.strong("NeoFlash");
                         ui.separator();
-                        if ui.button("Publish HTML5…").clicked() {
-                            self.export(false);
-                            ui.close();
-                        }
-                        if ui.button("Open example").clicked() {
-                            self.request(Pending::Demo, ctx);
-                            ui.close();
-                        }
-                    });
-                    ui.menu_button("Edit", |ui| {
-                        edit_open = true;
-                        if !self.clipboard.menu_open
-                            || self.clipboard.menu_viewport != Some(ctx.viewport_id())
-                        {
-                            self.clipboard.menu_target = Some(clipboard_target.clone());
-                        }
-                        if ui
-                            .add_enabled(
+                        menu_popup(ui, "File", "Import graphics to Stage…", "⌘S", |ui| {
+                            if menu_item(ui, "New", "⌘N").clicked() {
+                                self.request(Pending::New, ctx);
+                                ui.close();
+                            }
+                            if menu_item(ui, "Open…", "⌘O").clicked() {
+                                self.request(Pending::Open, ctx);
+                                ui.close();
+                            }
+                            if menu_item(ui, "Import legacy Flash…", "").clicked() {
+                                self.request(Pending::Import, ctx);
+                                ui.close();
+                            }
+                            if menu_item(ui, "Import graphics to Stage…", "").clicked() {
+                                self.import_graphics_dialog();
+                                ui.close();
+                            }
+                            if menu_item(ui, "Save", "⌘S").clicked() {
+                                self.save(false);
+                                ui.close();
+                            }
+                            if menu_item(ui, "Save As…", "").clicked() {
+                                self.save(true);
+                                ui.close();
+                            }
+                            ui.separator();
+                            if menu_item(ui, "Publish HTML5…", "").clicked() {
+                                self.export(false);
+                                ui.close();
+                            }
+                            if menu_item(ui, "Open example", "").clicked() {
+                                self.request(Pending::Demo, ctx);
+                                ui.close();
+                            }
+                        });
+                        menu_popup(ui, "Edit", "Paste in Place", "Shift+⌘V", |ui| {
+                            edit_open = true;
+                            if !self.clipboard.menu_open
+                                || self.clipboard.menu_viewport != Some(ctx.viewport_id())
+                            {
+                                self.clipboard.menu_target = Some(clipboard_target.clone());
+                            }
+                            if menu_item_enabled(
+                                ui,
                                 self.history.can_undo() || self.vector.draft.is_some(),
-                                egui::Button::new("Undo").shortcut_text("⌘Z"),
+                                "Undo",
+                                "⌘Z",
                             )
                             .clicked()
-                        {
-                            self.undo();
-                            ui.close();
-                        }
-                        if ui
-                            .add_enabled(
-                                self.history.can_redo(),
-                                egui::Button::new("Redo").shortcut_text("⇧⌘Z"),
-                            )
-                            .clicked()
-                        {
-                            self.redo();
-                            ui.close();
-                        }
-                        ui.separator();
-                        let text_target = self
-                            .clipboard
-                            .menu_target
-                            .as_ref()
-                            .is_some_and(|target| target.is_text());
-                        let can_copy = text_target || !self.selection.is_empty();
-                        let can_paste = text_target || self.layer_editable();
-                        for (label, shortcut, command, enabled) in [
-                            (
-                                "Cut",
-                                "⌘X",
-                                crate::clipboard::ClipboardCommand::Cut,
-                                can_copy,
-                            ),
-                            (
-                                "Copy",
-                                "⌘C",
-                                crate::clipboard::ClipboardCommand::Copy,
-                                can_copy,
-                            ),
-                            (
-                                "Paste",
-                                "⌘V",
-                                crate::clipboard::ClipboardCommand::Paste,
-                                can_paste,
-                            ),
-                            (
-                                "Paste in Place",
-                                "⇧⌘V",
-                                crate::clipboard::ClipboardCommand::PasteInPlace,
-                                !text_target && self.layer_editable(),
-                            ),
-                        ] {
-                            if ui
-                                .add_enabled(
-                                    enabled,
-                                    egui::Button::new(label).shortcut_text(shortcut),
-                                )
-                                .clicked()
                             {
-                                self.request_clipboard(ctx, command);
+                                self.undo();
                                 ui.close();
                             }
-                        }
-                        ui.separator();
-                        if ui
-                            .add(egui::Button::new("Select All").shortcut_text("⌘A"))
-                            .clicked()
-                        {
-                            self.select_all();
-                            ui.close();
-                        }
-                        if ui
-                            .add_enabled(!self.selection.is_empty(), egui::Button::new("Deselect"))
-                            .clicked()
-                        {
-                            self.finish_edits();
-                            self.clear_selection();
-                            ui.close();
-                        }
-                        if ui
-                            .add_enabled(
-                                !self.selection.is_empty(),
-                                egui::Button::new("Duplicate").shortcut_text("⌘D"),
-                            )
-                            .clicked()
-                        {
-                            self.duplicate();
-                            ui.close();
-                        }
-                        if ui
-                            .add_enabled(!self.selection.is_empty(), egui::Button::new("Delete"))
-                            .clicked()
-                        {
-                            self.delete_selected();
-                            ui.close();
-                        }
-                    });
-                    self.modify_menu_ui(ui);
-                    ui.menu_button("Insert", |ui| {
-                        if ui
-                            .add(egui::Button::new("New Symbol…").shortcut_text("⌘F8"))
-                            .clicked()
-                        {
-                            self.begin_new_symbol();
-                            ui.close();
-                        }
-                        ui.separator();
-                        if ui
-                            .add_enabled(
-                                self.layer_editable(),
-                                egui::Button::new("Video placeholder"),
-                            )
-                            .clicked()
-                        {
-                            self.finish_edits();
-                            self.add_element(
-                                ElementKind::Video {
-                                    width: 320.,
-                                    height: 240.,
-                                },
-                                80.,
-                                80.,
-                            );
-                            ui.close();
-                        }
-                        ui.separator();
-                        if ui
-                            .add(egui::Button::new("Frame").shortcut_text("F5"))
-                            .clicked()
-                        {
-                            self.finish_edits();
-                            self.insert_frame();
-                            ui.close();
-                        }
-                        if ui
-                            .add(egui::Button::new("Keyframe").shortcut_text("F6"))
-                            .clicked()
-                        {
-                            self.finish_edits();
-                            self.make_key(false);
-                            ui.close();
-                        }
-                        if ui
-                            .add(egui::Button::new("Blank Keyframe").shortcut_text("F7"))
-                            .clicked()
-                        {
-                            self.finish_edits();
-                            self.make_key(true);
-                            ui.close();
-                        }
-                        if ui
-                            .add_enabled(
-                                self.can_convert_selection(),
-                                egui::Button::new("Convert to Symbol…").shortcut_text("F8"),
-                            )
-                            .clicked()
-                        {
-                            self.convert_to_symbol();
-                            ui.close();
-                        }
-                    });
-                    ui.menu_button("Control", |ui| {
-                        if ui
-                            .add(
-                                egui::Button::new(if self.playing { "Stop" } else { "Play" })
-                                    .shortcut_text("Enter"),
-                            )
-                            .clicked()
-                        {
-                            self.set_playing(!self.playing);
-                            ui.close();
-                        }
-                        if ui
-                            .add(egui::Button::new("Test Movie").shortcut_text("⌘Enter"))
-                            .clicked()
-                        {
-                            self.export(true);
-                            ui.close();
-                        }
-                        if ui.button("Rewind").clicked() {
-                            self.finish_edits();
-                            self.timeline_key_drag = None;
-                            self.reset_authored_preview();
-                            self.frame = 0;
-                            ui.close();
-                        }
-                    });
-                    ui.menu_button("Window", |ui| {
-                        for (name, panel) in [
-                            ("Timeline", PanelId::Timeline),
-                            ("Tools", PanelId::Tools),
-                            ("Library", PanelId::Library),
-                            ("Properties", PanelId::Properties),
-                            ("Actions", PanelId::Actions),
-                            ("Accessibility", PanelId::Accessibility),
-                            ("Output", PanelId::Output),
-                            ("Align", PanelId::Align),
-                            ("Transform", PanelId::Transform),
-                            ("Color", PanelId::Color),
-                        ] {
-                            let mut visible = self.workspace.is_panel_visible(panel);
-                            let response = ui
-                                .horizontal(|ui| {
-                                    let response = ui.checkbox(&mut visible, name);
-                                    if panel == PanelId::Actions {
-                                        ui.with_layout(
-                                            egui::Layout::right_to_left(egui::Align::Center),
-                                            |ui| {
-                                                ui.label(
-                                                    egui::RichText::new("F9")
-                                                        .color(ui.visuals().weak_text_color()),
-                                                );
-                                            },
-                                        );
-                                    }
-                                    response
-                                })
-                                .inner;
-                            if response.changed() {
-                                self.set_panel_visible(panel, visible);
-                                ui.close();
-                            }
-                        }
-                        ui.separator();
-                        for (name, panel) in [
-                            ("Tools", PanelId::Tools),
-                            ("Timeline", PanelId::Timeline),
-                            ("Library", PanelId::Library),
-                            ("Properties", PanelId::Properties),
-                            ("Actions", PanelId::Actions),
-                            ("Accessibility", PanelId::Accessibility),
-                            ("Output", PanelId::Output),
-                            ("Align", PanelId::Align),
-                            ("Transform", PanelId::Transform),
-                            ("Color", PanelId::Color),
-                        ] {
-                            let detached =
-                                self.workspace.placement(panel) == PanelPlacement::Detached;
-                            if ui
-                                .button(format!(
-                                    "{} {name}",
-                                    if detached { "Dock" } else { "Detach" }
-                                ))
+                            if menu_item_enabled(ui, self.history.can_redo(), "Redo", "Shift+⌘Z")
                                 .clicked()
                             {
-                                self.set_panel_placement(
-                                    ctx,
-                                    panel,
-                                    if detached {
-                                        PanelPlacement::Docked
-                                    } else {
-                                        PanelPlacement::Detached
+                                self.redo();
+                                ui.close();
+                            }
+                            ui.separator();
+                            let text_target = self
+                                .clipboard
+                                .menu_target
+                                .as_ref()
+                                .is_some_and(|target| target.is_text());
+                            let can_copy = text_target || !self.selection.is_empty();
+                            let can_paste = text_target || self.layer_editable();
+                            for (label, shortcut, command, enabled) in [
+                                (
+                                    "Cut",
+                                    "⌘X",
+                                    crate::clipboard::ClipboardCommand::Cut,
+                                    can_copy,
+                                ),
+                                (
+                                    "Copy",
+                                    "⌘C",
+                                    crate::clipboard::ClipboardCommand::Copy,
+                                    can_copy,
+                                ),
+                                (
+                                    "Paste",
+                                    "⌘V",
+                                    crate::clipboard::ClipboardCommand::Paste,
+                                    can_paste,
+                                ),
+                                (
+                                    "Paste in Place",
+                                    "Shift+⌘V",
+                                    crate::clipboard::ClipboardCommand::PasteInPlace,
+                                    !text_target && self.layer_editable(),
+                                ),
+                            ] {
+                                if menu_item_enabled(ui, enabled, label, shortcut).clicked() {
+                                    self.request_clipboard(ctx, command);
+                                    ui.close();
+                                }
+                            }
+                            ui.separator();
+                            if menu_item(ui, "Select All", "⌘A").clicked() {
+                                self.select_all();
+                                ui.close();
+                            }
+                            if menu_item_enabled(ui, !self.selection.is_empty(), "Deselect", "")
+                                .clicked()
+                            {
+                                self.finish_edits();
+                                self.clear_selection();
+                                ui.close();
+                            }
+                            if menu_item_enabled(ui, !self.selection.is_empty(), "Duplicate", "⌘D")
+                                .clicked()
+                            {
+                                self.duplicate();
+                                ui.close();
+                            }
+                            if menu_item_enabled(ui, !self.selection.is_empty(), "Delete", "")
+                                .clicked()
+                            {
+                                self.delete_selected();
+                                ui.close();
+                            }
+                        });
+                        self.modify_menu_ui(ui);
+                        menu_popup(ui, "Insert", "Convert to Symbol…", "⌘F8", |ui| {
+                            if menu_item(ui, "New Symbol…", "⌘F8").clicked() {
+                                self.begin_new_symbol();
+                                ui.close();
+                            }
+                            ui.separator();
+                            if menu_item_enabled(ui, self.layer_editable(), "Video placeholder", "")
+                                .clicked()
+                            {
+                                self.finish_edits();
+                                self.add_element(
+                                    ElementKind::Video {
+                                        width: 320.,
+                                        height: 240.,
                                     },
+                                    80.,
+                                    80.,
                                 );
                                 ui.close();
                             }
-                        }
-                        ui.separator();
-                        if ui.button("Restore Workspace").clicked() {
-                            self.restore_workspace(ctx);
-                            ui.close();
-                        }
-                        ui.separator();
-                        ui.label("Appearance");
-                        for (name, theme) in
-                            [("Light", ThemeMode::Light), ("Dark", ThemeMode::Dark)]
-                        {
-                            if ui.radio(self.workspace.theme == theme, name).clicked() {
-                                self.set_theme(ctx, theme);
+                            ui.separator();
+                            if menu_item(ui, "Frame", "F5").clicked() {
+                                self.finish_edits();
+                                self.insert_frame();
                                 ui.close();
                             }
-                        }
-                        ui.separator();
-                        if ui.button("About NeoFlash").clicked() {
-                            self.show_about = true;
-                            ui.close();
-                        }
-                    });
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .add(IconButton::new(Icon::External, "Test Movie").text())
+                            if menu_item(ui, "Keyframe", "F6").clicked() {
+                                self.finish_edits();
+                                self.make_key(false);
+                                ui.close();
+                            }
+                            if menu_item(ui, "Blank Keyframe", "F7").clicked() {
+                                self.finish_edits();
+                                self.make_key(true);
+                                ui.close();
+                            }
+                            if menu_item_enabled(
+                                ui,
+                                self.can_convert_selection(),
+                                "Convert to Symbol…",
+                                "F8",
+                            )
                             .clicked()
-                        {
-                            self.export(true);
-                        }
-                        ui.label(
-                            egui::RichText::new("CLASSIC WORKSPACE")
-                                .small()
-                                .color(UiPalette::current(ctx).muted_text),
-                        );
+                            {
+                                self.convert_to_symbol();
+                                ui.close();
+                            }
+                        });
+                        menu_popup(ui, "Control", "Test Movie", "⌘Enter", |ui| {
+                            if menu_item(ui, if self.playing { "Stop" } else { "Play" }, "Enter")
+                                .clicked()
+                            {
+                                self.set_playing(!self.playing);
+                                ui.close();
+                            }
+                            if menu_item(ui, "Test Movie", "⌘Enter").clicked() {
+                                self.export(true);
+                                ui.close();
+                            }
+                            if menu_item(ui, "Rewind", "").clicked() {
+                                self.finish_edits();
+                                self.timeline_key_drag = None;
+                                self.reset_authored_preview();
+                                self.frame = 0;
+                                ui.close();
+                            }
+                        });
+                        menu_popup(ui, "Window", "Restore Workspace", "F9", |ui| {
+                            let panels = [
+                                ("Timeline", PanelId::Timeline),
+                                ("Tools", PanelId::Tools),
+                                ("Library", PanelId::Library),
+                                ("Properties", PanelId::Properties),
+                                ("Actions", PanelId::Actions),
+                                ("Accessibility", PanelId::Accessibility),
+                                ("Output", PanelId::Output),
+                                ("Align", PanelId::Align),
+                                ("Transform", PanelId::Transform),
+                                ("Color", PanelId::Color),
+                            ];
+                            for (name, panel) in panels {
+                                let mut visible = self.workspace.is_panel_visible(panel);
+                                if menu_toggle(
+                                    ui,
+                                    &mut visible,
+                                    name,
+                                    if panel == PanelId::Actions { "F9" } else { "" },
+                                )
+                                .changed()
+                                {
+                                    self.set_panel_visible(panel, visible);
+                                    ui.close();
+                                }
+                            }
+                            ui.separator();
+                            for (label, placement, target) in [
+                                (
+                                    "Detach Panel",
+                                    PanelPlacement::Docked,
+                                    PanelPlacement::Detached,
+                                ),
+                                (
+                                    "Dock Panel",
+                                    PanelPlacement::Detached,
+                                    PanelPlacement::Docked,
+                                ),
+                            ] {
+                                let any = panels.iter().any(|(_, panel)| {
+                                    self.workspace.placement(*panel) == placement
+                                });
+                                ui.add_enabled_ui_semantic(any, |ui| {
+                                    menu_popup(ui, label, "Accessibility", "", |ui| {
+                                        for (name, panel) in panels {
+                                            if self.workspace.placement(panel) == placement
+                                                && menu_item(ui, name, "").clicked()
+                                            {
+                                                self.set_panel_placement(ctx, panel, target);
+                                                ui.close();
+                                            }
+                                        }
+                                    })
+                                });
+                            }
+                            if menu_item(ui, "Restore Workspace", "").clicked() {
+                                self.restore_workspace(ctx);
+                                ui.close();
+                            }
+                            ui.separator();
+                            menu_popup(ui, "Appearance", "Light", "", |ui| {
+                                for (name, theme) in
+                                    [("Light", ThemeMode::Light), ("Dark", ThemeMode::Dark)]
+                                {
+                                    let mut selected = self.workspace.theme == theme;
+                                    if menu_toggle(ui, &mut selected, name, "").clicked() {
+                                        self.set_theme(ctx, theme);
+                                        ui.close();
+                                    }
+                                }
+                            });
+                            if menu_item(ui, "About NeoFlash", "").clicked() {
+                                self.show_about = true;
+                                ui.close();
+                            }
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .add(IconButton::new(Icon::External, "Test Movie").text())
+                                .clicked()
+                            {
+                                self.export(true);
+                            }
+                            ui.label(
+                                egui::RichText::new("CLASSIC WORKSPACE")
+                                    .small()
+                                    .color(UiPalette::current(ctx).muted_text),
+                            );
+                        });
                     });
-                });
             });
         if edit_open {
             self.clipboard.menu_open = true;
@@ -450,22 +394,22 @@ impl Editor {
         let mut cancel_rename = false;
         let previous_cell = self.timeline_cell;
         let timeline_width = ui.available_width();
-        let maximum_layer_width = (timeline_width - 100.).clamp(170., 600.);
+        let maximum_layer_width = (timeline_width - 100.).clamp(140., 320.);
         let mut layer_column_width = self
             .workspace
             .sizes
             .layer_column_width
-            .clamp(170., maximum_layer_width);
+            .clamp(140., maximum_layer_width);
         ui.scope_builder(egui::UiBuilder::new().id(id), |ui| {
             // Keep a usable frame canvas and footer even in the smallest native
             // Timeline window. Overflowing header controls remain scrollable.
             ui.spacing_mut().scroll.floating = false;
-            ui.spacing_mut().item_spacing.x = 4.;
-            ui.style_mut().override_font_id = Some(FontId::proportional(11.));
+            ui.spacing_mut().item_spacing = Vec2::new(4., 0.);
+            ui.style_mut().override_font_id = Some(FontId::proportional(crate::theme::PANEL_FONT));
             egui::ScrollArea::horizontal()
                 .id_salt("timeline_header")
                 .auto_shrink([false, true])
-                .show(ui, |ui| {
+                .themed().show(ui, |ui| {
             ui.horizontal(|ui| {
                 self.panel_title(ui, PanelId::Timeline, "Timeline");
                 ui.separator();
@@ -517,12 +461,11 @@ impl Editor {
             }
             let button_states = self.symbol().kind == SymbolKind::Button;
             let cell_width = if button_states { 64. } else { self.timeline_cell };
-            ui.separator();
             // The frame canvas may be much wider than the viewport. Freeze the
             // toolbar width before allocating it so scrolling frames cannot
             // widen the controls. Small windows keep a bounded, scrollable footer.
             let timeline_width = ui.available_width();
-            let desired_footer: f32 = if timeline_width < 800. { 60. } else { 30. };
+            let desired_footer: f32 = crate::theme::FOOTER_HEIGHT;
             let footer =
                 desired_footer.min((ui.available_height() - RULER_HEIGHT - 25. - 10.).max(24.));
             let height =
@@ -545,7 +488,7 @@ impl Editor {
             if let Some(drag)=&mut resize && let Some(position)=pointer {
                 drag.moved |= (position.x-drag.start.x).abs()>0.5;
                 if drag.moved {
-                    layer_column_width=(drag.width + position.x - drag.start.x).clamp(170.,maximum_layer_width);
+                    layer_column_width=(drag.width + position.x - drag.start.x).clamp(140.,maximum_layer_width);
                     self.workspace.sizes.layer_column_width=layer_column_width;
                     ctx.request_repaint();
                 }
@@ -576,7 +519,7 @@ impl Editor {
                 .min_scrolled_height(25.)
                 .max_height(height)
                 .auto_shrink([false, false])
-                .show(ui, |ui| {
+                .themed().show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 0.;
                     ui.horizontal_top(|ui| {
                         ui.allocate_ui_with_layout(
@@ -606,7 +549,7 @@ impl Editor {
                                                 let field = ui.put(name_rect,
                                                     egui::TextEdit::singleline(&mut draft.text)
                                                         .id(ui.id().with(("layer-name", &layer.id)))
-                                                        .font(FontId::proportional(11.))
+                                                        .font(FontId::proportional(crate::theme::PANEL_FONT))
                                                         .hint_text("Layer name"));
                                                 if draft.focus {
                                                     field.request_focus();
@@ -639,7 +582,7 @@ impl Editor {
                                                 }
                                                 let label_rect = Rect::from_min_max(name_rect.min + Vec2::new(15. + indent, 0.), name_rect.max);
                                                 let response = ui.put(label_rect,
-                                                    egui::Button::new((egui::RichText::new(&layer.name).size(11.), egui::Atom::grow()))
+                                                    egui::Button::new((egui::RichText::new(&layer.name).size(crate::theme::PANEL_FONT), egui::Atom::grow()))
                                                         .min_size(label_rect.size()).truncate().selected(idx == self.layer).frame(false).sense(Sense::click_and_drag()));
                                                 if !cancelled && resize.is_none() && let Some(start)=pressed.filter(|point| label_rect.contains(*point) && ui.clip_rect().contains(*point) && ui.is_enabled() && ctx.layer_id_at(*point)==Some(ui.layer_id())) {
                                                     self.finish_edits();self.timeline_key_drag=None;self.layer=idx;self.clear_selection();
@@ -657,11 +600,14 @@ impl Editor {
                                                     ui.ctx().request_repaint();
                                                 }
                                                 response.on_hover_text("Drag to reorder. Double-click to rename layer").context_menu(|ui| {
+                                    crate::ui_icons::menu_contents(ui, 280., |ui| {
                                                     if self.timeline_layer_menu(ui, idx) {
                                                         rename = Some(LayerRename { layer: layer.id.clone(), text: layer.name.clone(), focus: true });
                                                         ui.ctx().request_repaint();
                                                     }
-                                                });
+
+                                    });
+                                });
                                             }
                                             if ui
                                                 .add(
@@ -728,7 +674,7 @@ impl Editor {
                             .scroll_source(scroll_source)
                             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                             .auto_shrink([false, false])
-                            .show(ui, |ui| {
+                            .themed().show(ui, |ui| {
                                 let width = ((if button_states { count.saturating_add(1) } else { count.saturating_add(4).max(72) }) as f32 * cell_width)
                                     .max(ui.available_width());
                                 let (rect, response) = ui.allocate_exact_size(
@@ -849,7 +795,7 @@ impl Editor {
                                                 Pos2::new(x + 8., y + 2.),
                                                 Align2::LEFT_TOP,
                                                 &key.label,
-                                                FontId::proportional(9.),
+                                                FontId::proportional(crate::theme::SECONDARY_FONT),
                                                 palette.timeline_label,
                                             );
                                         }
@@ -916,21 +862,22 @@ impl Editor {
                                     || response.interact_pointer_pos().is_some_and(|pos| timeline_cell_at(pos, rect.min, cell_width, count, layers.len()).is_some())
                                 {
                                 response.context_menu(|ui| {
+                                    crate::ui_icons::menu_contents(ui, 280., |ui| {
                                     ui.label(format!("{} · Frame {}", self.symbol().timeline.layers[self.layer].name, self.frame + 1));
                                     ui.separator();
                                     self.frame_range_menu(ui);
-                                    if ui.add_enabled(self.layer_editable(), egui::Button::new("Insert Keyframe").shortcut_text("F6")).clicked() {
+                                    if ui.add_enabled_semantic(self.layer_editable(), egui::Button::new("Insert Keyframe").shortcut_text("F6")).clicked() {
                                         self.finish_edits();
                                         self.make_key(false);
                                         ui.close();
                                     }
-                                    if ui.add_enabled(self.layer_editable(), egui::Button::new("Insert Blank Keyframe").shortcut_text("F7")).clicked() {
+                                    if ui.add_enabled_semantic(self.layer_editable(), egui::Button::new("Insert Blank Keyframe").shortcut_text("F7")).clicked() {
                                         self.finish_edits();
                                         self.make_key(true);
                                         ui.close();
                                     }
                                     if ui
-                                        .add_enabled(
+                                        .add_enabled_semantic(
                                             self.layer_editable(),
                                             egui::Button::new("Create Classic Tween"),
                                         )
@@ -952,6 +899,8 @@ impl Editor {
                                         self.open_frame_actions();
                                         ui.close();
                                     }
+
+                                    });
                                 });
                                 }
                             });
@@ -1039,12 +988,12 @@ impl Editor {
                         + crate::timeline_paint::LAYER_COLUMN_GAP
                         + crate::timeline_paint::LAYER_CONTROL_WIDTH / 2.
                         + column as f32 * (crate::timeline_paint::LAYER_CONTROL_WIDTH + crate::timeline_paint::LAYER_COLUMN_GAP), header.center().y);
-                    let rect = Rect::from_center_size(center, Vec2::splat(14.));
-                    crate::ui_icons::paint_icon(ui.painter(), rect, icon, Stroke::new(1.0_f32, palette.muted_text));
+                    let rect = Rect::from_center_size(center, Vec2::splat(crate::theme::ICON_SIZE));
+                    crate::ui_icons::paint_icon(ui.painter(), rect, icon, Stroke::new(crate::theme::ICON_STROKE, palette.muted_text));
                     ui.interact(rect, ui.id().with(("layer-column", column)), Sense::hover()).on_hover_text(label);
                 }
-                let outline_header = Rect::from_center_size(Pos2::new(header.left() + layer_column_width - crate::timeline_paint::LAYER_CONTROL_WIDTH / 2., header.center().y), Vec2::splat(10.));
-                ui.painter().rect_stroke(outline_header, 0, Stroke::new(1.0_f32, palette.muted_text), egui::StrokeKind::Inside);
+                let outline_header = Rect::from_center_size(Pos2::new(header.left() + layer_column_width - crate::timeline_paint::LAYER_CONTROL_WIDTH / 2., header.center().y), Vec2::splat(crate::theme::ICON_SIZE));
+                ui.painter().rect_stroke(outline_header, 0, Stroke::new(crate::theme::ICON_STROKE, palette.muted_text), egui::StrokeKind::Inside);
                 ui.interact(outline_header, ui.id().with("layer-outline-column"), Sense::hover()).on_hover_text("Layer outline and color");
                 let first = (((ruler.left() - grid_rect.left()) / cell_width).max(0.)
                     as u32)
@@ -1061,7 +1010,7 @@ impl Editor {
                             Pos2::new(x + cell_width / 2., ruler.bottom() - 6.),
                             Align2::CENTER_CENTER,
                             if button_states { crate::authoring_symbols::BUTTON_STATES.get(f as usize).unwrap_or(&"—").to_string() } else { (f + 1).to_string() },
-                            FontId::proportional(10.),
+                            FontId::proportional(crate::theme::SECONDARY_FONT),
                             palette.muted_text,
                         );
                     }
@@ -1071,19 +1020,19 @@ impl Editor {
                 for f in first..last {
                     if !button_states && f.is_multiple_of(fps) && (f / fps).is_multiple_of(seconds_step) {
                         let x = grid_rect.left() + f as f32 * cell_width;
-                        p.text(Pos2::new(x + 3., ruler.top() + 5.), Align2::LEFT_CENTER, format!("{}s", f / fps), FontId::proportional(9.), palette.muted_text);
+                        p.text(Pos2::new(x + 3., ruler.top() + 5.), Align2::LEFT_CENTER, format!("{}s", f / fps), FontId::proportional(crate::theme::SECONDARY_FONT), palette.muted_text);
                     }
                 }
                 // Frame scripts belong to the whole timeline, so their markers
                 // live in the ruler rather than in the first authored layer.
                 for script in &self.symbol().timeline.scripts {
                     let x = grid_rect.left() + (script.frame as f32 + 0.5) * cell_width;
-                    p.text(Pos2::new(x, ruler.top() + 1.), Align2::CENTER_TOP, "a", FontId::monospace(9.), palette.timeline_script);
+                    p.text(Pos2::new(x, ruler.top() + 1.), Align2::CENTER_TOP, "a", FontId::monospace(crate::theme::SECONDARY_FONT), palette.timeline_script);
                 }
                 let end_x = grid_rect.left() + count as f32 * cell_width;
                 if end_x >= ruler.left() && end_x <= ruler.right() {
                     p.line_segment([Pos2::new(end_x, ruler.top()), Pos2::new(end_x, ruler.bottom())], Stroke::new(1.5_f32, palette.border));
-                    p.text(Pos2::new(end_x + 5., ruler.center().y), Align2::LEFT_CENTER, "End", FontId::proportional(10.), palette.muted_text);
+                    p.text(Pos2::new(end_x + 5., ruler.center().y), Align2::LEFT_CENTER, "End", FontId::proportional(crate::theme::SECONDARY_FONT), palette.muted_text);
                 }
                 let response =
                     ui.interact(ruler, ui.id().with("ruler_seek"), Sense::click_and_drag());
@@ -1166,14 +1115,14 @@ impl Editor {
                 |ui| {
                     ui.set_max_width(timeline_width);
                     ui.spacing_mut().scroll.floating = false;
-                    egui::ScrollArea::vertical()
+                    egui::ScrollArea::horizontal()
                         .id_salt("timeline_toolbar")
                         .max_height(footer)
-                        .min_scrolled_height(footer)
+                        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
                         .auto_shrink([false, false])
-                        .show(ui, |ui| {
+                        .themed().show(ui, |ui| {
                             ui.set_max_width(ui.available_width().min(timeline_width));
-                            ui.horizontal_wrapped(|ui| {
+                            ui.horizontal(|ui| {
                                 if ui
                                     .add(IconButton::new(Icon::Plus, "Add layer"))
                                     .clicked()
@@ -1198,7 +1147,7 @@ impl Editor {
                                     });
                                 }
                                 if ui
-                                    .add_enabled(
+                                    .add_enabled_semantic(
                                         self.symbol().timeline.layers.len() > 1,
                                         IconButton::new(Icon::Trash, "Delete selected layer"),
                                     )
@@ -1232,12 +1181,35 @@ impl Editor {
                                     self.set_playing(!self.playing);
                                 }
                                 ui.separator();
-                                if ui.button("Actions · F9").on_hover_text("Edit the selected frame script").clicked() {
+                                if ui.button("Actions").on_hover_text("Edit the selected frame script").clicked() {
                                     self.open_frame_actions();
                                 }
                                 ui.separator();
-                                ui.checkbox(&mut self.onion, "Onion Skin");
-                                ui.checkbox(&mut self.onion_outlines, "Outlines");
+                                ui.checkbox(&mut self.onion, if timeline_width < 960. { "Onion" } else { "Onion Skin" });
+                                if timeline_width < 960. {
+                                    let options = ui.menu_button("…", |ui| {
+                    crate::ui_icons::menu_contents(ui, 240., |ui| {
+
+
+                                        ui.checkbox(&mut self.onion_outlines, "Outlines");
+                                        crate::paint_controls::property_row(ui, "Before", |ui| { ui.add(egui::DragValue::new(&mut self.onion_before).range(0..=120).suffix(" fr")); });
+                                        crate::paint_controls::property_row(ui, "After", |ui| { ui.add(egui::DragValue::new(&mut self.onion_after).range(0..=120).suffix(" fr")); });
+                                        if ui.checkbox(&mut self.onion_anchor, "Anchor").changed() {
+                                            self.anchored_range = (self.frame.saturating_sub(self.onion_before), (self.frame+self.onion_after).min(self.symbol().timeline.frame_count-1));
+                                        }
+                                        crate::paint_controls::property_row(ui, "Opacity", |ui| {
+                                            crate::theme::timeline_controls(ui, |ui| {
+                                                ui.spacing_mut().slider_width=96.;
+                                                let response = ui.add(egui::Slider::new(&mut self.onion_opacity,0.05..=0.7).show_value(true));
+                                                response.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), self.onion_opacity as f64, "Onion opacity"));
+                                            });
+                                        });
+
+                    });
+                }).response.on_hover_text("Onion skin: outlines, before/after range, anchor and opacity");
+                                    options.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Onion skin options"));
+                                } else {
+ui.checkbox(&mut self.onion_outlines, "Outlines");
                                 ui.allocate_ui_with_layout(
                                     Vec2::new(76., 24.),
                                     egui::Layout::left_to_right(egui::Align::Center),
@@ -1285,6 +1257,7 @@ impl Editor {
                                         });
                                     },
                                 );
+                                }
                             });
                         });
                 },
@@ -1358,108 +1331,135 @@ impl Editor {
             self.clipboard.session.clone(),
         );
         ui.scope_builder(egui::UiBuilder::new().id(id), |ui| {
-            self.panel_title(ui, PanelId::Tools, "Tools");
-            ui.separator();
+            ui.spacing_mut().item_spacing = Vec2::splat(4.);
+            ui.spacing_mut().scroll.floating = false;
+            // Keep paint defaults reachable while only the tool grid scrolls.
+            let grid_height = (ui.available_height() - 84.).max(24.);
             egui::ScrollArea::vertical()
                 .id_salt("tool_controls")
+                .max_height(grid_height)
+                .min_scrolled_height(grid_height)
                 .auto_shrink([false, false])
+                .themed()
                 .show(ui, |ui| {
-                    let tools = [
-                        (Tool::Select, Icon::Select, "Selection (V)"),
-                        (Tool::Subselect, Icon::Subselect, "Subselection (A)"),
-                        (Tool::Transform, Icon::Transform, "Free Transform (Q)"),
-                        (Tool::Gradient, Icon::Gradient, "Gradient Transform (F)"),
-                        (Tool::Lasso, Icon::Lasso, "Lasso (L)"),
-                        (Tool::Pen, Icon::Pen, "Pen (P)"),
-                        (Tool::Text, Icon::Text, "Text (T)"),
-                        (Tool::Line, Icon::Line, "Line (N)"),
-                        (Tool::Rectangle, Icon::Rectangle, "Rectangle (R)"),
-                        (Tool::Ellipse, Icon::Ellipse, "Oval (O)"),
-                        (Tool::Pencil, Icon::Pencil, "Pencil (Y)"),
-                        (Tool::Brush, Icon::Brush, "Brush (B)"),
-                        (Tool::Ink, Icon::Ink, "Ink Bottle (S)"),
-                        (Tool::Bucket, Icon::Bucket, "Paint Bucket (K)"),
-                        (Tool::Eyedropper, Icon::Eyedropper, "Eyedropper (I)"),
-                        (Tool::Eraser, Icon::Eraser, "Eraser (E)"),
-                        (Tool::Hand, Icon::Hand, "Hand (H / hold Space)"),
-                        (Tool::Zoom, Icon::ZoomIn, "Zoom (Z / M)"),
+                    type ToolEntry = (Tool, Icon, &'static str);
+                    type ToolGroup = (&'static str, &'static [ToolEntry]);
+                    let groups: &[ToolGroup] = &[
+                        (
+                            "Select",
+                            &[
+                                (Tool::Select, Icon::Select, "Selection (V)"),
+                                (Tool::Subselect, Icon::Subselect, "Subselection (A)"),
+                                (Tool::Transform, Icon::Transform, "Free Transform (Q)"),
+                                (Tool::Lasso, Icon::Lasso, "Lasso (L)"),
+                            ],
+                        ),
+                        (
+                            "Draw",
+                            &[
+                                (Tool::Pen, Icon::Pen, "Pen (P)"),
+                                (Tool::Text, Icon::Text, "Text (T)"),
+                                (Tool::Line, Icon::Line, "Line (N)"),
+                                (Tool::Rectangle, Icon::Rectangle, "Rectangle (R)"),
+                                (Tool::Ellipse, Icon::Ellipse, "Oval (O)"),
+                                (Tool::Pencil, Icon::Pencil, "Pencil (Y)"),
+                                (Tool::Brush, Icon::Brush, "Brush (B)"),
+                                (Tool::Ink, Icon::Ink, "Ink Bottle (S)"),
+                                (Tool::Bucket, Icon::Bucket, "Paint Bucket (K)"),
+                                (Tool::Eyedropper, Icon::Eyedropper, "Eyedropper (I)"),
+                                (Tool::Eraser, Icon::Eraser, "Eraser (E)"),
+                                (Tool::Gradient, Icon::Gradient, "Gradient Transform (F)"),
+                            ],
+                        ),
+                        (
+                            "View",
+                            &[
+                                (Tool::Hand, Icon::Hand, "Hand (H / hold Space)"),
+                                (Tool::Zoom, Icon::ZoomIn, "Zoom (Z / M)"),
+                            ],
+                        ),
                     ];
-                    let columns =
-                        ((ui.available_width() + 4.) / 36.).floor().clamp(1., 2.) as usize;
-                    for row in tools.chunks(columns) {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 4.;
-                            for &(tool, icon, hint) in row {
-                                if ui
-                                    .add(
-                                        IconButton::new(icon, hint)
-                                            .selected(self.tool == tool)
-                                            .size(Vec2::new(32., 30.)),
-                                    )
-                                    .clicked()
-                                {
-                                    self.set_tool(tool);
+                    for (label, tools) in groups {
+                        ui.label(
+                            egui::RichText::new(*label)
+                                .size(crate::theme::SECONDARY_FONT)
+                                .color(UiPalette::current(ui.ctx()).muted_text),
+                        );
+                        for row in tools.chunks(2) {
+                            ui.horizontal(|ui| {
+                                for &(tool, icon, hint) in row {
+                                    if ui
+                                        .add(
+                                            IconButton::new(icon, hint)
+                                                .selected(self.tool == tool)
+                                                .size(Vec2::splat(crate::theme::CONTROL_HEIGHT)),
+                                        )
+                                        .clicked()
+                                    {
+                                        self.set_tool(tool);
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        }
                     }
-                    ui.separator();
-                    self.authoring_tool_options(ui);
-                    if ui.available_width() >= 170. {
-                        crate::paint_controls::paint_row(ui, "tool-fill", "Fill", &mut self.fill);
-                        crate::paint_controls::paint_row(
-                            ui,
-                            "tool-stroke",
-                            "Stroke",
-                            &mut self.stroke,
-                        );
-                        crate::paint_controls::numeric_row(
-                            ui,
-                            "Stroke width",
-                            &mut self.stroke_width,
-                            0. ..=100.,
-                            0.25,
-                        );
-                    } else {
-                        crate::paint_controls::compact_paint(
-                            ui,
-                            "tool-fill",
-                            "Fill",
-                            &mut self.fill,
-                        );
-                        crate::paint_controls::compact_paint(
-                            ui,
-                            "tool-stroke",
-                            "Stroke",
-                            &mut self.stroke,
-                        );
-                        ui.small("Width");
-                        ui.add_sized(
-                            [ui.available_width(), crate::theme::CONTROL_HEIGHT],
-                            egui::DragValue::new(&mut self.stroke_width)
-                                .range(0. ..=100.)
-                                .speed(0.25)
-                                .max_decimals(2)
-                                .suffix("px"),
-                        )
-                        .on_hover_text("Stroke width; 0 disables the stroke");
-                    }
-                    ui.add_space(8.);
-                    ui.small("View");
-                    if ui.add(IconButton::new(Icon::ZoomIn, "Zoom in")).clicked() {
-                        self.finish_edits();
-                        self.zoom = (self.zoom * 1.25).min(4.);
-                    }
-                    if ui.add(IconButton::new(Icon::ZoomOut, "Zoom out")).clicked() {
-                        self.finish_edits();
-                        self.zoom = (self.zoom / 1.25).max(0.1);
-                    }
-                    if ui.add(IconButton::new(Icon::Fit, "Fit stage")).clicked() {
-                        self.finish_edits();
-                        self.zoom = 0.;
-                        self.pan = Vec2::ZERO;
-                    }
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add(
+                                IconButton::new(Icon::ZoomOut, "Zoom out")
+                                    .size(Vec2::splat(crate::theme::CONTROL_HEIGHT)),
+                            )
+                            .clicked()
+                        {
+                            self.finish_edits();
+                            self.zoom = (self.zoom / 1.25).max(0.1);
+                        }
+                        if ui
+                            .add(
+                                IconButton::new(Icon::Fit, "Fit stage")
+                                    .size(Vec2::splat(crate::theme::CONTROL_HEIGHT)),
+                            )
+                            .clicked()
+                        {
+                            self.finish_edits();
+                            self.zoom = 0.;
+                            self.pan = Vec2::ZERO;
+                        }
+                    });
                 });
+            ui.separator();
+            ui.horizontal(|ui| {
+                for (name, color) in [("Fill", &mut self.fill), ("Stroke", &mut self.stroke)] {
+                    ui.vertical(|ui| {
+                        ui.label(egui::RichText::new(name).size(crate::theme::SECONDARY_FONT));
+                        let mut rgb = [color[0], color[1], color[2]];
+                        let response = ui.color_edit_button_srgb(&mut rgb).on_hover_text(format!(
+                            "{name} color; alpha and width in Tool properties"
+                        ));
+                        response.widget_info(|| {
+                            egui::WidgetInfo::labeled(
+                                egui::WidgetType::ColorButton,
+                                ui.is_enabled(),
+                                format!("Tool {name} color"),
+                            )
+                        });
+                        if response.changed() {
+                            color[..3].copy_from_slice(&rgb);
+                        }
+                    });
+                }
+            });
+            if ui
+                .add_sized(
+                    [ui.available_width(), crate::theme::CONTROL_HEIGHT],
+                    egui::Button::new("Options"),
+                )
+                .on_hover_text("Tool properties: paint alpha, stroke width and tool options")
+                .clicked()
+            {
+                ui.ctx()
+                    .data_mut(|data| data.insert_temp(egui::Id::new("properties-tool-tab"), true));
+                self.show_panel(PanelId::Properties);
+            }
         });
     }
     #[cfg(test)]
@@ -1480,6 +1480,7 @@ impl Editor {
                 egui::ScrollArea::vertical()
                     .id_salt("property_contents")
                     .auto_shrink([false, false])
+                    .themed()
                     .show(ui, |ui| self.properties(ui, &ctx));
             }
             PanelId::Actions => self.actions_contents(ui),
@@ -1487,6 +1488,7 @@ impl Editor {
                 egui::ScrollArea::vertical()
                     .id_salt("accessibility_contents")
                     .auto_shrink([false, false])
+                    .themed()
                     .show(ui, |ui| self.accessibility_panel(ui));
             }
             PanelId::Output => {
@@ -1494,9 +1496,14 @@ impl Editor {
                     .auto_shrink([false, false])
                     .id_salt("output_contents")
                     .stick_to_bottom(true)
+                    .themed()
                     .show(ui, |ui| {
                         for line in &self.output {
-                            ui.monospace(line);
+                            ui.add(egui::Label::new(
+                                egui::RichText::new(line)
+                                    .monospace()
+                                    .size(crate::theme::PANEL_FONT),
+                            ));
                         }
                     });
             }
@@ -1539,86 +1546,15 @@ impl Editor {
         ui.scope_builder(egui::UiBuilder::new().id(id), |ui| self.actions_body(ui));
     }
     fn actions_body(&mut self, ui: &mut egui::Ui) {
-        ui.add(
-            egui::Label::new(egui::RichText::new(&self.symbol().name).strong())
-                .halign(egui::Align::Min)
-                .truncate(),
-        )
-        .on_hover_text(&self.symbol().name);
         let has_frame_script =
             self.symbol().timeline.scripts.iter().any(|script| {
                 script.frame == self.frame && !script.script.source.trim().is_empty()
             });
-        egui::ScrollArea::horizontal()
-            .id_salt("actions-targets")
-            .auto_shrink([false, true])
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(
-                        &mut self.script_target,
-                        ScriptTarget::Frame,
-                        format!(
-                            "Frame {}{}",
-                            self.frame + 1,
-                            if has_frame_script { " · script" } else { "" }
-                        ),
-                    )
-                    .on_hover_text("Frame scripts are shared across this symbol's layers.");
-                    ui.add_enabled_ui(self.selected_editable(), |ui| {
-                        ui.selectable_value(
-                            &mut self.script_target,
-                            ScriptTarget::Object,
-                            "Object",
-                        );
-                    });
-                    ui.selectable_value(
-                        &mut self.script_target,
-                        ScriptTarget::Source,
-                        "Project files",
-                    );
-                });
-            });
-        if self.script_target == ScriptTarget::Object {
-            crate::paint_controls::property_row(ui, "Event", |ui| {
-                egui::ComboBox::from_id_salt("event")
-                    .width(ui.available_width())
-                    .selected_text(format!("{:?}", self.script_event))
-                    .show_ui(ui, |ui| {
-                        for event in [
-                            ObjectEvent::Click,
-                            ObjectEvent::Load,
-                            ObjectEvent::EnterFrame,
-                        ] {
-                            ui.selectable_value(
-                                &mut self.script_event,
-                                event,
-                                format!("{event:?}"),
-                            );
-                        }
-                    });
-            });
-        }
-        if self.script_target == ScriptTarget::Source {
-            self.project_sources(ui);
-            return;
-        }
-        if self.script_target == ScriptTarget::Object && !self.selected_editable() {
-            if self.selection.len() > 1 {
-                ui.strong(format!("{} objects selected", self.selection.len()));
-            }
-            ui.label("Select one editable object to edit its actions, or select Frame above.");
-            return;
-        }
-        if self.symbol().kind == SymbolKind::Button
-            && self.script_target == ScriptTarget::Frame
-            && !has_frame_script
-        {
-            ui.label("Button states contain artwork. Attach actions to the named Button instance on its parent timeline, or use its linked class in Project files.");
-            return;
-        }
         let object_id = self.selected_element().map(|element| element.id.clone());
+        let target_before = self.script_target;
+        let event_before = self.script_event;
         let original = match self.script_target {
-            ScriptTarget::Source => unreachable!("Project files use their own editor"),
+            ScriptTarget::Source => None,
             ScriptTarget::Frame => self
                 .symbol()
                 .timeline
@@ -1633,53 +1569,187 @@ impl Editor {
         }
         .unwrap_or_default();
         let mut script = original.clone();
+        let context = match self.script_target {
+            ScriptTarget::Frame => format!(
+                "{} · Frame {}{}",
+                self.symbol().name,
+                self.frame + 1,
+                if has_frame_script { " · script" } else { "" }
+            ),
+            ScriptTarget::Object => format!(
+                "{} · {} · {:?}",
+                self.symbol().name,
+                self.selected_element()
+                    .map_or("Object", |e| e.name.as_str()),
+                self.script_event
+            ),
+            ScriptTarget::Source => "Project files".to_owned(),
+        };
         ui.horizontal(|ui| {
-            let language_width = (ui.available_width() - 88.).clamp(64., 160.);
-            let label = match script.language {
-                ScriptLanguage::JavaScript => "JavaScript",
-                ScriptLanguage::TypeScript => "TypeScript",
-                ScriptLanguage::ActionScript1 => "AS1 (legacy)",
-                ScriptLanguage::ActionScript2 => "AS2",
-                ScriptLanguage::ActionScript3 => "AS3",
+            let language_width = 82.;
+            let command_width = crate::theme::CONTROL_HEIGHT;
+            let gap = ui.spacing().item_spacing.x;
+            let target_width = if self.script_target == ScriptTarget::Source {
+                ui.available_width()
+            } else {
+                (ui.available_width() - language_width - command_width - 2. * gap).max(40.)
             };
-            egui::ComboBox::from_id_salt("language")
-                .width(language_width)
-                .selected_text(label)
-                .show_ui(ui, |ui| {
-                    for (language, label) in [
-                        (ScriptLanguage::JavaScript, "JavaScript"),
-                        (ScriptLanguage::TypeScript, "TypeScript"),
-                        (ScriptLanguage::ActionScript1, "AS1 (legacy)"),
-                        (ScriptLanguage::ActionScript2, "AS2"),
-                        (ScriptLanguage::ActionScript3, "AS3"),
-                    ] {
-                        ui.selectable_value(&mut script.language, language, label);
-                    }
-                });
-            if ui
-                .add_sized(
-                    [82., crate::theme::CONTROL_HEIGHT],
-                    egui::Button::new("Check script"),
-                )
-                .clicked()
-            {
-                self.check_action_source(&script);
+            // ComboBox::width is a minimum, not a maximum: constrain each cell
+            // before laying out long target or language names.
+            ui.allocate_ui_with_layout(
+                Vec2::new(target_width, crate::theme::CONTROL_HEIGHT),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.set_width(target_width);
+                    egui::ComboBox::from_id_salt("actions_target")
+                        .width(target_width)
+                        .truncate()
+                        .selected_text(&context)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.script_target,
+                                ScriptTarget::Frame,
+                                format!("Frame {}", self.frame + 1),
+                            );
+                            ui.add_enabled_ui_semantic(self.selected_editable(), |ui| {
+                                ui.selectable_value(
+                                    &mut self.script_target,
+                                    ScriptTarget::Object,
+                                    "Selected object",
+                                );
+                            });
+                            ui.selectable_value(
+                                &mut self.script_target,
+                                ScriptTarget::Source,
+                                "Project files",
+                            );
+                        })
+                        .response
+                        .on_hover_text(&context);
+                },
+            );
+            if self.script_target != ScriptTarget::Source {
+                let label = crate::sources::source_language_name(script.language);
+                ui.allocate_ui_with_layout(
+                    Vec2::new(language_width, crate::theme::CONTROL_HEIGHT),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.set_width(language_width);
+                        egui::ComboBox::from_id_salt("language")
+                            .width(language_width)
+                            .truncate()
+                            .selected_text(label)
+                            .show_ui(ui, |ui| {
+                                for language in [
+                                    ScriptLanguage::JavaScript,
+                                    ScriptLanguage::TypeScript,
+                                    ScriptLanguage::ActionScript1,
+                                    ScriptLanguage::ActionScript2,
+                                    ScriptLanguage::ActionScript3,
+                                ] {
+                                    ui.selectable_value(
+                                        &mut script.language,
+                                        language,
+                                        crate::sources::source_language_name(language),
+                                    );
+                                }
+                            });
+                    },
+                );
+                ui.allocate_ui_with_layout(
+                    Vec2::splat(command_width),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.set_width(command_width);
+                        // Icon-sized command trigger; popup content restores the
+                        // standard menu padding through menu_contents.
+                        ui.spacing_mut().button_padding = Vec2::new(4., 0.);
+                        let commands = ui
+                            .menu_button("…", |ui| {
+                                crate::ui_icons::menu_contents(ui, 240., |ui| {
+                                    if crate::ui_icons::menu_item(ui, "Check script", "").clicked()
+                                    {
+                                        self.check_action_source(&script);
+                                        ui.close();
+                                    }
+                                    if self.script_target == ScriptTarget::Object {
+                                        crate::ui_icons::menu_popup(
+                                            ui,
+                                            "Object event",
+                                            "EnterFrame",
+                                            "",
+                                            |ui| {
+                                                for event in [
+                                                    ObjectEvent::Click,
+                                                    ObjectEvent::Load,
+                                                    ObjectEvent::EnterFrame,
+                                                ] {
+                                                    if ui
+                                                        .selectable_value(
+                                                            &mut self.script_event,
+                                                            event,
+                                                            format!("{event:?}"),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        ui.close();
+                                                    }
+                                                }
+                                            },
+                                        );
+                                    }
+                                    ui.separator();
+                                    ui.label("Test Movie runs scripts in the browser.");
+                                });
+                            })
+                            .response
+                            .on_hover_text("Actions commands");
+                        commands.widget_info(|| {
+                            egui::WidgetInfo::labeled(
+                                egui::WidgetType::Button,
+                                ui.is_enabled(),
+                                "Actions commands",
+                            )
+                        });
+                    },
+                );
             }
         });
-        ui.small("Test Movie runs scripts in the browser.");
+        if target_before != self.script_target || event_before != self.script_event {
+            ui.ctx().request_repaint();
+            return;
+        }
+        if self.script_target == ScriptTarget::Source {
+            self.project_sources(ui);
+            return;
+        }
+        if self.script_target == ScriptTarget::Object && !self.selected_editable() {
+            ui.label("Select one editable object to edit its actions, or choose Frame.");
+            return;
+        }
+        if self.symbol().kind == SymbolKind::Button
+            && self.script_target == ScriptTarget::Frame
+            && !has_frame_script
+        {
+            ui.label("Button states contain artwork. Attach actions to the named Button instance on its parent timeline, or use its linked class in Project files.");
+            return;
+        }
         self.show_code_feedback(ui, &script);
         let editable = self.script_target == ScriptTarget::Frame || self.selected_editable();
         let editor_id = self.actions_editor_id();
         let mut text_editing = false;
-        ui.add_enabled_ui(editable, |ui| {
+        let mut code_layout = crate::sources::code_layout;
+        ui.add_enabled_ui_semantic(editable, |ui| {
             egui::ScrollArea::vertical()
                 .id_salt(("actions_source_scroll", editor_id))
+                .themed()
                 .show(ui, |ui| {
                     let response = ui.add_sized(
                         [ui.available_width(), ui.available_height().max(60.)],
                         egui::TextEdit::multiline(&mut script.source)
                             .id(editor_id)
-                            .font(egui::TextStyle::Monospace)
+                            .font(egui::FontId::monospace(12.))
+                            .layouter(&mut code_layout)
                             .code_editor()
                             .hint_text(
                                 "this.stop();\n// Use this.gotoAndPlay(1) to control a timeline.",

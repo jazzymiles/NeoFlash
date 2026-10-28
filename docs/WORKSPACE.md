@@ -67,3 +67,11 @@ The two-column Tools panel adds Line (N), Brush (B), Paint Bucket (K), Ink Bottl
 **Modify** offers grouping, safe static-symbol Break Apart, arranging, transforms and Align. Authoring groups preserve runtime identities and scripts; grouped artwork moves as one unit in alignment and spacing. Groups are currently nonnested and require a contiguous stack on one layer. Break Apart rejects animated, scripted or class-bound content rather than losing its behavior.
 
 **Align** provides six alignments, six position distributions, equal gaps, exact horizontal/vertical gaps (including negative overlap), matching dimensions and To Stage. **Transform** provides compact X/Y/W/H, linked scaling, rotation, skew, flip and reset. **Color** edits selection or drawing defaults with independent fill/stroke RGB and alpha. Changing gradient RGB replaces it with solid paint; alpha-only edits preserve gradient stops.
+
+## Shared control system
+
+Native chrome uses the semantic palettes bundled from `docs/design-system/tokens.json`. Controls use 24-point targets, panel headers and footers 28 points, and shared label/value fields. Window commands group detach/dock and appearance actions into submenus. Narrow timelines expose onion settings in a dedicated menu; Tools keeps paint and options fixed while its tool list scrolls. Properties follows document/frame/object context with an explicit Tool mode. Multiple-selection paint edits expose Mixed values and apply only the chosen field. Fresh compact workspaces tab Library and Properties together; resizing does not replace saved layouts.
+
+When Library is too short for its inline preview, a compact Preview action opens the same preview in a popup while preserving list space and bottom commands. Enlarging the panel restores the inline preview preference and height. Focused scrollbars support arrow keys, Page Up/Down and Home/End, with a visible focus outline in either theme.
+
+An intermittent Stage repaint issue remains open: artwork can briefly appear absent after changing the theme or opening a Library preview, then return on a later redraw. No authored content loss was observed.

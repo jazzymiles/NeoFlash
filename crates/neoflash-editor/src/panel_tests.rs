@@ -2,7 +2,7 @@
 use crate::{
     app::Editor,
     tests::primary_button,
-    theme::{ThemeMode, UiPalette},
+    theme::{DesignUi as _, ThemeMode, UiPalette},
     ui_icons::{Icon, IconButton},
     workspace::PanelId,
 };
@@ -212,6 +212,83 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
         editor.project, before,
         "one Undo removes the single batched drag placement"
     );
+    // Preview overflow preserves three list rows and fixed actions in a short
+    // split; a taller group restores the same first-frame preview inline.
+    editor.library_selected = Some("fixture-symbol-99".into());
+    for (index, theme) in [ThemeMode::Light, ThemeMode::Dark].into_iter().enumerate() {
+        editor.set_panel_visible(PanelId::Properties, true);
+        editor.set_theme(&ctx, theme);
+        let time = 2. + index as f64 * 2.;
+        let out = frame(&mut editor, &ctx, size, time, vec![]);
+        let library = editor
+            .detached
+            .dock_groups
+            .iter()
+            .find(|g| g.tabs.iter().any(|(panel, _)| *panel == PanelId::Library))
+            .unwrap()
+            .rect;
+        for label in [
+            "Open symbol preview",
+            "A–Z",
+            "New symbol",
+            "New folder",
+            "Import…",
+            "More",
+        ] {
+            let rect = named_bounds(&out, label)
+                .unwrap_or_else(|| panic!("missing Library control: {label}"));
+            assert!(
+                library.contains_rect(rect),
+                "{label}: {rect:?} must stay in {library:?}"
+            );
+        }
+        let trigger = named_bounds(&out, "Open symbol preview").unwrap().center();
+        frame(
+            &mut editor,
+            &ctx,
+            size,
+            time + 0.1,
+            vec![
+                Event::PointerMoved(trigger),
+                primary_button(trigger, true),
+                primary_button(trigger, false),
+            ],
+        );
+        let popup = frame(&mut editor, &ctx, size, time + 0.3, vec![]);
+        assert!(popup.shapes.iter().any(|shape| matches!(&shape.shape,egui::Shape::Text(text) if text.galley.job.text=="Empty first frame")),"overflow opens the shared first-frame renderer");
+        frame(
+            &mut editor,
+            &ctx,
+            size,
+            time + 0.4,
+            vec![Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        editor.set_panel_visible(PanelId::Properties, false);
+        frame(&mut editor, &ctx, size, time + 0.6, vec![]);
+        let out = frame(&mut editor, &ctx, size, time + 0.9, vec![]);
+        let library = editor
+            .detached
+            .dock_groups
+            .iter()
+            .find(|g| g.tabs.iter().any(|(panel, _)| *panel == PanelId::Library))
+            .unwrap()
+            .rect;
+        assert!(out.shapes.iter().any(|shape| matches!(&shape.shape,egui::Shape::Text(text) if text.galley.job.text=="Empty first frame")),"taller Library restores inline preview");
+        for label in ["A–Z", "New symbol", "New folder", "Import…", "More"] {
+            let rect = named_bounds(&out, label).unwrap();
+            assert!(
+                library.contains_rect(rect),
+                "{label}: {rect:?} must stay in {library:?}"
+            );
+        }
+        assert_eq!(editor.project, before);
+    }
 }
 
 #[test]
@@ -538,6 +615,32 @@ fn visibility_restore_and_theme_keep_document_and_history_unchanged() {
     editor.restore_workspace(&ctx);
     let out = frame(&mut editor, &ctx, Vec2::new(1024., 720.), 0.2, vec![]);
     assert!(named_bounds(&out, "Selection (V)").is_some());
+    assert!(
+        out.platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .any(|(_, node)| node.role() == egui::accesskit::Role::Tab
+                && node.is_selected() == Some(true))
+    );
+    let tab = editor
+        .detached
+        .dock_groups
+        .iter()
+        .flat_map(|group| &group.tabs)
+        .find(|(panel, _)| *panel == PanelId::Timeline)
+        .unwrap()
+        .1;
+    assert!(
+        out.shapes
+            .iter()
+            .any(|shape| matches!(&shape.shape, egui::Shape::Rect(rect)
+        if rect.fill == ThemeMode::Dark.palette().accent && rect.rect.height() == 2.
+            && tab.contains_rect(rect.rect) && shape.clip_rect.contains_rect(rect.rect))),
+        "active tab marker must actually be inside the painted clip"
+    );
     let defaults = crate::workspace::WorkspacePrefs::default();
     for panel in PanelId::ALL {
         assert_eq!(
@@ -566,7 +669,7 @@ fn icon_button_has_real_name_selection_focus_and_disabled_behavior() {
             },
             |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    response = Some(ui.add_enabled(
+                    response = Some(ui.add_enabled_semantic(
                         enabled,
                         IconButton::new(Icon::Pen, "Pen (P)").selected(true),
                     ));
@@ -724,7 +827,7 @@ fn fully_visible_text(output: &egui::FullOutput, label: &str, viewport: Rect) ->
 }
 
 #[test]
-fn detached_timeline_at_750_wraps_complete_opacity_control_inside_viewport() {
+fn detached_timeline_at_750_exposes_compact_onion_options_inside_viewport() {
     for mode in [ThemeMode::Light, ThemeMode::Dark] {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
@@ -741,10 +844,8 @@ fn detached_timeline_at_750_wraps_complete_opacity_control_inside_viewport() {
             "Add layer",
             "Rewind",
             "Play preview",
-            "Onion Skin",
-            "Outlines",
-            "Anchor",
-            "Opacity",
+            "Onion",
+            "Onion skin options",
         ] {
             let bounds = named_bounds(&output, label)
                 .unwrap_or_else(|| panic!("missing AX control {label}"));
@@ -753,17 +854,43 @@ fn detached_timeline_at_750_wraps_complete_opacity_control_inside_viewport() {
                 "{mode:?} {label}: {bounds:?}"
             );
         }
-        assert!(
-            fully_visible_text(&output, "Opacity", viewport),
-            "Opacity label must not be clipped in {mode:?}"
+        let options = named_bounds(&output, "Onion skin options")
+            .unwrap()
+            .center();
+        detached_timeline_frame(
+            &mut editor,
+            &ctx,
+            size,
+            0.2,
+            vec![Event::PointerMoved(options), primary_button(options, true)],
         );
+        output = detached_timeline_frame(
+            &mut editor,
+            &ctx,
+            size,
+            0.3,
+            vec![primary_button(options, false)],
+        );
+        for pass in 1..4 {
+            output =
+                detached_timeline_frame(&mut editor, &ctx, size, 0.3 + pass as f64 / 60., vec![]);
+        }
+        for label in ["Outlines", "Anchor", "Onion opacity"] {
+            let bounds = named_bounds(&output, label)
+                .unwrap_or_else(|| panic!("missing popup control {label}"));
+            assert!(
+                viewport.contains_rect(bounds),
+                "{mode:?} {label}: {bounds:?}"
+            );
+        }
+        assert!(fully_visible_text(&output, "Opacity", viewport));
         assert_eq!(editor.project, before);
         assert!(!editor.history.can_undo());
     }
 }
 
 #[test]
-fn detached_timeline_minimum_width_scrolls_to_working_opacity_control() {
+fn detached_timeline_minimum_width_opens_working_opacity_control() {
     let ctx = egui::Context::default();
     ctx.enable_accesskit();
     let mut editor = Editor::from_project(&ctx, Project::demo());
@@ -775,27 +902,35 @@ fn detached_timeline_minimum_width_scrolls_to_working_opacity_control() {
     let initial = detached_timeline_frame(&mut editor, &ctx, size, 0.1, vec![]);
     assert!(
         !fully_visible_text(&initial, "Opacity", viewport),
-        "narrow footer should need scrolling"
+        "narrow footer uses the explicit options menu"
     );
-    let pointer = Pos2::new(160., 155.);
-    let mut output = detached_timeline_frame(
+    let options = named_bounds(&initial, "Onion skin options")
+        .expect("Narrow footer exposes its options menu")
+        .center();
+    detached_timeline_frame(
         &mut editor,
         &ctx,
         size,
         0.2,
-        wheel(pointer, Vec2::new(0., -1000.)),
+        vec![Event::PointerMoved(options), primary_button(options, true)],
     );
-    for pass in 1..12 {
-        output = detached_timeline_frame(&mut editor, &ctx, size, 0.2 + pass as f64 / 60., vec![]);
+    let mut output = detached_timeline_frame(
+        &mut editor,
+        &ctx,
+        size,
+        0.3,
+        vec![primary_button(options, false)],
+    );
+    for pass in 1..4 {
+        output = detached_timeline_frame(&mut editor, &ctx, size, 0.3 + pass as f64 / 60., vec![]);
     }
-    assert!(
-        fully_visible_text(&output, "Opacity", viewport),
-        "wheel must reveal complete Opacity label"
-    );
-    let bounds = named_bounds(&output, "Opacity").expect("Opacity retains an AX control");
+    let bounds = named_bounds(&output, "Onion opacity")
+        .expect("Opacity is available through the overflow menu");
     assert!(viewport.contains_rect(bounds), "{bounds:?}");
     let opacity = editor.onion_opacity;
-    let point = Pos2::new(bounds.right() - 4., bounds.center().y);
+    // The right end of the aggregate Slider response is its numeric editor.
+    // Click the rail itself, whose explicit width is 96 logical points.
+    let point = Pos2::new(bounds.left() + 72., bounds.center().y);
     detached_timeline_frame(
         &mut editor,
         &ctx,
@@ -812,7 +947,7 @@ fn detached_timeline_minimum_width_scrolls_to_working_opacity_control() {
     );
     assert_ne!(
         editor.onion_opacity, opacity,
-        "revealed slider must accept pointer input"
+        "popup slider must accept pointer input"
     );
     assert_eq!(editor.project, before);
     assert!(!editor.dirty());
@@ -857,7 +992,7 @@ fn bounded_timeline_footer_preserves_stage_at_minimum_root_window() {
     // saved height must survive that gesture and leave a usable Stage.
     let output = frame(&mut editor, &ctx, size, 1., vec![]);
     let grip = named_bounds(&output, "Resize top dock").expect("Timeline height grip");
-    assert!(grip.height() >= 8.);
+    assert!(grip.height() >= 6.);
     let start = grip.center();
     let initial_height = editor.workspace.dock.top.size;
     let end = start + Vec2::new(0., 60.);

@@ -1,4 +1,5 @@
 use crate::app::{Editor, ScriptTarget};
+use crate::theme::{DesignUi as _, ScrollTheme as _};
 use crate::{
     paint_controls::property_row,
     theme::{CONTROL_HEIGHT, UiPalette},
@@ -37,10 +38,23 @@ impl Editor {
             ui.small("Buttons support keyboard focus and activation. Images expose a name and description.");
             return;
         };
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(if element.name.is_empty() {
+                    "Selected object"
+                } else {
+                    &element.name
+                })
+                .strong(),
+            )
+            .truncate(),
+        )
+        .on_hover_text(&element.name);
+        ui.separator();
         let mut metadata = element.accessibility.clone();
-        egui::ScrollArea::vertical().id_salt("accessibility_form").auto_shrink([false, false]).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("accessibility_form").auto_shrink([false, false]).themed().show(ui, |ui| {
             ui.set_max_width(ui.available_width());
-            ui.add_enabled_ui(self.selected_editable(), |ui| {
+            ui.add_enabled_ui_semantic(self.selected_editable(), |ui| {
                 let mut enabled = metadata.is_some();
                 if ui.checkbox(&mut enabled, "Expose object in HTML5").on_hover_text("Expose this object to assistive technology").changed() {
                     metadata = enabled.then(|| Accessibility {
@@ -62,7 +76,7 @@ impl Editor {
                         });
                     });
                     property_row(ui, "Read order", |ui| {
-                        ui.add_sized([ui.available_width(), CONTROL_HEIGHT], egui::DragValue::new(&mut data.tab_order).range(0..=10000)).on_hover_text("Reading and keyboard focus order");
+                        ui.add_sized([96., CONTROL_HEIGHT], egui::DragValue::new(&mut data.tab_order).range(0..=10000).update_while_editing(false)).on_hover_text("Reading and keyboard focus order");
                     });
                     if data.role == AccessibleRole::Button {
                         property_row(ui, "State", |ui| {ui.checkbox(&mut data.disabled, "Disabled");});
@@ -86,7 +100,7 @@ impl Editor {
                         ui.small("Images expose their name and description without entering the keyboard focus order.");
                     }
                 }
-            });
+            }).response.on_disabled_hover_text("Unlock the selected layer to edit this object's accessibility.");
         });
         if metadata != element.accessibility {
             self.set_accessibility(metadata);

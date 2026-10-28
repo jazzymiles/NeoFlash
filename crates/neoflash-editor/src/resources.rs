@@ -1,5 +1,6 @@
 //! Portable script resources live beside symbols in the Library.
 use crate::app::Editor;
+use crate::theme::DesignUi as _;
 use eframe::egui;
 use neoflash_core::{
     MAX_RESOURCE_BYTES, MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES, ResourceUnit, new_id,
@@ -148,7 +149,7 @@ impl Editor {
             let changed = self.resource_panel.path != self.project.resources[index].path
                 || self.resource_panel.media_type != self.project.resources[index].media_type;
             if ui
-                .add_enabled(changed, egui::Button::new("Apply"))
+                .add_enabled_semantic(changed, egui::Button::new("Apply"))
                 .clicked()
             {
                 self.finish_edits();

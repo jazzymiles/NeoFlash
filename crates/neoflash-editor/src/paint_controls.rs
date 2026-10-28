@@ -1,7 +1,7 @@
 //! Bounded property rows and non-destructive RGBA editing shared by panels.
 use crate::{
     app::Editor,
-    theme::{CONTROL_HEIGHT, LABEL_WIDTH},
+    theme::{CONTROL_HEIGHT, LABEL_WIDTH, PROPERTY_ROW_HEIGHT},
 };
 use eframe::egui::{self, Response};
 use neoflash_core::Color;
@@ -30,9 +30,10 @@ pub(crate) fn property_row<R>(
     label: &str,
     content: impl FnOnce(&mut egui::Ui) -> R,
 ) -> R {
-    let label_width = (ui.available_width() * 0.38).clamp(50., LABEL_WIDTH);
+    let label_width = LABEL_WIDTH;
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 7.;
+        ui.spacing_mut().item_spacing.x = 8.;
+        ui.set_min_height(PROPERTY_ROW_HEIGHT - ui.spacing().item_spacing.y);
         // ComboBox::height controls its menu; its button uses interact_size.
         ui.spacing_mut().interact_size.y = CONTROL_HEIGHT;
         ui.spacing_mut().button_padding.y = 3.;
@@ -48,7 +49,8 @@ pub(crate) fn property_row<R>(
                     egui::Label::new(egui::RichText::new(label).size(crate::theme::PANEL_FONT))
                         .halign(egui::Align::Min)
                         .truncate(),
-                );
+                )
+                .on_hover_text(label);
             },
         );
         content(ui)
@@ -58,10 +60,16 @@ pub(crate) fn property_row<R>(
 
 pub(crate) fn text_row(ui: &mut egui::Ui, label: &str, value: &mut String) -> Response {
     property_row(ui, label, |ui| {
-        ui.add_sized(
+        let response = ui.add_sized(
             [ui.available_width(), CONTROL_HEIGHT],
             egui::TextEdit::singleline(value),
-        )
+        );
+        response.widget_info(|| {
+            let mut info = egui::WidgetInfo::text_edit(ui.is_enabled(), &*value, &*value, label);
+            info.label = Some(label.into());
+            info
+        });
+        response
     })
 }
 
@@ -72,7 +80,32 @@ pub(crate) fn numeric_row(
     range: RangeInclusive<f64>,
     speed: f64,
 ) -> Response {
-    property_row(ui, label, |ui| compact_number(ui, value, range, speed, ""))
+    let id = ui.id().with(("numeric-property", label));
+    property_row(ui, label, |ui| {
+        let response = ui
+            .scope_builder(egui::UiBuilder::new().id(id), |ui| {
+                compact_number(ui, value, range, speed, "")
+            })
+            .inner;
+        response.widget_info(|| {
+            let mut info = egui::WidgetInfo::drag_value(ui.is_enabled(), *value);
+            info.label = Some(numeric_name(label).into());
+            info
+        });
+        response
+    })
+}
+
+fn numeric_name(label: &str) -> &str {
+    match label {
+        "X" => "Position X (px)",
+        "Y" => "Position Y (px)",
+        "W" => "Width (px)",
+        "H" => "Height (px)",
+        "Scale X" => "Horizontal scale factor",
+        "Scale Y" => "Vertical scale factor",
+        _ => label,
+    }
 }
 
 /// Paired values use the same scrub/commit interaction as single rows.
@@ -84,7 +117,22 @@ pub(crate) fn numeric_pair(
     speed: f64,
 ) -> [Response; 2] {
     let [a, b] = values;
-    if ui.available_width() < 248. {
+    // Resolve property identity before choosing the responsive layout. The
+    // global child scopes keep DragValue/TextEdit IDs through row wrapping.
+    let ids = labels.map(|label| ui.id().with(("numeric-property", label)));
+    let label_widths = labels.map(|label| {
+        ui.painter()
+            .layout_no_wrap(
+                label.into(),
+                egui::TextStyle::Body.resolve(ui.style()),
+                ui.visuals().text_color(),
+            )
+            .size()
+            .x
+            .max(12.)
+    });
+    let minimum = 2. * (label_widths[0].max(label_widths[1]) + 4. + 64.) + 8.;
+    if ui.available_width() < minimum {
         return [
             numeric_row(ui, labels[0], a, range.clone(), speed),
             numeric_row(ui, labels[1], b, range, speed),
@@ -99,8 +147,22 @@ pub(crate) fn numeric_pair(
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
                     ui.set_max_width(width);
-                    ui.label(labels[0]);
-                    compact_number(ui, a, range.clone(), speed, "").on_hover_text(labels[0])
+                    ui.spacing_mut().item_spacing.x = 4.;
+                    ui.add_sized(
+                        [label_widths[0], CONTROL_HEIGHT],
+                        egui::Label::new(labels[0]).halign(egui::Align::Min),
+                    );
+                    let response = ui
+                        .scope_builder(egui::UiBuilder::new().id(ids[0]), |ui| {
+                            compact_number(ui, a, range.clone(), speed, "")
+                        })
+                        .inner;
+                    response.widget_info(|| {
+                        let mut info = egui::WidgetInfo::drag_value(ui.is_enabled(), *a);
+                        info.label = Some(numeric_name(labels[0]).into());
+                        info
+                    });
+                    response.on_hover_text(numeric_name(labels[0]))
                 },
             )
             .inner;
@@ -110,8 +172,22 @@ pub(crate) fn numeric_pair(
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
                     ui.set_max_width(width);
-                    ui.label(labels[1]);
-                    compact_number(ui, b, range, speed, "").on_hover_text(labels[1])
+                    ui.spacing_mut().item_spacing.x = 4.;
+                    ui.add_sized(
+                        [label_widths[1], CONTROL_HEIGHT],
+                        egui::Label::new(labels[1]).halign(egui::Align::Min),
+                    );
+                    let response = ui
+                        .scope_builder(egui::UiBuilder::new().id(ids[1]), |ui| {
+                            compact_number(ui, b, range, speed, "")
+                        })
+                        .inner;
+                    response.widget_info(|| {
+                        let mut info = egui::WidgetInfo::drag_value(ui.is_enabled(), *b);
+                        info.label = Some(numeric_name(labels[1]).into());
+                        info
+                    });
+                    response.on_hover_text(numeric_name(labels[1]))
                 },
             )
             .inner;
@@ -153,7 +229,13 @@ pub(crate) fn compact_number(
 pub(crate) fn percent_row(ui: &mut egui::Ui, label: &str, value: &mut f64) -> Response {
     let mut percent = *value * 100.;
     let response = property_row(ui, label, |ui| {
-        compact_number(ui, &mut percent, 0. ..=100., 0.5, " %")
+        let response = compact_number(ui, &mut percent, 0. ..=100., 0.5, " %");
+        response.widget_info(|| {
+            let mut info = egui::WidgetInfo::drag_value(ui.is_enabled(), percent);
+            info.label = Some(format!("{label} percent"));
+            info
+        });
+        response
     });
     if response.changed() {
         *value = percent / 100.;
@@ -173,11 +255,18 @@ pub(crate) fn paint_row(ui: &mut egui::Ui, id: &str, label: &str, value: &mut Co
             if response.changed() {
                 value[..3].copy_from_slice(&rgb);
             }
+            let rgb_text = format!("#{:02X}{:02X}{:02X}", value[0], value[1], value[2]);
             ui.label(
-                egui::RichText::new(format!("#{:02X}{:02X}{:02X}", value[0], value[1], value[2]))
-                    .monospace()
-                    .size(11.),
-            );
+                egui::RichText::new(if value[3] == 0 {
+                    "Transparent"
+                } else {
+                    &rgb_text
+                })
+                .size(crate::theme::SECONDARY_FONT),
+            )
+            .on_hover_text(format!(
+                "Stored RGB: {rgb_text}; alpha changes preserve this color"
+            ));
             response
         });
         let mut alpha = value[3] as f64 / 255.;
@@ -198,35 +287,6 @@ pub(crate) fn paint_row(ui: &mut egui::Ui, id: &str, label: &str, value: &mut Co
         }
     })
     .inner
-}
-
-pub(crate) fn compact_paint(ui: &mut egui::Ui, id: &str, label: &str, value: &mut Color) {
-    ui.push_id(id, |ui| {
-        ui.small(label);
-        let mut rgb = [value[0], value[1], value[2]];
-        if ui
-            .color_edit_button_srgb(&mut rgb)
-            .on_hover_text(format!("{label} color"))
-            .changed()
-        {
-            value[..3].copy_from_slice(&rgb);
-        }
-        let mut alpha = value[3] as f64 * 100. / 255.;
-        if ui
-            .add_sized(
-                [ui.available_width(), CONTROL_HEIGHT],
-                egui::DragValue::new(&mut alpha)
-                    .range(0. ..=100.)
-                    .speed(1.)
-                    .max_decimals(0)
-                    .suffix("%"),
-            )
-            .on_hover_text(format!("{label} alpha"))
-            .changed()
-        {
-            value[3] = (alpha * 255. / 100.).round().clamp(0., 255.) as u8;
-        }
-    });
 }
 
 impl Editor {

@@ -1,6 +1,6 @@
 use eframe::egui::{Painter, Pos2, Rect, Stroke};
-pub(crate) const ROW_HEIGHT: f32 = 25.;
-pub(crate) const RULER_HEIGHT: f32 = 25.;
+pub(crate) const ROW_HEIGHT: f32 = crate::theme::ROW_HEIGHT;
+pub(crate) const RULER_HEIGHT: f32 = crate::theme::ROW_HEIGHT;
 pub(crate) const LAYER_CONTROL_WIDTH: f32 = 24.;
 pub(crate) const LAYER_COLUMN_GAP: f32 = 4.;
 

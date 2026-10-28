@@ -1,4 +1,5 @@
 //! Native font measurements and paint for the shared Rust text layout.
+use crate::theme::ScrollTheme as _;
 use eframe::egui::{self, Color32, FontFamily, FontId, Pos2, Rect, Shape, Vec2};
 use neoflash_core::{ElementKind, TextFieldState, TextFormat, TextLayout, layout_text};
 use std::{
@@ -48,6 +49,7 @@ impl crate::app::Editor {
         egui::ScrollArea::vertical()
             .id_salt("text-box-content")
             .max_height(120.)
+            .themed()
             .show(ui, |ui| {
                 changes.note(ui.add_sized(
                     [ui.available_width(), 74.],
@@ -102,7 +104,7 @@ impl crate::app::Editor {
             ui.label(
                 egui::RichText::new(format!("#{:06X}", format.color))
                     .monospace()
-                    .size(11.),
+                    .size(crate::theme::SECONDARY_FONT),
             );
             response
         }));

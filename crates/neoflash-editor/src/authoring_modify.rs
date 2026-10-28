@@ -1,8 +1,9 @@
 //! Classic authoring layout operations. Every command edits the sampled pose
 //! at the current frame and keeps placement identity and scripts intact.
+use crate::theme::{DesignUi as _, ScrollTheme as _};
 use crate::{
     app::Editor,
-    paint_controls::{compact_number, numeric_row, paint_row, property_row},
+    paint_controls::{compact_number, numeric_pair, numeric_row, paint_row, property_row},
     selection::SelectionTarget,
     workspace::PanelId,
 };
@@ -568,62 +569,50 @@ impl Editor {
     }
 
     pub(crate) fn modify_menu_ui(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Modify", |ui| {
+        use crate::ui_icons::{menu_item, menu_item_enabled, menu_popup};
+        menu_popup(ui, "Modify", "Convert to Symbol…", "F8", |ui| {
             let selected = !self.selection.is_empty();
-            if ui
-                .add_enabled(
-                    self.can_convert_selection(),
-                    egui::Button::new("Convert to Symbol…").shortcut_text("F8"),
-                )
+            if menu_item_enabled(ui, self.can_convert_selection(), "Convert to Symbol…", "F8")
                 .clicked()
             {
                 self.convert_to_symbol();
                 ui.close();
             }
-            if ui
-                .add_enabled(selected, egui::Button::new("Break Apart"))
-                .clicked()
-            {
+            if menu_item_enabled(ui, selected, "Break Apart", "").clicked() {
                 self.break_apart_selection();
                 ui.close();
             }
-            if ui
-                .add_enabled(self.selection.len() >= 2, egui::Button::new("Group"))
-                .clicked()
-            {
+            if menu_item_enabled(ui, self.selection.len() >= 2, "Group", "").clicked() {
                 self.group_selection();
                 ui.close();
             }
-            if ui
-                .add_enabled(selected, egui::Button::new("Ungroup"))
-                .clicked()
-            {
+            if menu_item_enabled(ui, selected, "Ungroup", "").clicked() {
                 self.ungroup_selection();
                 ui.close();
             }
             ui.separator();
-            ui.menu_button("Arrange", |ui| {
+            menu_popup(ui, "Arrange", "Bring Forward", "", |ui| {
                 for (label, direction) in [
                     ("Bring to Front", Arrange::Front),
                     ("Bring Forward", Arrange::Forward),
                     ("Send Backward", Arrange::Backward),
                     ("Send to Back", Arrange::Back),
                 ] {
-                    if ui.add_enabled(selected, egui::Button::new(label)).clicked() {
+                    if menu_item_enabled(ui, selected, label, "").clicked() {
                         self.arrange_selection(direction);
                         ui.close();
                     }
                 }
             });
-            ui.menu_button("Transform", |ui| {
-                if ui.button("Transform panel").clicked() {
+            menu_popup(ui, "Transform", "Remove Transform", "", |ui| {
+                if menu_item(ui, "Transform panel", "").clicked() {
                     self.show_panel(PanelId::Transform);
                     ui.close();
                 }
-                ui.add_enabled_ui(selected, |ui| self.transform_commands(ui));
+                ui.add_enabled_ui_semantic(selected, |ui| self.transform_commands(ui));
             });
             for (label, panel) in [("Align…", PanelId::Align), ("Color…", PanelId::Color)] {
-                if ui.button(label).clicked() {
+                if menu_item(ui, label, "").clicked() {
                     self.show_panel(panel);
                     ui.close();
                 }
@@ -636,27 +625,37 @@ impl Editor {
         egui::ScrollArea::vertical()
             .id_salt("align-content")
             .auto_shrink([false, false])
+            .themed()
             .show(ui, |ui| self.align_panel_contents(ui));
     }
 
     fn align_panel_contents(&mut self, ui: &mut egui::Ui) {
         ui.checkbox(&mut self.authoring_modify.to_stage, "To Stage");
         let count = self.modify_layout_units(ui.ctx()).len();
-        ui.add_enabled_ui(count > 0, |ui| {
+        ui.add_enabled_ui_semantic(count > 0, |ui| {
             ui.label("Align");
-            align_buttons(ui, |ui, axis, edge| {
-                self.align_selection(ui.ctx(), axis, edge)
-            });
+            ui.add_enabled_ui_semantic(
+                count >= 2 || (count > 0 && self.authoring_modify.to_stage),
+                |ui| {
+                    align_buttons(ui, |ui, axis, edge| {
+                        self.align_selection(ui.ctx(), axis, edge)
+                    });
+                },
+            )
+            .response
+            .on_disabled_hover_text("Select two objects, or enable To Stage to align one object.");
             ui.separator();
             ui.label("Distribute positions");
-            ui.add_enabled_ui(count >= 3, |ui| {
-                align_buttons(ui, |ui, axis, edge| {
+            ui.add_enabled_ui_semantic(count >= 3, |ui| {
+                alignment_rows(ui, "Distribute", |ui, axis, edge| {
                     self.distribute_selection(ui.ctx(), axis, edge)
                 })
-            });
+            })
+            .response
+            .on_disabled_hover_text("Select at least three objects to distribute their positions.");
             ui.separator();
             ui.label("Spacing");
-            ui.add_enabled_ui(count >= 2, |ui| {
+            ui.add_enabled_ui_semantic(count >= 2, |ui| {
                 for axis in 0..2 {
                     property_row(ui, if axis == 0 { "H gap" } else { "V gap" }, |ui| {
                         let gap = if axis == 0 {
@@ -697,14 +696,18 @@ impl Editor {
             });
             ui.separator();
             ui.label("Match size");
-            ui.horizontal(|ui| {
-                if ui.button("Width").clicked() {
-                    self.match_selection_size(ui.ctx(), 0);
-                }
-                if ui.button("Height").clicked() {
-                    self.match_selection_size(ui.ctx(), 1);
-                }
-            });
+            ui.add_enabled_ui_semantic(count >= 2, |ui| {
+                ui.horizontal(|ui| {
+                    if ui.button("Width").clicked() {
+                        self.match_selection_size(ui.ctx(), 0);
+                    }
+                    if ui.button("Height").clicked() {
+                        self.match_selection_size(ui.ctx(), 1);
+                    }
+                })
+            })
+            .response
+            .on_disabled_hover_text("Select two or more objects to match their size.");
         });
     }
 
@@ -713,6 +716,7 @@ impl Editor {
         egui::ScrollArea::vertical()
             .id_salt("transform-content")
             .auto_shrink([false, false])
+            .themed()
             .show(ui, |ui| self.transform_panel_contents(ui));
     }
 
@@ -737,13 +741,10 @@ impl Editor {
                 bounds.height() as f64,
             ];
             let original = fields;
-            for (index, label) in ["X", "Y", "W", "H"].iter().enumerate() {
-                let range = if index < 2 {
-                    -1_000_000. ..=1_000_000.
-                } else {
-                    0.01..=1_000_000.
-                };
-                let response = numeric_row(ui, label, &mut fields[index], range, 1.);
+            let [ref mut x, ref mut y, ref mut width, ref mut height] = fields;
+            let [rx, ry] = numeric_pair(ui, ["X", "Y"], [x, y], -1_000_000. ..=1_000_000., 1.);
+            let [rw, rh] = numeric_pair(ui, ["W", "H"], [width, height], 0.01..=1_000_000., 1.);
+            for (index, response) in [rx, ry, rw, rh].into_iter().enumerate() {
                 if response.changed() {
                     let mut matrix = [1., 0., 0., 1., 0., 0.];
                     if index < 2 {
@@ -830,11 +831,27 @@ impl Editor {
             ("Flip Horizontal", [-1., 0., 0., 1., 0., 0.]),
             ("Flip Vertical", [1., 0., 0., -1., 0., 0.]),
         ] {
-            if ui.button(label).clicked() {
+            let response = if egui::containers::menu::is_in_menu(ui) {
+                crate::ui_icons::menu_item(ui, label, "")
+            } else {
+                ui.add_sized(
+                    [ui.available_width(), crate::theme::CONTROL_HEIGHT],
+                    egui::Button::new(label),
+                )
+            };
+            if response.clicked() {
                 self.affine_selection(ui.ctx(), matrix);
             }
         }
-        if ui.button("Remove Transform").clicked() {
+        let reset = if egui::containers::menu::is_in_menu(ui) {
+            crate::ui_icons::menu_item(ui, "Remove Transform", "")
+        } else {
+            ui.add_sized(
+                [ui.available_width(), crate::theme::CONTROL_HEIGHT],
+                egui::Button::new("Remove Transform"),
+            )
+        };
+        if reset.clicked() {
             self.reset_selection_transform(ui.ctx());
         }
     }
@@ -844,6 +861,7 @@ impl Editor {
         egui::ScrollArea::vertical()
             .id_salt("color-content")
             .auto_shrink([false, false])
+            .themed()
             .show(ui, |ui| self.color_panel_contents(ui));
     }
 
@@ -867,26 +885,75 @@ impl Editor {
             .into_iter()
             .filter(|(t, _)| self.target_editable(t))
             .collect::<Vec<_>>();
-        let Some((fill, stroke, width, supports_stroke)) =
-            targets.iter().find_map(|(_, e)| paints(&e.kind))
-        else {
+        let values: Vec<_> = targets
+            .iter()
+            .filter_map(|(_, e)| paints(&e.kind))
+            .collect();
+        let Some(&(fill, mut stroke, mut width, _)) = values.first() else {
             ui.weak("Select a shape, path or text object; use Drawing for tool colors.");
             return;
         };
+        let supports_stroke = values.iter().any(|value| value.3);
+        if let Some(value) = values.iter().find(|value| value.3) {
+            stroke = value.1;
+            width = value.2;
+        }
+        let mixed_fill = values.iter().any(|value| value.0 != fill);
+        let mixed_stroke = values
+            .iter()
+            .filter(|value| value.3)
+            .any(|value| value.1 != stroke);
+        let mixed_width = values
+            .iter()
+            .filter(|value| value.3)
+            .any(|value| value.2 != width);
+        ui.strong(format!(
+            "{} selected object{}",
+            targets.len(),
+            if targets.len() == 1 { "" } else { "s" }
+        ));
         let scope = self.modify_scope();
         self.property_edit_scope(scope);
         ui.push_id(scope.with("color"), |ui| {
             let (mut new_fill, mut new_stroke, mut new_width) = (fill, stroke, width);
-            let fill_response = paint_row(ui, "selected-fill", "Fill", &mut new_fill);
-            let mut control = fill_response.changed().then_some(fill_response.id);
-            if supports_stroke {
-                let response = paint_row(ui, "selected-stroke", "Stroke", &mut new_stroke);
-                if response.changed() {
-                    control = Some(response.id);
+            let (mut force_fill, mut force_stroke, mut force_width) = (false, false, false);
+            let mut control = None;
+            if mixed_fill {
+                if let Some((value, id)) = mixed_color_edit(ui, "Fill") {
+                    new_fill = value;
+                    force_fill = true;
+                    control = Some(id);
                 }
-                let response = numeric_row(ui, "Width", &mut new_width, 0. ..=100., 0.25);
-                if response.changed() {
-                    control = Some(response.id);
+            } else {
+                let r = paint_row(ui, "selected-fill", "Fill", &mut new_fill);
+                if r.changed() {
+                    control = Some(r.id);
+                }
+            }
+            if supports_stroke {
+                if mixed_stroke {
+                    if let Some((value, id)) = mixed_color_edit(ui, "Stroke") {
+                        new_stroke = value;
+                        force_stroke = true;
+                        control = Some(id);
+                    }
+                } else {
+                    let r = paint_row(ui, "selected-stroke", "Stroke", &mut new_stroke);
+                    if r.changed() {
+                        control = Some(r.id);
+                    }
+                }
+                if mixed_width {
+                    if let Some((value, id)) = mixed_width_edit(ui) {
+                        new_width = value;
+                        force_width = true;
+                        control = Some(id);
+                    }
+                } else {
+                    let r = numeric_row(ui, "Width", &mut new_width, 0. ..=100., 0.25);
+                    if r.changed() {
+                        control = Some(r.id);
+                    }
                 }
             }
             if targets.iter().any(|(_, e)| {
@@ -907,9 +974,14 @@ impl Editor {
                 let changes = targets
                     .into_iter()
                     .filter_map(|(target, mut element)| {
+                        let previous = paints(&element.kind)?;
                         let changed = edit_paints(
                             &mut element.kind,
-                            (fill, stroke, width),
+                            (
+                                if force_fill { previous.0 } else { fill },
+                                if force_stroke { previous.1 } else { stroke },
+                                if force_width { previous.2 } else { width },
+                            ),
                             (new_fill, new_stroke, new_width),
                         );
                         changed.then_some((target, element))
@@ -919,6 +991,57 @@ impl Editor {
             }
         });
     }
+}
+
+/// Mixed values are explicit. A new value is a deliberate draft, never an
+/// arbitrary selected object's paint; Apply changes only this named field.
+fn mixed_color_edit(ui: &mut egui::Ui, label: &str) -> Option<(Color, egui::Id)> {
+    let id = ui.id().with(("mixed-color", label));
+    let (mut draft, mut edited) = ui.ctx().data(|data| {
+        data.get_temp::<(Color, bool)>(id)
+            .unwrap_or(([0, 0, 0, 255], false))
+    });
+    let mut result = None;
+    egui::CollapsingHeader::new(format!("{label} · Mixed"))
+        .id_salt(id)
+        .default_open(false)
+        .show(ui, |ui| {
+            edited |= paint_row(ui, label, "New value", &mut draft).changed();
+            let apply = ui
+                .add_enabled_semantic(
+                    edited,
+                    egui::Button::new(format!("Apply {} to selection", label.to_lowercase())),
+                )
+                .on_disabled_hover_text("Enter a new value before applying it to the selection.");
+            if apply.clicked() {
+                result = Some((draft, apply.id));
+            }
+        });
+    ui.ctx()
+        .data_mut(|data| data.insert_temp(id, (draft, edited)));
+    result
+}
+fn mixed_width_edit(ui: &mut egui::Ui) -> Option<(f64, egui::Id)> {
+    let id = ui.id().with("mixed-stroke-width");
+    let (mut draft, mut edited) = ui
+        .ctx()
+        .data(|data| data.get_temp::<(f64, bool)>(id).unwrap_or((1., false)));
+    let mut result = None;
+    egui::CollapsingHeader::new("Width · Mixed")
+        .id_salt(id)
+        .default_open(false)
+        .show(ui, |ui| {
+            edited |= numeric_row(ui, "New value", &mut draft, 0. ..=100., 0.25).changed();
+            let apply = ui
+                .add_enabled_semantic(edited, egui::Button::new("Apply width to selection"))
+                .on_disabled_hover_text("Enter a new width before applying it to the selection.");
+            if apply.clicked() {
+                result = Some((draft, apply.id));
+            }
+        });
+    ui.ctx()
+        .data_mut(|data| data.insert_temp(id, (draft, edited)));
+    result
 }
 
 fn combined_bounds(items: &[Placement]) -> Rect {
@@ -990,20 +1113,42 @@ fn retain_center(old: Transform, mut new: Transform, center: Pos2) -> Transform 
     }
     new
 }
-fn align_buttons(ui: &mut egui::Ui, mut action: impl FnMut(&mut egui::Ui, usize, usize)) {
+fn align_buttons(ui: &mut egui::Ui, action: impl FnMut(&mut egui::Ui, usize, usize)) {
+    alignment_rows(ui, "Align", action);
+}
+fn alignment_rows(
+    ui: &mut egui::Ui,
+    operation: &str,
+    mut action: impl FnMut(&mut egui::Ui, usize, usize),
+) {
     for (axis, labels) in [
         (0, ["Left", "Center", "Right"]),
         (1, ["Top", "Middle", "Bottom"]),
     ] {
         ui.horizontal(|ui| {
+            let width = (ui.available_width() - ui.spacing().item_spacing.x * 2.) / 3.;
             for (edge, label) in labels.into_iter().enumerate() {
-                if ui.button(label).clicked() {
+                let response = ui
+                    .add_sized(
+                        [width, crate::theme::CONTROL_HEIGHT],
+                        egui::Button::new(label),
+                    )
+                    .on_hover_text(format!("{operation} {label}"));
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        ui.is_enabled(),
+                        format!("{operation} {label}"),
+                    )
+                });
+                if response.clicked() {
                     action(ui, axis, edge);
                 }
             }
         });
     }
 }
+
 fn contains_scripts(project: &Project, id: &str, seen: &mut HashSet<String>) -> bool {
     if !seen.insert(id.into()) {
         return false;

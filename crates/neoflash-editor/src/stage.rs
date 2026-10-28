@@ -257,14 +257,17 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle) {
             } else if let Err(error) = crate::text_boxes::paint(p, &item.kind, c, screen) {
                 p.add(Shape::closed_line(
                     points.to_vec(),
-                    Stroke::new(1.0_f32, Color32::RED),
+                    Stroke::new(
+                        1.0_f32,
+                        crate::theme::UiPalette::current(p.ctx()).error_text,
+                    ),
                 ));
                 p.text(
                     points[0],
                     egui::Align2::LEFT_TOP,
                     format!("Text preview: {error}"),
                     FontId::proportional(12.),
-                    Color32::RED,
+                    crate::theme::UiPalette::current(p.ctx()).error_text,
                 );
             }
         }
@@ -382,10 +385,25 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle) {
             } else {
                 p.add(Shape::closed_line(
                     points.to_vec(),
-                    Stroke::new(1.0_f32, Color32::RED),
+                    Stroke::new(
+                        1.0_f32,
+                        crate::theme::UiPalette::current(p.ctx()).error_text,
+                    ),
                 ));
-                p.line_segment([points[0], points[2]], Stroke::new(1.0_f32, Color32::RED));
-                p.line_segment([points[1], points[3]], Stroke::new(1.0_f32, Color32::RED));
+                p.line_segment(
+                    [points[0], points[2]],
+                    Stroke::new(
+                        1.0_f32,
+                        crate::theme::UiPalette::current(p.ctx()).error_text,
+                    ),
+                );
+                p.line_segment(
+                    [points[1], points[3]],
+                    Stroke::new(
+                        1.0_f32,
+                        crate::theme::UiPalette::current(p.ctx()).error_text,
+                    ),
+                );
             }
         }
         ElementKind::Instance { .. } => {}
@@ -756,8 +774,15 @@ impl Editor {
         }
     }
     pub(crate) fn paint_library_preview(&mut self, ui: &mut egui::Ui, symbol_id: &str) {
-        let (rect, _) =
-            ui.allocate_exact_size(Vec2::new(ui.available_width(), 96.), Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(
+            Vec2::new(
+                ui.available_width()
+                    .min(ui.clip_rect().right() - ui.cursor().left())
+                    .max(1.),
+                ui.available_height().clamp(64., 160.),
+            ),
+            Sense::hover(),
+        );
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 2., UiPalette::current(ui.ctx()).window_fill);
         let scene = evaluate_scene(&self.project, symbol_id, 0, false, true);
@@ -769,7 +794,7 @@ impl Editor {
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 "Empty first frame",
-                FontId::proportional(11.),
+                FontId::proportional(crate::theme::SECONDARY_FONT),
                 UiPalette::current(ui.ctx()).muted_text,
             );
             return;

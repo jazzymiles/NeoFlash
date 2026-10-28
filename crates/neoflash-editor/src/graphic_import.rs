@@ -64,7 +64,7 @@ impl Editor {
                 area.center(),
                 egui::Align2::CENTER_CENTER,
                 "Drop SVG, PNG or JPEG onto the Stage",
-                egui::FontId::proportional(18.),
+                egui::FontId::proportional(crate::theme::PANEL_FONT),
                 ui.visuals().text_color(),
             );
         }

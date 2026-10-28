@@ -60,8 +60,12 @@ impl Editor {
             return;
         }
         let response = ui.add(
-            egui::Label::new(egui::RichText::new(label).strong().size(12.))
-                .sense(egui::Sense::click_and_drag()),
+            egui::Label::new(
+                egui::RichText::new(label)
+                    .strong()
+                    .size(crate::theme::PANEL_FONT),
+            )
+            .sense(egui::Sense::click_and_drag()),
         );
         self.panel_drag_handle(ui, panel, &response);
     }
@@ -330,7 +334,7 @@ impl Editor {
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 edge.title(),
-                egui::FontId::proportional(12.),
+                egui::FontId::proportional(crate::theme::PANEL_FONT),
                 ctx.style().visuals.text_color(),
             );
         }
@@ -351,7 +355,7 @@ impl Editor {
                 pointer + egui::vec2(12., 24.),
                 egui::Align2::LEFT_TOP,
                 format!("{} · {}", title(drag.panel), hit.caption),
-                egui::FontId::proportional(13.),
+                egui::FontId::proportional(crate::theme::PANEL_FONT),
                 ctx.style().visuals.text_color(),
             );
         }
@@ -675,16 +679,13 @@ impl Editor {
                 } else {
                     !self.selection.is_empty()
                 };
-            if ui
-                .add_enabled(enabled, egui::Button::new(name).shortcut_text(shortcut))
-                .clicked()
-            {
+            if crate::ui_icons::menu_item_enabled(ui, enabled, name, shortcut).clicked() {
                 self.request_clipboard(&ctx, command);
                 ui.close();
             }
         }
         ui.separator();
-        if ui.button("Dock all panels in this window").clicked() {
+        if crate::ui_icons::menu_item(ui, "Dock all panels in this window", "").clicked() {
             let panels = self
                 .workspace
                 .floating
