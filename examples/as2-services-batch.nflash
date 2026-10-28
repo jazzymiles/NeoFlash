@@ -1,0 +1,321 @@
+{
+  "format_version": 3,
+  "name": "AS2 SOAP and XML services",
+  "width": 1100,
+  "height": 820,
+  "fps": 24,
+  "background": [
+    13,
+    21,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "AS2 SOAP and XML services",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "heading",
+                    "name": "heading",
+                    "transform": {
+                      "x": 40,
+                      "y": 28,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "AS2 / SOAP + XML connectors",
+                      "width": 1020,
+                      "height": 45,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 30,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "description",
+                    "name": "description",
+                    "transform": {
+                      "x": 40,
+                      "y": 85,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "One coherent HTTP batch: WSDL, typed calls, server fault, concurrency, XML and binding.",
+                      "width": 1020,
+                      "height": 58,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 18,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "serviceDetails",
+                    "name": "serviceDetails",
+                    "transform": {
+                      "x": 40,
+                      "y": 145,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "",
+                      "width": 1020,
+                      "height": 480,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 17,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "serviceStatus",
+                    "name": "serviceStatus",
+                    "transform": {
+                      "x": 40,
+                      "y": 655,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Ready for local service fixture on this origin.",
+                      "width": 1020,
+                      "height": 52,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 20,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 40,
+                      "y": 763,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Optional demo endpoints: /__as2_services.wsdl, /__as2_soap and /__as2_connector. No external service receives data.",
+                      "width": 1020,
+                      "height": 42,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "file-control-0",
+                    "name": "file-control-0",
+                    "transform": {
+                      "x": 40,
+                      "y": 710,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "file-control-0-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.runServicesBatch();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Run service batch",
+                      "description": "Run actual requests against the optional local fixture server",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import mx.services.WebService;\nimport mx.services.SOAPCall;\nimport mx.services.PendingCall;\nimport mx.services.Log;\nimport mx.data.components.XMLConnector;\nimport mx.data.components.WebServiceConnector;\nimport mx.data.binding.Binding;\nstop();\nvar servicePassed:Number = 0;\nvar serviceFailed:Number = 0;\nvar serviceLines:String = \"\";\nvar serviceStarted:Boolean = false;\nfunction serviceCheck(label:String, ok:Boolean):Void {\n  if (ok) { servicePassed++; } else { serviceFailed++; }\n  serviceLines += (ok ? \"PASS  \" : \"FAIL  \") + label + \"\\n\";\n  serviceDetails.text = serviceLines;\n  serviceStatus.text = \"AS2_SERVICES_RESULT \" + servicePassed + \" passed / \" + serviceFailed + \" failed\";\n  trace(\"AS2_SERVICES \" + label + \" \" + ok);\n}\nfunction serviceProblem(value:Object):Void {\n  serviceCheck(\"unexpected fault: \" + value.faultcode + \" / \" + value.faultstring, false);\n}\nvar serviceLog:Log = new Log(Log.DEBUG, \"AS2 services\");\nvar serviceLogCount:Number = 0;\nserviceLog.onLog = function(message:String):Void { serviceLogCount++; };\nserviceLog.logInfo(\"ready\");\nserviceLog.logDebug(\"debug ready\");\nserviceLog.level = Log.NONE;\nserviceLog.logInfo(\"suppressed\");\nserviceCheck(\"Log filtering, name and clock\", serviceLogCount == 2 && serviceLog.name == \"AS2 services\" && serviceLog.getDateString().length > 10);\nfunction runServicesBatch():Void {\n if (serviceStarted) { return; }\n serviceStarted = true;\n serviceStatus.text = \"Loading real WSDL and XML from the optional local fixture server...\";\n var soapService:WebService = new WebService(\"/__as2_services.wsdl\", serviceLog);\n soapService.onFault = serviceProblem;\n var queuedSOAP:PendingCall = soapService.Echo(\"queued & ready\", 2);\n queuedSOAP.onFault = serviceProblem;\n queuedSOAP.onResult = function(value:Object):Void {\n   serviceCheck(\"call queued before WSDL\", value == \"queued & ready\" && queuedSOAP.getOutputValue(2) == 2);\n   runServiceEcho(soapService);\n };\n soapService.onLoad = function(wsdlDocument:XML):Void {\n   serviceCheck(\"real WSDL and operation descriptor\", wsdlDocument.status == 0 && soapService.getCall(\"Echo\") instanceof SOAPCall);\n };\n var xmlReceive:XMLConnector = new XMLConnector();\n xmlReceive.URL = \"/__as2_connector\";\n xmlReceive.direction = \"receive\";\n xmlReceive.ignoreWhite = true;\n xmlReceive.addEventListener(\"result\", function(event:Object):Void { serviceCheck(\"XML receive + ignoreWhite\", xmlReceive.results.firstChild.childNodes.length == 1 && xmlReceive.results.firstChild.firstChild.firstChild.nodeValue == \"Rust & XML\"); });\n xmlReceive.addEventListener(\"status\", function(event:Object):Void { if (event.code == \"Fault\") { serviceProblem(event.data); } });\n xmlReceive.trigger();\n var xmlSend:XMLConnector = new XMLConnector();\n xmlSend.URL = \"/__as2_connector\";\n xmlSend.direction = \"send/receive\";\n xmlSend.params = new XML(\"<request><message>connector</message></request>\");\n var sendObserved:Boolean = false;\n xmlSend.addEventListener(\"send\", function(event:Object):Void { sendObserved = event.target == xmlSend; });\n xmlSend.addEventListener(\"result\", function(event:Object):Void { serviceCheck(\"XML POST + send/result events\", sendObserved && xmlSend.results.firstChild.attributes.accepted == \"true\"); });\n xmlSend.addEventListener(\"status\", function(event:Object):Void { if (event.code == \"Fault\") { serviceProblem(event.data); } });\n xmlSend.trigger();\n var boundService:WebServiceConnector = new WebServiceConnector();\n boundService.WSDLURL = \"/__as2_services.wsdl\";\n boundService.operation = \"Echo\";\n boundService.params = {message:\"connector\", count:9};\n var boundResult:Object = {value:\"\"};\n var resultBinding:Binding = new Binding({component:boundService, property:\"results\"}, {component:boundResult, property:\"value\"});\n boundService.addEventListener(\"result\", function(event:Object):Void { serviceCheck(\"WebServiceConnector + named parameters + binding\", boundService.results == \"connector\" && boundResult.value == \"connector\"); });\n boundService.addEventListener(\"status\", function(event:Object):Void { if (event.code == \"WebServiceFault\") { serviceProblem(event.data); } });\n boundService.trigger();\n}\n\nfunction runServiceEcho(soapService:WebService):Void {\n   var echoCall:SOAPCall = soapService.getCall(\"Echo\");\n   echoCall.concurrency = SOAPCall.MULTIPLE_CONCURRENCY;\n   var echo:PendingCall = soapService.Echo(\"Rust & XML <safe>\", 7);\n   echo.onFault = serviceProblem;\n   echo.onResult = function(value:Object):Void {\n     serviceCheck(\"typed SOAP values + XML request/response\", value == \"Rust & XML <safe>\" && echo.getOutputValue(1) == true && echo.getOutputValue(2) == 7 && echo.request.status == 0 && echo.response.status == 0 && echo.myCall == echoCall);\n     serviceCheck(\"all output accessors + XMLNode\", echo.getOutputParameters().length == 3 && echo.getOutputValues().length == 3 && echo.getOutputParameterByName(\"accepted\").value == true && echo.getOutputParameter(0).element.nodeType == 1);\n     var bad:PendingCall = soapService.Fail(\"demonstration\");\n     bad.onFault = function(value:Object):Void { serviceCheck(\"real HTTP 500 SOAP Fault\", value.faultcode.indexOf(\"Server\") >= 0 && value.faultstring == \"Deliberate service fault\" && value.element.status == 0 && bad.response.status == 0); };\n     bad.onResult = function(value:Object):Void { serviceCheck(\"fault must not become success\", false); };\n     echoCall.concurrency = SOAPCall.SINGLE_CONCURRENCY;\n     var single:PendingCall = soapService.Echo(\"single\", 1);\n     var rejected:PendingCall = soapService.Echo(\"rejected\", 1);\n     rejected.onFault = function(value:Object):Void { serviceCheck(\"SINGLE rejects concurrent request\", value.faultcode == \"Client.Concurrency\"); };\n     single.onFault = serviceProblem;\n     single.onResult = function(value:Object):Void {\n       echoCall.concurrency = SOAPCall.LAST_CONCURRENCY;\n       var cancelledDelivered:Boolean = false;\n       var old:PendingCall = soapService.Echo(\"cancelled\", 1);\n       old.onResult = function(value:Object):Void { cancelledDelivered = true; };\n       var latest:PendingCall = soapService.Echo(\"latest\", 3);\n       latest.onFault = serviceProblem;\n       latest.onResult = function(value:Object):Void {\n         serviceCheck(\"LAST cancels previous transport\", value == \"latest\" && !cancelledDelivered);\n         echoCall.concurrency = SOAPCall.MULTIPLE_CONCURRENCY;\n         echoCall.doDecoding = false;\n         var raw:PendingCall = soapService.Echo(\"raw\", 4);\n         raw.onFault = serviceProblem;\n         raw.onResult = function(value:Object):Void { serviceCheck(\"doDecoding=false returns XML\", value instanceof XML && value == raw.response && raw.getOutputValue(2) == 4); };\n       };\n     };\n   };\n}\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "file-control-0-symbol",
+      "name": "Choose one file",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "file-control-0-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "file-control-0-0",
+                    "name": "file-control-0-0",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "file-control-0-1",
+                    "name": "file-control-0-1",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Run service batch",
+                      "width": 280,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [],
+  "resources": []
+}

@@ -51,6 +51,113 @@ impl RuntimeGraph {
     }
 }
 impl Player {
+    /// Relative AS2 component depth policy over the existing runtime suffix.
+    /// Numeric tiers belong to this bounded profile; raw swapDepths may override
+    /// them. Authored negative-depth placements remain immutable.
+    pub fn as2_depth_manager(
+        &mut self,
+        reference: &ObjectRef,
+        request: serde_json::Value,
+    ) -> Result<serde_json::Value, DisplayError> {
+        use serde_json::json;
+        const TOPMOST: i32 = 500_000;
+        let op = request["op"].as_str().unwrap_or("");
+        if op == "definitions" {
+            return Ok(
+                json!({"kCursor":101,"kTooltip":102,"kTop":201,"kBottom":202,"kTopmost":203,"kNotopmost":204}),
+            );
+        }
+        if !self.graph.alive(reference) {
+            return Err(error("DepthManager target is stale or foreign"));
+        }
+        let planning = op == "plan";
+        let parent = if planning {
+            reference.clone()
+        } else {
+            if !self.graph.dynamic.contains_key(reference) {
+                return Err(error(
+                    "DepthManager currently reorders runtime MovieClips; authored negative-depth placements are unsupported",
+                ));
+            }
+            self.graph
+                .parent(reference)
+                .ok_or_else(|| error("DepthManager requires an attached MovieClip"))?
+        };
+        let depths = self.graph.as2_depths(&parent);
+        let mut order: Vec<(Option<ObjectRef>, bool)> = depths
+            .iter()
+            .filter(|(child, _)| planning || *child != reference)
+            .map(|(child, depth)| (Some(child.clone()), *depth >= TOPMOST))
+            .collect();
+        order.sort_by_key(|(child, _)| depths[child.as_ref().unwrap()]);
+        let (position, topmost) = if matches!(op, "plan" | "set") {
+            let flag = request["flag"]
+                .as_i64()
+                .ok_or_else(|| error("DepthManager requires a documented integer depth flag"))?;
+            let boundary = order
+                .iter()
+                .position(|(_, top)| *top)
+                .unwrap_or(order.len());
+            match flag {
+                201 | 204 => (boundary, false),
+                202 => (0, false),
+                203 => (order.len(), true),
+                _ => {
+                    return Err(error(
+                        "Relative depth requires kTop, kBottom, kTopmost or kNotopmost; reserved cursor/tooltip creation is unavailable",
+                    ));
+                }
+            }
+        } else if matches!(op, "above" | "below") {
+            let other: ObjectRef = serde_json::from_value(request["other"].clone())
+                .map_err(|_| error("DepthManager requires another live sibling MovieClip"))?;
+            if other == *reference {
+                return Ok(json!({"depth":self.as2_get_depth(reference)?}));
+            }
+            if self.graph.parent(&other).as_ref() != Some(&parent) {
+                return Err(error("DepthManager relative movement requires siblings"));
+            }
+            let position = order
+                .iter()
+                .position(|(child, _)| child.as_ref() == Some(&other))
+                .ok_or_else(|| {
+                    error(
+                        "DepthManager cannot anchor relative movement to authored negative depths",
+                    )
+                })?;
+            (position + usize::from(op == "above"), order[position].1)
+        } else {
+            return Err(error("Unknown DepthManager operation"));
+        };
+        order.insert(position, ((!planning).then(|| reference.clone()), topmost));
+        let mut normal = 0;
+        let mut top = TOPMOST;
+        let mut result = 0;
+        let mut placements = Vec::with_capacity(order.len());
+        for (child, high) in order {
+            let depth = if high {
+                top += 20;
+                top
+            } else {
+                normal += 20;
+                normal
+            };
+            if depth > MAX_DEPTH || (!high && depth >= TOPMOST) {
+                return Err(error("DepthManager sibling depth tier is full"));
+            }
+            if child.is_none() || child.as_ref() == Some(reference) {
+                result = depth;
+            }
+            if let Some(child) = child {
+                placements.push((child, depth));
+            }
+        }
+        for (child, depth) in placements {
+            self.graph.as2_depths.insert(child, (parent.clone(), depth));
+        }
+        self.graph.as2_sort_depths(&parent);
+        Ok(json!({"depth":result}))
+    }
     pub fn as2_get_depth(&self, reference: &ObjectRef) -> Result<i32, DisplayError> {
         if !self.graph.alive(reference) {
             return Err(error("AS2 depth target is stale or foreign"));

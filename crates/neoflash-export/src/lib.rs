@@ -22,6 +22,10 @@ const GEOMETRY_3D: &str = include_str!("../../../web/geom3d.js");
 const AS2_NETWORK: &str = include_str!("../../../web/as2-network.js");
 const AS2_FILES: &str = include_str!("../../../web/as2-files.js");
 const AS2_LOCALE: &str = include_str!("../../../web/as2-locale.js");
+const AS2_TRANSITIONS: &str = include_str!("../../../web/as2-transitions.js");
+const AS2_DEPTH_MANAGER: &str = include_str!("../../../web/as2-depth-manager.js");
+const AS2_MEDIA: &str = include_str!("../../../web/as2-media.js");
+const AS2_SERVICES: &str = include_str!("../../../web/as2-services.js");
 const AS2_OBJECT: &str = include_str!("../../../web/as2-object.js");
 const AS2_TEXT: &str = include_str!("../../../web/as2-text.js");
 const AS2_BINDING: &str = include_str!("../../../web/as2-binding.js");
@@ -283,6 +287,10 @@ pub fn export_project(
         ("as2-strings.js", AS2_STRINGS),
         ("as2-platform.js", AS2_PLATFORM),
         ("as2-object.js", AS2_OBJECT),
+        ("as2-transitions.js", AS2_TRANSITIONS),
+        ("as2-depth-manager.js", AS2_DEPTH_MANAGER),
+        ("as2-media.js", AS2_MEDIA),
+        ("as2-services.js", AS2_SERVICES),
         ("as2-locale.js", AS2_LOCALE),
         ("as2-files.js", AS2_FILES),
         ("as2-network.js", AS2_NETWORK),
@@ -389,6 +397,10 @@ fn html_document(title: &str) -> String {
   <script defer src="as2-strings.js"></script>
   <script defer src="as2-platform.js"></script>
   <script defer src="as2-object.js"></script>
+  <script defer src="as2-transitions.js"></script>
+  <script defer src="as2-depth-manager.js"></script>
+  <script defer src="as2-media.js"></script>
+  <script defer src="as2-services.js"></script>
   <script defer src="as2-locale.js"></script>
   <script defer src="as2-files.js"></script>
   <script defer src="as2-network.js"></script>

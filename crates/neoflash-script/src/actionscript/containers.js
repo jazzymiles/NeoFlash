@@ -76,3 +76,21 @@ function __nfEnumerate(receiver,values,as3){
     if(keys.length>__nfContainerLimit)throw new __nfTypeError('Enumeration exceeds 1000000 entries.');
     return (function*(){for(const key of keys){const ref=__nfContainerRef(receiver,key,as3);if(ref.has())yield values?ref.get():key;}})();
 }
+
+// Rust's AS2 compiler lowers with into explicit reference selection. This bridge
+// only queries live object references using the ordinary property adapters.
+function __nfWithTarget(value){
+    if(value===null||(typeof value!=='object'&&typeof value!=='function'))throw new __nfTypeError('AS2 with requires a live object reference in this profile.');
+    return value;
+}
+function __nfWithRef(targets,name,fallback,receiver,caller){
+    for(const target of targets){const ref=__nfContainerRef(target,name,false,caller);if(ref.has())return {...ref,receiver:target,name,caller,withTarget:true};}
+    return {...fallback(),receiver,name,caller};
+}
+function __nfWithMethod(ref){
+    if(ref.receiver!==undefined&&(ref.name==='gotoAndPlay'||ref.name==='gotoAndStop'))return __nfAs2Method(ref.receiver,ref.name);
+    if(ref.withTarget){
+        return __nfContainerMethod(ref.receiver,ref.name,false,ref.caller);
+    }
+    const method=ref.get();return __nfAs2Value(method,ref.receiver);
+}

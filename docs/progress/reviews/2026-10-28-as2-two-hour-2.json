@@ -1,0 +1,2303 @@
+{
+  "schemaVersion": 1,
+  "baseCatalogSha256": "126a1e55011700b82572b54a11fc2c7850b8f78e10bc4744269ac641c7f91886",
+  "reviews": [
+    {
+      "id": "COORD-AS2-TWO-HOUR-2-20261028-MEDIA",
+      "title": "AS2 second two-hour batch: media",
+      "reason": "Bounded AS2-only delivery against385908d:310 unique reviewed entries,258new,9extended,43reviewed-existing. Constants, corrections and noncatalogue extensions are separated from149newmethod/property paths. AS3 audit remains unchanged.",
+      "limitations": "Progressive browser video controllers attached through documented NeoFlash extensions to authored Video; Rust states, cue ordering, timing, sizing and stream measurements. HTML5 READY12/12, physical Play13/13 with actual20fps, two cues/completion/rewind, Restart12/12. No FLV/RTMP, skins, server buffers, multi-player component linkage or audible quality claim. Constants and inherited owner paths are not independent algorithms.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as2_media.rs",
+          "sha256": "73cad32947b2532b544f8e12f9dd38c1a59d7d52f0b207146646e2572230e23e"
+        },
+        {
+          "path": "crates/neoflash-web/src/as2_media.rs",
+          "sha256": "e51556f9778046f3398f178db8fbea24dbb526029041dffdb0967c03ce914d86"
+        },
+        {
+          "path": "docs/AS2-MEDIA-BATCH.md",
+          "sha256": "5915d13dae6073b6a5924516321d64853199c49c7a2a61fd150a26f6c0d2c311"
+        },
+        {
+          "path": "examples/as2-media-batch.nflash",
+          "sha256": "564ca60d295dacc260e2b33c101ed57458b75e4ce91f26e7dc261d35a60b4b59"
+        },
+        {
+          "path": "web/as2-media.js",
+          "sha256": "76c499b619a0328b2688ff481b9f2e244c8611578a7b5c40ec64731432dd4157"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "652d943d0ba72da1cdff251aa2ccafac3be217a21db12f4dfb9d694ea8581bc3"
+        },
+        {
+          "path": "web/video.js",
+          "sha256": "b7bda86219f1df5c80b8274e9add371e7261d006346277845fb65d46a8bfc08d"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-TWO-HOUR-2-20261028-MEDIA",
+        "recordedHead": "385908dedeafe834d20bed31d06387977132a4d6",
+        "sourceCapturedAt": "2026-10-28T11:46:31.575682+00:00",
+        "verifiedAt": "2026-10-28T11:46:31.575682+00:00",
+        "sourceManifestSha256": "593a9c177274529cc26bcaa9b03360865e6e720125898004ed113254d33bdaa7",
+        "browser": "Codex in-app browser, actual native browser input/media/HTTP",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Coordinator observed ordinary authored family HTML5 results described in limitations and reviewed final source bytes. Not an independent individual declaration or original Flash conformance run.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.video.VideoPlayer.BUFFERING",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.video.VideoPlayer.CONNECTION_ERROR",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.video.VideoPlayer.DISCONNECTED",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.video.VideoPlayer.LOADING",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.video.VideoPlayer.PAUSED",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.video.VideoPlayer.PLAYING",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.video.VideoPlayer.RESIZING",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. Constant value only: viewport updates are synchronous and do not enter an asynchronous resizing state."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.video.VideoPlayer.REWINDING",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.video.VideoPlayer.SEEKING",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.video.VideoPlayer.STOPPED",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:event:mx.video.VideoPlayer.close",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:event:mx.video.VideoPlayer.complete",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:event:mx.video.VideoPlayer.cuePoint",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:event:mx.video.VideoPlayer.metadataReceived",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:event:mx.video.VideoPlayer.playheadUpdate",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:event:mx.video.VideoPlayer.progress",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. Only bundled resource byte counts and terminal progress are available; no invented HTTP download byte counts."
+        },
+        {
+          "catalogId": "AS2:components-supplement:event:mx.video.VideoPlayer.ready",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:event:mx.video.VideoPlayer.resize",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:event:mx.video.VideoPlayer.rewind",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:event:mx.video.VideoPlayer.stateChange",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:method:mx.video.VideoPlayer.addEventListener",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:method:mx.video.VideoPlayer.close",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:method:mx.video.VideoPlayer.load",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:method:mx.video.VideoPlayer.pause",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:method:mx.video.VideoPlayer.play",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:method:mx.video.VideoPlayer.removeEventListener",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:method:mx.video.VideoPlayer.seek",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:method:mx.video.VideoPlayer.setScale",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:method:mx.video.VideoPlayer.setSize",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:method:mx.video.VideoPlayer.stop",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.autoRewind",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.autoSize",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.bytesLoaded",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. Only bundled resource byte counts and terminal progress are available; no invented HTTP download byte counts."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.bytesTotal",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. Only bundled resource byte counts and terminal progress are available; no invented HTTP download byte counts."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.connected",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.height",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.isLive",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. These report false truthfully for supported finite progressive sources; rejected protocols are not promoted."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.isRTMP",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. These report false truthfully for supported finite progressive sources; rejected protocols are not promoted."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.maintainAspectRatio",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.metadata",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.playheadTime",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.playheadUpdateInterval",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.scaleX",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.scaleY",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.state",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.stateResponsive",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.totalTime",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.url",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.version",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.videoHeight",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.videoWidth",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.visible",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.volume",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.width",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.x",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:property:mx.video.VideoPlayer.y",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:class:mx.video.FLVPlayback.FLVPlayback",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:class:mx.video.VideoError.VideoError",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:class:mx.video.VideoPlayer.VideoPlayer",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.video.FLVPlayback.ACTIONSCRIPT",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.video.FLVPlayback.ALL",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.video.FLVPlayback.BUFFERING",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.video.FLVPlayback.CONNECTION_ERROR",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.video.FLVPlayback.DISCONNECTED",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.video.FLVPlayback.EVENT",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.video.FLVPlayback.FLV",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.video.FLVPlayback.LOADING",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.video.FLVPlayback.NAVIGATION",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.video.FLVPlayback.PAUSED",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.video.FLVPlayback.PLAYING",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.video.FLVPlayback.REWINDING",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.video.FLVPlayback.SEEKING",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.video.FLVPlayback.STOPPED",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.buffering",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.close",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.complete",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.cuePoint",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.metadataReceived",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.paused",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.playheadUpdate",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.playing",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.progress",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. Only bundled resource byte counts and terminal progress are available; no invented HTTP download byte counts."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.ready",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.resize",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.rewind",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.seek",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.stateChange",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.stopped",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.video.FLVPlayback.volumeUpdate",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.addASCuePoint",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.addEventListener",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.findCuePoint",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.findNearestCuePoint",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.findNextCuePointWithName",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.getVideoPlayer",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.load",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.pause",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.play",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.removeASCuePoint",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.removeEventListener",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.seek",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.seekPercent",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.seekSeconds",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.setScale",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.setSize",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.video.FLVPlayback.stop",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.autoPlay",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.autoRewind",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.autoSize",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.buffering",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.bytesLoaded",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. Only bundled resource byte counts and terminal progress are available; no invented HTTP download byte counts."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.bytesTotal",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. Only bundled resource byte counts and terminal progress are available; no invented HTTP download byte counts."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.contentPath",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.height",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.isLive",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. These report false truthfully for supported finite progressive sources; rejected protocols are not promoted."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.isRTMP",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. These report false truthfully for supported finite progressive sources; rejected protocols are not promoted."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.maintainAspectRatio",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.metadata",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.metadataLoaded",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.paused",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.playheadPercentage",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.playheadTime",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.playheadUpdateInterval",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.playing",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.preferredHeight",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.preferredWidth",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.scaleX",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.scaleY",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.state",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.stateResponsive",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.stopped",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.totalTime",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.version",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.visible",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.volume",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.width",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.x",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.FLVPlayback.y",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.VideoError.DELETE_DEFAULT_PLAYER",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. Effective accounting kind: constant (source catalogue label retained)."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.VideoError.ILLEGAL_CUE_POINT",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. Effective accounting kind: constant (source catalogue label retained)."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.VideoError.INVALID_CONTENT_PATH",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. Effective accounting kind: constant (source catalogue label retained)."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.VideoError.INVALID_SEEK",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. Effective accounting kind: constant (source catalogue label retained)."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.VideoError.INVALID_XML",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. Effective accounting kind: constant (source catalogue label retained)."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.VideoError.NO_BITRATE_MATCH",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. Effective accounting kind: constant (source catalogue label retained)."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.VideoError.NO_CONNECTION",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. Effective accounting kind: constant (source catalogue label retained)."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.VideoError.NO_CUE_POINT_MATCH",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity. Effective accounting kind: constant (source catalogue label retained)."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.video.VideoError.code",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 progressive MP4/WebM browser controller attached explicitly to an authored Video; Rust state/cues/timing/geometry, one actual viewport per controller; no Flash component linkage, FLV/RTMP/server or skin parity."
+        },
+        {
+          "catalogId": "as2:NetStream.html#bufferLength",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Seconds remaining in actual contiguous browser TimeRanges at current position, calculated in Rust; no server buffer policy."
+        },
+        {
+          "catalogId": "as2:NetStream.html#bytesLoaded",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing baseline bundled-resource byte count; browser-managed HTTP count explicitly unsupported."
+        },
+        {
+          "catalogId": "as2:NetStream.html#bytesTotal",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing baseline bundled-resource byte count; browser-managed HTTP count explicitly unsupported."
+        },
+        {
+          "catalogId": "as2:NetStream.html#currentFps",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust estimate from actual presented-frame counts/timestamps over bounded recent window; returns zero when paused/disabled; requires requestVideoFrameCallback."
+        },
+        {
+          "catalogId": "as2:NetStream.html#receiveAudio()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Boolean audio playback gate on actual media element, subject to browser gesture/global mute; no audio-only server stream clock parity."
+        },
+        {
+          "catalogId": "as2:NetStream.html#receiveVideo()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Boolean presented-frame freeze/resume; browser may continue downloading/decoding; numeric FPS selection unsupported."
+        },
+        {
+          "catalogId": "as2:Video.html#clear()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing baseline authored Video clear or Rust smoothing state; newly audited catalogue row, no new method implementation."
+        },
+        {
+          "catalogId": "as2:Video.html#smoothing",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing baseline authored Video clear or Rust smoothing state; newly audited catalogue row, no new method implementation."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-TWO-HOUR-2-20261028-SERVICES",
+      "title": "AS2 second two-hour batch: services",
+      "reason": "Bounded AS2-only delivery against385908d:310 unique reviewed entries,258new,9extended,43reviewed-existing. Constants, corrections and noncatalogue extensions are separated from149newmethod/property paths. AS3 audit remains unchanged.",
+      "limitations": "Owned Rust WSDL1.1/SOAP1.1 literal scalar protocol, queued/concurrent calls, actual fault bodies, XML/WebService connectors and callback Log. HTML5 12/0 with real local HTTP/500, SINGLE/LAST and raw XML. No external schema, encoded arrays, nested custom values, headers/attachments or complete component inheritance. Narrow post-acceptance reset/callback guards were source reviewed, not separately browser tested.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as2_services.rs",
+          "sha256": "95f0412d3cff9be91c764e8a1129414a5628e98cbc3eef634af4964b7e8d18c9"
+        },
+        {
+          "path": "crates/neoflash-web/src/as2_services.rs",
+          "sha256": "acbf7d10442e45cbc1b2a8bd09bc927a89e5771388dd5170fe79ebfd60b301cd"
+        },
+        {
+          "path": "docs/AS2-SERVICES-BATCH.md",
+          "sha256": "d4a8147f1a937d0a93ec280bc44e9eb7474152c7fd2c3a9796e64ca136838fce"
+        },
+        {
+          "path": "examples/as2-services-batch.nflash",
+          "sha256": "d8306a203fc003e2f85606c98d797ed3566e503b0273595bf19e73f555b51020"
+        },
+        {
+          "path": "examples/as2-services.wsdl",
+          "sha256": "564d2c09828993a316672e1747f05a7155c493007b4da1c90b202b3ae785d21a"
+        },
+        {
+          "path": "web/as2-services.js",
+          "sha256": "cc466f9bdbcfe5c8d59d4e861d6501bc4e46210aba25695e17bd8e69477e2d8e"
+        },
+        {
+          "path": "web/net.js",
+          "sha256": "f6b28ce8a3dc1ac1e3308021b0fff09d85d2f3837982b1894f227dc0fcc769ed"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "652d943d0ba72da1cdff251aa2ccafac3be217a21db12f4dfb9d694ea8581bc3"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-TWO-HOUR-2-20261028-SERVICES",
+        "recordedHead": "385908dedeafe834d20bed31d06387977132a4d6",
+        "sourceCapturedAt": "2026-10-28T11:46:31.575682+00:00",
+        "verifiedAt": "2026-10-28T11:46:31.575682+00:00",
+        "sourceManifestSha256": "635619cf9eb46e6384fdb02e4d6042d3379412a28dc75bbd2a199009ef14548d",
+        "browser": "Codex in-app browser, actual native browser input/media/HTTP",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Coordinator observed ordinary authored family HTML5 results described in limitations and reviewed final source bytes. Not an independent individual declaration or original Flash conformance run.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.services.Log.BRIEF",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Callback log with Rust level filtering/name/date/message formatting and browser local clock. No file sink or full historical lifecycle verbosity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.services.Log.DEBUG",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Callback log with Rust level filtering/name/date/message formatting and browser local clock. No file sink or full historical lifecycle verbosity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.services.Log.NONE",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Callback log with Rust level filtering/name/date/message formatting and browser local clock. No file sink or full historical lifecycle verbosity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.services.Log.VERBOSE",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Callback log with Rust level filtering/name/date/message formatting and browser local clock. No file sink or full historical lifecycle verbosity."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.services.SOAPCall.LAST_CONCURRENCY",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Shared operation descriptor with actual MULTIPLE/SINGLE/LAST transport concurrency and decoded/raw response choice. Lazy encoded arrays explicitly unsupported and excluded."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.services.SOAPCall.MULTIPLE_CONCURRENCY",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Shared operation descriptor with actual MULTIPLE/SINGLE/LAST transport concurrency and decoded/raw response choice. Lazy encoded arrays explicitly unsupported and excluded."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.services.SOAPCall.SINGLE_CONCURRENCY",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Shared operation descriptor with actual MULTIPLE/SINGLE/LAST transport concurrency and decoded/raw response choice. Lazy encoded arrays explicitly unsupported and excluded."
+        },
+        {
+          "catalogId": "AS2:components:callback:mx.services.Log.onLog",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Callback log with Rust level filtering/name/date/message formatting and browser local clock. No file sink or full historical lifecycle verbosity."
+        },
+        {
+          "catalogId": "AS2:components:callback:mx.services.PendingCall.onFault",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Actual request/response XML and operation reference; typed scalar output values plus XMLNode snapshots, all five accessors, real success and HTTP500 SOAPFault callbacks."
+        },
+        {
+          "catalogId": "AS2:components:callback:mx.services.PendingCall.onResult",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Actual request/response XML and operation reference; typed scalar output values plus XMLNode snapshots, all five accessors, real success and HTTP500 SOAPFault callbacks."
+        },
+        {
+          "catalogId": "AS2:components:callback:mx.services.WebService.onFault",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Asynchronous inline WSDL1.1 SOAP1.1 literal service, named operation methods, queued calls, actual onLoad XML and transport/schema faults; one port, scalar wrapped/RPC messages only."
+        },
+        {
+          "catalogId": "AS2:components:callback:mx.services.WebService.onLoad",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Asynchronous inline WSDL1.1 SOAP1.1 literal service, named operation methods, queued calls, actual onLoad XML and transport/schema faults; one port, scalar wrapped/RPC messages only."
+        },
+        {
+          "catalogId": "AS2:components:class:mx.data.components.WebServiceConnector.WebServiceConnector",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual SOAP connector using shared WSDL service; positional/named scalar params, actual result/status/send, concurrency, primitive binding refresh/validation. No design-time schemas."
+        },
+        {
+          "catalogId": "AS2:components:class:mx.data.components.XMLConnector.XMLConnector",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual XML GET/POST send/receive connector, real parsed XML results, send/result/status events, whitespace/concurrency controls and existing primitive binding refresh/validation."
+        },
+        {
+          "catalogId": "AS2:components:class:mx.services.Log.Log",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Callback log with Rust level filtering/name/date/message formatting and browser local clock. No file sink or full historical lifecycle verbosity."
+        },
+        {
+          "catalogId": "AS2:components:class:mx.services.PendingCall.PendingCall",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Actual request/response XML and operation reference; typed scalar output values plus XMLNode snapshots, all five accessors, real success and HTTP500 SOAPFault callbacks."
+        },
+        {
+          "catalogId": "AS2:components:class:mx.services.SOAPCall.SOAPCall",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Shared operation descriptor with actual MULTIPLE/SINGLE/LAST transport concurrency and decoded/raw response choice. Lazy encoded arrays explicitly unsupported and excluded."
+        },
+        {
+          "catalogId": "AS2:components:class:mx.services.WebService.WebService",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Asynchronous inline WSDL1.1 SOAP1.1 literal service, named operation methods, queued calls, actual onLoad XML and transport/schema faults; one port, scalar wrapped/RPC messages only."
+        },
+        {
+          "catalogId": "AS2:components:constructor:mx.services.Log.Log",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Callback log with Rust level filtering/name/date/message formatting and browser local clock. No file sink or full historical lifecycle verbosity."
+        },
+        {
+          "catalogId": "AS2:components:constructor:mx.services.WebService.WebService",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Asynchronous inline WSDL1.1 SOAP1.1 literal service, named operation methods, queued calls, actual onLoad XML and transport/schema faults; one port, scalar wrapped/RPC messages only."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.data.components.WebServiceConnector.result",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual SOAP connector using shared WSDL service; positional/named scalar params, actual result/status/send, concurrency, primitive binding refresh/validation. No design-time schemas."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.data.components.WebServiceConnector.send",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual SOAP connector using shared WSDL service; positional/named scalar params, actual result/status/send, concurrency, primitive binding refresh/validation. No design-time schemas."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.data.components.WebServiceConnector.status",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual SOAP connector using shared WSDL service; positional/named scalar params, actual result/status/send, concurrency, primitive binding refresh/validation. No design-time schemas."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.data.components.XMLConnector.result",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual XML GET/POST send/receive connector, real parsed XML results, send/result/status events, whitespace/concurrency controls and existing primitive binding refresh/validation."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.data.components.XMLConnector.send",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual XML GET/POST send/receive connector, real parsed XML results, send/result/status events, whitespace/concurrency controls and existing primitive binding refresh/validation."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.data.components.XMLConnector.status",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual XML GET/POST send/receive connector, real parsed XML results, send/result/status events, whitespace/concurrency controls and existing primitive binding refresh/validation."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.data.components.WebServiceConnector.trigger",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual SOAP connector using shared WSDL service; positional/named scalar params, actual result/status/send, concurrency, primitive binding refresh/validation. No design-time schemas."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.data.components.XMLConnector.trigger",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual XML GET/POST send/receive connector, real parsed XML results, send/result/status events, whitespace/concurrency controls and existing primitive binding refresh/validation."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.services.Log.getDateString",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Callback log with Rust level filtering/name/date/message formatting and browser local clock. No file sink or full historical lifecycle verbosity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.services.Log.logDebug",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Callback log with Rust level filtering/name/date/message formatting and browser local clock. No file sink or full historical lifecycle verbosity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.services.Log.logInfo",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Callback log with Rust level filtering/name/date/message formatting and browser local clock. No file sink or full historical lifecycle verbosity."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.services.PendingCall.getOutputParameter",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Actual request/response XML and operation reference; typed scalar output values plus XMLNode snapshots, all five accessors, real success and HTTP500 SOAPFault callbacks."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.services.PendingCall.getOutputParameterByName",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Actual request/response XML and operation reference; typed scalar output values plus XMLNode snapshots, all five accessors, real success and HTTP500 SOAPFault callbacks."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.services.PendingCall.getOutputParameters",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Actual request/response XML and operation reference; typed scalar output values plus XMLNode snapshots, all five accessors, real success and HTTP500 SOAPFault callbacks."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.services.PendingCall.getOutputValue",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Actual request/response XML and operation reference; typed scalar output values plus XMLNode snapshots, all five accessors, real success and HTTP500 SOAPFault callbacks."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.services.PendingCall.getOutputValues",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Actual request/response XML and operation reference; typed scalar output values plus XMLNode snapshots, all five accessors, real success and HTTP500 SOAPFault callbacks."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.services.WebService.getCall",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Asynchronous inline WSDL1.1 SOAP1.1 literal service, named operation methods, queued calls, actual onLoad XML and transport/schema faults; one port, scalar wrapped/RPC messages only."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.services.WebService.myMethodName",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Asynchronous inline WSDL1.1 SOAP1.1 literal service, named operation methods, queued calls, actual onLoad XML and transport/schema faults; one port, scalar wrapped/RPC messages only."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.data.components.WebServiceConnector.WSDLURL",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual SOAP connector using shared WSDL service; positional/named scalar params, actual result/status/send, concurrency, primitive binding refresh/validation. No design-time schemas."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.data.components.WebServiceConnector.multipleSimultaneousAllowed",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual SOAP connector using shared WSDL service; positional/named scalar params, actual result/status/send, concurrency, primitive binding refresh/validation. No design-time schemas."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.data.components.WebServiceConnector.operation",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual SOAP connector using shared WSDL service; positional/named scalar params, actual result/status/send, concurrency, primitive binding refresh/validation. No design-time schemas."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.data.components.WebServiceConnector.params",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual SOAP connector using shared WSDL service; positional/named scalar params, actual result/status/send, concurrency, primitive binding refresh/validation. No design-time schemas."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.data.components.WebServiceConnector.results",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual SOAP connector using shared WSDL service; positional/named scalar params, actual result/status/send, concurrency, primitive binding refresh/validation. No design-time schemas."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.data.components.WebServiceConnector.suppressInvalidCalls",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual SOAP connector using shared WSDL service; positional/named scalar params, actual result/status/send, concurrency, primitive binding refresh/validation. No design-time schemas."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.data.components.XMLConnector.URL",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual XML GET/POST send/receive connector, real parsed XML results, send/result/status events, whitespace/concurrency controls and existing primitive binding refresh/validation."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.data.components.XMLConnector.direction",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual XML GET/POST send/receive connector, real parsed XML results, send/result/status events, whitespace/concurrency controls and existing primitive binding refresh/validation."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.data.components.XMLConnector.ignoreWhite",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual XML GET/POST send/receive connector, real parsed XML results, send/result/status events, whitespace/concurrency controls and existing primitive binding refresh/validation."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.data.components.XMLConnector.multipleSimultaneousAllowed",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual XML GET/POST send/receive connector, real parsed XML results, send/result/status events, whitespace/concurrency controls and existing primitive binding refresh/validation."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.data.components.XMLConnector.params",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual XML GET/POST send/receive connector, real parsed XML results, send/result/status events, whitespace/concurrency controls and existing primitive binding refresh/validation."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.data.components.XMLConnector.results",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual XML GET/POST send/receive connector, real parsed XML results, send/result/status events, whitespace/concurrency controls and existing primitive binding refresh/validation."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.data.components.XMLConnector.suppressInvalidCalls",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Nonvisual XML GET/POST send/receive connector, real parsed XML results, send/result/status events, whitespace/concurrency controls and existing primitive binding refresh/validation."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.services.Log.level",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Callback log with Rust level filtering/name/date/message formatting and browser local clock. No file sink or full historical lifecycle verbosity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.services.Log.name",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Callback log with Rust level filtering/name/date/message formatting and browser local clock. No file sink or full historical lifecycle verbosity."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.services.PendingCall.myCall",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Actual request/response XML and operation reference; typed scalar output values plus XMLNode snapshots, all five accessors, real success and HTTP500 SOAPFault callbacks."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.services.PendingCall.request",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Actual request/response XML and operation reference; typed scalar output values plus XMLNode snapshots, all five accessors, real success and HTTP500 SOAPFault callbacks."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.services.PendingCall.response",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Actual request/response XML and operation reference; typed scalar output values plus XMLNode snapshots, all five accessors, real success and HTTP500 SOAPFault callbacks."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.services.SOAPCall.concurrency",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Shared operation descriptor with actual MULTIPLE/SINGLE/LAST transport concurrency and decoded/raw response choice. Lazy encoded arrays explicitly unsupported and excluded."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.services.SOAPCall.doDecoding",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Shared operation descriptor with actual MULTIPLE/SINGLE/LAST transport concurrency and decoded/raw response choice. Lazy encoded arrays explicitly unsupported and excluded."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-TWO-HOUR-2-20261028-DISPLAY",
+      "title": "AS2 second two-hour batch: display",
+      "reason": "Bounded AS2-only delivery against385908d:310 unique reviewed entries,258new,9extended,43reviewed-existing. Constants, corrections and noncatalogue extensions are separated from149newmethod/property paths. AS3 audit remains unchanged.",
+      "limitations": "Rust blend/cache/opaque groups, uniform paragraph fields/autosize/wheel/hyperlink routing and MovieClip PNG/JPEG image aliases with actual tracked bytes. HTML5 20/20 plus real cache mutation, wheel and local link. Existing eight filters receive source-reviewed stale-row corrections. No full pixel/Flash conformance, rich text, native overlays in rasterized/bullet/custom-tab content, SWF loading or root replacement.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as2_text.rs",
+          "sha256": "9afc03706029a80e4aaf095dc2780bb5929870c7e7c91636c556557d56f237b1"
+        },
+        {
+          "path": "crates/neoflash-core/src/filters.rs",
+          "sha256": "f5504b51441a877f7b8f6496bb56d5f91d5caab7c05af92807cc777431892a32"
+        },
+        {
+          "path": "crates/neoflash-core/src/resource_image.rs",
+          "sha256": "9b3fe39fa4e9ec92396c01d38800fb0fdd4610d33fe42382bc99c58045b9dda5"
+        },
+        {
+          "path": "crates/neoflash-core/src/resources.rs",
+          "sha256": "51964faf7747aa135a001f9939cd304edad394e3e05c12bec14ab51569a2924a"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/as2_render.rs",
+          "sha256": "61143dc288d710b293232808eb23ca7eb5ce5e55e326beb3a4fcfd4e4fdcc1e6"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/filters.rs",
+          "sha256": "15e2f73f7121af6b3054bfd143b9bcffc6a08f75f5e0377de3b8dfd556c747eb"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/loader.rs",
+          "sha256": "9a7c2ee80c94be1724b5d6cd89e13b381c265becdeef99a7b3fea7b6cb311e96"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/text.rs",
+          "sha256": "abd46ae6c7c6e186c77e25d96de9894491502219e4f2301845885bb83813b8c4"
+        },
+        {
+          "path": "crates/neoflash-core/src/text.rs",
+          "sha256": "c64ec84b1ea20309998aecd3668433b03e5c1e4e71230679127c05c7dd2c4cc6"
+        },
+        {
+          "path": "crates/neoflash-core/tests/as2_display.rs",
+          "sha256": "8728db2eccb8df8cdce4015a2427febff2d111be83f3eb36e6c529a43d9a7d94"
+        },
+        {
+          "path": "crates/neoflash-core/tests/as2_text.rs",
+          "sha256": "8d61925dac0ebacf8ad06833d22201cef7a4e1356f225980dfa60aeb28beaa9c"
+        },
+        {
+          "path": "crates/neoflash-script/tests/loader-gallery.mjs",
+          "sha256": "11557e4a537a719dbe24d9b79bb967ae3cd49385504f98a923824c2d391c3393"
+        },
+        {
+          "path": "docs/RUNTIME-FILTERS-PROVENANCE.md",
+          "sha256": "15eab74352c90ce3a94ec55afcd95b64f2d15d239860b8bb889ac7fbdd3029bc"
+        },
+        {
+          "path": "examples/as2-display-filters-batch.nflash",
+          "sha256": "1821c4bc600ee6b68c964018339bda8c1031ba605eb6133e4c56a9aeade2c459"
+        },
+        {
+          "path": "web/as2-text.js",
+          "sha256": "6824374a739c0992b8a7065e0b974a0a8db4de1329998560ae5dbad53b5064e2"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "4cdc1c11892163951366d431d0de1ce774ea80c06a4abba13b7f211ee2fc9075"
+        },
+        {
+          "path": "web/filters.js",
+          "sha256": "f872aea27f129535759ef6b8bb3046d336ae952eb75778db6c5b173f036a33bf"
+        },
+        {
+          "path": "web/loader.js",
+          "sha256": "e0ea2defdb58d0e1d322d5b591308b98257dbe2328f32b64f081a404c108d038"
+        },
+        {
+          "path": "web/net.js",
+          "sha256": "f6b28ce8a3dc1ac1e3308021b0fff09d85d2f3837982b1894f227dc0fcc769ed"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "652d943d0ba72da1cdff251aa2ccafac3be217a21db12f4dfb9d694ea8581bc3"
+        },
+        {
+          "path": "web/text-input.js",
+          "sha256": "1ffac61ea3865574de5eb8c0367e4e2fc90ee6db49acff7b1ca9d4ad0e6e066b"
+        },
+        {
+          "path": "web/text.js",
+          "sha256": "79118893ac0727b86b9ed365f88288ea0149c09eb5a0578d1799a91c02d58f46"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-TWO-HOUR-2-20261028-DISPLAY",
+        "recordedHead": "385908dedeafe834d20bed31d06387977132a4d6",
+        "sourceCapturedAt": "2026-10-28T11:46:31.575682+00:00",
+        "verifiedAt": "2026-10-28T11:46:31.575682+00:00",
+        "sourceManifestSha256": "e740301bf079871d04a5aaf31328460288ba2755ee324283f60160fc8aac3851",
+        "browser": "Codex in-app browser, actual native browser input/media/HTTP",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Coordinator observed ordinary authored family HTML5 results described in limitations and reviewed final source bytes. Not an independent individual declaration or original Flash conformance run.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:MovieClip.html#blendMode",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2-only Rust render state; actual bounded subtree raster composition/cache/background. Ten blend names; subtract/invert/alpha/erase pending. Button aliases share the implementation; no distinct Button browser acceptance claimed."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#cacheAsBitmap",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2-only Rust render state; actual bounded subtree raster composition/cache/background. Ten blend names; subtract/invert/alpha/erase pending. Button aliases share the implementation; no distinct Button browser acceptance claimed."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#opaqueBackground",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2-only Rust render state; actual bounded subtree raster composition/cache/background. Ten blend names; subtract/invert/alpha/erase pending. Button aliases share the implementation; no distinct Button browser acceptance claimed."
+        },
+        {
+          "catalogId": "as2:Button.html#blendMode",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2-only Rust render state; actual bounded subtree raster composition/cache/background. Ten blend names; subtract/invert/alpha/erase pending. Button aliases share the implementation; no distinct Button browser acceptance claimed."
+        },
+        {
+          "catalogId": "as2:Button.html#cacheAsBitmap",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2-only Rust render state; actual bounded subtree raster composition/cache/background. Ten blend names; subtract/invert/alpha/erase pending. Button aliases share the implementation; no distinct Button browser acceptance claimed."
+        },
+        {
+          "catalogId": "as2:TextFormat.html#letterSpacing",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Uniform AS2 TextFormat renders through shared Rust layout. Canvas font facilities for spacing/kerning; custom tabs require wordWrap=false; bullets/tabs exclude native selection/editing. Links hit actual laid-out lines and use existing URL safety/target policy; asfunction links pending."
+        },
+        {
+          "catalogId": "as2:TextFormat.html#kerning",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Uniform AS2 TextFormat renders through shared Rust layout. Canvas font facilities for spacing/kerning; custom tabs require wordWrap=false; bullets/tabs exclude native selection/editing. Links hit actual laid-out lines and use existing URL safety/target policy; asfunction links pending."
+        },
+        {
+          "catalogId": "as2:TextFormat.html#bullet",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Uniform AS2 TextFormat renders through shared Rust layout. Canvas font facilities for spacing/kerning; custom tabs require wordWrap=false; bullets/tabs exclude native selection/editing. Links hit actual laid-out lines and use existing URL safety/target policy; asfunction links pending."
+        },
+        {
+          "catalogId": "as2:TextFormat.html#tabStops",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Uniform AS2 TextFormat renders through shared Rust layout. Canvas font facilities for spacing/kerning; custom tabs require wordWrap=false; bullets/tabs exclude native selection/editing. Links hit actual laid-out lines and use existing URL safety/target policy; asfunction links pending."
+        },
+        {
+          "catalogId": "as2:TextFormat.html#url",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Uniform AS2 TextFormat renders through shared Rust layout. Canvas font facilities for spacing/kerning; custom tabs require wordWrap=false; bullets/tabs exclude native selection/editing. Links hit actual laid-out lines and use existing URL safety/target policy; asfunction links pending."
+        },
+        {
+          "catalogId": "as2:TextFormat.html#target",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Uniform AS2 TextFormat renders through shared Rust layout. Canvas font facilities for spacing/kerning; custom tabs require wordWrap=false; bullets/tabs exclude native selection/editing. Links hit actual laid-out lines and use existing URL safety/target policy; asfunction links pending."
+        },
+        {
+          "catalogId": "as2:TextField.html#autoSize",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust fit preserves left/center/right anchor and fixed wordWrap width; text mutations reflow. Rust wheel mapping/clamp drives actual viewport and onScroller. Uniform text profile, not original Flash typography/OS wheel conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#mouseWheelEnabled",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust fit preserves left/center/right anchor and fixed wordWrap width; text mutations reflow. Rust wheel mapping/clamp drives actual viewport and onScroller. Uniform text profile, not original Flash typography/OS wheel conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#loadMovie()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. New AS2 MovieClip aliases reuse existing Rust image decoding/display replacement and browser request transport; PNG/JPEG, GET/POST variables, cancellation/reload, actual tracked encoded-byte progress. Non-root targets only; SWF/root/level loads and authored SWF byte counts explicitly unsupported. No new decoder/engine."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#unloadMovie()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. New AS2 MovieClip aliases reuse existing Rust image decoding/display replacement and browser request transport; PNG/JPEG, GET/POST variables, cancellation/reload, actual tracked encoded-byte progress. Non-root targets only; SWF/root/level loads and authored SWF byte counts explicitly unsupported. No new decoder/engine."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getBytesLoaded()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. New AS2 MovieClip aliases reuse existing Rust image decoding/display replacement and browser request transport; PNG/JPEG, GET/POST variables, cancellation/reload, actual tracked encoded-byte progress. Non-root targets only; SWF/root/level loads and authored SWF byte counts explicitly unsupported. No new decoder/engine."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getBytesTotal()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. New AS2 MovieClip aliases reuse existing Rust image decoding/display replacement and browser request transport; PNG/JPEG, GET/POST variables, cancellation/reload, actual tracked encoded-byte progress. Non-root targets only; SWF/root/level loads and authored SWF byte counts explicitly unsupported. No new decoder/engine."
+        },
+        {
+          "catalogId": "as2:TextFormat.html#TextFormat()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: extended. Existing partial API extended: new format fields/paragraph extents, uniform HTML anchors/font attributes, stylesheet spacing/kerning mapping, or actual wheel-driven scroll callbacks. No mixed rich text or field-by-field browser conformance claim."
+        },
+        {
+          "catalogId": "as2:TextFormat.html#getTextExtent()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: extended. Existing partial API extended: new format fields/paragraph extents, uniform HTML anchors/font attributes, stylesheet spacing/kerning mapping, or actual wheel-driven scroll callbacks. No mixed rich text or field-by-field browser conformance claim."
+        },
+        {
+          "catalogId": "as2:TextField.html#getTextFormat()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: extended. Existing partial API extended: new format fields/paragraph extents, uniform HTML anchors/font attributes, stylesheet spacing/kerning mapping, or actual wheel-driven scroll callbacks. No mixed rich text or field-by-field browser conformance claim."
+        },
+        {
+          "catalogId": "as2:TextField.html#getNewTextFormat()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: extended. Existing partial API extended: new format fields/paragraph extents, uniform HTML anchors/font attributes, stylesheet spacing/kerning mapping, or actual wheel-driven scroll callbacks. No mixed rich text or field-by-field browser conformance claim."
+        },
+        {
+          "catalogId": "as2:TextField.html#setTextFormat()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: extended. Existing partial API extended: new format fields/paragraph extents, uniform HTML anchors/font attributes, stylesheet spacing/kerning mapping, or actual wheel-driven scroll callbacks. No mixed rich text or field-by-field browser conformance claim."
+        },
+        {
+          "catalogId": "as2:TextField.html#setNewTextFormat()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: extended. Existing partial API extended: new format fields/paragraph extents, uniform HTML anchors/font attributes, stylesheet spacing/kerning mapping, or actual wheel-driven scroll callbacks. No mixed rich text or field-by-field browser conformance claim."
+        },
+        {
+          "catalogId": "as2:TextField.html#htmlText",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: extended. Existing partial API extended: new format fields/paragraph extents, uniform HTML anchors/font attributes, stylesheet spacing/kerning mapping, or actual wheel-driven scroll callbacks. No mixed rich text or field-by-field browser conformance claim."
+        },
+        {
+          "catalogId": "as2:TextField/StyleSheet.html#transform()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: extended. Existing partial API extended: new format fields/paragraph extents, uniform HTML anchors/font attributes, stylesheet spacing/kerning mapping, or actual wheel-driven scroll callbacks. No mixed rich text or field-by-field browser conformance claim."
+        },
+        {
+          "catalogId": "as2:TextField.html#event:onScroller",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: extended. Existing partial API extended: new format fields/paragraph extents, uniform HTML anchors/font attributes, stylesheet spacing/kerning mapping, or actual wheel-driven scroll callbacks. No mixed rich text or field-by-field browser conformance claim."
+        },
+        {
+          "catalogId": "as2:flash/filters/BitmapFilter.html#clone()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/BlurFilter.html#blurX",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/BlurFilter.html#blurY",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/BlurFilter.html#clone()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/BlurFilter.html#quality",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/ColorMatrixFilter.html#ColorMatrixFilter()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/ColorMatrixFilter.html#clone()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/ColorMatrixFilter.html#matrix",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#alpha",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#angle",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#blurX",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#blurY",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#clone()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#color",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#distance",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#hideObject",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#inner",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#knockout",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#quality",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#strength",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#alpha",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#blurX",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#blurY",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#clone()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#color",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#inner",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#knockout",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#quality",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#strength",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already implemented before baseline: copied concrete filter values/clone and bounded Rust RGBA kernels. Source-audit correction, not new code; no historical pixel/coercion/native subclass parity. BitmapFilter.clone works on supplied concrete instances; base construction remains unsupported."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getURL()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Already-existing MovieClip browser-navigation adapter; source-audit correction only. Browser user activation, permitted URL protocols/targets and existing GET/POST form profile apply; no fresh navigation browser pass claimed."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-TWO-HOUR-2-20261028-LANGUAGE",
+      "title": "AS2 second two-hour batch: language",
+      "reason": "Bounded AS2-only delivery against385908d:310 unique reviewed entries,258new,9extended,43reviewed-existing. Constants, corrections and noncatalogue extensions are separated from149newmethod/property paths. AS3 audit remains unchanged.",
+      "limitations": "Concrete AS2 instance/static accessors with dynamic prototype receivers; bounded nested with object scopes, property references, method receivers and lexical fallback. HTML5 14/14 including independent accessor instances. No primitive with targets, closures/eval/set inside with, full prototype or AVM1 scope-chain conformance. dynamic/Array/Object function forms were already available and are counted only as corrections.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "cac211f95924a4d70b75285b353acab5d85f805c2967596a9b0453735cc94672"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/completion.rs",
+          "sha256": "d060ac3e9ebbd4effbe09a0cf65b9b06ee9328a5b4dc0b7a950574881c289e2c"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/containers.js",
+          "sha256": "6086323f2c69e710e2adb6ad49ec351be74465e3c943f824a5ec5de19ca8f8d7"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "252f90f92c27724d6b15fb33109e840169f767de88ff336c8122e1d148a30d55"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "0c15f5c265f327ef18f7ce8bd2ea7218ba5edc4101fa4e240b7dc57cc2a9b675"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "6c4dd79518b3c2ee1b029d9bf2840920c073a977d2739a2a35fc03f13401595c"
+        },
+        {
+          "path": "docs/AS2-LANGUAGE-BATCH.md",
+          "sha256": "486453a368adfb81f2f84778db1182d308a19311ce0b3d0a0f558b755cf3a974"
+        },
+        {
+          "path": "examples/as2-language-batch.nflash",
+          "sha256": "0cd5803d3c0dd38ef319cd149402508e4708d52ffc4e0fa5a0d8972a9219c765"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "652d943d0ba72da1cdff251aa2ccafac3be217a21db12f4dfb9d694ea8581bc3"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-TWO-HOUR-2-20261028-LANGUAGE",
+        "recordedHead": "385908dedeafe834d20bed31d06387977132a4d6",
+        "sourceCapturedAt": "2026-10-28T11:46:31.575682+00:00",
+        "verifiedAt": "2026-10-28T11:46:31.575682+00:00",
+        "sourceManifestSha256": "8fabfd38fbf555a56d8aa68418cb7127818e141fbd603b10c511fd3556ef10dc",
+        "browser": "Codex in-app browser, actual native browser input/media/HTTP",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Coordinator observed ordinary authored family HTML5 results described in limitations and reviewed final source bytes. Not an independent individual declaration or original Flash conformance run.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:global_functions.html#Array()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Bounded AS2 class accessors and explicit object scope lowering; details in docs/AS2-LANGUAGE-BATCH.md. Existing dynamic/Array/Object forms are catalogue corrections, not newly implemented algorithms."
+        },
+        {
+          "catalogId": "as2:global_functions.html#Object()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Bounded AS2 class accessors and explicit object scope lowering; details in docs/AS2-LANGUAGE-BATCH.md. Existing dynamic/Array/Object forms are catalogue corrections, not newly implemented algorithms."
+        },
+        {
+          "catalogId": "as2:statements.html#dynamic",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Bounded AS2 class accessors and explicit object scope lowering; details in docs/AS2-LANGUAGE-BATCH.md. Existing dynamic/Array/Object forms are catalogue corrections, not newly implemented algorithms."
+        },
+        {
+          "catalogId": "as2:statements.html#get",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Bounded AS2 class accessors and explicit object scope lowering; details in docs/AS2-LANGUAGE-BATCH.md. Existing dynamic/Array/Object forms are catalogue corrections, not newly implemented algorithms."
+        },
+        {
+          "catalogId": "as2:statements.html#set",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Bounded AS2 class accessors and explicit object scope lowering; details in docs/AS2-LANGUAGE-BATCH.md. Existing dynamic/Array/Object forms are catalogue corrections, not newly implemented algorithms."
+        },
+        {
+          "catalogId": "as2:statements.html#with",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Bounded AS2 class accessors and explicit object scope lowering; details in docs/AS2-LANGUAGE-BATCH.md. Existing dynamic/Array/Object forms are catalogue corrections, not newly implemented algorithms."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-TWO-HOUR-2-20261028-TEXT-VARIABLE",
+      "title": "AS2 second two-hour batch: text-variable",
+      "reason": "Bounded AS2-only delivery against385908d:310 unique reviewed entries,258new,9extended,43reviewed-existing. Constants, corrections and noncatalogue extensions are separated from149newmethod/property paths. AS3 audit remains unchanged.",
+      "limitations": "Rust-owned plain TextField.variable binding to primitive dynamic MovieClip variables using existing named-path and object services. HTML5 nine initial groups plus actual typing/mirror/onChanged ordering, button mutation and Restart. No HTML, custom object coercion, native property bindings or complete historical propagation semantics; read/frame-boundary refresh is explicit.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as2_object.rs",
+          "sha256": "719b4fb26eb2da050001fe1bc8475beda005bc61955c7487405414d984bdb8f4"
+        },
+        {
+          "path": "crates/neoflash-web/src/as2_object.rs",
+          "sha256": "e80622e2a5948d2fe1672d7eea91ecd476eb78b27b036e1ecfd891fe646a263d"
+        },
+        {
+          "path": "docs/AS2-TEXT-VARIABLE-BATCH.md",
+          "sha256": "09893e4debe13eb04bfe9ebd62a87c8184e88662d8e76d3738932b96d9350905"
+        },
+        {
+          "path": "examples/as2-text-variable-batch.nflash",
+          "sha256": "207d9a8d62d14eecc619cc0a538cc57b13a75bd22fe28a1a264d38714641d08c"
+        },
+        {
+          "path": "web/as2-object.js",
+          "sha256": "719a2a22c2a775ba9b8724181b7657078d57ad89068e883204293196081d60cf"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "652d943d0ba72da1cdff251aa2ccafac3be217a21db12f4dfb9d694ea8581bc3"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-TWO-HOUR-2-20261028-TEXT-VARIABLE",
+        "recordedHead": "385908dedeafe834d20bed31d06387977132a4d6",
+        "sourceCapturedAt": "2026-10-28T11:46:31.575682+00:00",
+        "verifiedAt": "2026-10-28T11:46:31.575682+00:00",
+        "sourceManifestSha256": "14824b2dc33321115b1c24c86f2cd1f9f00612f49511a1a1933f5bff6fd65860",
+        "browser": "Codex in-app browser, actual native browser input/media/HTTP",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Coordinator observed ordinary authored family HTML5 results described in limitations and reviewed final source bytes. Not an independent individual declaration or original Flash conformance run.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:TextField.html#variable",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Plain TextField to primitive MovieClip variable binding; existing Object Rust identity/path/reentrancy and shared binding conversion. Relative/root paths, initialize/current-text seed, text/native-input→variable before onChanged, variable refresh on AS2 text read/script boundary, reassign/detach/reset. No HTML/custom object coercion/native display-property binding."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-TWO-HOUR-2-20261028-TRANSITIONS",
+      "title": "AS2 second two-hour batch: transitions",
+      "reason": "Bounded AS2-only delivery against385908d:310 unique reviewed entries,258new,9extended,43reviewed-existing. Constants, corrections and noncatalogue extensions are separated from149newmethod/property paths. AS3 audit remains unchanged.",
+      "limitations": "Five actual Fade/Fly/Rotate/Zoom/Squeeze MovieClip transforms use existing Rust easing, manager snapshots and completion events. Browser three grouped checks and visible five IN/OUT effects. No masks, custom subclasses or overlapping channels. Six existing easing classes are catalogue corrections. Duplicate timer render notification removed after browser acceptance by source review.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as2_transitions.rs",
+          "sha256": "35af0c008b9478db56056c2659999a3ceeb1ec958124348f2274482747c474e8"
+        },
+        {
+          "path": "crates/neoflash-core/src/as_easing.rs",
+          "sha256": "70ce176e937a4f6437839464097837ca9c129532b4b69cc452e087d607a7eb48"
+        },
+        {
+          "path": "crates/neoflash-web/src/as2_transitions.rs",
+          "sha256": "eef9e720fc95d7404a96c85d409e83d64f04ab71ef1408f6e3cae35cb4e5d745"
+        },
+        {
+          "path": "docs/AS2-TRANSITIONS-BATCH.md",
+          "sha256": "22c4e0c4c703f0343c6bb9c205478eaac21b0d6831af9244ae1961bc6fe78a4c"
+        },
+        {
+          "path": "docs/RUNTIME-EASING-PROVENANCE.md",
+          "sha256": "bb77c1600d2bbe48821cf7407d16213bd2c57d3f800431bbe09e23fafdcd7891"
+        },
+        {
+          "path": "examples/as2-transitions-batch.nflash",
+          "sha256": "a7066d47e9c010fef742e79d83bef682f64614479a30aa9d8399af276cddcbc1"
+        },
+        {
+          "path": "web/as2-transitions.js",
+          "sha256": "b46114fca9694b7190cd694b9cd257d07b538c5e68d657e4159773c5a89bc581"
+        },
+        {
+          "path": "web/easing.js",
+          "sha256": "def62aa5f963126e666c3365e04fcf09a730959d9aa93f358a5ddde5fa211435"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "652d943d0ba72da1cdff251aa2ccafac3be217a21db12f4dfb9d694ea8581bc3"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-TWO-HOUR-2-20261028-TRANSITIONS",
+        "recordedHead": "385908dedeafe834d20bed31d06387977132a4d6",
+        "sourceCapturedAt": "2026-10-28T11:46:31.575682+00:00",
+        "verifiedAt": "2026-10-28T11:46:31.575682+00:00",
+        "sourceManifestSha256": "d10377fe37b662183f50bbd8410bc82d4e1f2d5d77c7ebd4ca11b50886839613",
+        "browser": "Codex in-app browser, actual native browser input/media/HTTP",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Coordinator observed ordinary authored family HTML5 results described in limitations and reviewed final source bytes. Not an independent individual declaration or original Flash conformance run.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS2:components-supplement:class:mx.transitions.Fade.Fade",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components-supplement:class:mx.transitions.Fly.Fly",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components-supplement:class:mx.transitions.Rotate.Rotate",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components-supplement:class:mx.transitions.Squeeze.Squeeze",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components-supplement:class:mx.transitions.Transition.Transition",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components-supplement:class:mx.transitions.Zoom.Zoom",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components-supplement:class:mx.transitions.easing.Back.Back",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing static easing facade and Rust Penner family; source-reviewed class declaration previously missing. No new algorithm/method; built-in finite numeric profile only."
+        },
+        {
+          "catalogId": "AS2:components-supplement:class:mx.transitions.easing.Bounce.Bounce",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing static easing facade and Rust Penner family; source-reviewed class declaration previously missing. No new algorithm/method; built-in finite numeric profile only."
+        },
+        {
+          "catalogId": "AS2:components-supplement:class:mx.transitions.easing.Elastic.Elastic",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing static easing facade and Rust Penner family; source-reviewed class declaration previously missing. No new algorithm/method; built-in finite numeric profile only."
+        },
+        {
+          "catalogId": "AS2:components-supplement:class:mx.transitions.easing.None.None",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing static easing facade and Rust Penner family; source-reviewed class declaration previously missing. No new algorithm/method; built-in finite numeric profile only."
+        },
+        {
+          "catalogId": "AS2:components-supplement:class:mx.transitions.easing.Regular.Regular",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing static easing facade and Rust Penner family; source-reviewed class declaration previously missing. No new algorithm/method; built-in finite numeric profile only."
+        },
+        {
+          "catalogId": "AS2:components-supplement:class:mx.transitions.easing.Strong.Strong",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing static easing facade and Rust Penner family; source-reviewed class declaration previously missing. No new algorithm/method; built-in finite numeric profile only."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.transitions.Transition.IN",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constant:mx.transitions.Transition.OUT",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components-supplement:constructor:mx.transitions.TransitionManager.TransitionManager",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components:class:mx.transitions.TransitionManager.TransitionManager",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.transitions.TransitionManager.allTransitionsInDone",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components:event:mx.transitions.TransitionManager.allTransitionsOutDone",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.transitions.TransitionManager.start",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.transitions.TransitionManager.startTransition",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.transitions.TransitionManager.toString",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.transitions.TransitionManager.content",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        },
+        {
+          "catalogId": "AS2:components:property:mx.transitions.TransitionManager.contentAppearance",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real MovieClip transform transitions with Rust timing/easing, manager snapshots and completion events. Fade/Fly/Rotate/Zoom/Squeeze only; independent channels, no masks/custom subclasses. See documented bounds."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-TWO-HOUR-2-20261028-DEPTH-MANAGER",
+      "title": "AS2 second two-hour batch: depth-manager",
+      "reason": "Bounded AS2-only delivery against385908d:310 unique reviewed entries,258new,9extended,43reviewed-existing. Constants, corrections and noncatalogue extensions are separated from149newmethod/property paths. AS3 audit remains unchanged.",
+      "limitations": "Four AS2 MovieClip extensions use existing Rust graph and exact Export identifier creation, stable sibling ordering and normal/topmost tiers. Browser8/8 and Restart8/8 with real linked clips. No authored negative reordering, UIObject or cursor/tooltip layers. A failed attach may normalize numeric depths while preserving relative order and objects; atomic historical creation parity is not claimed.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/as2_display.rs",
+          "sha256": "8fd449e13930035ca8d5819138d5fae80739d8caba3a2b85b026cea083f3f20b"
+        },
+        {
+          "path": "crates/neoflash-core/tests/as2_display.rs",
+          "sha256": "8728db2eccb8df8cdce4015a2427febff2d111be83f3eb36e6c529a43d9a7d94"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "0c15f5c265f327ef18f7ce8bd2ea7218ba5edc4101fa4e240b7dc57cc2a9b675"
+        },
+        {
+          "path": "crates/neoflash-web/src/as2_depth_manager.rs",
+          "sha256": "4ebb70b11f8e9b098fffbb6a2df7566e3c69d4a9f53fea2167b7a28d2727900d"
+        },
+        {
+          "path": "docs/AS2-DEPTH-MANAGER-BATCH.md",
+          "sha256": "59dda6ddd079370f95b11f31129eb93d672cda4eae15f905177a7b15666fbf63"
+        },
+        {
+          "path": "examples/as2-depth-manager-batch.nflash",
+          "sha256": "a2120727a5dfd3af1fc314f07323f08b1d1df19ac72132f7a68eb8dab501a312"
+        },
+        {
+          "path": "web/as2-depth-manager.js",
+          "sha256": "ca0b3398ff3da72a1d3608968f5e2783c57bdb73f1e85f23f265d7518ba339a1"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "652d943d0ba72da1cdff251aa2ccafac3be217a21db12f4dfb9d694ea8581bc3"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-TWO-HOUR-2-20261028-DEPTH-MANAGER",
+        "recordedHead": "385908dedeafe834d20bed31d06387977132a4d6",
+        "sourceCapturedAt": "2026-10-28T11:46:31.575682+00:00",
+        "verifiedAt": "2026-10-28T11:46:31.575682+00:00",
+        "sourceManifestSha256": "3756a9f761c346df44c082f5026a3cb5b5fac11dbb0a708b064ff73d6f69462e",
+        "browser": "Codex in-app browser, actual native browser input/media/HTTP",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Coordinator observed ordinary authored family HTML5 results described in limitations and reviewed final source bytes. Not an independent individual declaration or original Flash conformance run.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "AS2:components:class:mx.managers.DepthManager.DepthManager",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Relative runtime MovieClip ordering in stable20-depth steps within normal/topmost tiers; actual existing attachMovie linkage; no UIObject, cursor/tooltip system layer, authored negative-depth reordering or exact historical absolute-depth growth. Constants are separate from callable capabilities. Failed attachMovie linkage/init validation can leave numeric depths normalized while preserving sibling order and objects; unknown linkage retains the existing actionable error."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.managers.DepthManager.kBottom",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Relative runtime MovieClip ordering in stable20-depth steps within normal/topmost tiers; actual existing attachMovie linkage; no UIObject, cursor/tooltip system layer, authored negative-depth reordering or exact historical absolute-depth growth. Constants are separate from callable capabilities."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.managers.DepthManager.kCursor",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Relative runtime MovieClip ordering in stable20-depth steps within normal/topmost tiers; actual existing attachMovie linkage; no UIObject, cursor/tooltip system layer, authored negative-depth reordering or exact historical absolute-depth growth. Constants are separate from callable capabilities."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.managers.DepthManager.kNotopmost",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Relative runtime MovieClip ordering in stable20-depth steps within normal/topmost tiers; actual existing attachMovie linkage; no UIObject, cursor/tooltip system layer, authored negative-depth reordering or exact historical absolute-depth growth. Constants are separate from callable capabilities."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.managers.DepthManager.kTooltip",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Relative runtime MovieClip ordering in stable20-depth steps within normal/topmost tiers; actual existing attachMovie linkage; no UIObject, cursor/tooltip system layer, authored negative-depth reordering or exact historical absolute-depth growth. Constants are separate from callable capabilities."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.managers.DepthManager.kTop",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Relative runtime MovieClip ordering in stable20-depth steps within normal/topmost tiers; actual existing attachMovie linkage; no UIObject, cursor/tooltip system layer, authored negative-depth reordering or exact historical absolute-depth growth. Constants are separate from callable capabilities."
+        },
+        {
+          "catalogId": "AS2:components:constant:mx.managers.DepthManager.kTopmost",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Relative runtime MovieClip ordering in stable20-depth steps within normal/topmost tiers; actual existing attachMovie linkage; no UIObject, cursor/tooltip system layer, authored negative-depth reordering or exact historical absolute-depth growth. Constants are separate from callable capabilities."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.managers.DepthManager.createChildAtDepth",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Relative runtime MovieClip ordering in stable20-depth steps within normal/topmost tiers; actual existing attachMovie linkage; no UIObject, cursor/tooltip system layer, authored negative-depth reordering or exact historical absolute-depth growth. Constants are separate from callable capabilities. Failed attachMovie linkage/init validation can leave numeric depths normalized while preserving sibling order and objects; unknown linkage retains the existing actionable error."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.managers.DepthManager.setDepthAbove",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Relative runtime MovieClip ordering in stable20-depth steps within normal/topmost tiers; actual existing attachMovie linkage; no UIObject, cursor/tooltip system layer, authored negative-depth reordering or exact historical absolute-depth growth. Constants are separate from callable capabilities."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.managers.DepthManager.setDepthBelow",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Relative runtime MovieClip ordering in stable20-depth steps within normal/topmost tiers; actual existing attachMovie linkage; no UIObject, cursor/tooltip system layer, authored negative-depth reordering or exact historical absolute-depth growth. Constants are separate from callable capabilities."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.managers.DepthManager.setDepthTo",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Relative runtime MovieClip ordering in stable20-depth steps within normal/topmost tiers; actual existing attachMovie linkage; no UIObject, cursor/tooltip system layer, authored negative-depth reordering or exact historical absolute-depth growth. Constants are separate from callable capabilities."
+        }
+      ]
+    }
+  ]
+}

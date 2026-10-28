@@ -46,6 +46,12 @@ impl ScriptAS2Object {
     pub fn deleted(&mut self, object: u32, name: &str) {
         self.inner.deleted(object, name);
     }
+    pub fn text_binding(&mut self, input: &str) -> Result<String, JsValue> {
+        self.inner
+            .text_binding(input)
+            .map(|value| value.to_string())
+            .map_err(crate::display_error)
+    }
     pub fn reset(&mut self) {
         self.inner.reset();
     }

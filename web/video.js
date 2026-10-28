@@ -32,6 +32,10 @@
     function changed(){options.onState?.(status());}
     function report(error){errorText=String(error?.message||error);changed();options.onError?.(error);}
     function current(r,media,sequence){return !disposed&&r.generation===generation&&r.media===media&&r.sequence===sequence;}
+    // AS2 component observers receive browser facts only. No observer is installed
+    // for existing AS3 or ordinary NetStream users, preserving their event path.
+    function controllerSample(r){return {now:global.performance?.now?.()||0,time:r.media?Number(r.media.currentTime)||0:r.time,width:r.width,height:r.height,duration:r.duration,bytesLoaded:r.url?(r.encodedBytes??null):0,bytesTotal:r.url?(r.encodedBytes??null):0};}
+    function observeController(r,type,message){if(typeof r.controllerObserver!=='function')return;const sample=controllerSample(r);if(message)sample.message=message;r.controllerObserver(type,sample);}
     function after(epoch){if(!disposed&&generation===epoch)options.afterEvent?.();}
     function repaint(){(options.onFrame||options.afterEvent)?.();}
     class NetStatusEvent extends events.Event{
@@ -49,21 +53,22 @@
     function later(r,fn){const epoch=generation,sequence=r.sequence;schedule(()=>{if(disposed||epoch!==generation||r.generation!==generation||r.sequence!==sequence)return;try{fn();}catch(error){if(!disposed&&epoch===generation)report(error);}});}
     function noBase(Type,predicate){Object.defineProperties(Type,{__nfIs:{value:predicate},__nfInitialize:{value:()=>unsupported(`${Type.name} native subclassing`)}});}
     function canvas(w,h){const surface=options.createCanvas?options.createCanvas(w,h):typeof global.OffscreenCanvas==='function'?new global.OffscreenCanvas(w,h):global.document?.createElement('canvas');if(!surface)throw new Error('Video painting requires Canvas 2D.');surface.width=w;surface.height=h;return surface;}
-    function collectFrames(){const keep=new Set();for(const r of streamRecords)if(r.frozen)keep.add(r.frozen);for(const b of bindings.values())if(b.frozen)keep.add(b.frozen);for(const f of derived.values())keep.add(f);for(const f of frames)if(!keep.has(f)){framePixels-=f.width*f.height;f.canvas.width=f.canvas.height=0;frames.delete(f);}}
+    function collectFrames(){const keep=new Set();for(const r of streamRecords){if(r.frozen)keep.add(r.frozen);if(r.suppressedFrame)keep.add(r.suppressedFrame);}for(const b of bindings.values())if(b.frozen)keep.add(b.frozen);for(const f of derived.values())keep.add(f);for(const f of frames)if(!keep.has(f)){framePixels-=f.width*f.height;f.canvas.width=f.canvas.height=0;frames.delete(f);}}
     function frame(w,h){collectFrames();if(frames.size>=32||framePixels+w*h>MAX_PIXELS)throw new RangeError('Retained video frames exceed 16 Mi pixels / 32 surfaces; clear detached video images or restart.');const result={canvas:canvas(w,h),width:w,height:h,id:++serial};frames.add(result);framePixels+=w*h;return result;}
     function dimensions(media){const w=media.videoWidth,h=media.videoHeight;if(!Number.isInteger(w)||!Number.isInteger(h)||w<1||h<1||w>1920||h>1080)throw new RangeError('Video decoder dimensions must be within 1920×1080.');return[w,h];}
     function freeze(r){
+      if(r.receiveState?.video===false)return r.suppressedFrame||null;
       if(!r.media||r.media.readyState<2)return r.frozen||null;
       const [w,h]=dimensions(r.media),f=frame(w,h),ctx=f.canvas.getContext('2d');if(!ctx)throw new Error('Video capture requires Canvas 2D.');
       try{ctx.drawImage(r.media,0,0,w,h);return f;}catch(error){f.canvas.width=f.canvas.height=0;frames.delete(f);framePixels-=w*h;throw error;}
     }
-    function audio(r){if(!r.media)return;r.media.muted=!unlocked||muted||r.volume===0;r.media.volume=r.volume;}
+    function audio(r){if(!r.media)return;r.media.muted=!unlocked||muted||r.volume===0||r.receiveState?.audio===false;r.media.volume=r.volume;}
     function stopMedia(r,retain){
       const frozen=retain?freeze(r):null;
       r.sequence++;r.wanted=false;r.playing=false;r.pendingSeek=null;
       if(r.media){for(const[type,fn]of r.listeners)r.media.removeEventListener(type,fn);if(r.frameCallback!==null)r.media.cancelVideoFrameCallback?.(r.frameCallback);r.media.pause();r.media.muted=true;r.media.removeAttribute('src');r.media.load();}
       if(r.objectURL)(options.revokeObjectURL||global.URL.revokeObjectURL.bind(global.URL))(r.objectURL);
-      r.media=null;r.objectURL=null;r.listeners=[];r.frameCallback=null;r.metadata=false;r.frozen=frozen;r.time=0;r.lastTime=null;collectFrames();changed();
+      r.media=null;r.objectURL=null;r.listeners=[];r.frameCallback=null;r.metadata=false;r.frozen=frozen;r.suppressedFrame=null;if(r.receivePolicy)streamPolicy(r,{op:"reset"});r.time=0;r.lastTime=null;collectFrames();changed();
     }
     function playNative(r){
       if(!r.media||!r.wanted||!unlocked)return;
@@ -77,6 +82,7 @@
       if(!current(r,media,sequence))return;
       const [width,height]=dimensions(media);if(!Number.isFinite(media.duration)||media.duration<0)throw new TypeError('Live or unbounded-duration video is unsupported; use a finite media file.');
       r.metadata=true;r.width=width;r.height=height;r.duration=media.duration;r.serial=++serial;
+      observeController(r,'metadata');if(!current(r,media,sequence))return;
       const client=r.legacy?r.receiver:r.client,fn=client?.onMetaData;
       if(!current(r,media,sequence))return;
       if(typeof fn==='function')Reflect.apply(fn,client,[{width,height,duration:media.duration}]);
@@ -95,14 +101,16 @@
       const sequence=r.sequence;
       function listen(type,fn){const callback=()=>{if(!current(r,media,sequence))return;try{fn();}catch(error){if(current(r,media,sequence)){stopMedia(r,false);report(error);}}};media.addEventListener(type,callback);r.listeners.push([type,callback]);}
       listen('loadedmetadata',()=>metadata(r,media,sequence));
-      listen('loadeddata',()=>{r.serial=++serial;repaint();});
-      listen('playing',()=>{r.playing=true;r.serial=++serial;if(!r.started){r.started=true;emit(r,'NetStream.Play.Start');}else if(r.pauseRequested){r.pauseRequested=false;emit(r,'NetStream.Unpause.Notify');}changed();});
-      listen('pause',()=>{r.playing=false;changed();});
-      listen('timeupdate',()=>{r.serial=++serial;r.time=media.currentTime;repaint();});
-      listen('seeked',()=>{r.serial=++serial;r.time=media.currentTime;emit(r,'NetStream.Seek.Notify');});
-      listen('ended',()=>{r.wanted=false;r.playing=false;r.time=media.currentTime;r.serial=++serial;emit(r,'NetStream.Play.Stop');changed();});
-      listen('error',()=>{r.wanted=false;r.playing=false;const code=media.error?.code;emit(r,code===4?'NetStream.Play.FileStructureInvalid':'NetStream.Play.StreamNotFound','error',{description:'Native browser video loading/decoding failed; check format and HTTP CORS access.'});changed();});
-      const nextFrame=()=>{if(!current(r,media,sequence))return;try{r.serial=++serial;repaint();if(current(r,media,sequence))r.frameCallback=media.requestVideoFrameCallback(nextFrame);}catch(error){if(current(r,media,sequence))report(error);}};
+      listen('loadeddata',()=>{r.serial=++serial;observeController(r,'ready');repaint();});
+      listen('playing',()=>{r.playing=true;r.serial=++serial;if(!r.started){r.started=true;emit(r,'NetStream.Play.Start');}else if(r.pauseRequested){r.pauseRequested=false;emit(r,'NetStream.Unpause.Notify');}observeController(r,'playing');changed();});
+      listen('pause',()=>{r.playing=false;observeController(r,'paused');changed();});
+      listen('timeupdate',()=>{r.serial=++serial;r.time=media.currentTime;observeController(r,'time');repaint();});
+      listen('seeked',()=>{r.serial=++serial;r.time=media.currentTime;emit(r,'NetStream.Seek.Notify');observeController(r,'seeked');});
+      listen('ended',()=>{r.wanted=false;r.playing=false;r.time=media.currentTime;r.serial=++serial;emit(r,'NetStream.Play.Stop');observeController(r,'ended');changed();});
+      listen('error',()=>{r.wanted=false;r.playing=false;const code=media.error?.code;emit(r,code===4?'NetStream.Play.FileStructureInvalid':'NetStream.Play.StreamNotFound','error',{description:'Native browser video loading/decoding failed; check format and HTTP CORS access.'});observeController(r,'error','Native browser video loading/decoding failed; check format and HTTP CORS access.');changed();});
+      listen('waiting',()=>observeController(r,'waiting'));
+      listen('progress',()=>observeController(r,'progress'));
+      const nextFrame=(now,facts)=>{if(!current(r,media,sequence))return;try{if(r.receivePolicy)streamPolicy(r,{op:"frame",now,presented:facts.presentedFrames});r.serial=++serial;observeController(r,'time');repaint();if(current(r,media,sequence))r.frameCallback=media.requestVideoFrameCallback(nextFrame);}catch(error){if(current(r,media,sequence))report(error);}};
       if(typeof media.requestVideoFrameCallback==='function')r.frameCallback=media.requestVideoFrameCallback(nextFrame);
       if(source.kind==='resource'){const blob=new Blob([source.bytes],{type:source.mediaType});r.objectURL=(options.createObjectURL||global.URL.createObjectURL.bind(global.URL))(blob);media.src=r.objectURL;}else media.src=source.url;
       r.started=false;r.width=r.height=0;r.duration=0;media.load();if(gesture()){unlocked=true;muted=false;}playNative(r);changed();
@@ -129,7 +137,16 @@
       get bytesLoaded(){const r=state(this,streams);if(r.encodedBytes===null)unsupported('NetStream HTTP byte counts (browser-managed progressive buffering)');return r.encodedBytes||0;}
       get bytesTotal(){return this.bytesLoaded;}
     }
-    class LegacyNetStream extends NetStream{constructor(connection){super(connection);streams.get(this).legacy=true;this.onStatus=null;this.onMetaData=null;}pause(flag){const r=state(this,streams);if(flag===undefined)return super.togglePause();if(typeof flag!=='boolean')throw new TypeError('AS2 NetStream.pause expects a Boolean or no argument.');if(flag)pause(r);else resume(r);}get soundTransform(){unsupported('AS2 NetStream.soundTransform; legacy Sound target mixing');}set soundTransform(_){unsupported('AS2 NetStream.soundTransform; legacy Sound target mixing');}}
+    function streamPolicy(r,request){
+      if(!r.receivePolicy)throw new Error('AS2 stream controls require the shared Rust WASM media policy.');
+      let result;try{result=JSON.parse(r.receivePolicy.execute(JSON.stringify(request)));}catch(error){throw new TypeError(typeof error==='string'?error:String(error?.message||error));}r.receiveState=result;return result.value;
+    }
+    class LegacyNetStream extends NetStream{constructor(connection){super(connection);const r=streams.get(this);r.legacy=true;r.receivePolicy=options.wasm?.ScriptAS2Stream?new options.wasm.ScriptAS2Stream():null;r.receiveState={audio:true,video:true};r.suppressedFrame=null;this.onStatus=null;this.onMetaData=null;}
+      receiveAudio(enabled){const r=state(this,streams);streamPolicy(r,{op:'receive',kind:'audio',enabled});audio(r);}
+      receiveVideo(enabled){const r=state(this,streams);if(typeof enabled!=='boolean')throw new TypeError('AS2 NetStream.receiveVideo requires Boolean; numeric FPS selection is unavailable.');if(enabled===r.receiveState.video)return;const captured=enabled?null:freeze(r);streamPolicy(r,{op:'receive',kind:'video',enabled});r.suppressedFrame=captured;r.serial=++serial;collectFrames();repaint();}
+      get bufferLength(){const r=state(this,streams),ranges=[];if(r.media)for(let i=0;i<r.media.buffered.length;i++)ranges.push([r.media.buffered.start(i),r.media.buffered.end(i)]);return streamPolicy(r,{op:'buffer',time:r.media?.currentTime||0,ranges});}
+      get currentFps(){const r=state(this,streams);if(r.media&&typeof r.media.requestVideoFrameCallback!=='function')unsupported('AS2 NetStream.currentFps requires browser presented-frame callbacks');return streamPolicy(r,{op:'fps',now:global.performance?.now?.()||0,playing:r.playing});}
+pause(flag){const r=state(this,streams);if(flag===undefined)return super.togglePause();if(typeof flag!=='boolean')throw new TypeError('AS2 NetStream.pause expects a Boolean or no argument.');if(flag)pause(r);else resume(r);}get soundTransform(){unsupported('AS2 NetStream.soundTransform; legacy Sound target mixing');}set soundTransform(_){unsupported('AS2 NetStream.soundTransform; legacy Sound target mixing');}}
     for(const[Type,predicate]of [[NetConnection,v=>connections.has(v)],[LegacyNetConnection,v=>connections.has(v)&&connections.get(v).legacy],[NetStream,v=>streams.has(v)],[LegacyNetStream,v=>streams.has(v)&&streams.get(v).legacy],[NetStatusEvent,v=>statusTypes.has(v)]])noBase(Type,predicate);
     for(const name of ['publish','send','appendBytes','appendBytesAction','attachAudio','attachCamera','attachVideo','setBufferTime','receiveAudio','receiveVideo','dispose'])Object.defineProperty(NetStream.prototype,name,{value(){unsupported('NetStream.'+name);}});
     for(const name of ['bufferTime','bufferLength','checkPolicyFile','objectEncoding','videoStreamSettings','inBufferSeek','backBufferTime','currentFPS','info','farID','peerStreams'])Object.defineProperty(NetStream.prototype,name,{get(){unsupported('NetStream.'+name);},set(){unsupported('NetStream.'+name);}});
@@ -141,7 +158,7 @@
       if(next){for(const other of bindings.values())if(other!==b&&other.stream===next){other.frozen=freeze(next);other.stream=null;other.revision=++serial;}b.stream=next;b.frozen=null;b.clearSerial=-1;}b.revision=++serial;collectFrames();after(generation);
     }
     function clear(target){const b=binding(target);b.frozen=null;b.clearSerial=b.stream?.serial??0;b.revision=++serial;collectFrames();after(generation);}
-    function source(b){if(!b)return null;const r=b.stream;if(r){if(r.media?.readyState>=2&&r.serial>b.clearSerial)return {image:r.media,width:r.width,height:r.height,id:`${r.serial}:${r.media.currentTime}`};if(!r.media&&r.frozen&&r.serial>b.clearSerial)return {...r.frozen,image:r.frozen.canvas};return null;}return b.frozen?{...b.frozen,image:b.frozen.canvas}:null;}
+    function source(b){if(!b)return null;const r=b.stream;if(r){if(r.receiveState?.video===false){const f=r.suppressedFrame;return f&&f.id>b.clearSerial?{...f,image:f.canvas}:null;}if(r.media?.readyState>=2&&r.serial>b.clearSerial)return {image:r.media,width:r.width,height:r.height,id:`${r.serial}:${r.media.currentTime}`};if(!r.media&&r.frozen&&r.serial>b.clearSerial)return {...r.frozen,image:r.frozen.canvas};return null;}return b.frozen?{...b.frozen,image:b.frozen.canvas}:null;}
     function methods(target){return {attachNetStream:value=>attach(target,value),attachVideo:value=>attach(target,value),clear:()=>clear(target),attachCamera:()=>unsupported('Video.attachCamera')};}
     function get(target,name){if(name==='smoothing')return videoRef(target).info.smoothing;if(name==='deblocking'){videoRef(target);return 0;}if(name==='videoWidth'||name==='videoHeight'){const b=binding(target),r=b.stream,f=source(b);return r?(name==='videoWidth'?r.width:r.height):f?(name==='videoWidth'?f.width:f.height):0;}return UNHANDLED;}
     function set(target,name,value){if(name==='smoothing'){if(typeof value!=='boolean')throw new TypeError('Video.smoothing requires a Boolean.');const v=videoRef(target);native('object_video_update',v.key,JSON.stringify({...v.info,smoothing:value}));return true;}if(name==='deblocking'){if(value!==0)unsupported('Video codec-specific deblocking');videoRef(target);return true;}if(name==='videoWidth'||name==='videoHeight')throw new TypeError(`Video.${name} is read-only.`);return false;}
@@ -161,9 +178,21 @@
       }
       context.save();try{context.imageSmoothingEnabled=kind.smoothing;context.drawImage(image,0,0,kind.width,kind.height);}finally{context.restore();}
     }
-    function reset(){open();for(const r of streamRecords)stopMedia(r,false);streamRecords.clear();connectionRecords.clear();bindings.clear();derived.clear();for(const f of frames)f.canvas.width=f.canvas.height=0;frames.clear();framePixels=0;generation++;hub.clear();unlocked=false;muted=false;used=false;errorText='';changed();}
+    function legacyController(target,observer){
+      videoRef(target);if(typeof observer!=='function')throw new TypeError('AS2 video observer required.');
+      const connection=new LegacyNetConnection();connection.connect(null);const stream=new LegacyNetStream(connection),record=streams.get(stream);record.controllerObserver=observer;attach(target,stream);let retired=false;
+      function active(){if(retired)throw new Error('AS2 video controller has been released.');state(stream,streams);}
+      return Object.freeze({
+        read(){active();return controllerSample(record);},
+        load(url,play){active();load(record,url);if(!play)pause(record);},
+        play(){active();resume(record);},pause(){active();pause(record);},seek(time){active();seek(record,time);},
+        close(){active();stopMedia(record,true);},volume(value){active();record.volume=number(value,'AS2 video volume gain',0,1);audio(record);},
+        dispose(){if(retired)return;retired=true;record.controllerObserver=null;if(record.generation!==generation||disposed)return;stopMedia(record,false);const b=bindings.get(referenceOf(target)?.key);if(b?.stream===record){b.stream=null;b.frozen=null;b.revision=++serial;}record.receivePolicy?.free();record.receivePolicy=null;streamRecords.delete(record);connectionRecords.delete(connections.get(connection));collectFrames();},
+      });
+    }
+    function reset(){open();for(const r of streamRecords){stopMedia(r,false);r.receivePolicy?.free();r.receivePolicy=null;}streamRecords.clear();connectionRecords.clear();bindings.clear();derived.clear();for(const f of frames)f.canvas.width=f.canvas.height=0;frames.clear();framePixels=0;generation++;hub.clear();unlocked=false;muted=false;used=false;errorText='';changed();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({Video,NetConnection,NetStream,LegacyNetConnection,LegacyNetStream,NetStatusEvent,methods,get,set,UNHANDLED,draw,prepareSnapshot,resumeFromGesture,setMuted,status,reset,dispose});
+    return Object.freeze({Video,NetConnection,NetStream,LegacyNetConnection,LegacyNetStream,NetStatusEvent,methods,get,set,UNHANDLED,draw,prepareSnapshot,resumeFromGesture,setMuted,status,legacyController,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashVideo=api;
 })(globalThis);

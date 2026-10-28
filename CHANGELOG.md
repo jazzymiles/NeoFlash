@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-28 — Second AS2 two-hour subsystem batch
+
+- Add 149 catalogue method/property paths (52 methods, 97 properties) across progressive video, SOAP/XML services, display/text, transitions, relative depth and TextField.variable; add bounded AS2 concrete class accessors and with scopes.
+- Count 258 new declarations, nine extensions and 43 corrections of existing support separately. AS2 partial entries rise 1,054 → 1,355 (+301); missing entries fall to 900. AS3 entries are unchanged.
+- Record seven ordinary HTML5 families with real browser behavior. Keep the shared 90 execution fixtures and 24 project workflows unchanged, with one shared run; add only three grouped Rust test functions and extend existing family checks.
+- Keep all wider work paused. See [the delivery report](docs/AS2-TWO-HOUR-2.md) for exact scopes, comparison, provenance and limitations.
+
 ## 2026-10-28 — AS2 two-hour subsystem batch
 
 - Add 216 catalogue API paths: 142 methods, 71 properties and three global functions across data/binding, text/display, bitmap, file, Locale, Object, Sound and variable-loading families.

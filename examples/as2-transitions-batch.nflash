@@ -1,0 +1,471 @@
+{
+  "format_version": 3,
+  "name": "AS2 rendered transition family",
+  "width": 1100,
+  "height": 720,
+  "fps": 24,
+  "background": [
+    13,
+    21,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "AS2 rendered transition family",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "heading",
+                    "name": "heading",
+                    "transform": {
+                      "x": 40,
+                      "y": 30,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "AS2 / five rendered MovieClip transitions",
+                      "width": 1020,
+                      "height": 44,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 29,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "description",
+                    "name": "description",
+                    "transform": {
+                      "x": 40,
+                      "y": 90,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Fade, Fly, Rotate, Zoom and Squeeze share the Rust easing and display runtime.",
+                      "width": 1020,
+                      "height": 50,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 18,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "transitionDetails",
+                    "name": "transitionDetails",
+                    "transform": {
+                      "x": 40,
+                      "y": 435,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "",
+                      "width": 1020,
+                      "height": 150,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 18,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "transitionStatus",
+                    "name": "transitionStatus",
+                    "transform": {
+                      "x": 40,
+                      "y": 590,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Ready. Click to animate IN and OUT.",
+                      "width": 1020,
+                      "height": 40,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 19,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 40,
+                      "y": 665,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Transforms restore after OUT so the same clips can be replayed. UI editor and FLA are untouched.",
+                      "width": 1020,
+                      "height": 36,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "file-control-0",
+                    "name": "file-control-0",
+                    "transform": {
+                      "x": 40,
+                      "y": 620,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "file-control-0-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.runTransitionsBatch();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Run five transitions",
+                      "description": "Animate five real MovieClips IN and OUT",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "effectLabel0",
+                    "name": "effectLabel0",
+                    "transform": {
+                      "x": 65,
+                      "y": 380,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Fade / linear",
+                      "width": 190,
+                      "height": 35,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 15,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "effectLabel1",
+                    "name": "effectLabel1",
+                    "transform": {
+                      "x": 265,
+                      "y": 380,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Fly / regular",
+                      "width": 190,
+                      "height": 35,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 15,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "effectLabel2",
+                    "name": "effectLabel2",
+                    "transform": {
+                      "x": 465,
+                      "y": 380,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Rotate / strong",
+                      "width": 190,
+                      "height": 35,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 15,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "effectLabel3",
+                    "name": "effectLabel3",
+                    "transform": {
+                      "x": 665,
+                      "y": 380,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Zoom / bounce",
+                      "width": 190,
+                      "height": 35,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 15,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "effectLabel4",
+                    "name": "effectLabel4",
+                    "transform": {
+                      "x": 865,
+                      "y": 380,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Squeeze / elastic",
+                      "width": 190,
+                      "height": 35,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 15,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import mx.transitions.TransitionManager;\nimport mx.transitions.Transition;\nimport mx.transitions.Fade;\nimport mx.transitions.Fly;\nimport mx.transitions.Rotate;\nimport mx.transitions.Zoom;\nimport mx.transitions.Squeeze;\nimport mx.transitions.easing.None;\nimport mx.transitions.easing.Regular;\nimport mx.transitions.easing.Strong;\nimport mx.transitions.easing.Bounce;\nimport mx.transitions.easing.Back;\nimport mx.transitions.easing.Elastic;\nstop();\nvar transitionClips:Array = [];\nvar transitionManagers:Array = [];\nvar transitionTypes:Array = [Fade, Fly, Rotate, Zoom, Squeeze];\nvar transitionCurves:Array = [None.easeNone, Regular.easeInOut, Strong.easeInOut, Bounce.easeOut, Elastic.easeOut];\nvar transitionRunning:Boolean = false;\nvar transitionInCount:Number = 0;\nvar transitionOutCount:Number = 0;\nvar transitionChecks:Number = 0;\nvar transitionFailures:Number = 0;\nfunction transitionCheck(label:String, ok:Boolean):Void {\n if (ok) { transitionChecks++; } else { transitionFailures++; }\n transitionDetails.text += (ok ? \"PASS  \" : \"FAIL  \") + label + \"\\n\";\n transitionStatus.text = \"AS2_TRANSITIONS_RESULT \" + transitionChecks + \" passed / \" + transitionFailures + \" failed\";\n trace(\"AS2_TRANSITIONS \" + label + \" \" + ok);\n}\nfor (var transitionIndex:Number = 0; transitionIndex < 5; transitionIndex++) {\n var transitionClip:MovieClip = createEmptyMovieClip(\"transitionCard\" + transitionIndex, getNextHighestDepth());\n transitionClip._x = 130 + transitionIndex * 200;\n transitionClip._y = 300;\n transitionClip.beginFill(0x40bba4 + transitionIndex * 0x190500);\n transitionClip.moveTo(-55,-45);transitionClip.lineTo(55,-45);transitionClip.lineTo(55,45);transitionClip.lineTo(-55,45);transitionClip.lineTo(-55,-45);transitionClip.endFill();\n transitionClip.beginFill(0xffffff);transitionClip.moveTo(-16,-18);transitionClip.lineTo(25,0);transitionClip.lineTo(-16,18);transitionClip.lineTo(-16,-18);transitionClip.endFill();\n transitionClips.push(transitionClip);\n var transitionManager:TransitionManager = new TransitionManager(transitionClip);\n transitionManager.addEventListener(\"allTransitionsInDone\", function(event:Object):Void {\n  transitionInCount++;\n  if (transitionInCount == 5) {\n   var restored:Boolean = true;\n   for(var k:Number=0;k<5;k++) { restored = restored && transitionClips[k]._visible && transitionClips[k]._xscale == 100 && transitionClips[k]._yscale == 100 && transitionClips[k]._alpha == 100 && transitionClips[k]._rotation == 0 && transitionClips[k]._x == 130+k*200; }\n   transitionCheck(\"five IN effects finish at saved appearance\", restored);\n   startTransitionOut();\n  }\n });\n transitionManager.addEventListener(\"allTransitionsOutDone\", function(event:Object):Void {\n  transitionOutCount++;\n  if (transitionOutCount == 5) {\n   var hidden:Boolean = true;\n   for(var k:Number=0;k<5;k++) { hidden = hidden && !transitionClips[k]._visible && transitionClips[k]._xscale == 100 && transitionClips[k]._alpha == 100; }\n   transitionCheck(\"five OUT effects hide and restore for replay\", hidden);\n   transitionRunning=false;\n  }\n });\n transitionManagers.push(transitionManager);\n}\ntransitionCheck(\"manager snapshot + existing easing classes\", transitionManagers[0].content == transitionClips[0] && transitionManagers[0].contentAppearance._x == 130 && transitionManagers[0].contentAppearance._innerBounds.xMin == -55 && transitionManagers[0].toString() == \"[TransitionManager]\" && Back.easeOut(1,0,1,1) == 1);\nfunction transitionParams(i:Number,direction:Number):Object { return {type:transitionTypes[i], direction:direction, duration:2.4, easing:transitionCurves[i], startPoint:1, degrees:720, dimension:1}; }\nfunction runTransitionsBatch():Void {\n if(transitionRunning) { return; }\n transitionRunning=true;transitionInCount=0;transitionOutCount=0;\n for(var i:Number=0;i<5;i++) { var effect:Transition = TransitionManager.start(transitionClips[i],transitionParams(i,Transition.IN)); }\n transitionStatus.text=\"Five live transitions IN, then OUT...\";\n}\nfunction startTransitionOut():Void {\n for(var i:Number=0;i<5;i++) { transitionManagers[i].startTransition(transitionParams(i,Transition.OUT)); }\n}\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "file-control-0-symbol",
+      "name": "Choose one file",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "file-control-0-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "file-control-0-0",
+                    "name": "file-control-0-0",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "file-control-0-1",
+                    "name": "file-control-0-1",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Run five transitions",
+                      "width": 280,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [],
+  "resources": []
+}

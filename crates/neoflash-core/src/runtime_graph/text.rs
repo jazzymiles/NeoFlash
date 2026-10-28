@@ -52,6 +52,70 @@ impl RuntimeGraph {
     }
 }
 impl Player {
+    /// Fit an AS2 field using Rust layout measured by the existing font host.
+    pub fn as2_text_fit(
+        &mut self,
+        project: &Project,
+        reference: &ObjectRef,
+        layout: &TextLayout,
+    ) -> Result<bool, TextError> {
+        let mut state = self.object_text_info(project, reference)?;
+        let mode = state.as2_viewport.auto_size.as_str();
+        if mode == "none" {
+            return Ok(false);
+        }
+        let old = state
+            .box_size
+            .ok_or_else(|| TextError("autoSize requires a boxed TextField".into()))?;
+        if ![layout.text_width, layout.text_height]
+            .iter()
+            .all(|v| v.is_finite() && *v >= 0.)
+        {
+            return Err(TextError(
+                "autoSize requires finite layout dimensions".into(),
+            ));
+        }
+        let width = if state.word_wrap {
+            old.width
+        } else {
+            layout.text_width
+                + state.format.left_margin
+                + state.format.right_margin
+                + state.format.block_indent
+                + state.format.indent.max(0.)
+                + if state.format.bullet {
+                    state.format.size
+                } else {
+                    0.
+                }
+                + 4.
+        };
+        let height = layout.text_height + 4.;
+        if (width - old.width).abs() < 1e-9 && (height - old.height).abs() < 1e-9 {
+            return Ok(false);
+        }
+        let delta = (old.width - width)
+            * match mode {
+                "center" => 0.5,
+                "right" => 1.,
+                _ => 0.,
+            };
+        let mut matrix = self
+            .object_matrix(project, reference)
+            .map_err(|e| TextError(e.to_string()))?;
+        matrix[4] += matrix[0] * delta;
+        matrix[5] += matrix[1] * delta;
+        let affine = transform::AffineState::new(matrix).map_err(|e| TextError(e.to_string()))?;
+        state.apply(&TextPatch {
+            width: Some(width),
+            height: Some(height),
+            ..TextPatch::default()
+        })?;
+        self.graph.store_text(reference, state)?;
+        self.graph.affines.insert(reference.clone(), affine);
+        Ok(true)
+    }
+
     pub fn object_text_info(
         &self,
         project: &Project,

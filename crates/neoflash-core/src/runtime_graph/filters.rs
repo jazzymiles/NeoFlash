@@ -10,6 +10,9 @@ pub struct RuntimeFilterGroup {
     pub parent_id: Option<String>,
     pub filters: Vec<FilterSpec>,
     pub clip_ids: Vec<String>,
+    pub composite_operation: String,
+    pub opaque_background: Option<Color>,
+    pub cache_as_bitmap: bool,
 }
 impl Player {
     pub fn object_filters(&self, reference: &ObjectRef) -> Result<Vec<FilterSpec>, FilterError> {
@@ -37,8 +40,17 @@ impl Player {
         }
         validate_filters(filters)?;
         let old = self.graph.filters.get(reference).map_or(0, Vec::len);
-        let groups =
-            self.graph.filters.len() - usize::from(old > 0) + usize::from(!filters.is_empty());
+        let existing: BTreeSet<_> = self
+            .graph
+            .filters
+            .keys()
+            .chain(self.graph.as2_render_states.keys())
+            .filter(|id| *id != reference)
+            .collect();
+        let groups = existing.len()
+            + usize::from(
+                !filters.is_empty() || self.graph.as2_render_states.contains_key(reference),
+            );
         let total = self.graph.filters.values().map(Vec::len).sum::<usize>() - old + filters.len();
         if groups > 128 || total > 512 {
             return Err(FilterError(
@@ -59,6 +71,7 @@ impl Player {
 impl RuntimeGraph {
     pub(super) fn retire_filters(&mut self, retired: &BTreeSet<ObjectRef>) {
         self.filters.retain(|id, _| !retired.contains(id));
+        self.as2_render_states.retain(|id, _| !retired.contains(id));
     }
     pub(super) fn apply_filters(&self, snapshot: &mut RuntimeSnapshot) {
         // Objects are emitted parent-first. A single optional ID per object/draw
@@ -71,7 +84,12 @@ impl RuntimeGraph {
                 .and_then(|id| nearest.get(id))
                 .cloned()
                 .flatten();
-            let current = if object.filters.is_empty() {
+            let render = self
+                .as2_render_states
+                .get(&object.object_ref)
+                .cloned()
+                .unwrap_or_default();
+            let current = if object.filters.is_empty() && !render.isolated() {
                 parent
             } else {
                 let id = format!(
@@ -84,6 +102,16 @@ impl RuntimeGraph {
                     parent_id: parent,
                     filters: object.filters.clone(),
                     clip_ids: object.clip_ids.clone(),
+                    composite_operation: render.operation().into(),
+                    opaque_background: render.opaque_background.map(|rgb| {
+                        object.concatenated_color_transform.apply([
+                            (rgb >> 16) as u8,
+                            (rgb >> 8) as u8,
+                            rgb as u8,
+                            255,
+                        ])
+                    }),
+                    cache_as_bitmap: render.cache_as_bitmap || !object.filters.is_empty(),
                 });
                 Some(id)
             };

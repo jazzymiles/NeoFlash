@@ -13,6 +13,18 @@ pub struct StyleSheet {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    HitLink {
+        field: TextFieldState,
+        layout: crate::TextLayout,
+        x: f64,
+        y: f64,
+    },
+    Wheel {
+        field: TextFieldState,
+        layout: crate::TextLayout,
+        delta: f64,
+        mode: u8,
+    },
     ParseCss {
         state: StyleSheet,
         source: String,
@@ -254,6 +266,14 @@ pub fn transform(style: &Style) -> Result<TextFormatPatch, TextError> {
             "marginRight" => patch.right_margin = Some(number(value)?.max(0.)),
             "textIndent" => patch.indent = Some(number(value)?),
             "leading" => patch.leading = Some(number(value)?),
+            "letterSpacing" => patch.letter_spacing = Some(number(value)?),
+            "kerning" => {
+                patch.kerning = Some(match text(value)?.as_str() {
+                    "true" => true,
+                    "false" => false,
+                    _ => return Err(error("CSS kerning requires true/false")),
+                })
+            }
             _ => {
                 return Err(error(format!(
                     "StyleSheet property '{name}' is stored but cannot yet be rendered by the uniform text profile"
@@ -342,7 +362,7 @@ fn html(
         }
         if !matches!(
             tag.as_str(),
-            "p" | "span" | "b" | "strong" | "i" | "em" | "u" | "font" | "textformat"
+            "p" | "span" | "b" | "strong" | "i" | "em" | "u" | "font" | "textformat" | "a"
         ) {
             return Err(error(format!(
                 "htmlText tag <{tag}> is unsupported; content was not discarded"
@@ -379,6 +399,16 @@ fn html(
                         "right" => TextAlign::Right,
                         _ => return Err(error("HTML paragraph alignment is unsupported")),
                     };
+                }
+                "href" if tag == "a" => next.url = value.clone(),
+                "target" if tag == "a" => next.target = value.clone(),
+                "letterspacing" if tag == "font" => next.letter_spacing = number(&json!(value))?,
+                "kerning" if tag == "font" => {
+                    next.kerning = Some(match value.as_str() {
+                        "1" | "true" => true,
+                        "0" | "false" => false,
+                        _ => return Err(error("font kerning requires0/1")),
+                    })
                 }
                 "face" if tag == "font" => next.font = value.clone(),
                 "size" if tag == "font" => next.size = number(&json!(value))?,
@@ -425,6 +455,63 @@ fn html(
 }
 pub fn execute(request: Request) -> Result<Value, TextError> {
     match request {
+        Request::HitLink {
+            field,
+            layout,
+            x,
+            y,
+        } => {
+            field.validate()?;
+            if !x.is_finite() || !y.is_finite() {
+                return Err(error("Text link hit requires finite local coordinates"));
+            }
+            if field.format.url.is_empty()
+                || field
+                    .box_size
+                    .is_some_and(|b| x < 0. || y < 0. || x > b.width || y > b.height)
+            {
+                return Ok(Value::Null);
+            }
+            let hit = layout.lines.iter().any(|line| {
+                !line.text.trim().is_empty()
+                    && x >= line.x
+                    && x <= line.x + line.width
+                    && y >= line.y
+                    && y <= line.y + line.height
+            });
+            Ok(if hit {
+                json!({"url":field.format.url,"target":field.format.target})
+            } else {
+                Value::Null
+            })
+        }
+        Request::Wheel {
+            field,
+            layout,
+            delta,
+            mode,
+        } => {
+            field.validate()?;
+            if !delta.is_finite() || delta.abs() > 1e9 || mode > 2 {
+                return Err(error(
+                    "TextField wheel requires finite delta and DOM mode0..2",
+                ));
+            }
+            let current = layout.viewport.scroll;
+            if !field.as2_viewport.mouse_wheel_enabled || delta == 0. {
+                return Ok(json!({"scroll":current,"handled":false}));
+            }
+            let units = match mode {
+                0 => delta / 40.,
+                1 => delta,
+                _ => delta * f64::from(layout.viewport.bottom_scroll.saturating_sub(current) + 1),
+            };
+            let step = units.abs().ceil().min(1000.) as i64 * if units < 0. { -1 } else { 1 };
+            let scroll = (i64::from(current) + step)
+                .clamp(1, i64::from(layout.viewport.maxscroll.max(1)))
+                as u32;
+            Ok(json!({"scroll":scroll,"handled":layout.viewport.maxscroll>1}))
+        }
         Request::ParseCss { state, source } => {
             state.validate()?;
             match css(&source, &state) {
@@ -490,6 +577,13 @@ pub fn execute(request: Request) -> Result<Value, TextError> {
             }
             if format.underline {
                 body = format!("<u>{body}</u>");
+            }
+            if !format.url.is_empty() {
+                body = format!(
+                    "<a href=\"{}\" target=\"{}\">{body}</a>",
+                    escape(&format.url),
+                    escape(&format.target)
+                );
             }
             let body = format!(
                 "<font face=\"{}\" size=\"{}\" color=\"#{:06X}\">{body}</font>",

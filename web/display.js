@@ -54,7 +54,7 @@
   const unsupportedText=new Set(['htmlText','styleSheet','type','selectable','autoSize','embedFonts','displayAsPassword','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','background','backgroundColor','border','borderColor','antiAliasType','gridFitType','sharpness','thickness','condenseWhite','getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineMetrics','getParagraphLength','getFirstCharInParagraph','setSelection','replaceSelectedText']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,geometry,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAS2Text=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{}}) {
+  function create({player,geometry,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAS2Text=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
     if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
     const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
@@ -397,6 +397,15 @@
     function buttonLike(target){const ref=referenceOf(target),record=ref&&legacy.get(ref.key+'\u0000'+ref.lifetime);return [...buttonCallbacks].some(name=>callback(record,name));}
     function as2CanFocus(target){if(target===null)return true;return as2Input(target,{op:'focusable',has_button_handler:buttonLike(target)});}
     function as2Ref(target,name){
+      if(['loadMovie','unloadMovie','getBytesLoaded','getBytesTotal'].includes(name)&&descriptor(target).owner==='movie_clip'){
+        const method=()=>{const loader=getLoader();if(!loader)throw new Error('MovieClip image methods require the publication Loader service.');return loader.as2MovieMethods(target)[name];};
+        return {has:()=>true,delete:()=>false,get:method,set:()=>{throw new TypeError('MovieClip image methods are read-only.');}};
+      }
+      if(['blendMode','cacheAsBitmap','opaqueBackground'].includes(name)){
+        const owner=descriptor(target).owner;if(!['movie_clip','button'].includes(owner)||(name==='opaqueBackground'&&owner!=='movie_clip'))return null;
+        const call=request=>JSON.parse(player.as2_render_command(referenceOf(target).key,JSON.stringify(request)));
+        return {has:()=>true,delete:()=>false,get:()=>call({op:'get'})[name],set:value=>{const next=call({op:'prepare',name,value});if(next.isolated)beforeRaster(target);call({op:'set',name,value});return value;}};
+      }
       if(!Object.hasOwn(as2InputNames,name)&&!callbackNames.has(name))return null;
       const owner=descriptor(target).owner;if(!['movie_clip','button','text'].includes(owner))return null;
       if(callbackNames.has(name)){
@@ -486,7 +495,9 @@
     function callLegacy(target,name,args=[]){if(!target||!alive(target))return;if(buttonCallbacks.has(name)&&!as2Input(target).enabled)return;const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime),fn=callback(record,name);if(fn&&alive(target))Reflect.apply(fn,target,args);}
     function pointer(type,target,event={}){
       prune();
-      if(type==='keyDown'||type==='keyUp'){
+      if(type==='click'&&target&&target!==getStage()&&descriptor(target).owner==='text'){getAS2Text()?.link(referenceOf(target).key,mousePoint(target),event);return;}
+      if(type==='mouseWheel'&&target&&target!==getStage()&&descriptor(target).owner==='text'){getAS2Text()?.wheel(referenceOf(target).key,event);return;}
+      if(type==='keyDown' ||type==='keyUp'){
         if(target&&target!==getStage())callLegacy(target,type==='keyDown'?'onKeyDown':'onKeyUp');
         if(type==='keyDown'&&(event.key==='Tab'||event.keyCode===9))as2Tab(event);return;
       }

@@ -54,6 +54,17 @@ export async function verifyLoaderGallery(root,cargo){
     advance();await until(()=>scene.loads===3&&scene.byteLoads===3&&scene.legacyLoads===3,'restore settles');
     loader.load(new (host.net().URLRequest)(endpoint+'/image.png'));await until(()=>scene.loads===4,'HTTP image load settles');
     assert.equal(loader.content.bitmapData.getPixel32(10,10),0xffe0974d);assert.equal(requests[0],'/image.png');
+    // AS2 MovieClip image aliases share the existing Rust loader transaction.
+    const movie=(name,...args)=>host.legacy().nativeRef(scene.legacyTarget,name).get()(...args);
+    scene.legacyTarget.imageQuery='movie-alias';
+    movie('loadMovie',endpoint+'/movie.png','GET');
+    await until(()=>movie('getBytesLoaded')===encoded.length&&scene.legacyTarget.numChildren===1,'MovieClip.loadMovie GET with actual image bytes');
+    assert.equal(movie('getBytesTotal'),encoded.length);
+    assert.ok(requests.some(url=>url.startsWith('/movie.png?')&&url.includes('imageQuery=movie-alias')));
+    movie('unloadMovie');assert.equal(scene.legacyTarget.numChildren,0);assert.equal(movie('getBytesLoaded'),0);
+    assert.throws(()=>host.legacy().nativeRef(scene,'unloadMovie').get()(),/root/,'image aliases cannot replace the publication root');
+    movie('loadMovie',fixture.resources[0].path);
+    await until(()=>movie('getBytesLoaded')>0&&scene.legacyTarget.numChildren===1,'MovieClip reload keeps target alive');
     loader.load(new (host.net().URLRequest)(endpoint+'/held.png'));await until(()=>held.length===1,'cancel starts a real pending response');loader.close();held[0].end(encoded);
     loader.load(new (host.net().URLRequest)(endpoint+'/held.png'));await until(()=>held.length===2,'Restart has a pending response');
     assert.equal(scene.loads,4,'closed response cannot publish an image or complete callback');
@@ -63,5 +74,5 @@ export async function verifyLoaderGallery(root,cargo){
     assert.throws(()=>loader.content,/previous|removed|replaced|stale|disposed/i);assert.throws(()=>oldInfo.content,/previous|removed|replaced|stale|disposed/i);
     assert.throws(()=>data.getPixel32(10,10),/previous|disposed/i);
   }finally{host?.disposeFamily();player?.free();server.closeAllConnections();await new Promise(done=>server.close(done));rmSync(directory,{recursive:true,force:true});}
-  console.log('Loader gallery: resource/bytes/HTTP PNG, owned content and retained pixels, AS2 replacement, event order, unload/cancel and Restart passed.');
+  console.log('Loader gallery: resource/bytes/HTTP PNG, owned content and retained pixels, AS2 replacement/MovieClip aliases with GET variables and real bytes, event order, unload/cancel and Restart passed.');
 }

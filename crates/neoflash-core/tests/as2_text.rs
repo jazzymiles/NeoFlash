@@ -86,4 +86,91 @@ fn stylesheet_uniform_html_and_paragraph_layout_share_one_text_model() {
         json!(["p"])
     );
     assert_eq!(call(json!({"op":"clear"}))["state"], json!({"styles":{}}));
+    // Additional paragraph, link and viewport behavior stays in this family case.
+    let mut columns = TextFieldState {
+        text: "Name\tValue\nNext\t10".into(),
+        multiline: true,
+        format: TextFormat {
+            letter_spacing: 2.,
+            kerning: Some(false),
+            bullet: true,
+            tab_stops: vec![80.],
+            ..TextFormat::default()
+        },
+        ..TextFieldState::default()
+    };
+    let columns_layout = layout_text(&columns, |strings, _| {
+        Ok(strings
+            .iter()
+            .map(|v| v.chars().count() as f64 * 5.)
+            .collect())
+    })
+    .unwrap();
+    assert_eq!(columns_layout.runs.len(), 4);
+    assert_eq!(columns_layout.runs[1].x, 94.);
+    assert_eq!(columns_layout.bullets.len(), 2);
+    assert_eq!(columns_layout.text_width, 113.);
+    columns.field_type = neoflash_core::TextFieldType::Input;
+    assert!(columns.validate().is_err());
+    let linked = call(
+        json!({"op":"html","source":"<a href=\"#as2-link\" target=\"_self\">Local link</a>","format":format,"styles":{"styles":{}},"condense_white":false}),
+    );
+    assert_eq!(linked["format"]["url"], "#as2-link");
+    assert_eq!(linked["format"]["target"], "_self");
+    let linked_field = TextFieldState {
+        text: linked["text"].as_str().unwrap().into(),
+        format: serde_json::from_value(linked["format"].clone()).unwrap(),
+        ..TextFieldState::default()
+    };
+    let linked_layout = layout_text(&linked_field, |strings, _| {
+        Ok(strings.iter().map(|v| v.len() as f64 * 5.).collect())
+    })
+    .unwrap();
+    assert_eq!(
+        call(json!({"op":"hit_link","field":linked_field,"layout":linked_layout,"x":3.,"y":3.}))["url"],
+        "#as2-link"
+    );
+    let wheel =
+        call(json!({"op":"wheel","field":viewport_field,"layout":view,"delta":40.,"mode":0}));
+    assert_eq!(wheel["handled"], true);
+    assert!(wheel["scroll"].as_u64().unwrap() >= 2);
+    let project = neoflash_core::Project::blank();
+    let mut player = neoflash_core::Player::new(&project);
+    let text = player
+        .create_display(neoflash_core::DynamicKind::TextField)
+        .unwrap();
+    let mut viewport = TextFieldState::default().as2_viewport;
+    viewport.auto_size = "right".into();
+    player.object_set_property(&text, "x", 10.);
+    player
+        .object_text_update(
+            &project,
+            &text,
+            &neoflash_core::TextPatch {
+                text: Some("AB".into()),
+                format: Some(neoflash_core::TextFormatPatch {
+                    letter_spacing: Some(2.),
+                    ..Default::default()
+                }),
+                as2_viewport: Some(viewport),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let field = player.object_text_info(&project, &text).unwrap();
+    let layout = layout_text(&field, |strings, _| {
+        Ok(strings.iter().map(|v| v.len() as f64 * 5.).collect())
+    })
+    .unwrap();
+    assert!(player.as2_text_fit(&project, &text, &layout).unwrap());
+    assert_eq!(
+        player
+            .object_text_info(&project, &text)
+            .unwrap()
+            .box_size
+            .unwrap()
+            .width,
+        16.
+    );
+    assert_eq!(player.object_matrix(&project, &text).unwrap()[4], 94.);
 }

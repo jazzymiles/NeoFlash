@@ -23,8 +23,10 @@
     function entry(value){const receiver=target(value),ref=referenceOf(receiver);if(!ref||!display.alive(receiver)||display.descriptor(receiver).owner!=='text')throw new TypeError('Text editing requires a live TextField.');return {receiver,key:ref.key,field:text.info(ref.key)};}
     function alive(record){return record&&!disposed&&display.alive(record.target);}
     function editable(field){return field.field_type==='input';}
-    function selectable(field){return editable(field)||field.selectable!==false;}
-    function legacy(receiver,name,args){if(!receiver||!display.alive(receiver))return;const fn=receiver[name];if(typeof fn==='function')Reflect.apply(fn,receiver,args);options.onLegacyTextEvent?.(receiver,name,args);}
+    // Canvas owns AS2 custom paragraph layout. A plain native textarea cannot
+    // preserve its bullets or explicit tab columns, so keep that text on Canvas.
+    function selectable(field){return (editable(field)||field.selectable!==false)&&!field.format.bullet&&!field.format.tabStops?.length;}
+    function legacy(receiver,name,args){if(!receiver||!display.alive(receiver))return;options.beforeLegacyTextEvent?.(receiver,name,args);const fn=receiver[name];if(typeof fn==='function')Reflect.apply(fn,receiver,args);options.onLegacyTextEvent?.(receiver,name,args);}
     function commit(value,proposal){
       open();const {receiver,key,field}=entry(value),expected=proposal.expected_revision??field.revision;
       if(typeof proposal.text!=='string')throw new TypeError('User text insertion requires a String.');
@@ -111,6 +113,7 @@
       on('compositionstart',()=>{selection(record);record.base=text.info(record.key);record.composing=true;});
       on('compositionend',()=>{record.composing=false;acceptDom(record);});
       on('select',()=>selection(record));
+      on('wheel',event=>{if(text.wheel?.(record.key,event))options.afterInput?.();});
       on('blur',()=>{if(domSuppressed||active!==record)return;if(record.composing)record.composing=false;acceptDom(record);if(stage.stage.focus===record.target)stage.changeFocus(null);options.afterInput?.();});
       on('keydown',event=>{if(event.key==='Tab'&&!event.isComposing){if(options.onLegacyTab?.(event))return;event.preventDefault();const scene=snapshot(),items=scene.objects.filter(node=>node.text?.field_type==='input'&&node.on_stage&&node.effective_visible&&node.world[0]*node.world[3]-node.world[1]*node.world[2]!==0);if(items.length){const index=items.findIndex(node=>refKey(node.object_ref)===record.key),next=(index+(event.shiftKey?-1:1)+items.length)%items.length;stage.changeFocus(proxyForRef(items[next].object_ref),'key',event);}}});
       for(const type of ['pointerdown','pointerup','pointermove'])on(type,event=>stage.handlePointer(type,event,record.target));
@@ -134,7 +137,7 @@
       Object.assign(record.root.style,{width:width+'px',height:height+'px',transform:`scale(${sx},${sy})`});
       const c=field.format.color;
       Object.assign(record.control.style,{width:w+'px',height:(field.multiline?h:Math.min(h,field.format.size*1.2+field.format.leading+4))+'px',font:global.NeoFlashText?.cssFont?.(field.format)||`${field.format.italic?'italic ':''}${field.format.bold?'bold ':''}${field.format.size}px ${JSON.stringify(field.format.font)},sans-serif`,lineHeight:(field.format.size*1.2+field.format.leading)+'px',textAlign:field.format.align,color:`rgba(${c>>>16},${c>>>8&255},${c&255},${field.alpha/255*(draw?.alpha??1)})`,caretColor:`rgb(${c>>>16},${c>>>8&255},${c&255})`,transform:`matrix(${node.world.join(',')})`,whiteSpace:field.word_wrap?'pre-wrap':'pre'});
-      Object.assign(record.control.style,{paddingLeft:(2+(field.format.leftMargin||0)+(field.format.blockIndent||0))+'px',paddingRight:(2+(field.format.rightMargin||0))+'px',textIndent:(field.format.indent||0)+'px',textDecoration:field.format.underline?'underline':'none'});
+      Object.assign(record.control.style,{paddingLeft:(2+(field.format.leftMargin||0)+(field.format.blockIndent||0))+'px',paddingRight:(2+(field.format.rightMargin||0))+'px',textIndent:(field.format.indent||0)+'px',textDecoration:field.format.underline?'underline':'none',letterSpacing:(field.format.letterSpacing||0)+'px',fontKerning:field.format.kerning===null||field.format.kerning===undefined?'auto':field.format.kerning?'normal':'none'});
       if(field.as2_viewport?.active){
         const view=field.as2_viewport,rgb=value=>`rgba(${value>>>16},${value>>>8&255},${value&255},${field.alpha/255})`;
         record.control.style.background=view.background?rgb(view.backgroundColor):'transparent';record.control.style.border=view.border?'1px solid '+rgb(view.borderColor):'0';

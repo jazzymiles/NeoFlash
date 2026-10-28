@@ -1,0 +1,381 @@
+{
+  "format_version": 3,
+  "name": "AS2 TextField variable binding",
+  "width": 1100,
+  "height": 740,
+  "fps": 24,
+  "background": [
+    13,
+    21,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "AS2 TextField variable binding",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "heading",
+                    "name": "heading",
+                    "transform": {
+                      "x": 40,
+                      "y": 30,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "AS2 / TextField.variable",
+                      "width": 1020,
+                      "height": 45,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 29,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "description",
+                    "name": "description",
+                    "transform": {
+                      "x": 40,
+                      "y": 85,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Type in the white field. The green mirror and MovieClip variable update before onChanged.",
+                      "width": 1020,
+                      "height": 55,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 18,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "variableDetails",
+                    "name": "variableDetails",
+                    "transform": {
+                      "x": 40,
+                      "y": 355,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "",
+                      "width": 1020,
+                      "height": 220,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 16,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "variableStatus",
+                    "name": "variableStatus",
+                    "transform": {
+                      "x": 40,
+                      "y": 585,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Preparing bindings...",
+                      "width": 1020,
+                      "height": 55,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 18,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 40,
+                      "y": 695,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Plain text and primitive MovieClip variables. Relative paths, root paths, reassignment, detach and Restart.",
+                      "width": 1020,
+                      "height": 34,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "file-control-0",
+                    "name": "file-control-0",
+                    "transform": {
+                      "x": 40,
+                      "y": 645,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "file-control-0-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.updateBoundVariable();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Update MovieClip variable",
+                      "description": "Change the variable and observe both text fields",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "variableLabel0",
+                    "name": "variableLabel0",
+                    "transform": {
+                      "x": 40,
+                      "y": 155,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Editable TextField",
+                      "width": 490,
+                      "height": 32,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 16,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "variableLabel1",
+                    "name": "variableLabel1",
+                    "transform": {
+                      "x": 570,
+                      "y": 155,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Second field bound to the same variable",
+                      "width": 490,
+                      "height": 32,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 16,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop();\nvar boundValue:String = \"initial value\";\nvar alternateValue:String = \"alternate\";\nvar variableChecks:Number = 0;\nvar variableFailures:Number = 0;\nvar variableInputEvents:Number = 0;\nvar variableSerial:Number = 0;\nfunction checkVariable(label:String,ok:Boolean):Void {\n if(ok) {variableChecks++;} else {variableFailures++;}\n variableDetails.text += (ok ? \"PASS  \" : \"FAIL  \") + label + \"\\n\";\n variableStatus.text = \"AS2_TEXT_VARIABLE_RESULT \" + variableChecks + \" passed / \" + variableFailures + \" failed; input events \" + variableInputEvents;\n trace(\"AS2_TEXT_VARIABLE \" + label + \" \" + ok);\n}\ncreateTextField(\"variableInput\",getNextHighestDepth(),40,195,480,52);\nvariableInput.type=\"input\";variableInput.background=true;variableInput.backgroundColor=0xffffff;variableInput.border=true;variableInput.textColor=0x243747;\ncreateTextField(\"variableMirror\",getNextHighestDepth(),570,195,480,52);\nvariableMirror.background=true;variableMirror.backgroundColor=0xd5f6ec;variableMirror.border=true;variableMirror.textColor=0x243747;\ncheckVariable(\"unset variable is null\",variableInput.variable==null);\nvariableInput.variable=\"boundValue\";\nvariableMirror.variable=\"_root.boundValue\";\ncheckVariable(\"relative + root binding initialize fields\",variableInput.text==\"initial value\"&&variableMirror.text==\"initial value\");\nboundValue=\"script changed\";\ncheckVariable(\"variable refreshes on AS2 text read\",variableInput.text==\"script changed\"&&variableMirror.text==\"script changed\");\nvariableInput.text=\"field changed\";\ncheckVariable(\"programmatic text writes variable and mirror\",boundValue==\"field changed\"&&variableMirror.text==\"field changed\");\nvariableInput.variable=\"alternateValue\";\ncheckVariable(\"rebind selects new variable\",variableInput.text==\"alternate\"&&boundValue==\"field changed\");\nvariableInput.text=\"rebound edit\";\ncheckVariable(\"rebound edit updates only new variable\",alternateValue==\"rebound edit\"&&boundValue==\"field changed\");\nvariableInput.variable=null;\nvariableInput.text=\"detached\";\ncheckVariable(\"null detaches\",variableInput.variable==null&&alternateValue==\"rebound edit\");\ncreateTextField(\"variableSeed\",getNextHighestDepth(),40,280,1010,35);\nvariableSeed.text=\"seeded from current field\";\nvariableSeed.variable=\"createdFromText\";\ncheckVariable(\"missing MovieClip variable seeds from text\",_root.createdFromText==\"seeded from current field\");\nvariableSeed.variable=\"\";\ncheckVariable(\"empty path detaches\",variableSeed.variable==null);\nvariableInput.variable=\"_root.boundValue\";\nvariableInput.onChanged=function():Void {\n variableInputEvents++;\n var synced:Boolean=boundValue==variableInput.text&&variableMirror.text==variableInput.text;\n variableStatus.text=\"INPUT_SYNC \"+synced+\" | events \"+variableInputEvents+\" | variable: \"+boundValue;\n trace(\"AS2_TEXT_VARIABLE_INPUT \"+synced+\" \"+variableInputEvents);\n};\nfunction updateBoundVariable():Void {\n variableSerial++;\n boundValue=\"button update \"+variableSerial;\n variableStatus.text=\"BUTTON_SYNC \"+(variableInput.text==boundValue&&variableMirror.text==boundValue)+\" | variable: \"+boundValue;\n trace(\"AS2_TEXT_VARIABLE_BUTTON \"+(variableInput.text==boundValue&&variableMirror.text==boundValue));\n}\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "file-control-0-symbol",
+      "name": "Choose one file",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "file-control-0-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "file-control-0-0",
+                    "name": "file-control-0-0",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "file-control-0-1",
+                    "name": "file-control-0-1",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Update variable",
+                      "width": 280,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [],
+  "resources": []
+}

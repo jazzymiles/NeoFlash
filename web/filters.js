@@ -108,7 +108,8 @@
         if(node===root)return;
         const filters=JSON.stringify(node.filters),pad=JSON.parse(this.player.filter_padding(filters));
         node.bounds=area?{left:Math.floor(area.left-pad.left),top:Math.floor(area.top-pad.top),right:Math.ceil(area.right+pad.right),bottom:Math.ceil(area.bottom+pad.bottom)}:null;
-        const key=JSON.stringify({filters,bounds:node.bounds,entries:node.entries.map(entry=>entry.group?{group:entry.group.id,version:entry.group.record.version,clips:clipKeys(entry.group.clip_ids,node.clip_ids)}:{item:entry.item,clips:clipKeys(entry.item.clip_ids||[],node.clip_ids)})});
+        node.sourceBounds=area;
+        const key=JSON.stringify({filters,operation:node.composite_operation,background:node.opaque_background,cache:node.cache_as_bitmap,bounds:node.bounds,entries:node.entries.map(entry=>entry.group?{group:entry.group.id,version:entry.group.record.version,clips:clipKeys(entry.group.clip_ids,node.clip_ids)}:{item:entry.item,clips:clipKeys(entry.item.clip_ids||[],node.clip_ids)})});
         let record=this.records.get(node.id);if(!record||record.key!==key){if(record?.surface)this.discard(record.surface);record={key:key.length<=32768?key:null,version:++this.version,surface:null};this.records.set(node.id,record);}node.record=record;node.filtersJSON=filters;
       };
       prepare(root);
@@ -118,14 +119,16 @@
         if(this.framePixels+width*height>this.maxFramePixels)throw new RangeError('Filter raster work exceeds the per-frame 16 Mi-pixel budget.');
         const surface=this.acquire(width,height);let success=false;
         try{
-          const target=surface.context;target.setTransform(1,0,0,1,-node.bounds.left,-node.bounds.top);entries(target,node);
+          const target=surface.context;target.setTransform(1,0,0,1,-node.bounds.left,-node.bounds.top);
+          if(node.opaque_background&&node.sourceBounds){const [r,g,b,a]=node.opaque_background,area=node.sourceBounds;target.fillStyle=`rgba(${r},${g},${b},${a/255})`;target.fillRect(area.left,area.top,area.right-area.left,area.bottom-area.top);}
+          entries(target,node);
           const source=target.getImageData(0,0,width,height),bytes=this.player.filter_rgba(width,height,source.data,node.filtersJSON);this.framePixels+=width*height;
           if(bytes.length!==width*height*4)throw new Error('Rust filter kernel returned an invalid RGBA length.');
           const result=target.createImageData(width,height);result.data.set(bytes);target.setTransform(1,0,0,1,0,0);target.putImageData(result,0,0);success=true;
-          if(record.key!==null){record.surface=surface;surface.owner=node.id;}return surface;
+          if(record.key!==null&&node.cache_as_bitmap!==false){record.surface=surface;surface.owner=node.id;}return surface;
         }finally{surface.busy=false;if(!success)this.discard(surface);}
       };
-      const entries=(target,node)=>{for(const entry of node.entries){if(entry.item)paint(target,entry.item,node.clip_ids);else{const child=entry.group,surface=raster(child);if(surface)composite(target,surface.canvas,child.bounds,child.clip_ids.filter(id=>!node.clip_ids.includes(id)));}}};
+      const entries=(target,node)=>{for(const entry of node.entries){if(entry.item)paint(target,entry.item,node.clip_ids);else{const child=entry.group,surface=raster(child);if(surface)composite(target,surface.canvas,child.bounds,child.clip_ids.filter(id=>!node.clip_ids.includes(id)),child.composite_operation||'source-over');}}};
       entries(context,root);
     }
     coverage(bounds,draw){

@@ -39,6 +39,14 @@ pub struct TextFormat {
     #[serde(rename = "blockIndent")]
     pub block_indent: f64,
     pub underline: bool,
+    #[serde(rename = "letterSpacing")]
+    pub letter_spacing: f64,
+    pub kerning: Option<bool>,
+    pub bullet: bool,
+    #[serde(rename = "tabStops")]
+    pub tab_stops: Vec<f64>,
+    pub url: String,
+    pub target: String,
 }
 impl Default for TextFormat {
     fn default() -> Self {
@@ -55,6 +63,12 @@ impl Default for TextFormat {
             indent: 0.,
             block_indent: 0.,
             underline: false,
+            letter_spacing: 0.,
+            kerning: None,
+            bullet: false,
+            tab_stops: Vec::new(),
+            url: String::new(),
+            target: String::new(),
         }
     }
 }
@@ -87,6 +101,32 @@ impl TextFormat {
                 "paragraph margins/blockIndent require 0..=10000; indent requires -10000..=10000",
             ));
         }
+        if !self.letter_spacing.is_finite() || self.letter_spacing.abs() > 1000. {
+            return Err(error("letterSpacing requires -1000..=1000"));
+        }
+        if self.tab_stops.len() > 64
+            || self
+                .tab_stops
+                .iter()
+                .any(|v| !v.is_finite() || *v < 0. || *v > 100000.)
+            || self.tab_stops.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(error(
+                "tabStops require at most64 increasing nonnegative lengths <=100000",
+            ));
+        }
+        if self.url.len() > 4096
+            || self.target.len() > 256
+            || self
+                .url
+                .chars()
+                .chain(self.target.chars())
+                .any(char::is_control)
+        {
+            return Err(error(
+                "TextFormat url/target require bounded strings without controls",
+            ));
+        }
         if self.color > 0xffffff {
             return Err(error("color must be a 24-bit RGB integer"));
         }
@@ -111,6 +151,14 @@ pub struct TextFormatPatch {
     #[serde(rename = "blockIndent")]
     pub block_indent: Option<f64>,
     pub underline: Option<bool>,
+    #[serde(rename = "letterSpacing")]
+    pub letter_spacing: Option<f64>,
+    pub kerning: Option<bool>,
+    pub bullet: Option<bool>,
+    #[serde(rename = "tabStops")]
+    pub tab_stops: Option<Vec<f64>>,
+    pub url: Option<String>,
+    pub target: Option<String>,
 }
 impl TextFormatPatch {
     pub(crate) fn apply(&self, format: &mut TextFormat) {
@@ -146,6 +194,24 @@ impl TextFormatPatch {
         }
         if let Some(value) = self.block_indent {
             format.block_indent = value
+        }
+        if let Some(value) = self.letter_spacing {
+            format.letter_spacing = value;
+        }
+        if let Some(value) = self.kerning {
+            format.kerning = Some(value);
+        }
+        if let Some(value) = self.bullet {
+            format.bullet = value;
+        }
+        if let Some(value) = &self.tab_stops {
+            format.tab_stops = value.clone();
+        }
+        if let Some(value) = &self.url {
+            format.url = value.clone();
+        }
+        if let Some(value) = &self.target {
+            format.target = value.clone();
         }
         if let Some(value) = self.underline {
             format.underline = value
@@ -210,6 +276,8 @@ pub struct As2TextViewport {
     pub border_color: u32,
     pub scroll: u32,
     pub hscroll: u32,
+    pub auto_size: String,
+    pub mouse_wheel_enabled: bool,
 }
 impl Default for As2TextViewport {
     fn default() -> Self {
@@ -221,6 +289,8 @@ impl Default for As2TextViewport {
             border_color: 0,
             scroll: 1,
             hscroll: 0,
+            auto_size: "none".into(),
+            mouse_wheel_enabled: true,
         }
     }
 }
@@ -341,6 +411,12 @@ impl TextFieldState {
         self.text.len() + self.restrict.as_ref().map_or(0, String::len)
     }
     pub fn validate(&self) -> Result<(), TextError> {
+        if !matches!(
+            self.as2_viewport.auto_size.as_str(),
+            "none" | "left" | "center" | "right"
+        ) {
+            return Err(error("autoSize requires none, left, center or right"));
+        }
         if self.as2_viewport.background_color > 0xffffff
             || self.as2_viewport.border_color > 0xffffff
             || self.as2_viewport.scroll == 0
@@ -367,6 +443,16 @@ impl TextFieldState {
         }
         utf16_byte(&self.text, self.selection_begin)?;
         utf16_byte(&self.text, self.selection_end)?;
+        if self.field_type == TextFieldType::Input
+            && (self.format.bullet || !self.format.tab_stops.is_empty())
+        {
+            return Err(error(
+                "bullet/custom tabStops currently require a non-input TextField",
+            ));
+        }
+        if self.word_wrap && !self.format.tab_stops.is_empty() {
+            return Err(error("custom tabStops currently require wordWrap=false"));
+        }
         self.format.validate()?;
         self.default_format.validate()?;
         if let Some(size) = self.box_size {
@@ -771,12 +857,20 @@ pub struct TextSurface {
     pub border: Option<u32>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TextRun {
+    pub text: String,
+    pub x: f64,
+    pub y: f64,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextLayout {
     pub lines: Vec<TextLine>,
     pub text_width: f64,
     pub text_height: f64,
     pub line_height: f64,
     pub decorations: Vec<TextDecoration>,
+    pub runs: Vec<TextRun>,
+    pub bullets: Vec<[f64; 3]>,
     pub viewport: TextViewportMetrics,
     pub surface: TextSurface,
 }
@@ -863,12 +957,16 @@ fn measured<M>(
 where
     M: FnMut(&[String], &TextFormat) -> Result<Vec<f64>, TextError>,
 {
-    let result = measure(strings, format)?;
+    let mut result = measure(strings, format)?;
     if result.len() != strings.len() || result.iter().any(|w| !w.is_finite() || *w < 0. || *w > 1e9)
     {
         return Err(error(
             "font measurement must return one finite width in 0..=1e9 per string",
         ));
+    }
+    for (width, text) in result.iter_mut().zip(strings) {
+        *width = (*width + text.chars().count().saturating_sub(1) as f64 * format.letter_spacing)
+            .max(0.);
     }
     Ok(result)
 }
@@ -884,13 +982,19 @@ where
     let strings: Vec<_> = parts.iter().map(|p| p.text.clone()).collect();
     let widths = measured(&strings, &field.format, &mut measure)?;
     let padding = if field.box_size.is_some() { 2. } else { 0. };
-    let origin_x = padding + field.format.left_margin + field.format.block_indent;
+    let bullet_indent = if field.format.bullet {
+        field.format.size
+    } else {
+        0.
+    };
+    let origin_x = padding + field.format.left_margin + field.format.block_indent + bullet_indent;
     let available = field.box_size.map(|b| {
         (b.width
             - 2. * padding
             - field.format.left_margin
             - field.format.right_margin
-            - field.format.block_indent)
+            - field.format.block_indent
+            - bullet_indent)
             .max(0.)
     });
     let mut paragraph_starts = BTreeSet::from([0u32]);
@@ -967,6 +1071,9 @@ where
                 if !current.text.is_empty() && current.width + width > available_at(current.start) {
                     flush(&mut lines, &mut current)?
                 }
+                if !current.text.is_empty() {
+                    current.width += field.format.letter_spacing;
+                }
                 current.text.push(ch);
                 current.width += width;
                 offset += ch.len_utf16() as u32;
@@ -979,6 +1086,9 @@ where
             {
                 flush(&mut lines, &mut current)?
             }
+            if !current.text.is_empty() {
+                current.width += field.format.letter_spacing;
+            }
             current.text.push_str(&part.text);
             current.width += width;
             current.end = part.end;
@@ -986,7 +1096,44 @@ where
     }
     flush(&mut lines, &mut current)?;
     let strings: Vec<_> = lines.iter().map(|line| line.text.clone()).collect();
-    let widths = measured(&strings, &field.format, &mut measure)?;
+    let mut widths = measured(&strings, &field.format, &mut measure)?;
+    let mut tab_runs: Vec<Vec<(String, f64)>> = vec![];
+    if !field.format.tab_stops.is_empty() {
+        let segments: Vec<String> = lines
+            .iter()
+            .flat_map(|line| line.text.split('\t').map(str::to_owned))
+            .collect();
+        if segments.len() > MAX_PARTS {
+            return Err(error("custom tab layout exceeds16384 segments"));
+        }
+        let sizes = measured(&segments, &field.format, &mut measure)?;
+        let mut index = 0;
+        for (line, width) in lines.iter().zip(&mut widths) {
+            let mut x = 0.;
+            let mut runs = vec![];
+            let mut parts = line.text.split('\t').peekable();
+            while let Some(part) = parts.next() {
+                runs.push((part.into(), x));
+                x += sizes[index];
+                index += 1;
+                if parts.peek().is_some() {
+                    x = field
+                        .format
+                        .tab_stops
+                        .iter()
+                        .copied()
+                        .find(|stop| *stop > x)
+                        .unwrap_or_else(|| {
+                            let origin = field.format.tab_stops.last().copied().unwrap_or(0.);
+                            let step = field.format.size * 4.;
+                            origin + ((x - origin) / step).floor().max(0.) * step + step
+                        });
+                }
+            }
+            *width = x;
+            tab_runs.push(runs);
+        }
+    }
     let advance = field.format.size * 1.2 + field.format.leading;
     let mut text_width = 0_f64;
     for (index, (line, width)) in lines.iter_mut().zip(widths).enumerate() {
@@ -1052,6 +1199,32 @@ where
             .border
             .then_some(field.as2_viewport.border_color),
     };
+    let runs = tab_runs
+        .into_iter()
+        .zip(&lines)
+        .flat_map(|(runs, line)| {
+            runs.into_iter().map(move |(text, x)| TextRun {
+                text,
+                x: line.x + x,
+                y: line.y,
+            })
+        })
+        .collect();
+    let bullets = if field.format.bullet {
+        lines
+            .iter()
+            .filter(|line| paragraph_starts.contains(&line.start))
+            .map(|line| {
+                [
+                    line.x - field.format.size * 0.6,
+                    line.y + field.format.size * 0.6,
+                    (field.format.size * 0.1).max(1.),
+                ]
+            })
+            .collect()
+    } else {
+        vec![]
+    };
     let decorations = if field.format.underline {
         lines
             .iter()
@@ -1072,6 +1245,8 @@ where
         text_height,
         line_height: advance,
         decorations,
+        runs,
+        bullets,
         viewport,
         surface,
     })

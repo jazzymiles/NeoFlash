@@ -178,7 +178,7 @@ fn class_syntax_outside_profile_is_never_erased() {
         "import flash.geom.ColorTransform; class A extends ColorTransform {}",
         "class A {public function A(){new RegExp(\"x\");}}",
         "class A {public function A(){JSON.parse(\"{}\");}}",
-        "class A {public function get value():Number{return 1;}}",
+        "class A {public function get value(arg:Number):Number{return arg;}}",
         "class A extends TextField {}",
         "class A extends TextFormat {}",
         "class A {public function A(){new TextField();}}",
@@ -214,6 +214,11 @@ fn class_syntax_outside_profile_is_never_erased() {
     }
     legacy.sources[0].source = "class A {public var images:MovieClipLoader; public var saved:SharedObject; public function A(){images=new MovieClipLoader();saved=SharedObject.getLocal(\"save\");} public function persist(value:Object):Boolean{saved.data.value=value;var size:Number=saved.getSize();return saved.flush();} public function erase():Void{saved.clear();} public function focus(target:TextField):Boolean {Selection.addListener(this);target.type=\"input\";target.maxChars=12;target.restrict=\"A-Z\";Selection.setSelection(1,3);var start:Number=Selection.getBeginIndex();var end:Number=Selection.getEndIndex();var caret:Number=Selection.getCaretIndex();var old:String=Selection.getFocus();target.setSelection(0,1);target.replaceSelectedText(\"A\");Selection.removeListener(this);return Selection.setFocus(target);} public function onSetFocus(old:Object,next:Object):Void{this.saved.data.focus=next!=null;} public function shadow(Selection:Object):String{return Selection.getFocus();} public function load(target:MovieClip):Boolean {images.addListener(this);return images.loadClip(\"image.png\",target);} public function progress(target:MovieClip):Object {return images.getProgress(target);} public function unload(target:MovieClip):Boolean {images.removeListener(this);return images.unloadClip(target);}}".into();
     assert!(neoflash_script::compile_project(&legacy).is_ok());
+    legacy.sources[0].source = "dynamic class A {private var stored:Number=1; private static var count:Number=0; public function get value():Number{return stored;} public function set value(next:Number):Void{stored=next;count++;} public static function get changes():Number{return count;} public function exercise():Number{value+=4;return value+changes;}}".into();
+    assert!(
+        neoflash_script::compile_project(&legacy).is_ok(),
+        "AS2 concrete source accessors reuse class descriptors"
+    );
     let custom_selection = project(&[
         (
             "Selection.as",

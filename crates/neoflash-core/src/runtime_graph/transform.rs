@@ -122,7 +122,7 @@ fn validate_matrix(matrix: [f64; 6]) -> Result<(), DisplayError> {
     }
 }
 impl AffineState {
-    fn new(matrix: [f64; 6]) -> Result<Self, DisplayError> {
+    pub(super) fn new(matrix: [f64; 6]) -> Result<Self, DisplayError> {
         validate_matrix(matrix)?;
         let [a, b, c, d, _, _] = matrix;
         let rotation = b.atan2(a);

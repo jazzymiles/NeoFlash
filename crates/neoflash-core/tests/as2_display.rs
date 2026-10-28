@@ -119,6 +119,30 @@ fn as2_sparse_depths_duplicate_paths_and_as3_indices_share_one_graph() {
         None
     );
     assert!(player.as2_swap_depth(&nested, -1).is_err());
+    // Component DepthManager shares the same graph, with normal/topmost tiers.
+    player
+        .as2_depth_manager(&first, serde_json::json!({"op":"set","flag":203}))
+        .unwrap();
+    player
+        .as2_depth_manager(&copy, serde_json::json!({"op":"set","flag":201}))
+        .unwrap();
+    assert!(player.as2_get_depth(&first).unwrap() > player.as2_get_depth(&copy).unwrap());
+    player
+        .as2_depth_manager(&first, serde_json::json!({"op":"set","flag":204}))
+        .unwrap();
+    player
+        .as2_depth_manager(&first, serde_json::json!({"op":"below","other":copy}))
+        .unwrap();
+    assert!(player.as2_get_depth(&first).unwrap() < player.as2_get_depth(&copy).unwrap());
+    let planned = player
+        .as2_depth_manager(&root, serde_json::json!({"op":"plan","flag":202}))
+        .unwrap();
+    assert_eq!(planned["depth"], 20);
+    assert!(
+        player
+            .as2_depth_manager(&first, serde_json::json!({"op":"above","other":nested}))
+            .is_err()
+    );
     // AS3's ordinary index API still controls order without implicit depth sorts.
     player
         .display_mutate(
@@ -152,6 +176,52 @@ fn as2_sparse_depths_duplicate_paths_and_as3_indices_share_one_graph() {
             .children
             .last(),
         Some(&copy)
+    );
+    // AS2 raster preferences produce real isolated renderer groups.
+    player
+        .as2_render_command(
+            &project,
+            &copy,
+            serde_json::json!({"op":"set","name":"blendMode","value":3}),
+        )
+        .unwrap();
+    player
+        .as2_render_command(
+            &project,
+            &copy,
+            serde_json::json!({"op":"set","name":"cacheAsBitmap","value":true}),
+        )
+        .unwrap();
+    player
+        .as2_render_command(
+            &project,
+            &copy,
+            serde_json::json!({"op":"set","name":"opaqueBackground","value":0x123456}),
+        )
+        .unwrap();
+    let raster = player.runtime_snapshot(&project);
+    let group = raster
+        .filter_groups
+        .iter()
+        .find(|group| group.owner_ref == copy)
+        .unwrap();
+    assert_eq!(group.composite_operation, "multiply");
+    assert_eq!(group.opaque_background, Some([0x12, 0x34, 0x56, 255]));
+    assert!(group.cache_as_bitmap);
+    assert!(
+        player
+            .as2_render_command(
+                &project,
+                &copy,
+                serde_json::json!({"op":"set","name":"blendMode","value":"invented"})
+            )
+            .is_err()
+    );
+    assert_eq!(
+        player
+            .as2_render_command(&project, &copy, serde_json::json!({"op":"get"}))
+            .unwrap()["blendMode"],
+        "multiply"
     );
     player.reset(&project);
     assert!(player.as2_get_depth(&nested).is_err());

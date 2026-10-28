@@ -15,6 +15,16 @@ pub fn as2_text_json(request: &str) -> Result<String, JsValue> {
 use super::{WebPlayer, display_error, object_ref};
 #[wasm_bindgen]
 impl WebPlayer {
+    pub fn as2_text_fit(&mut self, reference: &str, layout: &str) -> Result<bool, JsValue> {
+        if layout.len() > 8 * 1024 * 1024 {
+            return Err(JsValue::from_str("AS2 autosize layout exceeds8MiB"));
+        }
+        let layout = serde_json::from_str(layout).map_err(display_error)?;
+        self.player
+            .as2_text_fit(&self.project, &object_ref(reference)?, &layout)
+            .map_err(display_error)
+    }
+
     pub fn as2_snapshot_create(
         &mut self,
         reference: &str,

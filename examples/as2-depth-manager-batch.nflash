@@ -1,0 +1,243 @@
+{
+  "format_version": 3,
+  "name": "AS2 DepthManager: relative MovieClip ordering",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    16,
+    23,
+    37,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 45,
+                      "y": 55,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 / DEPTHMANAGER / RELATIVE MOVIECLIPS",
+                      "font_family": "Arial",
+                      "font_size": 25,
+                      "color": [
+                        218,
+                        234,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "result",
+                    "name": "result",
+                    "transform": {
+                      "x": 45,
+                      "y": 110,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Running relative-depth batch...",
+                      "font_family": "Arial",
+                      "font_size": 24,
+                      "color": [
+                        218,
+                        234,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "note",
+                    "name": "note",
+                    "transform": {
+                      "x": 45,
+                      "y": 465,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Sparse depths, mutable points and legacy target paths run in a real publication.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        218,
+                        234,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "input-status",
+                    "name": "inputStatus",
+                    "transform": {
+                      "x": 45,
+                      "y": 420,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Normal and topmost tiers; existing symbol linkage; no reserved system UI.",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        212,
+                        226,
+                        246,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import mx.managers.DepthManager;\nstop();\nvar checks:Number=0;var passed:Number=0;var failures:String=\"\";\nfunction check(name:String,ok:Boolean):Void{checks++;if(ok)passed++;else failures+=name+\"; \";trace(\"AS2_DEPTH_CHECK \"+name+\" \"+ok);}\nvar holder:MovieClip=_root.createEmptyMovieClip(\"depthHolder\",500);holder._x=90;holder._y=190;\nvar a:MovieClip=holder.createChildAtDepth(\"DepthA\",DepthManager.kTop,{_x:0,_y:0,tag:\"a\"});\nvar b:MovieClip=holder.createChildAtDepth(\"DepthA\",DepthManager.kBottom,{_x:110,_y:30,tag:\"b\"});\nvar c:MovieClip=holder.createChildAtDepth(\"DepthA\",DepthManager.kTopmost,{_x:220,_y:60,tag:\"c\"});\ncheck(\"documented constant values\",DepthManager.kTop==201&&DepthManager.kBottom==202&&DepthManager.kTopmost==203&&DepthManager.kNotopmost==204&&DepthManager.kCursor==101&&DepthManager.kTooltip==102);\ncheck(\"real linked instances and initialization\",a._parent==holder&&b._parent==holder&&c._parent==holder&&a.ready==\"a\"&&b.ready==\"b\"&&c.ready==\"c\"&&a.observedDepth>0&&a._name!=b._name);\ncheck(\"bottom normal and topmost creation\",b.getDepth()<a.getDepth()&&a.getDepth()<c.getDepth());\na.setDepthTo(DepthManager.kTop);b.setDepthTo(DepthManager.kTop);\ncheck(\"topmost remains above normal raises\",c.getDepth()>b.getDepth()&&b.getDepth()>a.getDepth());\nc.setDepthTo(DepthManager.kNotopmost);a.setDepthTo(DepthManager.kTop);\ncheck(\"remove topmost tier\",a.getDepth()>c.getDepth()&&c.getDepth()>b.getDepth());\nb.setDepthAbove(a);check(\"relative above\",b.getDepth()>a.getDepth());\nb.setDepthBelow(c);check(\"relative below\",b.getDepth()<c.getDepth());\na.setDepthTo(DepthManager.kBottom);\ncheck(\"bottom and stable twenty-depth shuffle\",a.getDepth()<b.getDepth()&&b.getDepth()<c.getDepth()&&a.getDepth()%20==0&&b.getDepth()%20==0&&c.getDepth()%20==0&&a.setDepthTo===a.setDepthTo);\n_root.result.text=\"DepthManager \"+passed+\" / \"+checks;\n_root.note.text=failures==\"\"?\"A behind B behind C. All three are real linked AS2 MovieClips. Restart repeats the batch.\":failures;\ntrace(\"AS2_DEPTH_RESULT \"+passed+\"/\"+checks+\" \"+failures);\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "depth-card-A",
+      "name": "Depth card A",
+      "kind": "movie_clip",
+      "linkage_id": "DepthA",
+      "class_name": "model.DepthCard",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "art-A",
+            "name": "Art",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "rect-A",
+                    "name": "body",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 180,
+                      "height": 130,
+                      "fill": [
+                        85,
+                        217,
+                        167,
+                        255
+                      ],
+                      "stroke": [
+                        20,
+                        34,
+                        47,
+                        255
+                      ],
+                      "stroke_width": 3
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "label-A",
+                    "name": "label",
+                    "transform": {
+                      "x": 18,
+                      "y": 18,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "A",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        20,
+                        34,
+                        47,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "resources": [],
+  "sources": [
+    {
+      "id": "depth-card-class",
+      "path": "model/DepthCard.as",
+      "language": "action_script2",
+      "source": "class model.DepthCard extends MovieClip {public var ready:String;public var observedDepth:Number;public function DepthCard(){super();ready=tag;observedDepth=getDepth();label.text=tag;stop();}}"
+    }
+  ]
+}

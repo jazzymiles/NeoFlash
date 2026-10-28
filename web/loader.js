@@ -183,9 +183,35 @@
       get checkPolicyFile(){legacyState(this);return false;}set checkPolicyFile(value){legacyState(this);if(value!==false)unsupported('MovieClipLoader.checkPolicyFile');}
     }
     Object.defineProperties(MovieClipLoader,{__nfIs:{value:value=>legacy.has(value)},__nfInitialize:{value:()=>unsupported('MovieClipLoader native subclassing')}});
-    function reset(){open();for(const record of records)cancel(record);records.clear();targets.clear();generation++;hub.clear();}
+    let simpleReceiver=null;
+    function simpleLoader(){
+      if(!simpleReceiver){simpleReceiver=new MovieClipLoader();simpleReceiver.onLoadError=(target,message)=>report(new TypeError('MovieClip.loadMovie failed: '+message));}
+      return simpleReceiver;
+    }
+    function trackedMovie(target){
+      const record=targetRecord(simpleLoader(),target,false);
+      if(!record)throw new Error('MovieClip byte counts are available only for an actual image load; authored SWF byte counts are unavailable.');
+      return record;
+    }
+    function as2MovieMethods(target){return {
+      loadMovie(url,method){
+        if(typeof url!=='string')throw new TypeError('MovieClip.loadMovie URL requires String.');
+        const request=new net.URLRequest(url);
+        if(method!==undefined&&method!==null){
+          if(!['GET','POST'].includes(method))throw new TypeError('MovieClip.loadMovie method requires GET or POST.');
+          if(typeof options.legacyVariables!=='function')throw new Error('MovieClip form variables require the publication variable adapter.');
+          const variables=new net.URLVariables();for(const[name,value]of Object.entries(options.legacyVariables(target)))Object.defineProperty(variables,name,{value,enumerable:true,writable:true,configurable:true});
+          request.method=method;request.data=variables;
+        }
+        load(targetRecord(simpleLoader(),target,true),request);
+      },
+      unloadMovie(){unload(targetRecord(simpleLoader(),target,true));},
+      getBytesLoaded(){return trackedMovie(target).bytesLoaded;},
+      getBytesTotal(){return trackedMovie(target).bytesTotal;},
+    };}
+    function reset(){open();for(const record of records)cancel(record);records.clear();targets.clear();simpleReceiver=null;generation++;hub.clear();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({Loader,LoaderInfo,MovieClipLoader,methods,get,infoForDisplay:target=>{const info=contentInfos.get(target);return info&&valid(infos.get(info))?info:null;},reset,dispose});
+    return Object.freeze({Loader,LoaderInfo,MovieClipLoader,as2MovieMethods,methods,get,infoForDisplay:target=>{const info=contentInfos.get(target);return info&&valid(infos.get(info))?info:null;},reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashLoader=api;
 })(globalThis);

@@ -8,6 +8,9 @@
     if(typeof broadcaster?.create!=='function')throw new Error('AS2 text requires the shared broadcaster host.');
     const execute=request=>JSON.parse(wasm.as2_text_json(JSON.stringify(request)));
     text.bindAs2(execute);
+    function reflow(ref){const field=text.info(ref);if(field.as2_viewport.auto_size!=='none')return player.as2_text_fit(ref,JSON.stringify(text.layout(field)));return false;}
+    text.bindAs2Layout(reflow);
+    text.bindAs2Wheel(wheel);
     const broadcasters=broadcaster.create(wasm);
     const sheets=new WeakMap(),fields=new Map(),loads=new Set();let generation=0,disposed=false;
     function active(){if(disposed)throw new Error('AS2 text service was disposed.');}
@@ -48,13 +51,15 @@
       }
     }
     StyleSheet.__nfIs=value=>sheets.has(value);StyleSheet.__nfInitialize=()=>{throw new TypeError('AS2 StyleSheet subclassing is not supported.');};Object.defineProperty(StyleSheet,Symbol.hasInstance,{value:StyleSheet.__nfIs});
-    const names=new Set(['html','htmlText','styleSheet','condenseWhite','getTextFormat','getNewTextFormat','text','background','backgroundColor','border','borderColor','scroll','hscroll','maxscroll','maxhscroll','bottomScroll','onScroller','addListener','removeListener']);
+    const names=new Set(['html','htmlText','styleSheet','condenseWhite','getTextFormat','getNewTextFormat','text','background','backgroundColor','border','borderColor','scroll','hscroll','maxscroll','maxhscroll','bottomScroll','onScroller','addListener','removeListener','autoSize','mouseWheelEnabled']);
     function as2Ref(ref,name){
       if(!names.has(name))return null;
       return {has:()=>true,delete:()=>false,get:()=>{
         const state=stateFor(ref),field=text.info(ref);
         if(['background','backgroundColor','border','borderColor'].includes(name))return field.as2_viewport[name];
         if(['scroll','hscroll','maxscroll','maxhscroll','bottomScroll'].includes(name)){const viewport=text.layout(field).viewport;return viewport[name==='bottomScroll'?'bottom_scroll':name];}
+        if(name==='autoSize')return field.as2_viewport.auto_size;
+        if(name==='mouseWheelEnabled')return field.as2_viewport.mouse_wheel_enabled;
         if(name==='addListener')return listener=>{if(!state.broadcaster){state.broadcaster={};broadcasters.AsBroadcaster.initialize(state.broadcaster);}return state.broadcaster.addListener(listener);};
         if(name==='removeListener')return listener=>state.broadcaster?state.broadcaster.removeListener(listener):false;
         if(name==='onScroller')return state.onScroller;
@@ -66,6 +71,7 @@
         return state.source!==null&&state.revision===field.revision?state.source:execute({op:'serialize_html',text:field.text,format:field.format}).result;
       },set:value=>{
         const state=stateFor(ref);
+        if(name==='autoSize'||name==='mouseWheelEnabled'){const field=text.info(ref);if(name==='autoSize'){if(value===true)value='left';if(value===false)value='none';if(!['none','left','center','right'].includes(value))throw new TypeError('autoSize requires none/left/center/right or Boolean.');}else if(typeof value!=='boolean')throw new TypeError('mouseWheelEnabled requires Boolean.');text.update(ref,{as2_viewport:{...field.as2_viewport,active:true,[name==='autoSize'?'auto_size':'mouse_wheel_enabled']:value}});return value;}
         if(name==='onScroller'){if(value!==null&&value!==undefined&&typeof value!=='function')throw new TypeError('onScroller requires a function or null.');state.onScroller=value;return value;}
         if(['background','backgroundColor','border','borderColor','scroll','hscroll'].includes(name)){
           if(['background','border'].includes(name)){if(typeof value!=='boolean')throw new TypeError('TextField.'+name+' requires a Boolean.');}
@@ -101,10 +107,21 @@
     }
     TextSnapshot.__nfIs=value=>snapshots.has(value);TextSnapshot.__nfInitialize=()=>{throw new TypeError('TextSnapshot cannot be subclassed.');};Object.defineProperty(TextSnapshot,Symbol.hasInstance,{value:TextSnapshot.__nfIs});
     function snapshotFor(ref){active();const handle=player.as2_snapshot_create(ref,(strings,format)=>JSON.stringify(text.measure(JSON.parse(strings),JSON.parse(format))));const result=Object.create(TextSnapshot.prototype);snapshots.set(result,handle);return result;}
-    function textEvent(ref,name,args){if(!['onChanged','onScroller'].includes(name))return;const state=fields.get(ref);if(state?.broadcaster&&player.object_alive(ref))state.broadcaster.broadcastMessage(name,...args);}
+    function wheel(ref,event){
+      if(disposed||!fields.has(ref)||event.defaultPrevented)return false;
+      const field=text.info(ref),result=execute({op:'wheel',field,layout:text.layout(field),delta:event.deltaY??0,mode:event.deltaMode??0});
+      if(result.handled){as2Ref(ref,'scroll').set(result.scroll);event.preventDefault?.();return true;}return false;
+    }
+    function link(ref,point,event){
+      if(disposed||event.defaultPrevented)return false;const field=text.info(ref);if(!field.format.url)return false;
+      const result=execute({op:'hit_link',field,layout:text.layout(field),x:point.x,y:point.y});if(!result)return false;
+      const net=getNet();if(!net)throw new Error('Text hyperlinks require the publication URL navigation service.');
+      net.navigateToURL(new net.URLRequest(result.url),result.target||null);return true;
+    }
+    function textEvent(ref,name,args){if(name==='onChanged'&&reflow(ref))text.notifyLayout(ref);if(!['onChanged','onScroller'].includes(name))return;const state=fields.get(ref);if(state?.broadcaster&&player.object_alive(ref))state.broadcaster.broadcastMessage(name,...args);}
     function reset(){generation++;for(const operation of loads)try{operation.loader.close();}catch(_){}loads.clear();fields.clear();broadcasters.reset();}
     function dispose(){if(disposed)return;reset();broadcasters.dispose();disposed=true;}
-    return Object.freeze({StyleSheet,TextSnapshot,snapshotFor,as2Ref,textEvent,execute,reset,dispose});
+    return Object.freeze({StyleSheet,TextSnapshot,snapshotFor,as2Ref,textEvent,wheel,link,execute,reset,dispose});
   }
   const api={create};if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAS2Text=api;
 })(globalThis);

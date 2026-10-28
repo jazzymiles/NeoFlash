@@ -273,7 +273,7 @@
         response.headers?.forEach?.((value,name)=>event.responseHeaders.push(new URLRequestHeader(name,value)));
         if(!notify(operation,event))return null;
       }
-      if(!response.ok)throw new Error(`HTTP ${response.status} while loading ${url.href}.`);
+      if(!response.ok&&record.raw?.acceptHttpError!==true)throw new Error(`HTTP ${response.status} while loading ${url.href}.`);
       const declared=response.headers?.get?.('content-length'),compressed=response.headers?.get?.('content-encoding');
       record.total=!compressed&&declared&&/^\d+$/.test(declared)?Number(declared):0;
       if(!Number.isSafeInteger(record.total)||record.total>MAX_BYTES)throw new RangeError('Declared response size exceeds 16 MiB.');

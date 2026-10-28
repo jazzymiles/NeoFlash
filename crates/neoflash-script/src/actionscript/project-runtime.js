@@ -159,6 +159,21 @@ const __nfProgram = (() => {
             set: pair.set ? value => Reflect.apply(pair.set, receiver, [value]) : () => { throw new TypeError(`AS3 property ${name} is read-only.`); } };
     }
     function installAccessors(receiver, definition, isStatic) {
+        if(definition.dialect==='as2') {
+            // AVM1 source accessors live on the shared prototype, like methods.
+            // Resolve this at invocation so distinct instances never share the
+            // receiver or storage of the prototype installation itself.
+            for(const accessor of definition.accessors.filter(accessor=>accessor.static===isStatic)) {
+                let inherited,owner=Object.getPrototypeOf(receiver);
+                while(owner&&!(inherited=Object.getOwnPropertyDescriptor(owner,accessor.name)))owner=Object.getPrototypeOf(owner);
+                const read=accessor.get,write=accessor.set;
+                Object.defineProperty(receiver,accessor.name,{configurable:true,enumerable:false,
+                    get:read?function(){return Reflect.apply(read,this,[]);}:inherited?.get||function(){throw new TypeError(`AS2 property ${accessor.name} is write-only.`);},
+                    set:write?function(value){Reflect.apply(write,this,[value]);}:inherited?.set||function(){throw new TypeError(`AS2 property ${accessor.name} is read-only.`);},
+                });
+            }
+            return;
+        }
         let slots = accessorStates.get(receiver);
         if (!slots) accessorStates.set(receiver, slots = new Map());
         for (const accessor of definition.accessors.filter(accessor => accessor.static === isStatic)) {
@@ -306,6 +321,7 @@ const __nfProgram = (() => {
             Object.defineProperty(facade.prototype, '__constructor__', { configurable: true, writable: true, value: parent });
             installFields(facade.prototype, definition, false);
             installMethods(facade.prototype, definition, false);
+            installAccessors(facade.prototype, definition, false);
             if (definitions.has(base)) Object.setPrototypeOf(facade, parent);
         }
     }

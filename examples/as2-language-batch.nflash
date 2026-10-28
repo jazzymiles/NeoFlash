@@ -1,0 +1,356 @@
+{
+  "format_version": 3,
+  "name": "AS2 accessors and scoped statements",
+  "width": 960,
+  "height": 570,
+  "fps": 24,
+  "background": [
+    14,
+    24,
+    33,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "AS2 accessors and scoped statements",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 42,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / AS2 CLASSES AND SCOPES",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        115,
+                        213,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 42,
+                      "y": 82,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Accessors, nested scopes, real code",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 42,
+                      "y": 125,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Owned Rust runtime with ordinary HTML5 export.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel",
+                    "name": "panel",
+                    "transform": {
+                      "x": 32,
+                      "y": 175,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 890,
+                      "height": 195,
+                      "fill": [
+                        25,
+                        42,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rerun",
+                    "name": "rerun",
+                    "transform": {
+                      "x": 42,
+                      "y": 397,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "run-button",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.runLanguage();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Run language batch",
+                      "description": "Repeat the grouped AS2 accessor and scoped statement scenario",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 285,
+                      "y": 417,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run the authored AS2 interaction.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "counts",
+                    "name": "counts",
+                    "transform": {
+                      "x": 42,
+                      "y": 480,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Grouped scenario results are shown above.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 42,
+                      "y": 522,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Useful partial profile. Restart resets publication state.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import model.Counter;\nstop();\nvar passed:Number=0;\nvar checks:Number=0;\nvar failures:String=\"\";\nfunction check(ok:Boolean,name:String):Void {checks++;if(ok)passed++;else failures+=name+\"; \";}\nfunction runLanguage():Void {\n passed=0;checks=0;failures=\"\";\n var counter:Counter=new Counter();\n var other:Counter=new Counter();\n var previous:Number=Counter.changes;\n check(counter.value==2 && other.value==2,\"getter\");\n counter.value=8;\n check(counter.value==8 && other.value==2 && Counter.changes==previous+1,\"setter and static accessor\");\n check(counter.advance()==11,\"bare compound accessor\");\n counter.extra=\"dynamic\";\n check(counter.extra==\"dynamic\",\"dynamic property\");\n var scopeObject:Object={amount:4,child:{amount:9},method:function(delta:Number):Number {this.amount+=delta;return this.amount;}};\n var amount:Number=100;\n var outside:Number=0;\n with(scopeObject) {\n   check(amount==4,\"object precedes local\");\n   amount+=2;\n   check(method(3)==9,\"with method receiver\");\n   with(child) {amount++;check(amount==10,\"nested scope\");}\n   outside=amount;\n }\n check(amount==100 && scopeObject.amount==9 && outside==9,\"lexical fallback\");\n check(scopeObject.child.amount==10,\"nested write\");\n var area:Number=0;\n with(Math) {area=round(PI*4);}\n check(area==13,\"native Math methods\");\n scopeObject.temporary=7;\n with(scopeObject) {delete temporary;}\n check(scopeObject.temporary==undefined,\"delete scoped property\");\n var sum:Number=0;\n for(var i:Number=0;i<4;i++){with(scopeObject){sum+=amount;if(i==1)break;}}\n check(sum==18,\"with inside control flow\");\n with(scopeObject){newTimelineValue=21;}\n check(_root.newTimelineValue==21 && scopeObject.newTimelineValue==undefined,\"new field falls back to timeline\");\n var array:Array=Array(1,2,3);\n var record:Object=Object(scopeObject);\n check(array.length==3 && array[2]==3 && record===scopeObject,\"existing Array and Object function forms\");\n _root.counts.text=\"AS2 language: \"+passed+\" / \"+checks;\n _root.hint.text=failures==\"\"?\"Get/set accessors, dynamic fields, nested with, method receivers, lexical fallback and control flow.\":failures;\n trace(\"AS2_LANGUAGE_RESULT \"+passed+\"/\"+checks+\" \"+failures);\n}\nrunLanguage();"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-button",
+      "name": "run-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "run-button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 56,
+                      "fill": [
+                        32,
+                        116,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 35,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RUN AGAIN",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "counter-source",
+      "path": "model/Counter.as",
+      "language": "action_script2",
+      "source": "dynamic class model.Counter {\n private var stored:Number=2;\n private static var writes:Number=0;\n public function get value():Number{return stored;}\n public function set value(next:Number):Void{stored=next;writes++;}\n public static function get changes():Number{return writes;}\n public function advance():Number {value+=3;return value;}\n}"
+    }
+  ]
+}

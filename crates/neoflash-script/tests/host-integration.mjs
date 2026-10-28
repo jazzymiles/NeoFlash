@@ -16,6 +16,7 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const end = runtime.indexOf('    function resize()', start);
   assert.ok(start >= 0 && end > start, 'host implementation boundaries changed');
   const scriptConsole = [], hostConsole = [], traceCalls = [];
+  if(options.context&&!options.context.save){const stack=[];options.context.save=function(){stack.push({font:this.font,fontKerning:this.fontKerning,letterSpacing:this.letterSpacing});};options.context.restore=function(){Object.assign(this,stack.pop());};}
   const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value', '__nfProgram', '__nfDisplay', '__nfLegacy', '__nfXML'];
   const functions = new Map(compiledScripts.map(({ script, code, location }) => {
     const hostGlobal=options.external?.hostGlobal||globalThis;
@@ -24,6 +25,10 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   }));
   const globals = { NeoFlashDisplay:require(resolve(root,'web/display.js')), NeoFlashEvents:require(resolve(root,'web/events.js')),
     NeoFlashStage:require(resolve(root,'web/stage.js')), NeoFlashLegacyInput:require(resolve(root,'web/legacy-input.js')), NeoFlashAccessibility:require(resolve(root,'web/accessibility.js')) };
+  globals.NeoFlashAS2DepthManager=require(resolve(root,'web/as2-depth-manager.js'));
+  globals.NeoFlashAS2Transitions=require(resolve(root,'web/as2-transitions.js'));
+  globals.NeoFlashAS2Media=require(resolve(root,'web/as2-media.js'));
+  globals.NeoFlashAS2Services=require(resolve(root,'web/as2-services.js'));
   globals.NeoFlashAS2Files=require(resolve(root,'web/as2-files.js'));
   globals.NeoFlashAS2Locale=require(resolve(root,'web/as2-locale.js'));
   globals.NeoFlashAS2Network=require(resolve(root,'web/as2-network.js'));

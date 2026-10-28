@@ -5,6 +5,23 @@ use neoflash_core::Project;
 use std::collections::{BTreeMap, BTreeSet};
 
 const AS2_BUILTINS: &[&str] = &[
+    "mx.managers.DepthManager",
+    "mx.video.VideoPlayer",
+    "mx.transitions.TransitionManager",
+    "mx.transitions.Transition",
+    "mx.transitions.Fade",
+    "mx.transitions.Fly",
+    "mx.transitions.Rotate",
+    "mx.transitions.Zoom",
+    "mx.transitions.Squeeze",
+    "mx.video.FLVPlayback",
+    "mx.video.VideoError",
+    "mx.services.WebService",
+    "mx.services.SOAPCall",
+    "mx.services.PendingCall",
+    "mx.services.Log",
+    "mx.data.components.XMLConnector",
+    "mx.data.components.WebServiceConnector",
     "mx.utils.Delegate",
     "mx.events.EventDispatcher",
     "mx.data.binding.EndPoint",
@@ -33,6 +50,23 @@ const AS2_BUILTINS: &[&str] = &[
 ];
 
 const BUILTINS: &[&str] = &[
+    "mx.managers.DepthManager",
+    "mx.video.VideoPlayer",
+    "mx.transitions.TransitionManager",
+    "mx.transitions.Transition",
+    "mx.transitions.Fade",
+    "mx.transitions.Fly",
+    "mx.transitions.Rotate",
+    "mx.transitions.Zoom",
+    "mx.transitions.Squeeze",
+    "mx.video.FLVPlayback",
+    "mx.video.VideoError",
+    "mx.services.WebService",
+    "mx.services.SOAPCall",
+    "mx.services.PendingCall",
+    "mx.services.Log",
+    "mx.data.components.XMLConnector",
+    "mx.data.components.WebServiceConnector",
     "mx.data.binding.EndPoint",
     "mx.data.binding.Binding",
     "mx.data.binding.ComponentMixins",
@@ -517,6 +551,7 @@ fn frontend(script: &Script, tokens: TokenCursor, context: CompileContext) -> Fr
         next_function: 1,
         context,
         no_in: false,
+        with_depth: 0,
     }
 }
 fn qualified(p: &mut Frontend<'_>) -> Result<String, Diagnostic> {
@@ -1201,7 +1236,8 @@ fn parse_class(
             if kind == MethodKind::Get
                 && (!f.params.is_empty()
                     || f.rest.is_some()
-                    || f.returns.as_deref() == Some("void"))
+                    || (f.returns.as_deref() == Some("void")
+                        || (as2 && f.returns.as_deref() == Some("Void"))))
             {
                 return Err(p.error("A getter requires no parameters and cannot return void."));
             }
@@ -1209,7 +1245,9 @@ fn parse_class(
                 if f.params.len() != 1
                     || f.rest.is_some()
                     || f.defaults.iter().any(Option::is_some)
-                    || f.returns.as_deref().is_some_and(|ty| ty != "void")
+                    || f.returns
+                        .as_deref()
+                        .is_some_and(|ty| ty != "void" && !(as2 && ty == "Void"))
                 {
                     return Err(p.error("A setter requires exactly one required parameter, no rest parameter, and a void or omitted return type."));
                 }
@@ -2065,6 +2103,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         as3,
         analysis: &field_analysis,
         scope: 0,
+        with_targets: Vec::new(),
     };
     for f in &c.fields {
         let coerce = emitter.coerce_type(f.ty.as_deref(), "value".into());
@@ -2130,6 +2169,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
             as3,
             analysis: &analysis,
             scope: 0,
+            with_targets: Vec::new(),
         };
         let function = emitter.function(&f);
         if is_ctor {

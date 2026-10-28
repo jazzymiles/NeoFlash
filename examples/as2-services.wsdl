@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wsdl:definitions xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/" xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:tns="urn:neoflash:as2-services" targetNamespace="urn:neoflash:as2-services">
+  <wsdl:types><xsd:schema targetNamespace="urn:neoflash:as2-services" elementFormDefault="qualified">
+    <xsd:element name="Echo"><xsd:complexType><xsd:sequence><xsd:element name="message" type="xsd:string"/><xsd:element name="count" type="xsd:int"/></xsd:sequence></xsd:complexType></xsd:element>
+    <xsd:element name="EchoResponse"><xsd:complexType><xsd:sequence><xsd:element name="result" type="xsd:string"/><xsd:element name="accepted" type="xsd:boolean"/><xsd:element name="count" type="xsd:int"/></xsd:sequence></xsd:complexType></xsd:element>
+    <xsd:element name="Fail"><xsd:complexType><xsd:sequence><xsd:element name="reason" type="xsd:string"/></xsd:sequence></xsd:complexType></xsd:element>
+    <xsd:element name="FailResponse"><xsd:complexType><xsd:sequence><xsd:element name="result" type="xsd:string"/></xsd:sequence></xsd:complexType></xsd:element>
+  </xsd:schema></wsdl:types>
+  <wsdl:message name="EchoInput"><wsdl:part name="parameters" element="tns:Echo"/></wsdl:message>
+  <wsdl:message name="EchoOutput"><wsdl:part name="parameters" element="tns:EchoResponse"/></wsdl:message>
+  <wsdl:message name="FailInput"><wsdl:part name="parameters" element="tns:Fail"/></wsdl:message>
+  <wsdl:message name="FailOutput"><wsdl:part name="parameters" element="tns:FailResponse"/></wsdl:message>
+  <wsdl:portType name="DemoPortType">
+    <wsdl:operation name="Echo"><wsdl:input message="tns:EchoInput"/><wsdl:output message="tns:EchoOutput"/></wsdl:operation>
+    <wsdl:operation name="Fail"><wsdl:input message="tns:FailInput"/><wsdl:output message="tns:FailOutput"/></wsdl:operation>
+  </wsdl:portType>
+  <wsdl:binding name="DemoBinding" type="tns:DemoPortType">
+    <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+    <wsdl:operation name="Echo"><soap:operation soapAction="urn:neoflash:Echo"/><wsdl:input><soap:body use="literal"/></wsdl:input><wsdl:output><soap:body use="literal"/></wsdl:output></wsdl:operation>
+    <wsdl:operation name="Fail"><soap:operation soapAction="urn:neoflash:Fail"/><wsdl:input><soap:body use="literal"/></wsdl:input><wsdl:output><soap:body use="literal"/></wsdl:output></wsdl:operation>
+  </wsdl:binding>
+  <wsdl:service name="DemoService"><wsdl:port name="DemoPort" binding="tns:DemoBinding"><soap:address location="/__as2_soap"/></wsdl:port></wsdl:service>
+</wsdl:definitions>

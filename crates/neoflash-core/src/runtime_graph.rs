@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 mod as2_display;
 mod as2_input;
+mod as2_render;
 mod as2_snapshot;
 mod bitmap;
 mod clipping;
@@ -132,7 +133,7 @@ pub enum RuntimeDrawKind {
         stroke_width: f64,
     },
     TextField {
-        field: TextFieldState,
+        field: Box<TextFieldState>,
     },
     BitmapPixels {
         pixel_ref: PixelRef,
@@ -150,7 +151,9 @@ impl PartialEq<ElementKind> for RuntimeDrawKind {
     fn eq(&self, other: &ElementKind) -> bool {
         match self {
             Self::Element(kind) => kind == other,
-            Self::TextField { field } => TextFieldState::from_kind(other).as_ref() == Some(field),
+            Self::TextField { field } => {
+                TextFieldState::from_kind(other).as_ref() == Some(field.as_ref())
+            }
             _ => false,
         }
     }
@@ -246,6 +249,7 @@ pub(crate) struct RuntimeGraph {
     dynamic: BTreeMap<ObjectRef, DynamicObject>,
     as2_depths: HashMap<ObjectRef, (ObjectRef, i32)>,
     as2_input_states: HashMap<ObjectRef, as2_input::As2Input>,
+    as2_render_states: HashMap<ObjectRef, as2_render::As2Render>,
     as2_snapshot_next: u64,
     as2_snapshots: BTreeMap<String, as2_snapshot::TextSnapshot>,
     as2_snapshot_selection: HashMap<ObjectRef, String>,
@@ -286,6 +290,7 @@ impl RuntimeGraph {
         self.dynamic.clear();
         self.as2_depths.clear();
         self.as2_input_states.clear();
+        self.as2_render_states.clear();
         self.as2_snapshots.clear();
         self.as2_snapshot_selection.clear();
         self.events.clear();
@@ -861,7 +866,7 @@ impl Player {
                             transform: display.world,
                             alpha: 1.,
                             kind: RuntimeDrawKind::TextField {
-                                field: concatenated_color_transform.transform_text(field),
+                                field: Box::new(concatenated_color_transform.transform_text(field)),
                             },
                         },
                     });

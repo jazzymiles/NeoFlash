@@ -1,0 +1,158 @@
+{
+  "format_version": 3,
+  "name": "AS2 display filters and paragraph text",
+  "width": 960,
+  "height": 680,
+  "fps": 24,
+  "background": [
+    16,
+    22,
+    34,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "AS2 display filters batch",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 45,
+                      "y": 42,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 / RASTER GROUPS + TEXT",
+                      "font_family": "Arial",
+                      "font_size": 28,
+                      "color": [
+                        225,
+                        234,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "subtitle",
+                    "name": "subtitle",
+                    "transform": {
+                      "x": 45,
+                      "y": 85,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Rust display state, real filters and bounded paragraph behavior",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "result",
+                    "name": "result",
+                    "transform": {
+                      "x": 45,
+                      "y": 120,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Starting shared family",
+                      "font_family": "Arial",
+                      "font_size": 20,
+                      "color": [
+                        85,
+                        217,
+                        167,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "interaction",
+                    "name": "interaction",
+                    "transform": {
+                      "x": 45,
+                      "y": 635,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Click the cached group, follow local links, or scroll the text field.",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        153,
+                        179,
+                        206,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import flash.geom.Rectangle;\nimport flash.filters.BlurFilter;\nimport flash.filters.GlowFilter;\nimport flash.filters.DropShadowFilter;\nimport flash.filters.ColorMatrixFilter;\nimport flash.filters.ConvolutionFilter;\nimport flash.filters.BevelFilter;\nimport flash.filters.GradientGlowFilter;\nimport flash.filters.GradientBevelFilter;\nstop();\nvar passed=0;var checks=0;var failures=\"\";\nfunction check(label,ok){checks++;if(ok)passed++;else failures+=label+\"; \";}\nfunction block(parent,name,depth,x,y,w,h,color){var clip=parent.createEmptyMovieClip(name,depth);clip._x=x;clip._y=y;clip.beginFill(color,100);clip.moveTo(0,0);clip.lineTo(w,0);clip.lineTo(w,h);clip.lineTo(0,h);clip.lineTo(0,0);clip.endFill();return clip;}\nfunction caption(name,depth,x,y,w,h,value,size,color){var field=_root.createTextField(name,depth,x,y,w,h);var format=new TextFormat(\"Arial\",size,color);field.setNewTextFormat(format);field.text=value;return field;}\nvar background=block(_root,\"blendBase\",10,45,160,160,100,0x55AADD);\nvar overlay=block(_root,\"blendOverlay\",11,110,185,160,100,0xDD9955);\noverlay.blendMode=\"multiply\";overlay.cacheAsBitmap=true;overlay.scrollRect=new Rectangle(0,0,130,100);\ncheck(\"blend and cache state\",overlay.blendMode==\"multiply\"&&overlay.cacheAsBitmap);\noverlay.blendMode=4;check(\"numeric blend normalization\",overlay.blendMode==\"screen\");overlay.blendMode=\"multiply\";\nvar opaque=_root.createEmptyMovieClip(\"opaqueGroup\",12);opaque._x=330;opaque._y=170;\nblock(opaque,\"left\",1,0,0,35,80,0x728FE8);block(opaque,\"right\",2,120,0,35,80,0x55D9A7);\nopaque.opaqueBackground=0x384B68;opaque.cacheAsBitmap=true;\ncheck(\"opaque cached group\",opaque.opaqueBackground==0x384B68&&opaque.cacheAsBitmap);\nvar mutations=0;opaque.onPress=function(){mutations++;opaque.left._x=(mutations%2)*40;_root.interaction.text=\"Cache content changed \"+mutations+\" times\";};\ncaption(\"blendLabel\",20,45,290,245,35,\"Multiply: two overlapping clips\",15,0xD5E7FA);\ncaption(\"cacheLabel\",21,330,290,235,35,\"Click cached group: move child\",15,0xD5E7FA);\nvar blur=new BlurFilter(5,3,1),glow=new GlowFilter(0x55D9A7,0.8,8,6,2,1,false,false);\nvar shadow=new DropShadowFilter(6,45,0x728FE8,0.8,4,6,1.5,1,false,false,false);\nvar matrix=new ColorMatrixFilter([1,0,0,0,25,0,1,0,0,0,0,0,1,0,30,0,0,0,1,0]);\nvar convolution=new ConvolutionFilter(3,3,[0,-1,0,-1,5,-1,0,-1,0],1,0,true,true,0,0);\nvar bevel=new BevelFilter(3,45,0xffffff,1,0x142030,1,4,4,1,1,\"inner\",false);\nvar gradientGlow=new GradientGlowFilter(3,45,[0x55D9A7,0x728FE8],[0.7,0.9],[0,255],6,6,1,1,\"outer\",false);\nvar gradientBevel=new GradientBevelFilter(3,45,[0x142030,0x55D9A7,0xffffff],[1,0,1],[0,128,255],4,4,1,1,\"inner\",false);\nvar effects=[blur,glow,shadow,matrix,convolution,bevel,gradientGlow,gradientBevel];\nvar effectNames=[\"Blur\",\"Glow\",\"Shadow\",\"Matrix\",\"Convolution\",\"Bevel\",\"Gradient glow\",\"Gradient bevel\"];\nfor(var i=0;i<effects.length;i++){var tile=block(_root,\"filter\"+i,100+i,45+i*110,355,70,50,0x66AACC);tile.filters=[effects[i].clone()];caption(\"filterName\"+i,200+i,40+i*110,415,110,30,effectNames[i],12,0xD5E7FA);}\nvar b=blur.clone();b.blurX=9;b.blurY=7;b.quality=2;check(\"Blur clone and values\",blur.blurX==5&&b.blurX==9&&b.blurY==7&&b.quality==2);\nvar g=glow.clone();g.inner=true;g.knockout=true;check(\"Glow values\",g.color==0x55D9A7&&g.alpha==0.8&&g.blurX==8&&g.blurY==6&&g.strength==2&&g.quality==1&&g.inner&&g.knockout&&!glow.inner);\nvar d=shadow.clone();d.hideObject=true;d.inner=true;d.knockout=true;check(\"Shadow values\",d.distance==6&&d.angle==45&&d.color==0x728FE8&&d.alpha==0.8&&d.blurX==4&&d.blurY==6&&d.strength==1.5&&d.quality==1&&d.hideObject&&d.inner&&d.knockout&&!shadow.hideObject);\nvar m=matrix.clone();var coefficients=m.matrix;coefficients[0]=0;check(\"Matrix clone defensive data\",matrix.matrix[0]==1&&m.matrix[0]==1&&m.matrix[4]==25);m.matrix=coefficients;check(\"Matrix setter\",m.matrix[0]==0&&matrix.matrix[0]==1);\ncheck(\"All filter families attached\",_root.filter0.filters.length==1&&_root.filter7.filters.length==1);\nvar columns=caption(\"columns\",300,45,475,480,75,\"Rust\\tOwned kernel\\nAS2\\tUseful partial\",18,0xD5E7FA);columns.multiline=true;\nvar paragraph=columns.getTextFormat();paragraph.letterSpacing=1.5;paragraph.kerning=true;paragraph.bullet=true;paragraph.tabStops=[145,300];columns.setTextFormat(paragraph);\nvar copied=columns.getTextFormat();var stops=copied.tabStops;stops[0]=10;\ncheck(\"Paragraph format data\",copied.letterSpacing==1.5&&copied.kerning&&copied.bullet&&copied.tabStops[0]==145);\ncheck(\"Paragraph layout\",columns.textWidth>200&&columns.textHeight>30);\nvar autosized=caption(\"autosized\",301,45,565,300,10,\"Auto size\",18,0x55D9A7);var rightEdge=autosized._x+autosized._width;autosized.autoSize=\"right\";\ncheck(\"Right anchored autoSize\",autosized.autoSize==\"right\"&&autosized._height>10&&Math.abs(autosized._x+autosized._width-rightEdge)<0.01&&autosized._width<300);\nautosized.text=\"Autosize updates after assigning text\";check(\"AutoSize after text\",Math.abs(autosized._x+autosized._width-rightEdge)<0.01&&autosized._height>20);\nvar link=caption(\"link\",302,595,475,320,35,\"Click this local hyperlink\",18,0x78B8FF);var linkFormat=link.getTextFormat();linkFormat.url=\"#as2-local-link\";linkFormat.target=\"_self\";linkFormat.underline=true;link.setTextFormat(linkFormat);\ncheck(\"Uniform hyperlink format\",link.getTextFormat().url==\"#as2-local-link\"&&link.getTextFormat().target==\"_self\");\nvar htmlLink=caption(\"htmlLink\",303,595,510,320,35,\"\",15,0x78B8FF);htmlLink.html=true;htmlLink.htmlText='<a href=\"#as2-html-link\" target=\"_self\">HTML anchor uses same Rust hit model</a>';\ncheck(\"HTML anchor format\",htmlLink.getTextFormat().url==\"#as2-html-link\"&&htmlLink.getTextFormat().target==\"_self\");\nvar wheel=caption(\"wheel\",304,595,552,320,64,\"Wheel scrolls this text\\nLine 2\\nLine 3\\nLine 4\\nLine 5\\nLine 6\\nLine 7\\nLine 8\",17,0xD5E7FA);wheel.multiline=true;wheel.background=true;wheel.backgroundColor=0x26354A;wheel.mouseWheelEnabled=false;\ncheck(\"Mouse wheel switch\",!wheel.mouseWheelEnabled&&wheel.maxscroll>1);wheel.mouseWheelEnabled=true;\nvar wheelEvents=0;wheel.onScroller=function(){wheelEvents++;_root.interaction.text=\"Wheel: scroll \"+wheel.scroll+\" / \"+wheel.maxscroll+\"; callbacks \"+wheelEvents;};\ncheck(\"Mouse wheel enabled\",wheel.mouseWheelEnabled&&wheel.scroll==1);\nfunction publishReport(){\n_root.result.text=passed+\" / \"+checks+\" checks passed\";\n_root.report='{\"suite\":\"as2-display-filters-batch\",\"passed\":'+passed+',\"checks\":'+checks+',\"failures\":\"'+failures+'\"}';trace(_root.report);\n\n}\npublishReport();\nvar image=_root.createEmptyMovieClip(\"imageAlias\",500);image._x=650;image._y=160;image._xscale=200;image._yscale=200;\ncaption(\"imageLabel\",501,595,295,330,40,\"loadMovie / unloadMovie / actual bytes\",14,0xD5E7FA);\nvar imagePhase=0;\nimage.loadMovie(\"images/first.png\");\nvar imageTimer=setInterval(function(){\n if(image.getBytesLoaded()>0&&image._width>0){\n  if(imagePhase==0){\n   check(\"MovieClip image byte metadata\",image.getBytesLoaded()==411&&image.getBytesTotal()==image.getBytesLoaded());\n   image.unloadMovie();check(\"MovieClip unload contents\",image._width==0&&image.getBytesLoaded()==0);\n   imagePhase=1;image.loadMovie(\"images/first.png\");\n  }else{\n   check(\"MovieClip reload keeps placement\",image._x==650&&image._y==160&&image._xscale==200&&image._width>100);\n   clearInterval(imageTimer);publishReport();\n  }\n }\n},20);\n"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "resources": [
+    {
+      "id": "gallery-0",
+      "path": "images/first.png",
+      "media_type": "image/png",
+      "data_base64": "iVBORw0KGgoAAAANSUhEUgAAAGAAAABACAYAAADlNHIOAAABYklEQVR4nO3cuw3CQBCEYZdBC0TUQGlUQwnUQk4LJgUJyZIF+J57t7u+39JkDmbni5x4miLP4XR+Wctjfm5Gu1tuYvsDAAAA6iUBMBYAAAAAAABkAGIvHG9XcwkBaHf7DgAAAAAAAAAAAAAA7gHm++WTEMDyjnbX3QAsg66TArAOAILjlwBoIrgE2BqxBkALwh1AbMBagN4IrgBSxpMA6IngBiB1OCmAXggAACA7viRADwTzALmDSQO0RgAAAADMApSM1QKgJQIA1gFCx5D2AQCAsQMAAGMHAADGDt8B2t8BAAwMUIogDdDyPgAAAMA0QAmCJEDr21wA5CJIAfS4CwAA5BEkAHrd5AogFaEWoOc97gBSEGoAet/iEiAGUQKgdYNrgC2EXADN/u4B/mGkAGh33SXAkhCAdjcADPQDwFAAAAAAADwDWEwIQLvbz8Ae/4gFgPEAAAAAAAAAAAAAVAO8AURVzN9/ie7eAAAAAElFTkSuQmCC"
+    }
+  ]
+}

@@ -2,6 +2,21 @@
 use super::*;
 #[wasm_bindgen]
 impl WebPlayer {
+    pub fn as2_render_command(
+        &mut self,
+        reference: &str,
+        request: &str,
+    ) -> Result<String, JsValue> {
+        if request.len() > 4096 {
+            return Err(JsValue::from_str("AS2 render request exceeds 4096 bytes"));
+        }
+        let request = serde_json::from_str(request).map_err(display_error)?;
+        self.player
+            .as2_render_command(&self.project, &object_ref(reference)?, request)
+            .map(|value| value.to_string())
+            .map_err(display_error)
+    }
+
     pub fn as2_input_command(&mut self, reference: &str, request: &str) -> Result<String, JsValue> {
         if request.len() > 1024 * 1024 {
             return Err(JsValue::from_str("AS2 input request exceeds 1 MiB"));

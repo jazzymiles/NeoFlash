@@ -108,6 +108,11 @@ fn statement(stmt: &Stmt) -> Exits {
             }
         }
         Stmt::Empty | Stmt::Function(_) => one(Exit::Normal),
+        Stmt::With(_, body, _) => {
+            let mut exits = statement(body);
+            exits.insert(Exit::Throw);
+            exits
+        }
         Stmt::Expr(_) | Stmt::Var(_) => [Exit::Normal, Exit::Throw].into(),
     }
 }

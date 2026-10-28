@@ -472,6 +472,7 @@ enum Stmt {
     Block(Vec<Stmt>),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),
+    With(Expr, Box<Stmt>, usize),
     For(Box<Stmt>, Option<Expr>, Option<Expr>, Box<Stmt>),
     ForIn(Box<Stmt>, Expr, bool, Box<Stmt>),
     DoWhile(Box<Stmt>, Expr),
@@ -495,6 +496,7 @@ struct Frontend<'a> {
     next_function: usize,
     context: CompileContext,
     no_in: bool,
+    with_depth: usize,
 }
 
 impl<'a> Frontend<'a> {
@@ -581,6 +583,25 @@ impl<'a> Frontend<'a> {
         Ok(statement)
     }
     fn statement_inner(&mut self) -> Result<Stmt, Diagnostic> {
+        if self.is("with") {
+            let offset = self.token().offset;
+            if self.script.language != ScriptLanguage::ActionScript2 {
+                return Err(
+                    self.error("with is currently supported only in the AS2 source profile.")
+                );
+            }
+            self.expect("with")?;
+            self.expect("(")?;
+            let target = self.expression(0)?;
+            self.expect(")")?;
+            self.with_depth += 1;
+            let body = self.statement()?;
+            self.with_depth -= 1;
+            if !scope::with_body_supported(&body) {
+                return Err(self.error("Function definitions and eval/set calls inside with require captured/dynamic scope-chain semantics outside this profile. Define callbacks and resolve named paths outside the with block."));
+            }
+            return Ok(Stmt::With(target, Box::new(body), offset));
+        }
         if self.is("on") || self.is("onClipEvent") {
             if self.script.language != ScriptLanguage::ActionScript2
                 || self.function_depth != 0
@@ -1143,8 +1164,8 @@ impl<'a> Frontend<'a> {
                 Some(Kind::Ident(_))
             ) {
             let kind = self.ident()?;
-            if self.script.language != ScriptLanguage::ActionScript3 {
-                return Err(self.error("Project get/set accessors currently require AS3; AS2 accessor semantics remain unsupported."));
+            if signature_only && self.script.language == ScriptLanguage::ActionScript2 {
+                return Err(self.error("AS2 interface accessor signatures are outside this profile; declare get/set accessors in a concrete source class."));
             }
             Some(kind)
         } else {
@@ -1414,7 +1435,8 @@ impl<'a> Frontend<'a> {
                         descendant: false,
                         ..
                     }
-            ) {
+            ) && !(self.with_depth > 0 && matches!(operand, Expr::Name(_)))
+            {
                 return Err(self.error("delete requires a property or indexed element; deleting lexical bindings is unsupported."));
             }
             Expr::Delete(Box::new(operand), offset)
@@ -2110,6 +2132,7 @@ fn binding_power(operator: &str) -> Option<(u8, u8, bool)> {
 }
 
 struct Emitter<'a> {
+    with_targets: Vec<String>,
     as3: bool,
     analysis: &'a scope::Analysis<'a>,
     scope: usize,
@@ -2201,6 +2224,71 @@ impl Emitter<'_> {
             .is_some_and(|(_, b)| b.ty.is_some())
     }
     fn name(&self, name: &str) -> String {
+        if let Some(reference) = self.with_reference(name) {
+            return format!("({reference}).get()");
+        }
+        self.unscoped_name(name)
+    }
+    fn without_with(&self) -> Emitter<'_> {
+        Emitter {
+            as3: self.as3,
+            analysis: self.analysis,
+            scope: self.scope,
+            with_targets: Vec::new(),
+        }
+    }
+    fn with_reference(&self, name: &str) -> Option<String> {
+        if self.as3
+            || self.with_targets.is_empty()
+            || matches!(name, "this" | "super" | "eval" | "set")
+        {
+            return None;
+        }
+        let plain = self.without_with();
+        let expression = Expr::Name(name.to_owned());
+        let receiver = plain.bare_member_receiver(name).or_else(|| {
+            let raw = plain.unscoped_name(name);
+            if raw == format!("this.{name}") {
+                Some("this".into())
+            } else if raw == format!("__nfFrame.{name}") {
+                Some("__nfFrame".into())
+            } else {
+                None
+            }
+        });
+        let fallback = receiver
+            .as_ref()
+            .map(|owner| {
+                format!(
+                    "__nfContainerRef({owner},{name:?},false{})",
+                    self.caller_argument()
+                )
+            })
+            .or_else(|| plain.reference(&expression))
+            .unwrap_or_else(|| {
+                let value = plain.unscoped_name(name);
+                let write = if self.analysis.resolve(self.scope, name).is_some()
+                    || (!is_global(name) && !self.analysis.context.types.contains_key(name))
+                {
+                    format!("__nfAssigned=>({value}=__nfAssigned)")
+                } else {
+                    "()=>{throw new __nfTypeError('Cannot replace this built-in binding.');}".into()
+                };
+                format!("{{get:()=>{value},set:{write},delete:()=>false,has:()=>true}}")
+            });
+        let receiver = receiver.unwrap_or_else(|| "undefined".into());
+        Some(format!(
+            "__nfWithRef([{}],{name:?},()=>({fallback}),{receiver}{})",
+            self.with_targets
+                .iter()
+                .rev()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(","),
+            self.caller_argument()
+        ))
+    }
+    fn unscoped_name(&self, name: &str) -> String {
         if name == "arguments" {
             return "__nfArgumentsValue".into();
         }
@@ -2398,7 +2486,7 @@ impl Emitter<'_> {
         }
         // Unqualified dynamic/native members also need the sealed-object gate.
         // Locals, built-in globals and type names retain their existing binding.
-        let raw = self.name(name);
+        let raw = self.unscoped_name(name);
         if raw == format!("this.{name}") {
             Some("this".into())
         } else if raw == format!("__nfFrame.{name}") {
@@ -2453,6 +2541,7 @@ impl Emitter<'_> {
             as3: self.as3,
             analysis: self.analysis,
             scope: f.id,
+            with_targets: Vec::new(),
         };
         let mut prologue = String::new();
         if self.analysis.context.method_id == Some(f.id) {
@@ -2550,6 +2639,11 @@ impl Emitter<'_> {
         }
     }
     fn reference(&self, expr: &Expr) -> Option<String> {
+        if let Expr::Name(name) = expr
+            && let Some(reference) = self.with_reference(name)
+        {
+            return Some(reference);
+        }
         match expr {
             Expr::Name(name) => self.bare_member_receiver(name).map(|receiver| {
                 format!(
@@ -2677,6 +2771,7 @@ impl Emitter<'_> {
                 self.reference(target).expect("delete property")
             ),
             Expr::Literal(value) => value.clone(),
+            Expr::Name(name) if self.with_reference(name).is_some() => self.name(name),
             Expr::Name(name)
                 if !self.as3
                     && name == "scrollRect"
@@ -2895,7 +2990,8 @@ impl Emitter<'_> {
                                     | "onDragOver"
                                     | "onDragOut"
                                     | "onUnload"
-                            ) && self.analysis.resolve(self.scope, name).is_none() =>
+                            ) && self.with_targets.is_empty()
+                                && self.analysis.resolve(self.scope, name).is_none() =>
                         {
                             Some(("__nfFrame".into(), name))
                         }
@@ -3050,6 +3146,17 @@ impl Emitter<'_> {
                 self.expression(no)
             ),
             Expr::Call(callee, args, _) => {
+                if let Expr::Name(name) = callee.as_ref()
+                    && let Some(reference) = self.with_reference(name)
+                {
+                    return format!(
+                        "__nfWithMethod({reference})({})",
+                        args.iter()
+                            .map(|arg| self.expression(arg))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    );
+                }
                 if !self.as3
                     && let Expr::Name(name) = callee.as_ref()
                     && matches!(name.as_str(), "loadVariables" | "loadVariablesNum")
@@ -3386,6 +3493,13 @@ impl Emitter<'_> {
                             .as_ref()
                             .map(|v| self.coerce(name, self.expression(v)))
                             .unwrap_or_else(|| self.default_value(ty.as_deref()).into());
+                        if let Some(reference) = self.with_reference(name) {
+                            return if initialized {
+                                format!("({reference}).set({value})")
+                            } else {
+                                "undefined".into()
+                            };
+                        }
                         if initialized {
                             format!("{target} = {value}")
                         } else {
@@ -3395,6 +3509,22 @@ impl Emitter<'_> {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
+            Stmt::With(target, body, id) => {
+                let name = format!("__nfWith{id}");
+                let mut targets = self.with_targets.clone();
+                targets.push(name.clone());
+                let inner = Emitter {
+                    as3: self.as3,
+                    analysis: self.analysis,
+                    scope: self.scope,
+                    with_targets: targets,
+                };
+                format!(
+                    "{{const {name}=__nfWithTarget({});\n{}\n}}",
+                    self.expression(target),
+                    inner.statement(body)
+                )
+            }
             Stmt::Block(body) => format!("{{\n{}\n}}", self.statements(body)),
             Stmt::If(condition, yes, no) => {
                 let mut output = format!(
@@ -3512,6 +3642,7 @@ impl Emitter<'_> {
                             as3: self.as3,
                             analysis: self.analysis,
                             scope: catch.id,
+                            with_targets: self.with_targets.clone(),
                         };
                         let condition = catch.ty.as_deref().filter(|t| *t != "*").map_or_else(
                             || "true".into(),
@@ -3663,6 +3794,7 @@ fn compile_context(script: &Script, context: CompileContext) -> Result<String, D
         next_function: 1,
         context: context.clone(),
         no_in: false,
+        with_depth: 0,
     };
     let statements = parser.statements(false)?;
     let analysis = scope::Analysis::with_context(script, &statements, context)?;
@@ -3670,6 +3802,7 @@ fn compile_context(script: &Script, context: CompileContext) -> Result<String, D
         as3: script.language == ScriptLanguage::ActionScript3,
         analysis: &analysis,
         scope: 0,
+        with_targets: Vec::new(),
     }
     .body(&statements);
     let output = format!(
