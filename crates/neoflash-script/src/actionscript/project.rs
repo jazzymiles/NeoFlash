@@ -397,6 +397,7 @@ pub(super) fn is_host_method(name: &str) -> bool {
 
 /// `code` is a function body taking __nfBuiltins and returning the program API.
 pub struct ProjectProgram {
+    includes: BTreeMap<String, neoflash_core::ResourceUnit>,
     pub code: String,
     pub class_names: Vec<String>,
     names: BTreeSet<String>,
@@ -2032,6 +2033,12 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         "const __nfNumber=Number,__nfString=String,__nfBoolean=Boolean,__nfTypeError=TypeError;\nconst __nfAs2Method=__nfBuiltins.__nfAs2Method,__nfAs2Value=__nfBuiltins.__nfAs2Value,__nfDisplay=__nfBuiltins.__nfDisplay,__nfLegacy=__nfBuiltins.__nfLegacy,__nfXML=__nfBuiltins.__nfXML;\nconst __nfTrace=(...args)=>{{if(typeof __nfBuiltins.__nfTrace !== 'function')throw new Error('Project trace host binding is missing');return __nfBuiltins.__nfTrace(...args);}};\n{code}"
     );
     Ok(ProjectProgram {
+        includes: project
+            .resources
+            .iter()
+            .filter(|r| r.path.ends_with(".as"))
+            .map(|r| (r.path.clone(), r.clone()))
+            .collect(),
         code,
         class_names: order
             .into_iter()
@@ -2049,6 +2056,15 @@ pub fn compile_with_program(
     script: &Script,
     program: &ProjectProgram,
 ) -> Result<String, Vec<Diagnostic>> {
+    if script.language == ScriptLanguage::ActionScript2 && script.source.contains("#include") {
+        let expanded = super::includes::expand(script, &program.includes).map_err(|e| vec![e])?;
+        compile_prepared(&expanded.script, program)
+            .map_err(|errors| errors.into_iter().map(|e| expanded.diagnostic(e)).collect())
+    } else {
+        compile_prepared(script, program)
+    }
+}
+fn compile_prepared(script: &Script, program: &ProjectProgram) -> Result<String, Vec<Diagnostic>> {
     if !matches!(
         script.language,
         ScriptLanguage::ActionScript3 | ScriptLanguage::ActionScript2

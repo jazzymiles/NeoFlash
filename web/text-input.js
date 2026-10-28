@@ -130,7 +130,8 @@
       if(!record.control)return;
       const node=scene.objects.find(node=>refKey(node.object_ref)===record.key),draw=scene.draws.find(draw=>refKey(draw.owner_ref)===record.key&&draw.kind.type==='text_field');
       if(!node)return;
-      const field=draw?.kind.field||record.field,box=field.box||text.bounds(field),width=options.project?.width||options.canvas?.width||800,height=options.project?.height||options.canvas?.height||600;
+      const dimensions=options.getSize?.();
+      const field=draw?.kind.field||record.field,box=field.box||text.bounds(field),width=dimensions?.[0]||options.project?.width||options.canvas?.width||800,height=dimensions?.[1]||options.project?.height||options.canvas?.height||600;
       if(!box)throw new TypeError('Native text editing requires a nonempty text box. Set width and height.');
       const w=box.width??box.right-box.left,h=box.height??box.bottom-box.top;
       const rect=options.canvas?.getBoundingClientRect?.(),sx=rect?rect.width/width:1,sy=rect?rect.height/height:1;
@@ -186,7 +187,7 @@
     }
     function canFocus(value){if(value===null||value===stage.stage)return true;const node=display.descriptor(value);return node.owner!=='text'||(node.on_stage&&node.effective_visible&&node.world[0]*node.world[3]-node.world[1]*node.world[2]!==0&&selectable(text.info(referenceOf(value).key)));}
     function focused(){const value=stage.stage.focus;return value&&display.alive(value)&&display.descriptor(value).owner==='text'?value:null;}
-    function focusPath(){let value=stage.stage.focus;if(!value)return null;const names=[];while(value&&value!==stage.stage){const node=display.descriptor(value);if(node.name)names.unshift(node.name);value=display.parentSpace(value);}return '_level0'+(names.length?'.'+names.join('.'):'');}
+    function focusPath(){const value=stage.stage.focus;if(!value)return null;if(value===stage.stage)return '_level0';return display.targetPath(value);}
     const Selection=Object.freeze({
       setFocus:value=>{open();if(typeof value==='string')throw new TypeError('Selection.setFocus currently requires a live display object or null; path strings are pending.');if(value!==null&&!display.alive(value))return false;stage.changeFocus(value);return stage.stage.focus===value;},
       getFocus:()=>{open();return focusPath();},

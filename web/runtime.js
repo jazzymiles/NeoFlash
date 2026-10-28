@@ -278,12 +278,13 @@
     const graphMode=typeof player.runtime_snapshot_json==='function';
     const references = new WeakMap();
     const attachedClasses = new Map();
-    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, externalHost = null, program = null, as2PlatformHost = null, as2ObjectHost = null, as2TextHost = null, as2DataHost = null, as2BindingHost = null, as2NetworkHost = null, as2FilesHost = null, as2LocaleHost = null, as2MediaHost = null, as2ServicesHost = null, as2TransitionsHost = null, as2DepthManagerHost = null;
+    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, externalHost = null, program = null, as2PlatformHost = null, as2ObjectHost = null, as2TextHost = null, as2DataHost = null, as2BindingHost = null, as2NetworkHost = null, as2FilesHost = null, as2LocaleHost = null, as2MediaHost = null, as2ServicesHost = null, as2TransitionsHost = null, as2DepthManagerHost = null, as2StageHost = null, as2CaptureHost = null, as2ConnectionsHost = null, as2BoxingHost = null, as2PrintHost = null;
     let geometryHost = null, geometry3dHost = null, easingHost = null, broadcasterHost = null;
     let eventFamilies = {};
     let timerRenderGeneration=0, capturePainter=null,inputPaths=null;
     let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
+    function logicalSize(){return [typeof preview==='undefined'?typeof project==='undefined'?800:project.width:preview.view.logicalWidth||project.width,typeof preview==='undefined'?typeof project==='undefined'?600:project.height:preview.view.logicalHeight||project.height];}
     function updateCursor() {
       if(typeof canvas!=='undefined')canvas.style.cursor=!legacyCursorVisible?'none':typeof preview!=='undefined'&&preview.panMode?'grab':pointerOverContent?'pointer':'default';
     }
@@ -306,7 +307,7 @@
     }
     function netFailure(error) {
       const cause=unwrapScriptThrow(error),failure=new Error(`Resource callback: ${describeThrown(cause)}`,{cause});
-      if(typeof fail==='function')fail(failure);else {externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();throw failure;}
+      if(typeof fail==='function')fail(failure);else {externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();throw failure;}
     }
     function audioFailure(error){
       const cause=unwrapScriptThrow(error),failure=new Error(`Audio callback: ${describeThrown(cause)}`,{cause});
@@ -381,8 +382,8 @@
           parentOf:target=>display.parentSpace(target),resolveInput:target=>display.resolveInput(target),beforePointer:()=>display.updateDrag(),hasDrag:()=>display.hasDrag(),cancelPointer:()=>display.cancelPointer(),
           onPointerTarget:target=>{pointerOverContent=display.handCursor(target);updateCursor();},
           onFocusChanged:(next,previous)=>textInputHost?.focusChanged(next,previous),ownsTextInput:node=>textInputHost?.owns(node),canFocus:value=>{if(textInputHost&&!textInputHost.canFocus(value))return false;assertUnfilteredEditing(value);return true;},
-          hitTest:event=>{if(typeof canvas==='undefined')return null;const rect=canvas.getBoundingClientRect(),x=(event.clientX-rect.left)*project.width/rect.width,y=(event.clientY-rect.top)*project.height/rect.height;return x>=0&&y>=0&&x<=project.width&&y<=project.height?display.pick(x,y):null;},
-          coordinates:event=>{if(typeof canvas==='undefined')return null;const r=canvas.getBoundingClientRect();return[(event.clientX-r.left)*project.width/r.width,(event.clientY-r.top)*project.height/r.height];},
+          hitTest:event=>{if(typeof canvas==='undefined')return null;const rect=canvas.getBoundingClientRect(),[width,height]=logicalSize(),x=(event.clientX-rect.left)*width/rect.width,y=(event.clientY-rect.top)*height/rect.height;return x>=0&&y>=0&&x<=width&&y<=height?display.pick(x,y):null;},
+          coordinates:event=>{if(typeof canvas==='undefined')return null;const r=canvas.getBoundingClientRect(),[width,height]=logicalSize();return[(event.clientX-r.left)*width/r.width,(event.clientY-r.top)*height/r.height];},
           isInputEnabled:()=>typeof failed==='undefined'||(!failed&&!preview.panMode&&!preview.suppressClick),
           onLegacyInput:(type,target,event)=>display.pointer(type,target,event),
           afterInput:()=>{dispatchScripts();if(typeof context!=='undefined')render();},onError:inputFailure});
@@ -391,7 +392,8 @@
             keyTarget:typeof global.addEventListener==='function'?global:null,
             alive:listener=>!references.has(listener)||display.alive(listener),
             onVisibility:visible=>{legacyCursorVisible=visible;updateCursor();},onError:inputFailure});
-          legacyGlobals=Object.freeze({Key:legacyHost.Key,Mouse:legacyHost.Mouse,Stage:legacyHost.Stage});
+          if(global.NeoFlashAS2Stage)as2StageHost=global.NeoFlashAS2Stage.create({wasm,legacy:legacyHost,geometry:geometryHost,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,preview:typeof preview==='undefined'?null:preview,viewport:typeof viewport==='undefined'?null:viewport,canvas:typeof canvas==='undefined'?null:canvas,display,getRoot:()=>proxyFor([]),contextTarget:event=>hitAt(event,true)?.target||proxyFor([]),onError:inputFailure,afterEvent:afterTimerEvent});
+          legacyGlobals=Object.freeze({Key:legacyHost.Key,Mouse:legacyHost.Mouse,Stage:as2StageHost?.Stage||legacyHost.Stage,...(as2StageHost?{ContextMenu:as2StageHost.ContextMenu,ContextMenuItem:as2StageHost.ContextMenuItem}:{})});
         }
       }
       legacyGlobals=Object.freeze({...legacyGlobals,_global:Object.create(null),newline:"\n"});
@@ -412,7 +414,7 @@
         getProperty:(target,index)=>{const {receiver,name}=legacyProperty(target,index);return receiver[name];},
         setProperty:(target,index,value)=>{const {receiver,name}=legacyProperty(target,index);receiver[name]=value;}});
       if(global.NeoFlashTextInput&&textHost&&stageHost&&typeof player.object_text_input==='function'){
-        textInputHost=global.NeoFlashTextInput.create({player,text:textHost,display,events:global.NeoFlashEvents,hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,onLegacyTab:event=>display.as2Tab?.(event)||false,beforeLegacyTextEvent:(target,name)=>{if(name==='onChanged')as2ObjectHost?.textChanged(target);},onLegacyTextEvent:(target,name,args)=>as2TextHost?.textEvent(references.get(target).key,name,args),
+        textInputHost=global.NeoFlashTextInput.create({getSize:logicalSize,player,text:textHost,display,events:global.NeoFlashEvents,hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,onLegacyTab:event=>display.as2Tab?.(event)||false,beforeLegacyTextEvent:(target,name)=>{if(name==='onChanged')as2ObjectHost?.textChanged(target);},onLegacyTextEvent:(target,name,args)=>as2TextHost?.textEvent(references.get(target).key,name,args),
           canvas:typeof canvas==='undefined'?null:canvas,surface:typeof document==='undefined'?null:document.getElementById('stage-surface'),document:typeof document==='undefined'?null:document,project:typeof project==='undefined'?null:project,
           onError:inputFailure,afterInput:afterTimerEvent,onClick:(target,event)=>{target=display.resolveInput(target);if(!target)return;stageHost.handlePointer('click',event,target);if(display.alive(target)){player.object_click(references.get(target).key);dispatchScripts(target);if(typeof context!=='undefined')render();}}});
         legacyGlobals=Object.freeze({...legacyGlobals,Selection:Object.freeze({...textInputHost.Selection,setFocus:value=>{const target=typeof value==='string'?(value?display.resolveTarget(value,proxyFor([])):null):value;if(!display.as2CanFocus?.(target))return false;return textInputHost.Selection.setFocus(target);}})});
@@ -444,7 +446,7 @@
         legacyGlobals=Object.freeze({...legacyGlobals,loadVariables:function(url,target,method){return as2NetworkHost.load(this,url,target,method);},loadVariablesNum:function(url,level,method){if(level!==0)throw new RangeError('HTML5 loadVariablesNum supports level 0 only; additional SWF levels are unavailable.');return as2NetworkHost.load(this,url,proxyFor([]),method);}});
       }
       if(global.NeoFlashAS2Files&&netHost&&binaryHost&&broadcasterHost)as2FilesHost=global.NeoFlashAS2Files.create({wasm,net:netHost,binary:binaryHost,AsBroadcaster:broadcasterHost.AsBroadcaster,afterEvent:afterTimerEvent,onError:netFailure});
-      if(global.NeoFlashAS2Locale&&netHost)as2LocaleHost=global.NeoFlashAS2Locale.create(wasm,{URLLoader:netHost.URLLoader,URLRequest:netHost.URLRequest,language:()=>as2PlatformHost.System.capabilities.language});
+      if(global.NeoFlashAS2Locale&&netHost)as2LocaleHost=global.NeoFlashAS2Locale.create(wasm,{URLLoader:netHost.URLLoader,URLRequest:netHost.URLRequest,language:()=>as2PlatformHost.System.capabilities.language,afterEvent:afterTimerEvent,fields:{isText:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='text'&&!as2TextHost.as2Ref(references.get(value).key,'html').get(),alive:value=>display.alive(value),write:(value,next)=>{if(as2TextHost.as2Ref(references.get(value).key,'html').get())throw new Error('Locale automatic replacement currently requires plain text.');textHost.update(references.get(value).key,{text:next});as2ObjectHost?.textChanged(value);}}});
       if(global.NeoFlashLoader&&netHost&&binaryHost&&global.NeoFlashEvents){
         loaderHost=global.NeoFlashLoader.create({player,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,legacyVariables:legacyNavigationVariables,display,proxyForRef,referenceOf:target=>references.get(target),onMutation:deliverDisplayEvents,onError:netFailure,afterEvent:afterTimerEvent});
         legacyGlobals=Object.freeze({...legacyGlobals,MovieClipLoader:loaderHost.MovieClipLoader});
@@ -453,8 +455,14 @@
         audioHost=global.NeoFlashAudio.create({player,wasm,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,onError:audioFailure,afterEvent:afterTimerEvent,onState:updateAudioStatus});
         legacyGlobals=Object.freeze({...legacyGlobals,Sound:audioHost.LegacySound,stopAllSounds:audioHost.stopAllLegacySounds});
       }
+      if(global.NeoFlashAS2Connections&&netHost&&amfHost&&binaryHost){as2ConnectionsHost=global.NeoFlashAS2Connections.create({wasm,amf:amfHost,net:netHost,binary:binaryHost,onError:netFailure,afterEvent:afterTimerEvent});legacyGlobals=Object.freeze({...legacyGlobals,LocalConnection:as2ConnectionsHost.LocalConnection});}
+      if(global.NeoFlashAS2Print&&bitmapHost){as2PrintHost=global.NeoFlashAS2Print.create(wasm,{
+        resolveTarget:value=>{const target=value===0?proxyFor([]):typeof value==='string'?display.resolveTarget(value,proxyFor([])):value;if(!references.has(target)||!display.alive(target)||display.descriptor(target).owner!=='movie_clip')throw new TypeError('PrintJob requires level 0 or a live MovieClip.');return target;},
+        bounds:target=>{if(target===proxyFor([])){const [width,height]=logicalSize();return {xMin:0,yMin:0,xMax:width,yMax:height};}const b=target.getBounds(target);return {xMin:b.x,yMin:b.y,xMax:b.x+b.width,yMax:b.y+b.height};},
+        capture:(target,plan)=>{const bitmap=new bitmapHost.BitmapData(plan.width,plan.height,false,0xffffff);try{bitmap.draw(target,new geometryHost.Matrix(1,0,0,1,-plan.x,-plan.y));return player.bitmap_encode_png(JSON.stringify(bitmapHost.refOf(bitmap)),0,0,plan.width,plan.height,false);}finally{bitmap.dispose();}},onError:netFailure});legacyGlobals=Object.freeze({...legacyGlobals,PrintJob:as2PrintHost.PrintJob});}
+      if(global.NeoFlashAS2Capture){as2CaptureHost=global.NeoFlashAS2Capture.create(wasm,{referenceOf:target=>references.get(target),display,getAudio:()=>audioHost,afterEvent:afterTimerEvent,onError:netFailure});legacyGlobals=Object.freeze({...legacyGlobals,Camera:as2CaptureHost.Camera,Microphone:as2CaptureHost.Microphone});}
       if(global.NeoFlashVideo&&netHost&&global.NeoFlashEvents&&typeof player.object_video_info==='function'){
-        videoHost=global.NeoFlashVideo.create({player,wasm,events:global.NeoFlashEvents,net:netHost,getSoundTransform:()=>audioHost?.SoundTransform,referenceOf:target=>references.get(target),proxyForRef,onError:netFailure,afterEvent:afterTimerEvent,onFrame:()=>{if(typeof context!=='undefined')render();},onState:updateAudioStatus});
+        videoHost=global.NeoFlashVideo.create({getCapture:()=>as2CaptureHost,getRemoting:()=>as2ConnectionsHost?.remoting,player,wasm,events:global.NeoFlashEvents,net:netHost,getSoundTransform:()=>audioHost?.SoundTransform,referenceOf:target=>references.get(target),proxyForRef,onError:netFailure,afterEvent:afterTimerEvent,onFrame:()=>{if(typeof context!=='undefined')render();},onState:updateAudioStatus});
         legacyGlobals=Object.freeze({...legacyGlobals,NetConnection:videoHost.LegacyNetConnection,NetStream:videoHost.LegacyNetStream});
       }
       if(global.NeoFlashAS2DepthManager&&typeof player.as2_depth_manager==='function')as2DepthManagerHost=global.NeoFlashAS2DepthManager.create({player,referenceOf:target=>references.get(target),display,getRoot:()=>proxyFor([]),afterEvent:afterTimerEvent});
@@ -469,8 +477,12 @@
         const LegacyTextField=function(){throw new TypeError('Create an AS2 TextField with MovieClip.createTextField.');};
         LegacyTextField.StyleSheet=as2TextHost.StyleSheet;
         legacyGlobals=Object.freeze({...legacyGlobals,TextField:LegacyTextField,nativeRef:(receiver,name)=>{
+          const menu=as2StageHost?.menuRef(receiver,name);if(menu)return menu;
+          const geometry=geometryHost.as2Ref?.(receiver,name);if(geometry)return geometry;
           const ref=references.get(receiver);if(!ref)return null;const input=display.as2Ref?.(receiver,name);if(input)return input;
           if(as2DepthManagerHost?.methodNames.includes(name)&&display.descriptor(receiver).owner==='movie_clip')return {has:()=>true,delete:()=>false,get:()=>as2DepthManagerHost.methods(receiver)[name],set:()=>{throw new TypeError('DepthManager MovieClip methods are read-only.');}};
+          if(name==='attachAudio'&&as2CaptureHost&&display.descriptor(receiver).owner==='movie_clip')return {get:()=>value=>as2CaptureHost.attachAudio(receiver,value),has:()=>true,delete:()=>false,set:()=>{throw new TypeError('MovieClip.attachAudio is read-only.');}};
+          if(name==='attachVideo'&&videoHost&&display.descriptor(receiver).owner==='video')return {get:()=>value=>videoHost.legacyAttachVideo(receiver,value),has:()=>true,delete:()=>false,set:()=>{throw new TypeError('Video.attachVideo is read-only.');}};
           if(name==='loadVariables'&&as2NetworkHost&&display.descriptor(receiver).owner==='movie_clip')return {get:()=>((url,method)=>as2NetworkHost.load(receiver,url,receiver,method)),has:()=>true,delete:()=>false,set:()=>{throw new TypeError('MovieClip.loadVariables is read-only.');}};if(display.descriptor(receiver).owner!=='text')return null;
           if(name==='variable')return as2ObjectHost?.variableRef(receiver)||null;
           const property=as2TextHost.as2Ref(ref.key,name);
@@ -487,6 +499,7 @@
         const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
         legacyGlobals=Object.freeze({...legacyGlobals,strings:global.NeoFlashAS2Strings.create({execute:request=>wasm.as2_string_json(request)})});
       }
+      if(global.NeoFlashAS2Boxing&&legacyGlobals.strings){as2BoxingHost=global.NeoFlashAS2Boxing.create({execute:request=>wasm.as2_box_json(request),strings:legacyGlobals.strings});legacyGlobals=Object.freeze({...legacyGlobals,boxing:as2BoxingHost});}
       if(global.NeoFlashAS3Strings)legacyGlobals=Object.freeze({...legacyGlobals,strings3:global.NeoFlashAS3Strings.create({execute:request=>wasm.as3_string_json(request)})});
       if(global.NeoFlashMath)legacyGlobals=Object.freeze({...legacyGlobals,math:global.NeoFlashMath.create(wasm)});
       if(global.NeoFlashDate)legacyGlobals=Object.freeze({...legacyGlobals,date:global.NeoFlashDate.create(wasm)});
@@ -497,6 +510,10 @@
       if(!display)return;
       const builtins={...display.builtins};
       builtins.__nfTrace=trace;
+      if(as2StageHost){builtins.ContextMenu=as2StageHost.ContextMenu;builtins.ContextMenuItem=as2StageHost.ContextMenuItem;}
+      if(as2PrintHost)builtins.PrintJob=as2PrintHost.PrintJob;
+      if(as2CaptureHost){builtins.Camera=as2CaptureHost.Camera;builtins.Microphone=as2CaptureHost.Microphone;}
+      if(as2ConnectionsHost)builtins.LocalConnection=as2ConnectionsHost.LocalConnection;
       if(as2DataHost)Object.assign(builtins,as2DataHost.builtins);
       if(as2DepthManagerHost)builtins['mx.managers.DepthManager']=as2DepthManagerHost.DepthManager;
       if(as2TransitionsHost)Object.assign(builtins,as2TransitionsHost.builtins);
@@ -560,8 +577,8 @@
       pointerOverContent=false;legacyCursorVisible=true;updateCursor();
       capturePainter?.clear();capturePainter=null;
       filterHost?.renderer.clear();
-      as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();
-      externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
+      as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();
+      externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
       proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';
       player.reset();
       initializeProgram();
@@ -571,8 +588,8 @@
       pointerOverContent=false;legacyCursorVisible=true;updateCursor();
       capturePainter?.clear();capturePainter=null;
       filterHost?.renderer.clear();
-      as2DepthManagerHost?.dispose();as2TransitionsHost?.dispose();as2MediaHost?.dispose();as2ServicesHost?.dispose();as2FilesHost?.dispose();as2NetworkHost?.dispose();as2LocaleHost?.dispose();as2TextHost?.dispose();as2BindingHost?.dispose();as2DataHost?.dispose();as2ObjectHost?.dispose();
-      externalHost?.dispose();textInputHost?.dispose();storageHost?.dispose();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
+      as2PrintHost?.dispose();as2BoxingHost?.dispose();as2StageHost?.dispose();as2ConnectionsHost?.dispose();as2DepthManagerHost?.dispose();as2TransitionsHost?.dispose();as2MediaHost?.dispose();as2ServicesHost?.dispose();as2FilesHost?.dispose();as2NetworkHost?.dispose();as2LocaleHost?.dispose();as2TextHost?.dispose();as2BindingHost?.dispose();as2DataHost?.dispose();as2ObjectHost?.dispose();
+      externalHost?.dispose();textInputHost?.dispose();storageHost?.dispose();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();as2CaptureHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
       as2PlatformHost?.dispose();legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
     function prepareLinked(receiver,allocatedByProgram) {
@@ -846,7 +863,7 @@
     function font(kind) { return `${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`; }
     function bitmapMatrix(item){
       if(item.kind.type!=='bitmap_pixels')return item.transform;
-      const sx=canvas.width/project.width,sy=canvas.height/project.height,[a,b,c,d,e,f]=item.transform;
+      const [width,height]=logicalSize(),sx=canvas.width/width,sy=canvas.height/height,[a,b,c,d,e,f]=item.transform;
       const m=bitmapHost.cache.transform([a*sx,b*sy,c*sx,d*sy,e*sx,f*sy],item.kind.pixel_snapping);
       return [m[0]/sx,m[1]/sy,m[2]/sx,m[3]/sy,m[4]/sx,m[5]/sy];
     }
@@ -856,15 +873,17 @@
       scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
       assertUnfilteredEditing(stageHost?.stage.focus);
       if(snapshot)textInputHost?.update(snapshot);
-      context.setTransform(canvas.width / project.width, 0, 0, canvas.height / project.height, 0, 0);
-      context.clearRect(0, 0, project.width, project.height);
+      const [width,height]=logicalSize();
+      context.setTransform(canvas.width / width, 0, 0, canvas.height / height, 0, 0);
+      context.clearRect(0, 0, width, height);
       context.fillStyle = color(project.background);
-      context.fillRect(0, 0, project.width, project.height);
+      context.fillRect(0, 0, width, height);
       bitmapHost?.cache.beginFrame();
       const painter=createScenePainter({global,paths,gradients,clippings,bitmapHost,textHost,filterHost,videoHost,context,matrix:bitmapMatrix,hidden:ref=>Boolean(textInputHost?.hidden(ref))});
-      const {clippedBounds,objects}=painter.draw(context,snapshot||{draws:scene,objects:[],semantics:[],clips:[],filter_groups:[]},{width:project.width,height:project.height});
+      const {clippedBounds,objects}=painter.draw(context,snapshot||{draws:scene,objects:[],semantics:[],clips:[],filter_groups:[]},{width,height});
+      const focusBounds=display?.as2FocusBounds?.();if(focusBounds){context.save();context.strokeStyle='#ffcc00';context.lineWidth=2;context.strokeRect(focusBounds.x,focusBounds.y,focusBounds.width,focusBounds.height);context.restore();}
       const semanticScene=snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,...(clippedBounds.has(item)?{clipped_bounds:clippedBounds.get(item)}:{}),transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};}):scene;
-      const targetCount = semanticLayer.update(snapshot?snapshot.semantics.filter(node=>Boolean(semanticRoute(node,snapshot.objects))):JSON.parse(player.accessibility_json()), semanticScene, project, preview.view.scale, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
+      const targetCount = semanticLayer.update(snapshot?snapshot.semantics.filter(node=>Boolean(semanticRoute(node,snapshot.objects))):JSON.parse(player.accessibility_json()), semanticScene, {...project,width,height}, {x:preview.view.scale,y:preview.view.scaleY||preview.view.scale}, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
       bitmapHost?.cache.endFrame();
       if (targetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
       status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${runtimeFrameRate} fps`;
@@ -877,9 +896,10 @@
       scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
       const clips=snapshot?.clips?.length?global.NeoFlashPaths.clipTable(snapshot.clips):new Map();
       const rect = canvas.getBoundingClientRect();
-      const x = (event.clientX - rect.left) * project.width / rect.width;
-      const y = (event.clientY - rect.top) * project.height / rect.height;
-      if(typeof display!=='undefined'&&display?.pickDetails){const result=x>=0&&y>=0&&x<=project.width&&y<=project.height?display.pickDetails(x,y):null;return details?result:result?references.get(result.target).objectRef:null;}
+      const [width,height]=logicalSize();
+      const x = (event.clientX - rect.left) * width / rect.width;
+      const y = (event.clientY - rect.top) * height / rect.height;
+      if(typeof display!=='undefined'&&display?.pickDetails){const result=x>=0&&y>=0&&x<=width&&y<=height?display.pickDetails(x,y):null;return details?result:result?references.get(result.target).objectRef:null;}
       for (let index = scene.length - 1; index >= 0; index--) {
         const item = scene[index];
         if (item.alpha <= 0) continue;
@@ -938,7 +958,7 @@
     panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
     global.addEventListener('pagehide', event => { storageHost?.flushAll();if(!event.persisted){gradients.clear();clippings.clear();disposeFamily();} });
     new ResizeObserver(() => { resize(); render(); }).observe(viewport);
-    stopAsyncOnFailure=()=>{as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();gradients.clear();clippings.clear();filterHost?.renderer.clear();externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
+    stopAsyncOnFailure=()=>{as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();gradients.clear();clippings.clear();filterHost?.renderer.clear();externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
     initializeFamily();
     canvas.tabIndex=-1;
     stageHost?.attach();

@@ -34,3 +34,23 @@ impl ScriptAS2Platform {
         self.inner.reset();
     }
 }
+
+/// PrintJob policy uses the same AS2 platform module and actual exported PNGs.
+#[wasm_bindgen]
+pub struct ScriptAS2Print {
+    inner: neoflash_core::as2_platform::ScriptAS2Print,
+}
+#[wasm_bindgen]
+impl ScriptAS2Print {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self {
+            inner: neoflash_core::as2_platform::ScriptAS2Print::new(),
+        }
+    }
+    pub fn execute(&mut self, request: &str) -> Result<String, JsValue> {
+        self.inner
+            .execute(request)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+}

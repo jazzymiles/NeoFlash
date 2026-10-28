@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-28 — AS2 runtime, browser services and language batch
+
+- Add partial Stage/content-menu, Camera/Microphone, LocalConnection/AMF0 HTTP, bitmap PrintJob, primitive-box, project-include and automatic Locale profiles; extend progressive NetStream buffering/completion.
+- Separate 102 new declarations (78 method/property paths), seven changes to existing behavior and 61 stale audit corrections. The bounded audit covers 170 unique AS2 IDs: partial entries rise 1,355 → 1,518 and missing entries fall 900 → 737. AS3, native editor UI, FLA and legacy components remain outside this batch.
+- Keep 90 execution fixtures and 24 project workflows at their existing counts; add four grouped native tests and extend existing families. Compiler/WASM, synthetic capture, shared native checks and the unchanged 90/24 suites passed; five ordinary HTML5 families have bounded browser evidence. Hardware capture and visual print preview remain unverified. Observations and publication are tracked in [the sprint report](docs/AS2-RUNTIME-TWO-HOUR.md).
+- Record the interrupted session and recovery separately from productive implementation time. This batch does not restart wider project work.
+
 ## 2026-10-28 — Second AS2 two-hour subsystem batch
 
 - Add 149 catalogue method/property paths (52 methods, 97 properties) across progressive video, SOAP/XML services, display/text, transitions, relative depth and TextField.variable; add bounded AS2 concrete class accessors and with scopes.

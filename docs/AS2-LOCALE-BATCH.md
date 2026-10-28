@@ -16,7 +16,7 @@ The parser reuses the shared Rust AS2 XML kernel. It accepts the conventional XL
 
 The model supports at most 128 languages, 10,000 distinct string IDs and 4 MiB of translation table data; XML retains the shared 1 MiB source bound. This is a Flash XLIFF 1.x plain-text subset, not a complete XLIFF processor.
 
-`autoReplace=true` and `addDelayedInstance` remain explicit unsupported operations. Neither entry is promoted. A false `autoReplace` value describes this manual profile; it does not claim automatic display text binding.
+This original batch covered manual replacement only. The subsequent [project includes and Locale batch](AS2-INCLUDES-LOCALE-BATCH.md) adds partial `autoReplace=true` and `addDelayedInstance` support for live plain TextFields after successful XLIFF loads; richer text and editor Strings-panel integration remain unsupported.
 
 ## Provenance and validation
 

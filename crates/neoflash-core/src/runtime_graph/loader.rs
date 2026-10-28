@@ -17,6 +17,22 @@ impl RuntimeGraph {
     pub(super) fn loaded_as2(&self, reference: &ObjectRef) -> bool {
         self.loaders.get(reference).is_some_and(|state| state.as2)
     }
+    pub(super) fn loaded_as2_smoothing(&self, reference: &ObjectRef) -> bool {
+        let Some(parent) = self
+            .dynamic
+            .get(reference)
+            .and_then(|node| node.parent.as_ref())
+        else {
+            return false;
+        };
+        self.loaders
+            .get(parent)
+            .is_some_and(|state| state.as2 && state.content.as_ref() == Some(reference))
+            && self
+                .as2_input_states
+                .get(parent)
+                .is_some_and(|state| state.force_smoothing == Some(true))
+    }
     pub(super) fn validate_loader_mutation(
         &self,
         mutation: &DisplayMutation,

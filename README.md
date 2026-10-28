@@ -4,9 +4,9 @@ Open-source authoring environment inspired by classic Macromedia/Adobe Flash, bu
 
 **Status: development preview, 0.1.0. This is a working foundation, not a complete Flash replacement.** Full AS2/AS3 compatibility, general FLA/SWF import, a complete vector toolset and DOM-based web layouts remain substantial work. See the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
 
-The wider project remains paused. The completed [second AS2 two-hour batch](docs/AS2-TWO-HOUR-2.md) adds **149 new catalogue method/property paths** within **258 new declarations**, plus nine extensions and 43 corrections of existing coverage counted separately. Seven ordinary HTML5 families cover progressive video, SOAP/XML services, display/text, transitions, relative depth, class accessors/with and text-variable binding. AS2 partial entries rise **1,054 → 1,355**, with 900 still missing; full compatibility remains unfinished. AS3 feature work, native editor UI and FLA remain paused.
+The wider project remains paused. The completed [AS2 runtime two-hour batch](docs/AS2-RUNTIME-TWO-HOUR.md) adds **78 new catalogue method/property paths** within **102 new declarations**, plus seven extensions/corrections and 61 corrections of existing coverage counted separately. Five ordinary HTML5 families cover Stage/content menus, local capture, progressive NetStream, LocalConnection/AMF remoting, primitive boxes, project includes and Locale replacement. AS2 partial entries rise **1,355 → 1,518**, with 737 still missing; full compatibility remains unfinished. Real capture hardware and visual system print-preview acceptance remain unverified. AS3 feature work, native editor UI and FLA remain paused.
 
-Earlier completed deliveries: [first AS2 two-hour batch](docs/AS2-TWO-HOUR.md), [AS2 runtime hour](docs/AS2-RUNTIME-HOUR.md), [runtime hour 2](docs/AS-RUNTIME-HOUR-2.md), [runtime hour 1](docs/AS-RUNTIME-HOUR.md), [Rust reuse experiment](docs/AS-REUSE-EXPERIMENT.md).
+Earlier completed deliveries: [second AS2 two-hour batch](docs/AS2-TWO-HOUR-2.md), [first AS2 two-hour batch](docs/AS2-TWO-HOUR.md), [AS2 runtime hour](docs/AS2-RUNTIME-HOUR.md), [runtime hour 2](docs/AS-RUNTIME-HOUR-2.md), [runtime hour 1](docs/AS-RUNTIME-HOUR.md), [Rust reuse experiment](docs/AS-REUSE-EXPERIMENT.md).
 
 <!-- progress:start -->
 ## Where we are
@@ -17,7 +17,7 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 1,355 | 900 | 37 |
+| AS2 | 2,307 | 15 | 1,518 | 737 | 37 |
 | AS3 | 43,740 | 15 | 1,254 | 42,308 | 163 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).

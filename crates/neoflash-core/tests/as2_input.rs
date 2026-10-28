@@ -12,6 +12,48 @@ fn as2_focus_flags_and_custom_tab_order_respect_graph_ancestry() {
     let b = player.create_display(DynamicKind::MovieClip).unwrap();
     player.as2_place_depth(&project, &root, &a, 1).unwrap();
     player.as2_place_depth(&project, &root, &b, 2).unwrap();
+    for target in [&a, &b] {
+        command(
+            &mut player,
+            &project,
+            target,
+            json!({"op":"set","name":"trackAsMenu","value":true}),
+        );
+    }
+    assert_eq!(
+        command(
+            &mut player,
+            &project,
+            &a,
+            json!({"op":"menu_transfer","target":b})
+        ),
+        true
+    );
+    command(
+        &mut player,
+        &project,
+        &b,
+        json!({"op":"set","name":"trackAsMenu","value":false}),
+    );
+    assert_eq!(
+        command(
+            &mut player,
+            &project,
+            &a,
+            json!({"op":"menu_transfer","target":b})
+        ),
+        false
+    );
+    command(
+        &mut player,
+        &project,
+        &a,
+        json!({"op":"set","name":"_focusrect","value":true}),
+    );
+    assert_eq!(
+        command(&mut player, &project, &a, json!({"op":"get"}))["focus_rect"],
+        true
+    );
     assert_eq!(
         command(
             &mut player,

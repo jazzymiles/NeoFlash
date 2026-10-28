@@ -1,0 +1,1750 @@
+{
+  "schemaVersion": 1,
+  "baseCatalogSha256": "63d5d336004e67142cd74682d53c03278e5b2bc859ae22b853a55a32f08db0cc",
+  "reviews": [
+    {
+      "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-BOXING",
+      "title": "AS2 runtime two-hour delivery: boxing",
+      "reason": "Bounded AS2-only delivery against fea2333. New implementations, extensions and corrections are accounted separately. Whole-family checks do not imply individual declaration or original Flash conformance. AS3 entries are unchanged.",
+      "limitations": "Primitive object identity and dynamic fields with Rust conversion/formatting, immutable primitive valueOf/toString and existing Rust UTF-16 String operations. No arbitrary coercion, full prototype/instanceof/class-alias or serialization parity. AS3 scalar lowering unchanged. Delivery observations: Four positive primitive-box groups passed inside the ordinary connections export. Initial family result 9/0 and real HTTP run 13/0. Unsupported arbitrary-object coercion remains an explicit host diagnostic; the example does not claim that diagnostic is catchable as an authored exception.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as2_boxing.rs",
+          "sha256": "2d6c0530783c1b8ffd4724fa986bb1bf24afe02dfaec6b3555d29a6c03bcb206"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "215694a86f7e8bf281e10e89c0760dc4138c36d2bbb69790a81bcf4a73cb004f"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "aa171143c0c7ca76ab53db68b7fbcad69b938faa9166749d1e82080e0572cb82"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/intrinsics.js",
+          "sha256": "021e787fbb14e30640805fad60938553026d7aa63f634a1502ea429c6dba9359"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/scope.rs",
+          "sha256": "522225cdf29d2091487ce59ebcd73397245ed1e6547c9a9a64fe5cd936e5f538"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/strings.js",
+          "sha256": "6bbdc87d56456aaae80be9d480f26c4b984fb1b65c0bd2324cf6077c6122ad43"
+        },
+        {
+          "path": "crates/neoflash-script/tests/rust-runtime-host.mjs",
+          "sha256": "667dcce44bfafc7a5994cdcc345211fd6608c4188bf63dc14fa2c68e761d1178"
+        },
+        {
+          "path": "crates/neoflash-script/tests/strings-fixtures.mjs",
+          "sha256": "5fae5e9e8efb6cff3882436e680d1391b69269968ace2b5cc0c097a1927ef2b5"
+        },
+        {
+          "path": "crates/neoflash-web/src/as2_boxing.rs",
+          "sha256": "def6b87e5ebe5463a00938116cd93a1e3de1b005a07b326fe76cfb369d2de348"
+        },
+        {
+          "path": "docs/AS2-BOXING-BATCH.md",
+          "sha256": "599700da109abb69386703936c761d14bd2d7f312a9e7bb9ed2135a5649721ac"
+        },
+        {
+          "path": "examples/as2-connections-batch.nflash",
+          "sha256": "db56346b43a9312250956d678b456454f56bdb6ba6c99c3fe2075d80cc8d1971"
+        },
+        {
+          "path": "web/as2-boxing.js",
+          "sha256": "d88c87db92ee4b33fc0e457e6b46ac11828fc928e74d201bf6dbeede3f60a3a2"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "5c19c786dde8e5a07d68c86da42c0ed27ba75115dae03752b443b9c39e55f675"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-BOXING",
+        "recordedHead": "fea2333c209d4b517bdc1a7fa5b3a44edf133a03",
+        "sourceCapturedAt": "2026-10-28T14:22:34.980391+00:00",
+        "verifiedAt": "2026-10-28T14:22:34.980391+00:00",
+        "sourceManifestSha256": "bfc5f94fc28f232d2265e3996636bbf0a7dd1dbade8be24a71668b931e78eb22",
+        "browser": "Codex in-app browser, actual browser controls and local HTTP",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Four positive primitive-box groups passed inside the ordinary connections export. Initial family result 9/0 and real HTTP run 13/0. Unsupported arbitrary-object coercion remains an explicit host diagnostic; the example does not claim that diagnostic is catchable as an authored exception. Final source bytes reviewed; not an independent per-declaration or original Flash conformance run.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:Boolean.html#Boolean()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust-owned primitive box construction, object identity, primitive valueOf/toString; String UTF-16 methods reuse the existing Rust service. Custom coercion, complete historical formatting and prototype/instanceof/class-alias behavior remain outside this bounded profile."
+        },
+        {
+          "catalogId": "as2:Number.html#Number()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust-owned primitive box construction, object identity, primitive valueOf/toString; String UTF-16 methods reuse the existing Rust service. Custom coercion, complete historical formatting and prototype/instanceof/class-alias behavior remain outside this bounded profile."
+        },
+        {
+          "catalogId": "as2:String.html#String()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust-owned primitive box construction, object identity, primitive valueOf/toString; String UTF-16 methods reuse the existing Rust service. Custom coercion, complete historical formatting and prototype/instanceof/class-alias behavior remain outside this bounded profile."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-CAPTURE",
+      "title": "AS2 runtime two-hour delivery: capture",
+      "reason": "Bounded AS2-only delivery against fea2333. New implementations, extensions and corrections are accounted separately. Whole-family checks do not imply individual declaration or original Flash conformance. AS3 entries are unchanged.",
+      "limitations": "Rust capture identities, constraint plans, gain, motion/RMS and FPS measurement, browser track/audio lifecycle and explicit permission guards. Actual-WASM synthetic adapter fixture passed 8/8 without requesting hardware. Real hardware permission, camera images, audible microphone output and hardware quality were not tested. No encoder, server stream/publishing or Flash detector/codec parity. Delivery observations: Actual browser discovery/settings family passed 8/8 and Restart 8/8, with zero cameras and one microphone in the browser enumeration. No hardware capture permission was requested. The separate actual-WASM synthetic fixture passed eight grouped phases with generated metadata/frames/PCM. Real hardware images, microphone output and quality remain unverified.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as2_capture.rs",
+          "sha256": "b55220dcf941a153f4772b3c7f6c5cf9c93418e4b53364bf34094a841e81b411"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "215694a86f7e8bf281e10e89c0760dc4138c36d2bbb69790a81bcf4a73cb004f"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "aa171143c0c7ca76ab53db68b7fbcad69b938faa9166749d1e82080e0572cb82"
+        },
+        {
+          "path": "crates/neoflash-web/src/as2_capture.rs",
+          "sha256": "3861babb9403f3c110abb426c962d952c8fe3dc0e670f7f8c70a3cac5c8a2342"
+        },
+        {
+          "path": "docs/AS2-CAPTURE-BATCH.md",
+          "sha256": "2f6303963441d0dd0126382b41c08345b38c24bacaf727dd4e223f01e1059b14"
+        },
+        {
+          "path": "examples/as2-capture-batch.nflash",
+          "sha256": "f092dae06b3028fb8591073217dde9e99140301af6e287e05bf2106865fd4b4e"
+        },
+        {
+          "path": "web/as2-capture.js",
+          "sha256": "0535e636f6f6467a451dd821cc4a17209e432161e9f4b27c6fd515512f7407fd"
+        },
+        {
+          "path": "web/audio.js",
+          "sha256": "83176fbd973cd1385502465274a084d594482b9fad7b03ae6533473e9000fb25"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "5c19c786dde8e5a07d68c86da42c0ed27ba75115dae03752b443b9c39e55f675"
+        },
+        {
+          "path": "web/video.js",
+          "sha256": "4ce76f7a290e78ca773fa3415ec7a2e23c0e95031372b4971f4f809407bb588b"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-CAPTURE",
+        "recordedHead": "fea2333c209d4b517bdc1a7fa5b3a44edf133a03",
+        "sourceCapturedAt": "2026-10-28T14:22:34.980391+00:00",
+        "verifiedAt": "2026-10-28T14:22:34.980391+00:00",
+        "sourceManifestSha256": "1d64e896ce8bbabef028f59db440ef132dc3d099248a6720003014dfda581b29",
+        "browser": "Codex in-app browser, actual browser controls and local HTTP",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Actual browser discovery/settings family passed 8/8 and Restart 8/8, with zero cameras and one microphone in the browser enumeration. No hardware capture permission was requested. The separate actual-WASM synthetic fixture passed eight grouped phases with generated metadata/frames/PCM. Real hardware images, microphone output and quality remain unverified. Final source bytes reviewed; not an independent per-declaration or original Flash conformance run.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:Camera.html#activityLevel",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#currentFps",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#event:onActivity",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#event:onStatus",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#fps",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#get()",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#height",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#index",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#motionLevel",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#motionTimeOut",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#muted",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#name",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#names",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#setMode()",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#setMotionLevel()",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Camera.html#width",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#activityLevel",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#event:onActivity",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#event:onStatus",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#gain",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#get()",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#index",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#muted",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#name",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#names",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#rate",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setGain()",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setRate()",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setSilenceLevel()",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setUseEchoSuppression()",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#silenceLevel",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#silenceTimeOut",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Microphone.html#useEchoSuppression",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#attachAudio()",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: new. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        },
+        {
+          "catalogId": "as2:Video.html#attachVideo()",
+          "status": "partial",
+          "evidenceKind": "source_review_actual_wasm_synthetic_capture_and_bounded_html5_no_hardware",
+          "scopeNote": "Change accounting: extended. Bounded browser-local devices/permission lifecycle; Rust-owned policy and measurement. Hardware acceptance remains unperformed."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-CAPTURE-ADDITIONS",
+      "title": "AS2 runtime two-hour delivery: capture-additions",
+      "reason": "Bounded AS2-only delivery against fea2333. New implementations, extensions and corrections are accounted separately. Whole-family checks do not imply individual declaration or original Flash conformance. AS3 entries are unchanged.",
+      "limitations": "Rust progressive NetStream buffer targets use actual browser TimeRanges; actual native completion drives onPlayStatus. No fabricated server buffering, getInfo, RTMP/FLV metadata, codec/QOS or upload capability. Delivery observations: Ordinary media export reached READY 12/12, actual playback/FPS freeze-resume 13/13 and native NetStream onPlayStatus completion 14/14, with two cue events. This is a finite local media fixture, not general progressive-network or original Flash buffer conformance.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as2_media.rs",
+          "sha256": "0725522cb5871cd83aca046e4deae4bdf532ff542e5832d6b345ff2ebeb57093"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "215694a86f7e8bf281e10e89c0760dc4138c36d2bbb69790a81bcf4a73cb004f"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "aa171143c0c7ca76ab53db68b7fbcad69b938faa9166749d1e82080e0572cb82"
+        },
+        {
+          "path": "crates/neoflash-web/src/as2_media.rs",
+          "sha256": "e51556f9778046f3398f178db8fbea24dbb526029041dffdb0967c03ce914d86"
+        },
+        {
+          "path": "docs/AS2-CAPTURE-BATCH.md",
+          "sha256": "2f6303963441d0dd0126382b41c08345b38c24bacaf727dd4e223f01e1059b14"
+        },
+        {
+          "path": "examples/as2-media-batch.nflash",
+          "sha256": "3a0b95da80332e1f524130e7fe43ef889834b10cab156c3da5b9add58ec1e862"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "5c19c786dde8e5a07d68c86da42c0ed27ba75115dae03752b443b9c39e55f675"
+        },
+        {
+          "path": "web/video.js",
+          "sha256": "4ce76f7a290e78ca773fa3415ec7a2e23c0e95031372b4971f4f809407bb588b"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-CAPTURE-ADDITIONS",
+        "recordedHead": "fea2333c209d4b517bdc1a7fa5b3a44edf133a03",
+        "sourceCapturedAt": "2026-10-28T14:22:34.980391+00:00",
+        "verifiedAt": "2026-10-28T14:22:34.980391+00:00",
+        "sourceManifestSha256": "c2cad96da3525cd6b1edc3445808f88460f8dc390023e03822b6ba1ce7213984",
+        "browser": "Codex in-app browser, actual browser controls and local HTTP",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Ordinary media export reached READY 12/12, actual playback/FPS freeze-resume 13/13 and native NetStream onPlayStatus completion 14/14, with two cue events. This is a finite local media fixture, not general progressive-network or original Flash buffer conformance. Final source bytes reviewed; not an independent per-declaration or original Flash conformance run.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:NetStream.html#bufferTime",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 finite progressive media buffer gate from actual browser TimeRanges and native completion; no server/FLV metadata/QOS emulation."
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onPlayStatus",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 finite progressive media buffer gate from actual browser TimeRanges and native completion; no server/FLV metadata/QOS emulation."
+        },
+        {
+          "catalogId": "as2:NetStream.html#setBufferTime()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 finite progressive media buffer gate from actual browser TimeRanges and native completion; no server/FLV metadata/QOS emulation."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-CLASS-AUDIT",
+      "title": "AS2 runtime two-hour delivery: class-audit",
+      "reason": "Bounded AS2-only delivery against fea2333. New implementations, extensions and corrections are accounted separately. Whole-family checks do not imply individual declaration or original Flash conformance. AS3 entries are unchanged.",
+      "limitations": "Source-only correction of 37 existing class/static namespace/arguments rows and three existing ExternalInterface API rows against baseline fea2333. Existing source bindings and prior bounded family evidence were reviewed. No new class algorithm and no fresh per-class browser or original Flash conformance claim. Delivery observations: Reviewed existing baseline fea2333 source bindings for 37 class/static namespace/arguments entries and three ExternalInterface API entries. No new implementation and no fresh individual-class execution is claimed.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as2_text.rs",
+          "sha256": "9afc03706029a80e4aaf095dc2780bb5929870c7e7c91636c556557d56f237b1"
+        },
+        {
+          "path": "crates/neoflash-core/src/text.rs",
+          "sha256": "c64ec84b1ea20309998aecd3668433b03e5c1e4e71230679127c05c7dd2c4cc6"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "215694a86f7e8bf281e10e89c0760dc4138c36d2bbb69790a81bcf4a73cb004f"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "aa171143c0c7ca76ab53db68b7fbcad69b938faa9166749d1e82080e0572cb82"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/functions.js",
+          "sha256": "d416e6da72b4e9acd49ce781a0603147f9ac90f3d1edb21b01ff5271186edae2"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "0c8cecced8acef42269bb328803e530fd58a859f5286d897a69f3f7d9ebdd58d"
+        },
+        {
+          "path": "crates/neoflash-script/tests/loader-gallery.mjs",
+          "sha256": "11557e4a537a719dbe24d9b79bb967ae3cd49385504f98a923824c2d391c3393"
+        },
+        {
+          "path": "docs/AS-RUNTIME-HOUR.md",
+          "sha256": "4d09b9833fed76cd95a370653e3a357d5fe31056c3506f61d9374a95f4c1e10d"
+        },
+        {
+          "path": "docs/AS2-BITMAP-BATCH.md",
+          "sha256": "9832b5c2cb2b6cdac1a0104229b860d68cbb6e7a372ca8dcf0eb039b6655401e"
+        },
+        {
+          "path": "docs/AS2-DISPLAY-BATCH.md",
+          "sha256": "5da1d46374d1bd47cf39c57bc040f0a5fcfd37690e2d6d4bb0752b45c8d9a9b6"
+        },
+        {
+          "path": "docs/AS2-FILES-BATCH.md",
+          "sha256": "fb756a0c4a406bad959970d29866bb41e4701aea9e69bb2c7de2f4687e2af0d6"
+        },
+        {
+          "path": "docs/AS2-SOUND-BATCH.md",
+          "sha256": "4b9b7fede83b5a11a761a47be72da192e44cbcc209ddbdbfd8bc1669ab0f77c4"
+        },
+        {
+          "path": "docs/AS2-TEXT-DISPLAY-TWO-HOUR.md",
+          "sha256": "02b6ca83896fc98ecc1532cfcd2842088745cbed2e05ffff4bdc4f5c93d7abed"
+        },
+        {
+          "path": "docs/AS2-XML-DATA-BATCH.md",
+          "sha256": "7e8c1323f570020c9e47bc9b9aa4e8f6199e874726ca409e97dba769ed2c34b7"
+        },
+        {
+          "path": "docs/COMPATIBILITY.md",
+          "sha256": "03bc9b0506eafc244340045799169a075cbcad66b17d15ed557081d1f4e7ea53"
+        },
+        {
+          "path": "docs/RUNTIME-FILTERS-PROVENANCE.md",
+          "sha256": "15eab74352c90ce3a94ec55afcd95b64f2d15d239860b8bb889ac7fbdd3029bc"
+        },
+        {
+          "path": "docs/RUNTIME-GEOMETRY-PROVENANCE.md",
+          "sha256": "1458da0a160c75f2f9a110e265015bd137d550584671c4aacb95b4e2d21886d2"
+        },
+        {
+          "path": "docs/VERIFICATION.md",
+          "sha256": "700e796f6861c4774f8724f0ef0962dcc96a3c1c5f7935dfaac3f15c6e7acff1"
+        },
+        {
+          "path": "docs/decisions/0018-runtime-display-transforms.md",
+          "sha256": "5eb008b2985ebf11cf653920510debb77d48995c5ecf950a1df18f891d47f24a"
+        },
+        {
+          "path": "docs/decisions/0025-shared-objects-and-amf.md",
+          "sha256": "04ceeca1d8f80468b8586d39621f996f65d4c901715a5841d10beda3065cd880"
+        },
+        {
+          "path": "docs/decisions/0027-runtime-display-filters.md",
+          "sha256": "44e01cf1cd2054d30c4f2419a706f2d7291aa30ec2491d36317b859d6ab0730f"
+        },
+        {
+          "path": "docs/decisions/0028-source-function-arguments.md",
+          "sha256": "50a368ef6ab29b5ef644e14956eec10871f70f34c42f3ac45d7a270c9fd26777"
+        },
+        {
+          "path": "docs/decisions/0031-video-streams.md",
+          "sha256": "25d813f194d9074607e1ea0a588c9c503b9c78e0d63957e11f819285e0feabbf"
+        },
+        {
+          "path": "docs/decisions/0033-web-container-integration.md",
+          "sha256": "7a9e493eaf5fe59d57b5eec2e747c4c9f8314a999c369deb4752de566ae2e8b1"
+        },
+        {
+          "path": "examples/as2-files-batch.nflash",
+          "sha256": "9d9c73a6fd1220c4fabe4b81f446b400ee0bc8e709c0c54545c3ce37d88cda43"
+        },
+        {
+          "path": "examples/as2-platform-batch.nflash",
+          "sha256": "1b463366907b44ba769c3374df405dc59bd2f3673c4d90b36944417ed65eb3f4"
+        },
+        {
+          "path": "examples/as2-project-input.nflash",
+          "sha256": "b8b17fbc2c69a8e66fdc487e941373592087685bbec238fee86a550988efd6bb"
+        },
+        {
+          "path": "examples/as2-sound-batch.nflash",
+          "sha256": "62dc85ddfb0a11636da6c075ad97d4ff78e7d67c166bfa8233c0890a96669f6b"
+        },
+        {
+          "path": "examples/as2-xml-data-batch.nflash",
+          "sha256": "5a4c09458616b4e9b26d1ae0bf4841e4843eee09f56c5c66365a14e0f06be1ce"
+        },
+        {
+          "path": "examples/display-transforms.nflash",
+          "sha256": "edfd3e4bdd07a8b7cd6bc379cfbec07b4be698c5d4731387fab2eab724ea098d"
+        },
+        {
+          "path": "examples/filter-gallery.nflash",
+          "sha256": "f5ef050f0bdac5f9792e0e78edfb793b8bb57f94a609cf7bd65ef141b35b3b0b"
+        },
+        {
+          "path": "examples/function-workflow.nflash",
+          "sha256": "dd91a85248bf72b866719162bd20ebaa3b4064bb13960575b5cb19c3717a97b7"
+        },
+        {
+          "path": "examples/runtime-filter-extensions.nflash",
+          "sha256": "75d1bd950927b7d5546c3b9d77a5c6f12d18e90d51c13fe35d9aea7760d72b35"
+        },
+        {
+          "path": "examples/runtime-geometry.nflash",
+          "sha256": "0fa73634a4104b1242835ecac0db2463f3998515966ed72af549b8f04bf8f4be"
+        },
+        {
+          "path": "examples/text-form.nflash",
+          "sha256": "e0eb6148d753ca7df5c89a5b049c7d261ae6648581c40a2de94d65ac10afbfbe"
+        },
+        {
+          "path": "examples/video-playback.nflash",
+          "sha256": "9756fe37b160faf74675895f2591eaaf9db31615227d0b110a4adddd7fe39193"
+        },
+        {
+          "path": "examples/web-integration.nflash",
+          "sha256": "2b6cf832103432faddae98f2a4c6086eff7dbf714c10df7eabce3c495b629469"
+        },
+        {
+          "path": "web/as2-files.js",
+          "sha256": "1638ce37f7af96dbe0bff40dab43df5fd8fb35ed3ab6884c66c789f0cff144b6"
+        },
+        {
+          "path": "web/as2-text.js",
+          "sha256": "6824374a739c0992b8a7065e0b974a0a8db4de1329998560ae5dbad53b5064e2"
+        },
+        {
+          "path": "web/audio.js",
+          "sha256": "83176fbd973cd1385502465274a084d594482b9fad7b03ae6533473e9000fb25"
+        },
+        {
+          "path": "web/bitmap.js",
+          "sha256": "41deb1561fa02db54bd9302c4489c1c8b07634fdd9f830781f51556e08d971ef"
+        },
+        {
+          "path": "web/broadcaster.js",
+          "sha256": "c5c17e7b25a7e30c63d358356d219309ac1c7ffae03217448af88fbd4819a19a"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "74b90ae295bd7f05b29b17333c68aa60d574471b58b0dd7364ee6bee926c129d"
+        },
+        {
+          "path": "web/external.js",
+          "sha256": "1cb41c369db5363eeee0e98c348d804632217346f76262a011086df6b3016f81"
+        },
+        {
+          "path": "web/filters.js",
+          "sha256": "f872aea27f129535759ef6b8bb3046d336ae952eb75778db6c5b173f036a33bf"
+        },
+        {
+          "path": "web/geom.js",
+          "sha256": "ca361479dbc04fc801b5849671a777d92b94e56adbb6ee66cc1a934bf095ed1e"
+        },
+        {
+          "path": "web/legacy-input.js",
+          "sha256": "ce01ac82b7382e1212608a1da32b4aecc14d0e6e55fc688265967214ac8fc78e"
+        },
+        {
+          "path": "web/loader.js",
+          "sha256": "e0ea2defdb58d0e1d322d5b591308b98257dbe2328f32b64f081a404c108d038"
+        },
+        {
+          "path": "web/net.js",
+          "sha256": "f6b28ce8a3dc1ac1e3308021b0fff09d85d2f3837982b1894f227dc0fcc769ed"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "5c19c786dde8e5a07d68c86da42c0ed27ba75115dae03752b443b9c39e55f675"
+        },
+        {
+          "path": "web/storage.js",
+          "sha256": "5aac0405a81c8a88fdfd80d3da3d46b79d09acab027fd49c49d94f6778f04fbb"
+        },
+        {
+          "path": "web/text-input.js",
+          "sha256": "b051164b360163266e7426c5677c1804772a244f3658a8e0c95e15c3f03b12b8"
+        },
+        {
+          "path": "web/text.js",
+          "sha256": "79118893ac0727b86b9ed365f88288ea0149c09eb5a0578d1799a91c02d58f46"
+        },
+        {
+          "path": "web/video.js",
+          "sha256": "4ce76f7a290e78ca773fa3415ec7a2e23c0e95031372b4971f4f809407bb588b"
+        },
+        {
+          "path": "web/xml.js",
+          "sha256": "002874384dca2184c44dc19d4542138a7af18af4dd6ca0aa866501332b319eb8"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-CLASS-AUDIT",
+        "recordedHead": "fea2333c209d4b517bdc1a7fa5b3a44edf133a03",
+        "sourceCapturedAt": "2026-10-28T14:22:34.980391+00:00",
+        "verifiedAt": "2026-10-28T14:22:34.980391+00:00",
+        "sourceManifestSha256": "6c6ce212eb65883ef63551f5f7db6315c7f4389f4210eb9f9295c50ad0a6ff8f",
+        "browser": "No new per-class browser execution; existing bounded family evidence retained",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Reviewed existing baseline fea2333 source bindings for 37 class/static namespace/arguments entries and three ExternalInterface API entries. No new implementation and no fresh individual-class execution is claimed. Final source bytes reviewed; not an independent per-declaration or original Flash conformance run.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:AsBroadcaster.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 static initialize/broadcast mixin over source listener objects; callable native singleton is bound through __nfLegacy.AsBroadcaster. No new class implementation or complete AVM event-order conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 input singleton binding with listener lists and actual Stage input/focus/key/mouse facts. Stage initial width/height/listeners were already present; this correction does not count the new sizing/fullscreen/menu work."
+        },
+        {
+          "catalogId": "as2:Mouse.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 input singleton binding with listener lists and actual Stage input/focus/key/mouse facts. Stage initial width/height/listeners were already present; this correction does not count the new sizing/fullscreen/menu work."
+        },
+        {
+          "catalogId": "as2:Stage.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 input singleton binding with listener lists and actual Stage input/focus/key/mouse facts. Stage initial width/height/listeners were already present; this correction does not count the new sizing/fullscreen/menu work."
+        },
+        {
+          "catalogId": "as2:Color.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 Color wrapper targets a live display instance and uses shared finite Rust geometry/color conversion. Legacy dynamic target coercion and native subclassing remain outside scope."
+        },
+        {
+          "catalogId": "as2:LoadVars.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing constructible AS2 dynamic form-data object, encoded values and real bounded HTTP callbacks. This is the browser-origin transport profile, not all Flash policy-file/coercion behavior."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 image loader class, listener callbacks, metadata/progress and actual PNG/JPEG load/unload into MovieClips. SWF loading and broad legacy transport remain unsupported."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 constructors and separate legacy facade for connect(null), authored Video attachment and progressive embedded/HTTP media with lifecycle callbacks. New capture/remoting support is counted elsewhere; no RTMP class claim."
+        },
+        {
+          "catalogId": "as2:NetStream.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 constructors and separate legacy facade for connect(null), authored Video attachment and progressive embedded/HTTP media with lifecycle callbacks. New capture/remoting support is counted elsewhere; no RTMP class claim."
+        },
+        {
+          "catalogId": "as2:Selection.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 focus singleton, live targets, selection bounds and focus listeners. It is not constructible. Native focus/input and legacy boundaries retain their separate acceptance record."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 static getLocal and live local persistence wrappers with data, clear/flush and bounded AMF codec semantics. Remote synchronization and network SharedObjects are excluded."
+        },
+        {
+          "catalogId": "as2:Sound.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 constructible sound facade and real complete-file/browser audio operations. This correction excludes new microphone capture and all unimplemented stream/server paths."
+        },
+        {
+          "catalogId": "as2:TextField/StyleSheet.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing project-resolved AS2 types: Rust CSS/uniform HTML stylesheet operations and live text snapshot query/selection. They do not establish rich-text, glyph-run or complete native text conformance."
+        },
+        {
+          "catalogId": "as2:TextSnapshot.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing project-resolved AS2 types: Rust CSS/uniform HTML stylesheet operations and live text snapshot query/selection. They do not establish rich-text, glyph-run or complete native text conformance."
+        },
+        {
+          "catalogId": "as2:TextFormat.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 constructor uses the separate As2TextFormat facade over shared Rust format/layout data. Partial field/measurement support and uniform formatting only; no native subclass initialization."
+        },
+        {
+          "catalogId": "as2:XML.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 intrinsic type resolution selects LegacyXML/XMLNode rather than AS3 E4X XML. Constructors, mutable tree views and bounded parse/load paths exist; legacy E4X selectors and unrestricted node kinds are unsupported."
+        },
+        {
+          "catalogId": "as2:XMLNode.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 intrinsic type resolution selects LegacyXML/XMLNode rather than AS3 E4X XML. Constructors, mutable tree views and bounded parse/load paths exist; legacy E4X selectors and unrestricted node kinds are unsupported."
+        },
+        {
+          "catalogId": "as2:arguments.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing compiler-generated per-function argument value array, actual supplied length and callee reference. No constructor/global type object or caller stack; arguments.caller diagnoses. AS2 function-workflow already uses supplied values/length."
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing qualified/imported AS2 BitmapData type using bounded Rust pixel buffers and bitmap operations, copied/read/write rectangles and draw/applyFilter subsets. General GPU/native storage behavior is not inferred."
+        },
+        {
+          "catalogId": "as2:flash/filters/BitmapFilter.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing imported base type for concrete native filters, shared __nfIs predicate and clone methods on supported subclasses. Direct base construction and arbitrary native subclasses remain diagnosed."
+        },
+        {
+          "catalogId": "as2:flash/filters/BlurFilter.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing imported concrete filter classes, validated copied properties and shared Rust kernels. Bounded source surfaces/radii and approximate rasterization, not complete Flash filter fidelity."
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing imported concrete filter classes, validated copied properties and shared Rust kernels. Bounded source surfaces/radii and approximate rasterization, not complete Flash filter fidelity."
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing imported concrete filter classes, validated copied properties and shared Rust kernels. Bounded source surfaces/radii and approximate rasterization, not complete Flash filter fidelity."
+        },
+        {
+          "catalogId": "as2:flash/filters/ColorMatrixFilter.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing imported concrete filter classes, validated copied properties and shared Rust kernels. Bounded source surfaces/radii and approximate rasterization, not complete Flash filter fidelity."
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing imported concrete filter classes, validated copied properties and shared Rust kernels. Bounded source surfaces/radii and approximate rasterization, not complete Flash filter fidelity."
+        },
+        {
+          "catalogId": "as2:flash/filters/ConvolutionFilter.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing imported concrete filter classes, validated copied properties and shared Rust kernels. Bounded source surfaces/radii and approximate rasterization, not complete Flash filter fidelity."
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientGlowFilter.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing imported concrete filter classes, validated copied properties and shared Rust kernels. Bounded source surfaces/radii and approximate rasterization, not complete Flash filter fidelity."
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientBevelFilter.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing imported concrete filter classes, validated copied properties and shared Rust kernels. Bounded source surfaces/radii and approximate rasterization, not complete Flash filter fidelity."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 imported displacement-filter value class and BitmapData.applyFilter Rust operation. Live display.filters displacement remains unsupported; no general render-filter claim."
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing imported/qualified geometry classes and finite Rust 2D operations. New rgb/containsRectangle aliases are counted separately; constructors and prior methods predate this sprint."
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing imported/qualified geometry classes and finite Rust 2D operations. New rgb/containsRectangle aliases are counted separately; constructors and prior methods predate this sprint."
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing imported/qualified geometry classes and finite Rust 2D operations. New rgb/containsRectangle aliases are counted separately; constructors and prior methods predate this sprint."
+        },
+        {
+          "catalogId": "as2:flash/geom/ColorTransform.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing imported/qualified geometry classes and finite Rust 2D operations. New rgb/containsRectangle aliases are counted separately; constructors and prior methods predate this sprint."
+        },
+        {
+          "catalogId": "as2:flash/geom/Transform.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing imported Transform bound to a live display instance, copied local/world matrices and color transforms and bounded geometry pixelBounds. No 3D or exact effect-expanded raster bounds."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 imported browser file classes with picker/byte transport and user-gesture lifecycle. Filesystem metadata unavailable to browsers, arbitrary paths and historical plug-in semantics are excluded."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 imported browser file classes with picker/byte transport and user-gesture lifecycle. Filesystem metadata unavailable to browsers, arbitrary paths and historical plug-in semantics are excluded."
+        },
+        {
+          "catalogId": "as2:flash/external/ExternalInterface.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 static facade is selected by both qualified-name and imported short-name compiler paths, already present in baseline fea2333. Actual available/call/addCallback(name,instance,method) with copied data and explicit receiver; recursive AS2 crossings and plug-in wire/security semantics remain excluded."
+        },
+        {
+          "catalogId": "as2:flash/external/ExternalInterface.html#addCallback()",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 qname/import path resolves to LegacyExternalInterface. The prior ordinary web-integration browser family records explicit receiver callbacks, real page calls, returned data and Restart. This is a stale audit correction, not new implementation or a fresh browser run."
+        },
+        {
+          "catalogId": "as2:flash/external/ExternalInterface.html#available",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 qname/import path resolves to LegacyExternalInterface. The prior ordinary web-integration browser family records explicit receiver callbacks, real page calls, returned data and Restart. This is a stale audit correction, not new implementation or a fresh browser run."
+        },
+        {
+          "catalogId": "as2:flash/external/ExternalInterface.html#call()",
+          "status": "partial",
+          "evidenceKind": "source_review_existing_bindings_with_prior_family_evidence",
+          "scopeNote": "Change accounting: reviewed-existing. Existing AS2 qname/import path resolves to LegacyExternalInterface. The prior ordinary web-integration browser family records explicit receiver callbacks, real page calls, returned data and Restart. This is a stale audit correction, not new implementation or a fresh browser run."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-CONNECTIONS",
+      "title": "AS2 runtime two-hour delivery: connections",
+      "reason": "Bounded AS2-only delivery against fea2333. New implementations, extensions and corrections are accounted separately. Whole-family checks do not imply individual declaration or original Flash conformance. AS3 entries are unchanged.",
+      "limitations": "Rust LocalConnection protocol/pending state over actual same-origin BroadcastChannel and Web Locks, plus owned AMF0 HTTP remoting with actual endpoint responses. Browser-local asynchronous name reservations, no cross-origin/machine-wide guarantees, XMLSocket TCP or RTMP. No AMF3 envelopes, class aliases or complete remoting protocol. NetConnection.close is a source-reviewed stale correction. Delivery observations: Ordinary export passed 9/0 initial and 13/0 after actual HTTP AMF0 echo and status-fault responses. Two same-origin browser tabs exchanged A-to-B and B-to-A messages, then closed/reclaimed receiver A. This does not establish other browsers, cross-origin or machine-wide delivery.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as2_connections.rs",
+          "sha256": "b4e84bb806e17ccabc7bfb95fe7dfcfacccbe938d6c07d98c431b9d99b243ad9"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "215694a86f7e8bf281e10e89c0760dc4138c36d2bbb69790a81bcf4a73cb004f"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "aa171143c0c7ca76ab53db68b7fbcad69b938faa9166749d1e82080e0572cb82"
+        },
+        {
+          "path": "crates/neoflash-web/src/as2_connections.rs",
+          "sha256": "e382b47dae063673f08bfaba90dcf024cf0021d3d652b4a302c701411239ece0"
+        },
+        {
+          "path": "docs/AS2-CONNECTIONS-BATCH.md",
+          "sha256": "71b3c3b9880096f2c335bffe31c88e58d449fe88a575e6a8bc64980b055f6fc9"
+        },
+        {
+          "path": "examples/as2-connections-batch.nflash",
+          "sha256": "db56346b43a9312250956d678b456454f56bdb6ba6c99c3fe2075d80cc8d1971"
+        },
+        {
+          "path": "web/as2-connections.js",
+          "sha256": "0b9d39e7b42652693bbc23c61c27988e3816029418f5f7db100cb601c94d477b"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "5c19c786dde8e5a07d68c86da42c0ed27ba75115dae03752b443b9c39e55f675"
+        },
+        {
+          "path": "web/video.js",
+          "sha256": "4ce76f7a290e78ca773fa3415ec7a2e23c0e95031372b4971f4f809407bb588b"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-CONNECTIONS",
+        "recordedHead": "fea2333c209d4b517bdc1a7fa5b3a44edf133a03",
+        "sourceCapturedAt": "2026-10-28T14:22:34.980391+00:00",
+        "verifiedAt": "2026-10-28T14:22:34.980391+00:00",
+        "sourceManifestSha256": "37ecd28826cdd532d4f6421235287066acc3f75425d0fa2f06286567b0bef5d7",
+        "browser": "Codex in-app browser, actual browser controls and local HTTP",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Ordinary export passed 9/0 initial and 13/0 after actual HTTP AMF0 echo and status-fault responses. Two same-origin browser tabs exchanged A-to-B and B-to-A messages, then closed/reclaimed receiver A. This does not establish other browsers, cross-origin or machine-wide delivery. Final source bytes reviewed; not an independent per-declaration or original Flash conformance run.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:LocalConnection.html#LocalConnection()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Same-origin browser LocalConnection using Rust AMF message state, BroadcastChannel and Web Locks; bounded asynchronous reservation contract, browser-user scope only. Cross-origin/OS/projector parity not claimed."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Same-origin browser LocalConnection using Rust AMF message state, BroadcastChannel and Web Locks; bounded asynchronous reservation contract, browser-user scope only. Cross-origin/OS/projector parity not claimed."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#close()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Same-origin browser LocalConnection using Rust AMF message state, BroadcastChannel and Web Locks; bounded asynchronous reservation contract, browser-user scope only. Cross-origin/OS/projector parity not claimed."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#connect()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Same-origin browser LocalConnection using Rust AMF message state, BroadcastChannel and Web Locks; bounded asynchronous reservation contract, browser-user scope only. Cross-origin/OS/projector parity not claimed."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#domain()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Same-origin browser LocalConnection using Rust AMF message state, BroadcastChannel and Web Locks; bounded asynchronous reservation contract, browser-user scope only. Cross-origin/OS/projector parity not claimed."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#event:onStatus",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Same-origin browser LocalConnection using Rust AMF message state, BroadcastChannel and Web Locks; bounded asynchronous reservation contract, browser-user scope only. Cross-origin/OS/projector parity not claimed."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#isPerUser",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Same-origin browser LocalConnection using Rust AMF message state, BroadcastChannel and Web Locks; bounded asynchronous reservation contract, browser-user scope only. Cross-origin/OS/projector parity not claimed."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#send()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Same-origin browser LocalConnection using Rust AMF message state, BroadcastChannel and Web Locks; bounded asynchronous reservation contract, browser-user scope only. Cross-origin/OS/projector parity not claimed."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#call()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real AMF0-over-HTTP call/response with Rust envelope framing and shared AMF graph codec; responder callbacks, endpoint URI and false HTTP isConnected. No RTMP transport or protocol claim."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#event:onResult",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real AMF0-over-HTTP call/response with Rust envelope framing and shared AMF graph codec; responder callbacks, endpoint URI and false HTTP isConnected. No RTMP transport or protocol claim."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#isConnected",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real AMF0-over-HTTP call/response with Rust envelope framing and shared AMF graph codec; responder callbacks, endpoint URI and false HTTP isConnected. No RTMP transport or protocol claim."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#uri",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Real AMF0-over-HTTP call/response with Rust envelope framing and shared AMF graph codec; responder callbacks, endpoint URI and false HTTP isConnected. No RTMP transport or protocol claim."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#connect()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: extended. Existing local video connection extended with real AMF0 HTTP endpoint and transport-failure lifecycle; browser network restrictions apply."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#event:onStatus",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: extended. Existing local video connection extended with real AMF0 HTTP endpoint and transport-failure lifecycle; browser network restrictions apply."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#close()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing inherited local-video close was already implemented at baseline; stale missing decision corrected. This batch also adds HTTP request cancellation through the same AS2 facade."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-DISPLAY",
+      "title": "AS2 runtime two-hour delivery: display",
+      "reason": "Bounded AS2-only delivery against fea2333. New implementations, extensions and corrections are accounted separately. Whole-family checks do not imply individual declaration or original Flash conformance. AS3 entries are unchanged.",
+      "limitations": "Rust Stage layout and context-menu policy drive actual browser viewport, overlays, input picking, menu actions and gesture-bound fullscreen. Display aliases reuse existing graph/geometry. noScale requires TL; fullscreen rectangle stays inside authored stage; original player sizing, full menu/coercion and pixel parity not claimed. Twenty existing member routes are source-reviewed corrections, not new implementations. Delivery observations: Ordinary Stage/display export passed 25/25 after affected fixes. Actual fullscreen entry and Escape exit, exactFit/showAll sizing, authored menu selection with disabled/hidden items, two A-to-B trackAsMenu drags, decoded media and smoothing were observed. Existing Selection.getFocus path was corrected to the shared Rust display target path; the affected text-form workflow passed its focused rerun. Existing aliases remain source-reviewed rather than individually browser-tested.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as2_stage.rs",
+          "sha256": "7665626bb560edff52e71460ef280e2b99d6c952420d08a1dee71cbb1b011914"
+        },
+        {
+          "path": "crates/neoflash-core/src/geometry.rs",
+          "sha256": "94b9531d20975840a8a9c998832f090fee17cfa66c5dbe78c12a30b0a527b2f8"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph.rs",
+          "sha256": "c3896e78e03a907f565bf466f2cf7a596fbc636a6dad97cd82282032d8d86a34"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/as2_input.rs",
+          "sha256": "3e00be0a0454d18ca6a87fa8bf61b01a87b61b3c4597cbefec001b0d1e3a5741"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/loader.rs",
+          "sha256": "1390219c6c620b6f6c073db7c7d44e7678e741cf8d752e572931e02aa736098b"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/transform.rs",
+          "sha256": "1470a35d2b2b34f4896fafb84aa29bea6860d880d575a85d480433320dead51e"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/video.rs",
+          "sha256": "087870930dcfc008ec5dd2e80e0ed3774a5b46d82e13a09d9b76148fbb96cb1e"
+        },
+        {
+          "path": "crates/neoflash-core/tests/as2_input.rs",
+          "sha256": "266d0cb900f7dc04abedfd91ee1be6abf37f6c6d4deedd5d7433d43f45ffccff"
+        },
+        {
+          "path": "crates/neoflash-core/tests/dynamic_display.rs",
+          "sha256": "8791d796c1688902108a300e7bf770bc644819360bee22eed252cf0ad7dcc49d"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "215694a86f7e8bf281e10e89c0760dc4138c36d2bbb69790a81bcf4a73cb004f"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "aa171143c0c7ca76ab53db68b7fbcad69b938faa9166749d1e82080e0572cb82"
+        },
+        {
+          "path": "crates/neoflash-web/src/as2_stage.rs",
+          "sha256": "5e3253faf09fc2a888f116bc9b7ed29d25e74826d32aa631949363dc190b8a0a"
+        },
+        {
+          "path": "docs/AS2-STAGE-DISPLAY-BATCH.md",
+          "sha256": "a18400008f466278777aa42f3ad0296b3e763ef16654a90482ba9cb677267dcc"
+        },
+        {
+          "path": "examples/as2-stage-display-batch.nflash",
+          "sha256": "2fc7c35c379603f785799bac048fa523dbdedaf909d35528c2d96cc0e9860ff4"
+        },
+        {
+          "path": "web/accessibility.js",
+          "sha256": "df2bddfd9eb318123cefa03d865af4c0956032579a10c8677b94e38ba9e62e7b"
+        },
+        {
+          "path": "web/as2-stage.js",
+          "sha256": "b922e4053d47ec367d2d648efbfde8b5627bf823a3af624e1c0c7ca091e62468"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "74b90ae295bd7f05b29b17333c68aa60d574471b58b0dd7364ee6bee926c129d"
+        },
+        {
+          "path": "web/geom.js",
+          "sha256": "ca361479dbc04fc801b5849671a777d92b94e56adbb6ee66cc1a934bf095ed1e"
+        },
+        {
+          "path": "web/legacy-input.js",
+          "sha256": "ce01ac82b7382e1212608a1da32b4aecc14d0e6e55fc688265967214ac8fc78e"
+        },
+        {
+          "path": "web/preview.js",
+          "sha256": "ca07e2508d6efa3b54e87c632ce433bf6db887a0ff6f633e047127229fa4856c"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "5c19c786dde8e5a07d68c86da42c0ed27ba75115dae03752b443b9c39e55f675"
+        },
+        {
+          "path": "web/text-input.js",
+          "sha256": "b051164b360163266e7426c5677c1804772a244f3658a8e0c95e15c3f03b12b8"
+        },
+        {
+          "path": "web/video.js",
+          "sha256": "4ce76f7a290e78ca773fa3415ec7a2e23c0e95031372b4971f4f809407bb588b"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-DISPLAY",
+        "recordedHead": "fea2333c209d4b517bdc1a7fa5b3a44edf133a03",
+        "sourceCapturedAt": "2026-10-28T14:22:34.980391+00:00",
+        "verifiedAt": "2026-10-28T14:22:34.980391+00:00",
+        "sourceManifestSha256": "598780c51ef5182da8f7576e1afc2381b88f5311d186e2e21d485421326d6c0c",
+        "browser": "Codex in-app browser, actual browser controls and local HTTP",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Ordinary Stage/display export passed 25/25 after affected fixes. Actual fullscreen entry and Escape exit, exactFit/showAll sizing, authored menu selection with disabled/hidden items, two A-to-B trackAsMenu drags, decoded media and smoothing were observed. Existing Selection.getFocus path was corrected to the shared Rust display target path; the affected text-form workflow passed its focused rerun. Existing aliases remain source-reviewed rather than individually browser-tested. Final source bytes reviewed; not an independent per-declaration or original Flash conformance run.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:Stage.html#align",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust layout policy drives actual browser viewport sizing and context-menu suppression. Fullscreen uses user-activated browser requests/events and monitor facts. noScale requires TL; source rect must fit authored stage. Browser rejection stays explicit. No wmodeGPU or original-player fidelity."
+        },
+        {
+          "catalogId": "as2:Stage.html#scaleMode",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust layout policy drives actual browser viewport sizing and context-menu suppression. Fullscreen uses user-activated browser requests/events and monitor facts. noScale requires TL; source rect must fit authored stage. Browser rejection stays explicit. No wmodeGPU or original-player fidelity."
+        },
+        {
+          "catalogId": "as2:Stage.html#showMenu",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust layout policy drives actual browser viewport sizing and context-menu suppression. Fullscreen uses user-activated browser requests/events and monitor facts. noScale requires TL; source rect must fit authored stage. Browser rejection stays explicit. No wmodeGPU or original-player fidelity."
+        },
+        {
+          "catalogId": "as2:Stage.html#displayState",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust layout policy drives actual browser viewport sizing and context-menu suppression. Fullscreen uses user-activated browser requests/events and monitor facts. noScale requires TL; source rect must fit authored stage. Browser rejection stays explicit. No wmodeGPU or original-player fidelity."
+        },
+        {
+          "catalogId": "as2:Stage.html#fullScreenHeight",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust layout policy drives actual browser viewport sizing and context-menu suppression. Fullscreen uses user-activated browser requests/events and monitor facts. noScale requires TL; source rect must fit authored stage. Browser rejection stays explicit. No wmodeGPU or original-player fidelity."
+        },
+        {
+          "catalogId": "as2:Stage.html#fullScreenWidth",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust layout policy drives actual browser viewport sizing and context-menu suppression. Fullscreen uses user-activated browser requests/events and monitor facts. noScale requires TL; source rect must fit authored stage. Browser rejection stays explicit. No wmodeGPU or original-player fidelity."
+        },
+        {
+          "catalogId": "as2:Stage.html#fullScreenSourceRect",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust layout policy drives actual browser viewport sizing and context-menu suppression. Fullscreen uses user-activated browser requests/events and monitor facts. noScale requires TL; source rect must fit authored stage. Browser rejection stays explicit. No wmodeGPU or original-player fidelity."
+        },
+        {
+          "catalogId": "as2:Stage.html#event:onFullScreen",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust layout policy drives actual browser viewport sizing and context-menu suppression. Fullscreen uses user-activated browser requests/events and monitor facts. noScale requires TL; source rect must fit authored stage. Browser rejection stays explicit. No wmodeGPU or original-player fidelity."
+        },
+        {
+          "catalogId": "as2:Stage.html#width",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: extended. Actual noScale viewport dimensions and logical-size change notifications; authored dimensions retained in scaled modes. AS3 facade unchanged."
+        },
+        {
+          "catalogId": "as2:Stage.html#height",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: extended. Actual noScale viewport dimensions and logical-size change notifications; authored dimensions retained in scaled modes. AS3 facade unchanged."
+        },
+        {
+          "catalogId": "as2:Stage.html#event:onResize",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: extended. Actual noScale viewport dimensions and logical-size change notifications; authored dimensions retained in scaled modes. AS3 facade unchanged."
+        },
+        {
+          "catalogId": "as2:flash/geom/ColorTransform.html#rgb",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2-only rgb maps to shared Rust ColorTransform color getter/setter; copied geometry values and bounded finite 2D profile."
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#containsRectangle()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2-only name maps to existing Rust containsRect rectangle containment; no new geometry algorithm."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#trackAsMenu",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates AS2 menu-tracking and focus policy; actual pressed-target transfer and explicit yellow focus bounds for focused clips/buttons. Unspecified focus defaults and exact Flash highlighting are not claimed; Button aliases share the implementation."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_focusrect",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates AS2 menu-tracking and focus policy; actual pressed-target transfer and explicit yellow focus bounds for focused clips/buttons. Unspecified focus defaults and exact Flash highlighting are not claimed; Button aliases share the implementation."
+        },
+        {
+          "catalogId": "as2:Button.html#trackAsMenu",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates AS2 menu-tracking and focus policy; actual pressed-target transfer and explicit yellow focus bounds for focused clips/buttons. Unspecified focus defaults and exact Flash highlighting are not claimed; Button aliases share the implementation."
+        },
+        {
+          "catalogId": "as2:Button.html#_focusrect",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates AS2 menu-tracking and focus policy; actual pressed-target transfer and explicit yellow focus bounds for focused clips/buttons. Unspecified focus defaults and exact Flash highlighting are not claimed; Button aliases share the implementation."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#forceSmoothing",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust propagates forceSmoothing to actually loaded MovieClip PNG/JPEG bitmap content, preserving the source bitmap smoothing when false. No SWF/video smoothing override."
+        },
+        {
+          "catalogId": "as2:Video.html#width",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 width/height expose actual decoded source pixels through existing video metadata; _width/_height continue to resize the viewport."
+        },
+        {
+          "catalogId": "as2:Video.html#height",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. AS2 width/height expose actual decoded source pixels through existing video metadata; _width/_height continue to resize the viewport."
+        },
+        {
+          "catalogId": "as2:Video.html#_alpha",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live Rust display transforms, names/parent identities and local pointer coordinates already apply to authored AS2 Video. Newly reviewed catalogue rows; not new transform code."
+        },
+        {
+          "catalogId": "as2:Video.html#_height",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live Rust display transforms, names/parent identities and local pointer coordinates already apply to authored AS2 Video. Newly reviewed catalogue rows; not new transform code."
+        },
+        {
+          "catalogId": "as2:Video.html#_name",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live Rust display transforms, names/parent identities and local pointer coordinates already apply to authored AS2 Video. Newly reviewed catalogue rows; not new transform code."
+        },
+        {
+          "catalogId": "as2:Video.html#_parent",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live Rust display transforms, names/parent identities and local pointer coordinates already apply to authored AS2 Video. Newly reviewed catalogue rows; not new transform code."
+        },
+        {
+          "catalogId": "as2:Video.html#_rotation",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live Rust display transforms, names/parent identities and local pointer coordinates already apply to authored AS2 Video. Newly reviewed catalogue rows; not new transform code."
+        },
+        {
+          "catalogId": "as2:Video.html#_visible",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live Rust display transforms, names/parent identities and local pointer coordinates already apply to authored AS2 Video. Newly reviewed catalogue rows; not new transform code."
+        },
+        {
+          "catalogId": "as2:Video.html#_width",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live Rust display transforms, names/parent identities and local pointer coordinates already apply to authored AS2 Video. Newly reviewed catalogue rows; not new transform code."
+        },
+        {
+          "catalogId": "as2:Video.html#_x",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live Rust display transforms, names/parent identities and local pointer coordinates already apply to authored AS2 Video. Newly reviewed catalogue rows; not new transform code."
+        },
+        {
+          "catalogId": "as2:Video.html#_xmouse",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live Rust display transforms, names/parent identities and local pointer coordinates already apply to authored AS2 Video. Newly reviewed catalogue rows; not new transform code."
+        },
+        {
+          "catalogId": "as2:Video.html#_xscale",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live Rust display transforms, names/parent identities and local pointer coordinates already apply to authored AS2 Video. Newly reviewed catalogue rows; not new transform code."
+        },
+        {
+          "catalogId": "as2:Video.html#_y",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live Rust display transforms, names/parent identities and local pointer coordinates already apply to authored AS2 Video. Newly reviewed catalogue rows; not new transform code."
+        },
+        {
+          "catalogId": "as2:Video.html#_ymouse",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live Rust display transforms, names/parent identities and local pointer coordinates already apply to authored AS2 Video. Newly reviewed catalogue rows; not new transform code."
+        },
+        {
+          "catalogId": "as2:Video.html#_yscale",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live Rust display transforms, names/parent identities and local pointer coordinates already apply to authored AS2 Video. Newly reviewed catalogue rows; not new transform code."
+        },
+        {
+          "catalogId": "as2:Button.html#_name",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing shared live display name getter/setter; bounded UTF-8 name validation. Newly reviewed row, not new implementation."
+        },
+        {
+          "catalogId": "as2:Selection.html#addListener()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live listener registration/removal and old/new focus delivery through shared text-input focus transitions; late callbacks are generation guarded. Not new implementation."
+        },
+        {
+          "catalogId": "as2:Selection.html#removeListener()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live listener registration/removal and old/new focus delivery through shared text-input focus transitions; late callbacks are generation guarded. Not new implementation."
+        },
+        {
+          "catalogId": "as2:Selection.html#event:onSetFocus",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing live listener registration/removal and old/new focus delivery through shared text-input focus transitions; late callbacks are generation guarded. Not new implementation."
+        },
+        {
+          "catalogId": "as2:flash/geom/Transform.html#concatenatedColorTransform",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing copied world transform/color and bounded integer geometry bounds in logical stage coordinates. No exact filter-expanded pixel oracle. Not new implementation."
+        },
+        {
+          "catalogId": "as2:flash/geom/Transform.html#concatenatedMatrix",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing copied world transform/color and bounded integer geometry bounds in logical stage coordinates. No exact filter-expanded pixel oracle. Not new implementation."
+        },
+        {
+          "catalogId": "as2:flash/geom/Transform.html#pixelBounds",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: reviewed-existing. Existing copied world transform/color and bounded integer geometry bounds in logical stage coordinates. No exact filter-expanded pixel oracle. Not new implementation."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#ContextMenu()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#builtInItems",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#copy()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#customItems",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#event:onSelect",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#hideBuiltInItems()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#ContextMenuItem()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#caption",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#copy()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#enabled",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#event:onSelect",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#separatorBefore",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#visible",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#menu",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:Button.html#menu",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:TextField.html#menu",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Rust validates custom items, limits and visible row plans; actual Canvas contextmenu UI dispatches live owner/menu callbacks. Built-in play/rewind/forward_back/print perform real actions; zoom/quality/loop are explicitly unavailable. Menu/item copy preserves callbacks and independently copies item values. Native text-edit menus, inherited custom properties and exact Flash restrictions remain outside this profile."
+        },
+        {
+          "catalogId": "as2:Selection.html#getFocus()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: extended. Corrected existing Selection.getFocus path to reuse shared Rust display targetPath, avoiding inclusion of the publication root display name; this is an existing support correction, not a new declaration."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-INCLUDES-LOCALE",
+      "title": "AS2 runtime two-hour delivery: includes-locale",
+      "reason": "Bounded AS2-only delivery against fea2333. New implementations, extensions and corrections are accounted separately. Whole-family checks do not imply individual declaration or original Flash conformance. AS3 entries are unchanged.",
+      "limitations": "Rust project-contained nested AS2 resource includes with diagnostic origin mapping, plus Rust Locale plain-field replacement plans applied before successful XLIFF load callbacks. No arbitrary disk/network includes, AS2 class-unit includes, initclip/intrinsic or editor Strings panel; no rich text or full historical Locale semantics. Delivery observations: Ordinary includes/Locale export passed 6/0 initially and 11/0 after the real reload button, with nested resources and visible automatic/manual plain-field replacement. Compiler checks cover bounded include diagnostics separately; no authoring UI or original Flash comparison was run.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as2_locale.rs",
+          "sha256": "ee8af5753d15dff0cbf00c3660fbd16c0cf2f680524c8b83343addfeceb3ffff"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "215694a86f7e8bf281e10e89c0760dc4138c36d2bbb69790a81bcf4a73cb004f"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "aa171143c0c7ca76ab53db68b7fbcad69b938faa9166749d1e82080e0572cb82"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/includes.rs",
+          "sha256": "bfb61fe80d6d900f99b19390fd5d435692fdfd86256db36d39883e919dbe943b"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "0c8cecced8acef42269bb328803e530fd58a859f5286d897a69f3f7d9ebdd58d"
+        },
+        {
+          "path": "docs/AS2-INCLUDES-LOCALE-BATCH.md",
+          "sha256": "d8e3fad6118858f2ff0f8eeaef89d93151828110226b3f005c33336a17306c34"
+        },
+        {
+          "path": "examples/as2-runtime-language-batch.nflash",
+          "sha256": "3079bb062f32e9d4ebc65dde38d937a5cd3e78b19ce82839decab15a4f29ebc8"
+        },
+        {
+          "path": "web/as2-locale.js",
+          "sha256": "c419966881b46f73cb531b26b796115bbacf7bb1bd930f9a6f9abb7ae1f7bc82"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "5c19c786dde8e5a07d68c86da42c0ed27ba75115dae03752b443b9c39e55f675"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-INCLUDES-LOCALE",
+        "recordedHead": "fea2333c209d4b517bdc1a7fa5b3a44edf133a03",
+        "sourceCapturedAt": "2026-10-28T14:22:34.980391+00:00",
+        "verifiedAt": "2026-10-28T14:22:34.980391+00:00",
+        "sourceManifestSha256": "fa8f8a529d06385ab9a0493aa560156654e66e3449b43c7ebd66b57f4111d575",
+        "browser": "Codex in-app browser, actual browser controls and local HTTP",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Ordinary includes/Locale export passed 6/0 initially and 11/0 after the real reload button, with nested resources and visible automatic/manual plain-field replacement. Compiler checks cover bounded include diagnostics separately; no authoring UI or original Flash comparison was run. Final source bytes reviewed; not an independent per-declaration or original Flash conformance run.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:directives.html##include()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Project-contained nested AS2 includes and Rust-owned automatic plain TextField Locale replacement; bounded source/text profile, no authoring panel or full historical semantics."
+        },
+        {
+          "catalogId": "as2:mx/lang/Locale.html#addDelayedInstance()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Project-contained nested AS2 includes and Rust-owned automatic plain TextField Locale replacement; bounded source/text profile, no authoring panel or full historical semantics."
+        },
+        {
+          "catalogId": "as2:mx/lang/Locale.html#autoReplace",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Change accounting: new. Project-contained nested AS2 includes and Rust-owned automatic plain TextField Locale replacement; bounded source/text profile, no authoring panel or full historical semantics."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-PRINT",
+      "title": "AS2 runtime two-hour delivery: print",
+      "reason": "Bounded AS2-only delivery against fea2333. New implementations, extensions and corrections are accounted separately. Whole-family checks do not imply individual declaration or original Flash conformance. AS3 entries are unchanged.",
+      "limitations": "Rust scene capture/PNG and print policy produce bitmap pages for an owned browser print window. CSS A4 portrait/36-point margins are explicit virtual output geometry, never physical printer facts. Explicit bitmap/current-frame profile only; no physical printing or original Flash dialog/device parity. Delivery observations: An actual Print scene click successfully captured two bitmap pages, with two true addPage results, virtual printable geometry 523x770 and paper 595x842 portrait, and invoked send without a recorded console error. The owned popup was not exposed among available browser tabs. Visual print-preview content, system print dialog and cancellation were not verified; no physical printing was performed or claimed.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as2_platform.rs",
+          "sha256": "c033bd4e6747524d1a2eef9c09319d20ddb2c41269be96b2439ee67dd2909750"
+        },
+        {
+          "path": "crates/neoflash-export/src/lib.rs",
+          "sha256": "215694a86f7e8bf281e10e89c0760dc4138c36d2bbb69790a81bcf4a73cb004f"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "aa171143c0c7ca76ab53db68b7fbcad69b938faa9166749d1e82080e0572cb82"
+        },
+        {
+          "path": "crates/neoflash-web/src/as2_platform.rs",
+          "sha256": "8b2fc0038473da21894a4c0070af2f1a928430faa7531f4103d0c0a3baef1a7a"
+        },
+        {
+          "path": "docs/AS2-PRINT-BATCH.md",
+          "sha256": "05b06df0d10aba8e3236f4e0d69c65c6797e12f77d39982f8ef1d577eefbe6df"
+        },
+        {
+          "path": "examples/as2-capture-batch.nflash",
+          "sha256": "f092dae06b3028fb8591073217dde9e99140301af6e287e05bf2106865fd4b4e"
+        },
+        {
+          "path": "web/as2-print.js",
+          "sha256": "c294bd8b44c5eabf033b87c3a2f67a2fcebba21323cfc26c573efebad84da741"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "5c19c786dde8e5a07d68c86da42c0ed27ba75115dae03752b443b9c39e55f675"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-RUNTIME-TWO-HOUR-20261028-PRINT",
+        "recordedHead": "fea2333c209d4b517bdc1a7fa5b3a44edf133a03",
+        "sourceCapturedAt": "2026-10-28T14:22:34.980391+00:00",
+        "verifiedAt": "2026-10-28T14:22:34.980391+00:00",
+        "sourceManifestSha256": "4f96140a8c28d85dceef4b0abfc3c0fb2325a7fc0289ed259ed7af9c33601258",
+        "browser": "Codex in-app browser; authored Print scene click and capture/send trace; popup preview surface unavailable",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "An actual Print scene click successfully captured two bitmap pages, with two true addPage results, virtual printable geometry 523x770 and paper 595x842 portrait, and invoked send without a recorded console error. The owned popup was not exposed among available browser tabs. Visual print-preview content, system print dialog and cancellation were not verified; no physical printing was performed or claimed. Final source bytes reviewed; not an independent per-declaration or original Flash conformance run.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:PrintJob.html#PrintJob()",
+          "status": "partial",
+          "evidenceKind": "source_review_native_policy_actual_browser_capture_and_send_preview_unverified",
+          "scopeNote": "Change accounting: new. Virtual CSS A4 portrait bitmap page profile; actual shared scene PNGs and browser print preview, no physical printer facts, explicit printAsBitmap/current frame only."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#addPage()",
+          "status": "partial",
+          "evidenceKind": "source_review_native_policy_actual_browser_capture_and_send_preview_unverified",
+          "scopeNote": "Change accounting: new. Virtual CSS A4 portrait bitmap page profile; actual shared scene PNGs and browser print preview, no physical printer facts, explicit printAsBitmap/current frame only."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_native_policy_actual_browser_capture_and_send_preview_unverified",
+          "scopeNote": "Change accounting: new. Virtual CSS A4 portrait bitmap page profile; actual shared scene PNGs and browser print preview, no physical printer facts, explicit printAsBitmap/current frame only."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#orientation",
+          "status": "partial",
+          "evidenceKind": "source_review_native_policy_actual_browser_capture_and_send_preview_unverified",
+          "scopeNote": "Change accounting: new. Virtual CSS A4 portrait bitmap page profile; actual shared scene PNGs and browser print preview, no physical printer facts, explicit printAsBitmap/current frame only."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#pageHeight",
+          "status": "partial",
+          "evidenceKind": "source_review_native_policy_actual_browser_capture_and_send_preview_unverified",
+          "scopeNote": "Change accounting: new. Virtual CSS A4 portrait bitmap page profile; actual shared scene PNGs and browser print preview, no physical printer facts, explicit printAsBitmap/current frame only."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#pageWidth",
+          "status": "partial",
+          "evidenceKind": "source_review_native_policy_actual_browser_capture_and_send_preview_unverified",
+          "scopeNote": "Change accounting: new. Virtual CSS A4 portrait bitmap page profile; actual shared scene PNGs and browser print preview, no physical printer facts, explicit printAsBitmap/current frame only."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#paperHeight",
+          "status": "partial",
+          "evidenceKind": "source_review_native_policy_actual_browser_capture_and_send_preview_unverified",
+          "scopeNote": "Change accounting: new. Virtual CSS A4 portrait bitmap page profile; actual shared scene PNGs and browser print preview, no physical printer facts, explicit printAsBitmap/current frame only."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#paperWidth",
+          "status": "partial",
+          "evidenceKind": "source_review_native_policy_actual_browser_capture_and_send_preview_unverified",
+          "scopeNote": "Change accounting: new. Virtual CSS A4 portrait bitmap page profile; actual shared scene PNGs and browser print preview, no physical printer facts, explicit printAsBitmap/current frame only."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#send()",
+          "status": "partial",
+          "evidenceKind": "source_review_native_policy_actual_browser_capture_and_send_preview_unverified",
+          "scopeNote": "Change accounting: new. Virtual CSS A4 portrait bitmap page profile; actual shared scene PNGs and browser print preview, no physical printer facts, explicit printAsBitmap/current frame only."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#start()",
+          "status": "partial",
+          "evidenceKind": "source_review_native_policy_actual_browser_capture_and_send_preview_unverified",
+          "scopeNote": "Change accounting: new. Virtual CSS A4 portrait bitmap page profile; actual shared scene PNGs and browser print preview, no physical printer facts, explicit printAsBitmap/current frame only."
+        }
+      ]
+    }
+  ]
+}

@@ -104,7 +104,7 @@ fn core_syntax_boundaries_keep_actionable_diagnostics() {
     }
     for source in [
         "var expression=/a/;",
-        "var value=new Boolean(false);",
+        "var value=new Camera();",
         "var value=1 is Number;",
     ] {
         assert!(

@@ -1,0 +1,677 @@
+{
+  "format_version": 3,
+  "name": "AS2 local camera and microphone",
+  "width": 1000,
+  "height": 650,
+  "fps": 24,
+  "background": [
+    13,
+    24,
+    37,
+    255
+  ],
+  "root": "scene",
+  "document_class": "app.CaptureMain",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "AS2 local camera and microphone",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "heading",
+                    "name": "heading",
+                    "transform": {
+                      "x": 40,
+                      "y": 40,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Local Camera + Microphone",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        220,
+                        235,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 40,
+                      "y": 100,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Discovery runs without permission prompts. Capture starts only from an explicit button click.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        220,
+                        235,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "policy",
+                    "name": "policy",
+                    "transform": {
+                      "x": 40,
+                      "y": 130,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Hardware acceptance is intentionally pending. Microphone gain starts at zero.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        220,
+                        235,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "result",
+                    "name": "result",
+                    "transform": {
+                      "x": 40,
+                      "y": 185,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Discovering browser device metadata...",
+                      "font_family": "Arial",
+                      "font_size": 20,
+                      "color": [
+                        220,
+                        235,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "detail",
+                    "name": "detail",
+                    "transform": {
+                      "x": 40,
+                      "y": 225,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        220,
+                        235,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "preview",
+                    "name": "preview",
+                    "transform": {
+                      "x": 40,
+                      "y": 285,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "video",
+                      "width": 320,
+                      "height": 240
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 400,
+                      "y": 300,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "No capture requested.",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        220,
+                        235,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "activity",
+                    "name": "activity",
+                    "transform": {
+                      "x": 400,
+                      "y": 340,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Measurements appear only while a track is active.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        220,
+                        235,
+                        247,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "cameraButton",
+                    "name": "cameraButton",
+                    "transform": {
+                      "x": 40,
+                      "y": 570,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "camera-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.startCamera();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "microphoneButton",
+                    "name": "microphoneButton",
+                    "transform": {
+                      "x": 300,
+                      "y": 570,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "microphone-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.startMicrophone();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "stopButton",
+                    "name": "stopButton",
+                    "transform": {
+                      "x": 540,
+                      "y": 570,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "stop-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.stopCapture();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "printButton",
+                    "name": "printButton",
+                    "transform": {
+                      "x": 760,
+                      "y": 570,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "print-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.printScene();"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "camera-control",
+      "name": "Start camera",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "camera-control-layer-0",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "camera-control-element-0-0",
+                    "name": "play-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 44,
+                      "fill": [
+                        101,
+                        228,
+                        189,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "camera-control-element-0-1",
+                    "name": "caption",
+                    "transform": {
+                      "x": 13,
+                      "y": 12,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Start camera",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        13,
+                        29,
+                        41,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "microphone-control",
+      "name": "Start microphone",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "microphone-control-layer-0",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "microphone-control-element-0-0",
+                    "name": "play-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 44,
+                      "fill": [
+                        101,
+                        228,
+                        189,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "microphone-control-element-0-1",
+                    "name": "caption",
+                    "transform": {
+                      "x": 13,
+                      "y": 12,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Start microphone",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        13,
+                        29,
+                        41,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "stop-control",
+      "name": "Stop capture",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "stop-control-layer-0",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "stop-control-element-0-0",
+                    "name": "play-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 200,
+                      "height": 44,
+                      "fill": [
+                        101,
+                        228,
+                        189,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "stop-control-element-0-1",
+                    "name": "caption",
+                    "transform": {
+                      "x": 13,
+                      "y": 12,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Stop capture",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        13,
+                        29,
+                        41,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "print-control",
+      "name": "Print scene",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "print-control-layer-0",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "print-control-element-0-0",
+                    "name": "play-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 180,
+                      "height": 44,
+                      "fill": [
+                        101,
+                        228,
+                        189,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "print-control-element-0-1",
+                    "name": "caption",
+                    "transform": {
+                      "x": 13,
+                      "y": 12,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Print scene",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        13,
+                        29,
+                        41,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "as2-capture-main",
+      "path": "app/CaptureMain.as",
+      "language": "action_script2",
+      "source": "class app.CaptureMain extends MovieClip {\n public var camera:Camera;\n public var microphone:Microphone;\n public var checks:Number=0;\n public var passed:Number=0;\n public var timer:Number=0;\n public function CaptureMain(){super();stop();Camera.refresh(function(ok:Boolean,error:String):Void{_root.discovered(ok,error);});}\n public function check(label:String,ok:Boolean):Void{checks++;if(ok)passed++;trace(\"AS2_CAPTURE_CHECK \"+label+\" \"+ok);}\n public function discovered(ok:Boolean,error:String):Void{\n  var cameras:Array=Camera.names;var microphones:Array=Microphone.names;\n  check(\"discovery arrays\",cameras instanceof Array&&microphones instanceof Array);\n  check(\"discovery result is explicit\",typeof ok==\"boolean\"&&typeof error==\"string\");\n  camera=Camera.get();microphone=Microphone.get();\n  check(\"enumerated identity or absence\",(camera==null?cameras.length==0:camera==Camera.get()&&camera.index==0)&&(microphone==null?microphones.length==0:microphone==Microphone.get()&&microphone.index==0));\n  check(\"out of range devices\",Camera.get(10000)==null&&Microphone.get(10000)==null);\n  check(\"no invented active measurements\",(camera==null||camera.activityLevel==-1&&camera.currentFps==0&&camera.width==0&&camera.height==0&&camera.muted)&&(microphone==null||microphone.activityLevel==-1&&microphone.muted));\n  if(camera!=null){camera.setMode(320,240,20,true);camera.setMotionLevel(20,500);camera.onStatus=function(info:Object):Void{_root.status.text=info.code;trace(\"AS2_CAPTURE_STATUS \"+info.code);};camera.onActivity=function(active:Boolean):Void{trace(\"AS2_CAPTURE_CAMERA_ACTIVITY \"+active);};}\n  check(\"camera policy when enumerated\",camera==null||camera.fps==20&&camera.motionLevel==20&&camera.motionTimeOut==500);\n  if(microphone!=null){microphone.setGain(0);microphone.setSilenceLevel(10,500);microphone.onStatus=function(info:Object):Void{_root.status.text=info.code;trace(\"AS2_CAPTURE_STATUS \"+info.code);};microphone.onActivity=function(active:Boolean):Void{trace(\"AS2_CAPTURE_MICROPHONE_ACTIVITY \"+active);};}\n  check(\"microphone policy when enumerated\",microphone==null||microphone.gain==0&&microphone.silenceLevel==10&&microphone.silenceTimeOut==500);\n  preview.attachVideo(null);attachAudio(null);check(\"idle detach\",preview.videoWidth==0&&preview.videoHeight==0);\n  result.text=\"Metadata / policy checks \"+passed+\" / \"+checks;\n  detail.text=\"Enumerated cameras: \"+cameras.length+\" | microphones: \"+microphones.length+\" | discovery available: \"+ok;\n  trace(\"AS2_CAPTURE_RESULT \"+passed+\"/\"+checks+\" hardware=not-requested\");\n }\n public function printScene():Void{var job:PrintJob=new PrintJob();if(!job.start()){status.text=\"Print popup was blocked or closed.\";return;}var first:Boolean=job.addPage(0,{xMin:0,yMin:0,xMax:500,yMax:650},{printAsBitmap:true});var second:Boolean=job.addPage(0,{xMin:500,yMin:0,xMax:1000,yMax:650},{printAsBitmap:true});if(first||second){status.text=\"Two raster pages prepared; cancel in the browser to avoid printing.\";trace(\"AS2_PRINT_PAGES \"+first+\" \"+second+\" page=\"+job.pageWidth+\"x\"+job.pageHeight+\" paper=\"+job.paperWidth+\"x\"+job.paperHeight+\" \"+job.orientation);job.send();}}\n public function startCamera():Void{if(camera==null){status.text=\"No camera is currently enumerated.\";return;}preview.attachVideo(camera);status.text=\"Camera permission requested by your click.\";startMeter();}\n public function startMicrophone():Void{if(microphone==null){status.text=\"No microphone is currently enumerated.\";return;}attachAudio(microphone);status.text=\"Microphone permission requested; gain remains zero.\";startMeter();}\n public function startMeter():Void{if(timer==0)timer=setInterval(this,\"measure\",500);}\n public function measure():Void{var line:String=\"\";if(camera!=null)line=\"Camera: \"+camera.width+\" x \"+camera.height+\" | activity \"+camera.activityLevel;if(microphone!=null)line=line+\"\\nMicrophone activity: \"+microphone.activityLevel;activity.text=line;}\n public function stopCapture():Void{preview.attachVideo(null);attachAudio(false);if(timer!=0){clearInterval(timer);timer=0;}status.text=\"Capture released. Detached video retains its last frame.\";measure();trace(\"AS2_CAPTURE_DETACHED\");}\n}\n"
+    }
+  ],
+  "resources": []
+}

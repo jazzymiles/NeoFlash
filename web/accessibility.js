@@ -139,6 +139,7 @@
   class SemanticLayer {
     constructor(container, onActivate) { this.container=container; this.onActivate=onActivate; this.records=new Map(); this.nextId=1; this.restoringFocus=false; }
     update(nodes, scene, project, scale, measureText) {
+      const scaleX=typeof scale==='object'?scale.x:scale,scaleY=typeof scale==='object'?scale.y:scale;
       const doc=this.container.ownerDocument, previouslyFocused=doc.activeElement, wanted=[];
       const boundsByPath=sceneBoundsByPath(scene,project.width,project.height,measureText);
       for (const node of nodes) {
@@ -167,7 +168,7 @@
         if (metadata.description) { if(record.description.textContent!==metadata.description)record.description.textContent=metadata.description; if(element.getAttribute('aria-describedby')!==record.description.id)element.setAttribute('aria-describedby',record.description.id); }
         else { if(record.description.textContent)record.description.textContent=''; if(element.getAttribute('aria-describedby'))element.removeAttribute('aria-describedby'); }
         if (metadata.role==='button') element.disabled=Boolean(metadata.disabled);
-        Object.assign(element.style,{left:bounds.left*scale+'px',top:bounds.top*scale+'px',width:(bounds.right-bounds.left)*scale+'px',height:(bounds.bottom-bounds.top)*scale+'px'});
+        Object.assign(element.style,{left:bounds.left*scaleX+'px',top:bounds.top*scaleY+'px',width:(bounds.right-bounds.left)*scaleX+'px',height:(bounds.bottom-bounds.top)*scaleY+'px'});
         wanted.push(record);
       }
       const retained=new Set(wanted);

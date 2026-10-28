@@ -16,7 +16,7 @@ export const stringsProfile = {
     'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/StringClass.cpp',
     'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/StringObject.cpp',
   ],
-  boundary: 'Primitive UTF-16 strings, at most 1000000 code units/results. AS2 follows the named AVM1 implementation for later-SWF defaults and integer positions, not an original-player oracle. AS3 RegExp construction and literals support matching/search/replacement/split through a bounded JavaScript-engine facade; AS2 native RegExp, PCRE-only syntax and custom pattern objects remain unsupported. No AS2 boxed String, native method extraction or prototype augmentation. AS3 localeCompare uses the SWF11+ UTF-16 comparison profile; locale case methods share the historical case maps, not OS locale data. AS2 String algorithms and historical SWF casing tables run in the shared Rust core. AS3 primitive string operations, literal replacement, URI codecs and historical casing now run in Rust; browser Date parsing/timezone, regex operations and general object conversion retain the existing JavaScript-backed profile; complete AVM coercion is not claimed. AS2 extra arguments are evaluated then ignored; AS3 fixed-arity methods diagnose excess arguments because their arity behavior is not verified. This is not a claimed Flash ArgumentError. Constructor arguments after the first are ignored as in the pinned implementation.',
+  boundary: 'Primitive UTF-16 strings, at most 1000000 code units/results. AS2 follows the named AVM1 implementation for later-SWF defaults and integer positions, not an original-player oracle. AS3 RegExp construction and literals support matching/search/replacement/split through a bounded JavaScript-engine facade; AS2 native RegExp, PCRE-only syntax and custom pattern objects remain unsupported. AS2 boxed String uses the bounded shared boxing/UTF-16 profile; native primitive method extraction and prototype augmentation remain unsupported. AS3 localeCompare uses the SWF11+ UTF-16 comparison profile; locale case methods share the historical case maps, not OS locale data. AS2 String algorithms and historical SWF casing tables run in the shared Rust core. AS3 primitive string operations, literal replacement, URI codecs and historical casing now run in Rust; browser Date parsing/timezone, regex operations and general object conversion retain the existing JavaScript-backed profile; complete AVM coercion is not claimed. AS2 extra arguments are evaluated then ignored; AS3 fixed-arity methods diagnose excess arguments because their arity behavior is not verified. This is not a claimed Flash ArgumentError. Constructor arguments after the first are ignored as in the pinned implementation.',
   distinctions: 'AS2 fromCharCode stops at zero; missing search/slice/substr/substring arguments return undefined. AS3 nullable typed search arguments do not match, explicit undefined numeric endpoints convert to zero, and string-pattern replace inserts replacement text literally after converting it before the pattern. AS3 split follows StringClass.cpp: undefined delimiter becomes the text undefined; an empty subject gives one empty result when limit is nonzero. These pinned VM details are more specific than the reference summaries. AS3 new String returns a primitive; constructor aliases under new are not supported.',
 };
 
@@ -199,7 +199,7 @@ export function verifyStringsAdapter() {
   const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
   const code=['regexp.js','strings.js'].map(name=>readFileSync(resolve(root,'crates/neoflash-script/src/actionscript',name),'utf8')).join('\n');
   const services=createStringServices();
-  const api=new Function('__nfTypeError','__nfString','__nfNumber','__nfErrorTypes','__nfAs2Strings','__nfAs3Strings',code+'\nreturn {method:__nfStringMethod,create:__nfStringCreate,type:__nfStringClass,value:__nfStringMethodValue};')(TypeError,String,Number,{SyntaxError},()=>services.strings,()=>services.strings3);
+  const api=new Function('__nfTypeError','__nfString','__nfNumber','__nfErrorTypes','__nfAs2Strings','__nfAs3Strings','__nfBoxCreate',code+'\nreturn {method:__nfStringMethod,create:__nfStringCreate,type:__nfStringClass,value:__nfStringMethodValue};')(TypeError,String,Number,{SyntaxError},()=>services.strings,()=>services.strings3,(name,args)=>services.boxing.create(name,args));
   const originalLower=String.prototype.toLowerCase;
   for(const as3 of [false,true]) {
     const call=(text,name,...args)=>api.method(text,name,as3)(...args);
@@ -243,7 +243,7 @@ export function verifyStringsAdapter() {
       assert.deepEqual(call('a,b','split',',',null),['a','b']);
       assert.throws(()=>call('abc','charAt',0,1),/excess-argument/);
     } else {
-      assert.throws(()=>api.create(false,['box'],true),/boxed String/);
+      const box=api.create(false,['box'],true);assert.equal(typeof box,'object');assert.equal(box.valueOf(),'box');assert.equal(box.length,3);assert.equal(box.toUpperCase(),'BOX');
       assert.throws(()=>call('red','replace','red','x'),/not an AS2 native/);
     }
     assert.throws(()=>call('x'.repeat(1000000),'concat','y'),/supported string limit/);

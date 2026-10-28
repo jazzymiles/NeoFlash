@@ -1765,6 +1765,48 @@ fn image_loading_owns_content_and_replaces_timelines(mut project: Project) {
         .loader_replace(&project, &holder, Some(first.clone()), true)
         .unwrap();
     let as2_content = replaced.content_ref.unwrap();
+    player
+        .as2_input_command(
+            &project,
+            &holder,
+            serde_json::json!({"op":"set","name":"forceSmoothing","value":true}),
+        )
+        .unwrap();
+    assert!(
+        player
+            .runtime_snapshot(&project)
+            .draws
+            .iter()
+            .any(|draw| draw.owner_ref == as2_content
+                && matches!(
+                    draw.item.kind,
+                    RuntimeDrawKind::BitmapPixels {
+                        smoothing: true,
+                        ..
+                    }
+                ))
+    );
+    player
+        .as2_input_command(
+            &project,
+            &holder,
+            serde_json::json!({"op":"set","name":"forceSmoothing","value":false}),
+        )
+        .unwrap();
+    assert!(
+        player
+            .runtime_snapshot(&project)
+            .draws
+            .iter()
+            .any(|draw| draw.owner_ref == as2_content
+                && matches!(
+                    draw.item.kind,
+                    RuntimeDrawKind::BitmapPixels {
+                        smoothing: false,
+                        ..
+                    }
+                ))
+    );
     assert!(replaced.retired_refs.contains(&old_child));
     assert!(replaced.retired_refs.contains(&runtime_child));
     assert!(!player.object_alive(&old_child));

@@ -10,6 +10,8 @@ pub struct ScriptAS2Stream {
     audio: bool,
     video: bool,
     frames: VecDeque<(f64, f64)>,
+    buffer_time: f64,
+    buffer_waiting: bool,
 }
 impl Default for ScriptAS2Stream {
     fn default() -> Self {
@@ -17,6 +19,8 @@ impl Default for ScriptAS2Stream {
             audio: true,
             video: true,
             frames: VecDeque::new(),
+            buffer_time: 0.1,
+            buffer_waiting: true,
         }
     }
 }
@@ -41,6 +45,7 @@ impl ScriptAS2Stream {
             }
             "reset" => {
                 self.frames.clear();
+                self.buffer_waiting = true;
                 Value::Null
             }
             "frame" => {
@@ -78,26 +83,53 @@ impl ScriptAS2Stream {
                 }
                 json!(fps)
             }
-            "buffer" => {
-                let time = finite(&q["time"], "Stream time", 0., 86400. * 365.)?;
-                let ranges = q["ranges"]
-                    .as_array()
-                    .filter(|v| v.len() <= 256)
-                    .ok_or("Browser buffered ranges exceed the AS2 profile")?;
-                let mut end = time;
-                for range in ranges {
-                    let start = finite(&range[0], "Buffer start", 0., 86400. * 365.)?;
-                    let stop = finite(&range[1], "Buffer end", start, 86400. * 365.)?;
-                    if start <= end && stop > end {
-                        end = stop;
+            "buffer" => json!(buffer_length(&q)?),
+            "buffer_time" => json!(self.buffer_time),
+            "set_buffer_time" => {
+                self.buffer_time = finite(&q["seconds"], "Buffer time", 0., 60.)?;
+                json!(self.buffer_time)
+            }
+            "buffer_wait" => {
+                self.buffer_waiting = true;
+                Value::Null
+            }
+            "buffer_gate" => {
+                if !self.buffer_waiting {
+                    json!(true)
+                } else if q["ready"] != true || !q["duration"].is_number() {
+                    json!(false)
+                } else {
+                    let time = finite(&q["time"], "Stream time", 0., 86400. * 365.)?;
+                    let duration = finite(&q["duration"], "Stream duration", 0., 86400. * 365.)?;
+                    let needed = self.buffer_time.min((duration - time).max(0.));
+                    let ready = buffer_length(&q)? + 0.001 >= needed;
+                    if ready {
+                        self.buffer_waiting = false;
                     }
+                    json!(ready)
                 }
-                json!(end - time)
             }
             _ => return Err("Unknown AS2 stream operation".into()),
         };
         Ok(json!({"value":value,"audio":self.audio,"video":self.video}).to_string())
     }
+}
+
+fn buffer_length(q: &Value) -> Result<f64, String> {
+    let time = finite(&q["time"], "Stream time", 0., 86400. * 365.)?;
+    let ranges = q["ranges"]
+        .as_array()
+        .filter(|v| v.len() <= 256)
+        .ok_or("Browser buffered ranges exceed the AS2 profile")?;
+    let mut end = time;
+    for range in ranges {
+        let start = finite(&range[0], "Buffer start", 0., 86400. * 365.)?;
+        let stop = finite(&range[1], "Buffer end", start, 86400. * 365.)?;
+        if start <= end && stop > end {
+            end = stop;
+        }
+    }
+    Ok(end - time)
 }
 
 #[derive(Clone)]
@@ -807,6 +839,38 @@ mod tests {
                 json!({"op":"buffer","time":2,"ranges":[[0,3],[3,4],[5,8]]})
             )["value"],
             2.
+        );
+        assert_eq!(
+            invoke(&mut stream, json!({"op":"buffer_time"}))["value"],
+            0.1
+        );
+        invoke(&mut stream, json!({"op":"set_buffer_time","seconds":2}));
+        assert_eq!(
+            invoke(
+                &mut stream,
+                json!({"op":"buffer_gate","ready":true,"time":0,"duration":4,"ranges":[[0,1]]})
+            )["value"],
+            false
+        );
+        assert_eq!(
+            invoke(
+                &mut stream,
+                json!({"op":"buffer_gate","ready":true,"time":0,"duration":4,"ranges":[[0,2]]})
+            )["value"],
+            true
+        );
+        invoke(&mut stream, json!({"op":"buffer_wait"}));
+        assert_eq!(
+            invoke(
+                &mut stream,
+                json!({"op":"buffer_gate","ready":true,"time":3.8,"duration":4,"ranges":[[0,4]]})
+            )["value"],
+            true
+        );
+        assert!(
+            stream
+                .execute(r#"{"op":"set_buffer_time","seconds":-1}"#)
+                .is_err()
         );
         invoke(&mut stream, json!({"op":"frame","now":0,"presented":1}));
         invoke(&mut stream, json!({"op":"frame","now":500,"presented":13}));

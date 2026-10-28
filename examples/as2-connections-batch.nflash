@@ -1,0 +1,946 @@
+{
+  "format_version": 3,
+  "name": "AS2 LocalConnection and AMF remoting",
+  "width": 1100,
+  "height": 850,
+  "fps": 24,
+  "background": [
+    13,
+    21,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "AS2 LocalConnection and AMF remoting",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "heading",
+                    "name": "heading",
+                    "transform": {
+                      "x": 40,
+                      "y": 30,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "AS2 / LocalConnection + AMF HTTP",
+                      "width": 1020,
+                      "height": 46,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 29,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "description",
+                    "name": "description",
+                    "transform": {
+                      "x": 40,
+                      "y": 92,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Real messages between browser instances, plus an ordinary AMF0 HTTP gateway. No TCP or RTMP emulation.",
+                      "width": 1020,
+                      "height": 60,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 18,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "connectionDetails",
+                    "name": "connectionDetails",
+                    "transform": {
+                      "x": 40,
+                      "y": 170,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "",
+                      "width": 1020,
+                      "height": 280,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 17,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "connectionSummary",
+                    "name": "connectionSummary",
+                    "transform": {
+                      "x": 40,
+                      "y": 465,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Starting local connection family...",
+                      "width": 1020,
+                      "height": 44,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 19,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "peerStatus",
+                    "name": "peerStatus",
+                    "transform": {
+                      "x": 40,
+                      "y": 520,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Peer receiver is unbound. Open this example in another tab to exchange messages.",
+                      "width": 1020,
+                      "height": 65,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 17,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "connection-control-0",
+                    "name": "connection-control-0",
+                    "transform": {
+                      "x": 40,
+                      "y": 620,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "connection-control-0-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.listenPeerA();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Listen as A",
+                      "description": "Listen as A",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "connection-control-1",
+                    "name": "connection-control-1",
+                    "transform": {
+                      "x": 390,
+                      "y": 620,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "connection-control-1-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.listenPeerB();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Listen as B",
+                      "description": "Listen as B",
+                      "role": "button",
+                      "tab_order": 1,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "connection-control-2",
+                    "name": "connection-control-2",
+                    "transform": {
+                      "x": 740,
+                      "y": 620,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "connection-control-2-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.closePeer();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Close receiver",
+                      "description": "Close receiver",
+                      "role": "button",
+                      "tab_order": 2,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "connection-control-3",
+                    "name": "connection-control-3",
+                    "transform": {
+                      "x": 40,
+                      "y": 690,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "connection-control-3-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.sendPeerA();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Send to A",
+                      "description": "Send to A",
+                      "role": "button",
+                      "tab_order": 3,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "connection-control-4",
+                    "name": "connection-control-4",
+                    "transform": {
+                      "x": 390,
+                      "y": 690,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "connection-control-4-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.sendPeerB();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Send to B",
+                      "description": "Send to B",
+                      "role": "button",
+                      "tab_order": 4,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "connection-control-5",
+                    "name": "connection-control-5",
+                    "transform": {
+                      "x": 740,
+                      "y": 690,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "connection-control-5-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.runRemotingBatch();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Run AMF HTTP batch",
+                      "description": "Run AMF HTTP batch",
+                      "role": "button",
+                      "tab_order": 5,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "connectionFooter",
+                    "name": "connectionFooter",
+                    "transform": {
+                      "x": 40,
+                      "y": 785,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "connect() accepts the name request; PEER_READY confirms the exclusive browser claim. Optional AMF gateway: /__as2_amf",
+                      "width": 1020,
+                      "height": 40,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop();\nvar connectionChecks:Number=0;\nvar connectionFailures:Number=0;\nvar peerReceived:Number=0;\nvar peerLabel:String=\"unbound\";\nfunction connectionCheck(label:String,ok:Boolean):Void {\n if(ok)connectionChecks++;else connectionFailures++;\n connectionDetails.text+=(ok?\"PASS  \":\"FAIL  \")+label+\"\\n\";\n connectionSummary.text=\"AS2_CONNECTIONS_RESULT \"+connectionChecks+\" passed / \"+connectionFailures+\" failed\";\n trace(\"AS2_CONNECTIONS \"+label+\" \"+ok);\n}\nvar numberBox:Object=new Number(\"42\");\nvar sameNumber:Object=numberBox;\nnumberBox.label=\"boxed\";\nconnectionCheck(\"Number box identity/value/arithmetic\",typeof(numberBox)==\"object\"&&numberBox==sameNumber&&numberBox!==new Number(42)&&numberBox.valueOf()==42&&numberBox.toString()==\"42\"&&numberBox+8==50&&numberBox.label==\"boxed\");\nvar booleanBox:Object=new Boolean(false);\nconnectionCheck(\"Boolean box keeps object truthiness\",typeof(booleanBox)==\"object\"&&!booleanBox.valueOf()&&booleanBox.toString()==\"false\"&&Boolean(booleanBox)&&new Boolean(booleanBox).valueOf());\nvar stringBox:Object=new String(\"Rust 😀\");\nconnectionCheck(\"String box uses Rust UTF16 methods\",typeof(stringBox)==\"object\"&&stringBox.length==7&&stringBox.substring(0,4)==\"Rust\"&&stringBox.toUpperCase()==\"RUST 😀\"&&stringBox.valueOf()==\"Rust 😀\");\nconnectionCheck(\"Box defaults and primitive-box conversion\",new Number().valueOf()==0&&!new Boolean().valueOf()&&new String().valueOf()==\"\"&&new Number(new String(\"42\")).valueOf()==42);\nvar selfReceiver:LocalConnection=new LocalConnection();\nvar messageSender:LocalConnection=new LocalConnection();\nselfReceiver.isPerUser=true;\nconnectionCheck(\"origin domain + browser-user scope\",selfReceiver.domain().length>0&&selfReceiver.isPerUser);\nvar selfName:String=\"_neoflash_self_\"+getTimer()+\"_\"+Math.floor(Math.random()*100000000);\nvar selfAck:Boolean=false;\nselfReceiver.receiveBatch=function(label:String,payload:Object):Void {\n connectionCheck(\"real AMF message preserves values/references\",label==\"Rust → HTML5\"&&payload.count==7&&payload.left==payload.right&&payload.self==payload);\n};\nmessageSender.onStatus=function(info:Object):Void {\n if(info.operation==\"send\"&&!selfAck){selfAck=true;connectionCheck(\"LocalConnection delivery acknowledgement\",info.level==\"status\");}\n else peerStatus.text=\"Sender status: \"+info.level+\" / \"+info.operation;\n};\nselfReceiver.onStatus=function(info:Object):Void {\n if(info.operation==\"connect\"&&info.level==\"status\"){\n  var shared:Object={value:\"shared\"};var payload:Object={count:7,left:shared,right:shared};payload.self=payload;\n  connectionCheck(\"send accepts a bounded AMF command\",messageSender.send(selfName,\"receiveBatch\",\"Rust → HTML5\",payload));\n }else if(info.operation==\"connect\")connectionCheck(\"self receiver reservation\",false);\n};\nvar acceptedLocal:Boolean=selfReceiver.connect(selfName);\nvar duplicateLocal:LocalConnection=new LocalConnection();\nconnectionCheck(\"local name reservation rejects duplicate\",acceptedLocal&&!duplicateLocal.connect(selfName));\nvar peerConnection:LocalConnection=new LocalConnection();\npeerConnection.receivePeer=function(label:String,payload:Object):Void {\n peerReceived++;\n peerStatus.text=\"PEER_RECEIVED \"+peerReceived+\" | \"+label+\" | sender \"+payload.sender+\" | AMF value \"+payload.value;\n trace(\"AS2_CONNECTIONS_PEER \"+peerLabel+\" \"+peerReceived+\" \"+label);\n};\npeerConnection.onStatus=function(info:Object):Void {\n if(info.operation==\"connect\")peerStatus.text=\"PEER_\"+(info.level==\"status\"?\"READY\":\"DENIED\")+\" \"+peerLabel+\" | \"+info.description;\n else peerStatus.text=\"Peer send status \"+info.level;\n};\nfunction listenPeerA():Void {peerConnection.close();peerLabel=\"A\";peerStatus.text=\"Claiming receiver A...\";if(!peerConnection.connect(\"neoflash_as2_peer_a\"))peerStatus.text=\"Receiver A request rejected\";}\nfunction listenPeerB():Void {peerConnection.close();peerLabel=\"B\";peerStatus.text=\"Claiming receiver B...\";if(!peerConnection.connect(\"neoflash_as2_peer_b\"))peerStatus.text=\"Receiver B request rejected\";}\nfunction sendPeerA():Void {messageSender.send(\"neoflash_as2_peer_a\",\"receivePeer\",\"hello A\",{sender:peerLabel,value:42});}\nfunction sendPeerB():Void {messageSender.send(\"neoflash_as2_peer_b\",\"receivePeer\",\"hello B\",{sender:peerLabel,value:43});}\nfunction closePeer():Void {peerConnection.close();peerStatus.text=\"PEER_CLOSED \"+peerLabel;}\nvar remotingStarted:Boolean=false;\nfunction runRemotingBatch():Void {\n if(remotingStarted)return;remotingStarted=true;\n var remote:NetConnection=new NetConnection();\n remote.onStatus=function(info:Object):Void {if(info.code==\"NetConnection.Connect.Closed\")return;connectionCheck(\"unexpected transport error: \"+info.description,false);};\n var accepted:Boolean=remote.connect(\"/__as2_amf\");\n connectionCheck(\"HTTP endpoint configured without RTMP claim\",accepted&&!remote.isConnected&&remote.uri.indexOf(\"/__as2_amf\")>=0);\n var completions:Number=0;\n var returned:Object={onResult:function(value:Object):Void {\n  connectionCheck(\"real AMF HTTP response + reference identity\",value[0]==\"Rust AMF\"&&value[1]==42&&value[2]==value[3]&&value[2].self==value[2]&&value[2].source==\"browser\");\n  completions++;\n  if(completions==2){remote.close();connectionCheck(\"remote close clears endpoint\",!remote.isConnected&&remote.uri==undefined);}\n },onStatus:function(value:Object):Void {connectionCheck(\"unexpected AMF fault\",false);}};\n var payload:Object={source:\"browser\"};payload.self=payload;\n remote.call(\"demo.echo\",returned,\"Rust AMF\",42,payload,payload);\n var faultResult:Object={onResult:function(value:Object):Void{connectionCheck(\"server fault must not become result\",false);},onStatus:function(value:Object):Void{\n  connectionCheck(\"real AMF server status responder\",value.code==\"Demo.Rejected\"&&value.level==\"error\");\n  completions++;\n  if(completions==2){remote.close();connectionCheck(\"remote close clears endpoint\",!remote.isConnected&&remote.uri==undefined);}\n }};\n remote.call(\"demo.fail\",faultResult,\"deliberate\");\n}\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "connection-control-0-symbol",
+      "name": "Listen as A",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "connection-control-0-symbol-layer-0",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "connection-control-0-symbol-element-0-0",
+                    "name": "file-control-0-0",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "connection-control-0-symbol-element-0-1",
+                    "name": "file-control-0-1",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Listen as A",
+                      "width": 280,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "connection-control-1-symbol",
+      "name": "Listen as B",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "connection-control-1-symbol-layer-0",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "connection-control-1-symbol-element-0-0",
+                    "name": "file-control-0-0",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "connection-control-1-symbol-element-0-1",
+                    "name": "file-control-0-1",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Listen as B",
+                      "width": 280,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "connection-control-2-symbol",
+      "name": "Close receiver",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "connection-control-2-symbol-layer-0",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "connection-control-2-symbol-element-0-0",
+                    "name": "file-control-0-0",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "connection-control-2-symbol-element-0-1",
+                    "name": "file-control-0-1",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Close receiver",
+                      "width": 280,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "connection-control-3-symbol",
+      "name": "Send to A",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "connection-control-3-symbol-layer-0",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "connection-control-3-symbol-element-0-0",
+                    "name": "file-control-0-0",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "connection-control-3-symbol-element-0-1",
+                    "name": "file-control-0-1",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Send to A",
+                      "width": 280,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "connection-control-4-symbol",
+      "name": "Send to B",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "connection-control-4-symbol-layer-0",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "connection-control-4-symbol-element-0-0",
+                    "name": "file-control-0-0",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "connection-control-4-symbol-element-0-1",
+                    "name": "file-control-0-1",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Send to B",
+                      "width": 280,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "connection-control-5-symbol",
+      "name": "Run AMF HTTP batch",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "connection-control-5-symbol-layer-0",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "connection-control-5-symbol-element-0-0",
+                    "name": "file-control-0-0",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "connection-control-5-symbol-element-0-1",
+                    "name": "file-control-0-1",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Run AMF HTTP batch",
+                      "width": 280,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [],
+  "resources": []
+}

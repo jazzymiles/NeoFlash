@@ -87,6 +87,11 @@ function __nfFixedMethod(receiver) {
     };
 }
 
+function __nfBoxCreate(name, args) {
+    if (typeof __nfLegacy === 'undefined' || typeof __nfLegacy?.boxing?.create !== 'function') throw new __nfTypeError('AS2 primitive boxes require the current Rust runtime; re-export this project.');
+    return __nfLegacy.boxing.create(name, args);
+}
+
 // AS3 constructors return scalar values; JavaScript's `new Number/Boolean`
 // would instead produce wrapper objects with different truth/type behavior.
 function __nfScalarCreate(name, args) {

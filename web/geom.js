@@ -172,7 +172,12 @@
     }
     ColorTransform.__nfInitialize=()=>{throw new TypeError('Native ColorTransform subclassing is not supported.');};
     for(const Type of [Point,Rectangle,Matrix,ColorTransform])Object.defineProperty(Type,'__nfIs',{value:value=>value instanceof Type&&native.has(value)});
-    return Object.freeze({Point,Rectangle,Matrix,ColorTransform,Color,MotionColor,MatrixTransformer,profile:'rust-finite-2d'});
+    function as2Ref(value,name){
+      if(name==='rgb'&&ColorTransform.__nfIs(value))return {has:()=>true,delete:()=>false,get:()=>invoke(value,'color'),set:next=>{invoke(value,'set:color',[finite(next)]);return next;}};
+      if(name==='containsRectangle'&&Rectangle.__nfIs(value))return {has:()=>true,delete:()=>false,get:()=>rectangle=>invoke(value,'containsRect',[read(rectangle,rectKeys)]),set:()=>{throw new TypeError('Rectangle.containsRectangle is read-only.');}};
+      return null;
+    }
+    return Object.freeze({Point,Rectangle,Matrix,ColorTransform,Color,MotionColor,MatrixTransformer,as2Ref,profile:'rust-finite-2d'});
   }
   const api=Object.freeze({create});
   if(typeof module!=='undefined'&&module.exports)module.exports=api;

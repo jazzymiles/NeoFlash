@@ -27,6 +27,11 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
     NeoFlashStage:require(resolve(root,'web/stage.js')), NeoFlashLegacyInput:require(resolve(root,'web/legacy-input.js')), NeoFlashAccessibility:require(resolve(root,'web/accessibility.js')) };
   globals.NeoFlashAS2DepthManager=require(resolve(root,'web/as2-depth-manager.js'));
   globals.NeoFlashAS2Transitions=require(resolve(root,'web/as2-transitions.js'));
+  globals.NeoFlashAS2Print=require(resolve(root,'web/as2-print.js'));
+  globals.NeoFlashAS2Boxing=require(resolve(root,'web/as2-boxing.js'));
+  globals.NeoFlashAS2Capture=require(resolve(root,'web/as2-capture.js'));
+  globals.NeoFlashAS2Connections=require(resolve(root,'web/as2-connections.js'));
+  globals.NeoFlashAS2Stage=require(resolve(root,'web/as2-stage.js'));
   globals.NeoFlashAS2Media=require(resolve(root,'web/as2-media.js'));
   globals.NeoFlashAS2Services=require(resolve(root,'web/as2-services.js'));
   globals.NeoFlashAS2Files=require(resolve(root,'web/as2-files.js'));

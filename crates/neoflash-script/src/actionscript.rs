@@ -1,4 +1,5 @@
 //! A tokenizing/recursive-descent + Pratt frontend, not a text substitution pass.
+mod includes;
 
 use crate::Diagnostic;
 use neoflash_core::{Script, ScriptLanguage};
@@ -1136,6 +1137,12 @@ impl<'a> Frontend<'a> {
                         | "Sound"
                         | "MovieClipLoader"
                         | "SharedObject"
+                        | "Camera"
+                        | "Microphone"
+                        | "ContextMenu"
+                        | "ContextMenuItem"
+                        | "PrintJob"
+                        | "LocalConnection"
                         | "NetConnection"
                         | "NetStream"
                         | "Video"
@@ -1659,6 +1666,12 @@ impl<'a> Frontend<'a> {
                             | "Color"
                             | "SharedObject"
                             | "Selection"
+                            | "Camera"
+                            | "Microphone"
+                            | "ContextMenu"
+                            | "ContextMenuItem"
+                            | "PrintJob"
+                            | "LocalConnection"
                             | "NetConnection"
                             | "NetStream"
                             | "Video"
@@ -2354,6 +2367,12 @@ impl Emitter<'_> {
                     | "Color"
                     | "SharedObject"
                     | "Selection"
+                    | "Camera"
+                    | "Microphone"
+                    | "ContextMenu"
+                    | "ContextMenuItem"
+                    | "PrintJob"
+                    | "LocalConnection"
                     | "NetConnection"
                     | "NetStream"
             ) && !self.analysis.context.types.contains_key(name)))
@@ -2839,6 +2858,12 @@ impl Emitter<'_> {
                         | "TextFormat"
                         | "Sound"
                         | "MovieClipLoader"
+                        | "Camera"
+                        | "Microphone"
+                        | "ContextMenu"
+                        | "ContextMenuItem"
+                        | "PrintJob"
+                        | "LocalConnection"
                         | "NetConnection"
                         | "NetStream"
                 ) =>
@@ -2859,7 +2884,11 @@ impl Emitter<'_> {
                     .map(|a| self.expression(a))
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("__nfScalarCreate({name:?}, [{values}])")
+                if !self.as3 && matches!(name.as_str(), "Number" | "Boolean") {
+                    format!("__nfBoxCreate({name:?}, [{values}])")
+                } else {
+                    format!("__nfScalarCreate({name:?}, [{values}])")
+                }
             }
             Expr::NewBuiltin(name, args, _) if name == "Object" => format!(
                 "__nfObjectCreate({}, [{}], true)",

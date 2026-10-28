@@ -1,0 +1,413 @@
+{
+  "format_version": 3,
+  "name": "AS2 resource includes and Locale replacement",
+  "width": 1100,
+  "height": 740,
+  "fps": 24,
+  "background": [
+    13,
+    21,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "AS2 resource includes and Locale replacement",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "heading",
+                    "name": "heading",
+                    "transform": {
+                      "x": 40,
+                      "y": 30,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "AS2 resource includes and Locale replacement",
+                      "width": 1020,
+                      "height": 45,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 29,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "description",
+                    "name": "description",
+                    "transform": {
+                      "x": 40,
+                      "y": 85,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Project-contained AS2 includes, real XLIFF loading, automatic TextField translation.",
+                      "width": 1020,
+                      "height": 55,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 18,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "variableDetails",
+                    "name": "variableDetails",
+                    "transform": {
+                      "x": 40,
+                      "y": 355,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "",
+                      "width": 1020,
+                      "height": 220,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 16,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "variableStatus",
+                    "name": "variableStatus",
+                    "transform": {
+                      "x": 40,
+                      "y": 585,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Loading the authored AS2 family\u2026",
+                      "width": 1020,
+                      "height": 55,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 18,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 40,
+                      "y": 695,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Includes never read arbitrary disk files. UI authoring and FLA stay paused.",
+                      "width": 1020,
+                      "height": 34,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "file-control-0",
+                    "name": "file-control-0",
+                    "transform": {
+                      "x": 40,
+                      "y": 645,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "file-control-0-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.reloadFrench();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Update MovieClip variable",
+                      "description": "Change the variable and observe both text fields",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false,
+                      "label": "Reload language batch"
+                    }
+                  },
+                  {
+                    "id": "variableLabel0",
+                    "name": "variableLabel0",
+                    "transform": {
+                      "x": 40,
+                      "y": 155,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Localized greeting",
+                      "width": 490,
+                      "height": 32,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 16,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "variableLabel1",
+                    "name": "variableLabel1",
+                    "transform": {
+                      "x": 570,
+                      "y": 155,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Shared translation mirror",
+                      "width": 490,
+                      "height": 32,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 16,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "#include \"scripts/main.as\""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "file-control-0-symbol",
+      "name": "Choose one file",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "file-control-0-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "file-control-0-0",
+                    "name": "file-control-0-0",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "file-control-0-1",
+                    "name": "file-control-0-1",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Reload languages",
+                      "width": 280,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [],
+  "resources": [
+    {
+      "id": "runtime-lang-0",
+      "path": "scripts/main.as",
+      "media_type": "text/plain",
+      "data_base64": "aW1wb3J0IG14LmxhbmcuTG9jYWxlOwpzdG9wKCk7CnZhciBjaGVja3M6TnVtYmVyPTA7CnZhciBmYWlsdXJlczpOdW1iZXI9MDsKI2luY2x1ZGUgImhlbHBlcnMvY2hlY2suYXMiCnZhciBpbmNsdWRlVmFsdWU6TnVtYmVyPTQyOwpjaGVja1J1bnRpbWUoIm5lc3RlZCByZXNvdXJjZSBpbmNsdWRlICsgc3VwcGxpZWQgYXJndW1lbnRzIiwgc3VwcGxpZWQoMSwyLDMpPT0zICYmIGluY2x1ZGVWYWx1ZT09NDIpOwpjcmVhdGVUZXh0RmllbGQoImxvY2FsaXplZEdyZWV0aW5nIixnZXROZXh0SGlnaGVzdERlcHRoKCksNDAsMTk1LDQ4MCw1Mik7CmxvY2FsaXplZEdyZWV0aW5nLmJhY2tncm91bmQ9dHJ1ZTtsb2NhbGl6ZWRHcmVldGluZy5iYWNrZ3JvdW5kQ29sb3I9MHhmZmZmZmY7bG9jYWxpemVkR3JlZXRpbmcudGV4dD0iV2FpdGluZyBmb3IgRnJlbmNoIjsKY3JlYXRlVGV4dEZpZWxkKCJsb2NhbGl6ZWRNaXJyb3IiLGdldE5leHRIaWdoZXN0RGVwdGgoKSw1NzAsMTk1LDQ4MCw1Mik7CmxvY2FsaXplZE1pcnJvci5iYWNrZ3JvdW5kPXRydWU7bG9jYWxpemVkTWlycm9yLmJhY2tncm91bmRDb2xvcj0weGQ1ZjZlYztsb2NhbGl6ZWRNaXJyb3IudGV4dD0iV2FpdGluZyBmb3IgRnJlbmNoIjsKTG9jYWxlLmFkZFhNTFBhdGgoImZyIiwibG9jYWxlL2ZyLnhtbCIpO0xvY2FsZS5hZGRYTUxQYXRoKCJlbiIsImxvY2FsZS9lbi54bWwiKTsKTG9jYWxlLmFkZERlbGF5ZWRJbnN0YW5jZShsb2NhbGl6ZWRHcmVldGluZywiR1JFRVRJTkciKTtMb2NhbGUuYWRkRGVsYXllZEluc3RhbmNlKGxvY2FsaXplZE1pcnJvciwiR1JFRVRJTkciKTsKZnVuY3Rpb24gbG9hZGVkRW5nbGlzaEFnYWluKG9rOkJvb2xlYW4pOlZvaWQgewogY2hlY2tSdW50aW1lKCJyZS1lbmFibGVkIGF1dG9tYXRpYyB0cmFuc2xhdGlvbiIsb2smJmxvY2FsaXplZEdyZWV0aW5nLnRleHQ9PSJIZWxsbyBmcm9tIFJ1c3QiJiZsb2NhbGl6ZWRNaXJyb3IudGV4dD09bG9jYWxpemVkR3JlZXRpbmcudGV4dCk7CiBjaGVja1J1bnRpbWUoImxvYWRlZCBzdGF0ZSBhbmQgbGFuZ3VhZ2Ugc3RyaW5ncyIsTG9jYWxlLmNoZWNrWE1MU3RhdHVzKCkmJkxvY2FsZS5sb2FkU3RyaW5nKCJHUkVFVElORyIpPT0iSGVsbG8gZnJvbSBSdXN0Iik7CiB0cmFjZSgiQVMyX1JVTlRJTUVfTEFOR1VBR0VfUkVTVUxUICIrY2hlY2tzKyIvIitmYWlsdXJlcyk7Cn0KZnVuY3Rpb24gbG9hZGVkRW5nbGlzaE1hbnVhbChvazpCb29sZWFuKTpWb2lkIHsKIGNoZWNrUnVudGltZSgiYXV0b1JlcGxhY2U9ZmFsc2UgcHJlc2VydmVzIHZpc2libGUgdGV4dCIsb2smJmxvY2FsaXplZEdyZWV0aW5nLnRleHQ9PSJCb25qb3VyIGRlcHVpcyBSdXN0IiYmTG9jYWxlLmxvYWRTdHJpbmcoIkdSRUVUSU5HIik9PSJIZWxsbyBmcm9tIFJ1c3QiKTsKIExvY2FsZS5hdXRvUmVwbGFjZT10cnVlO0xvY2FsZS5sb2FkTGFuZ3VhZ2VYTUwoImVuIixsb2FkZWRFbmdsaXNoQWdhaW4pOwp9CmZ1bmN0aW9uIGxvYWRlZEZyZW5jaChvazpCb29sZWFuKTpWb2lkIHsKIGNoZWNrUnVudGltZSgicmVhbCBYTElGRiBsb2FkIHJlcGxhY2VzIGJvdGggZmllbGRzIGJlZm9yZSBjYWxsYmFjayIsb2smJmxvY2FsaXplZEdyZWV0aW5nLnRleHQ9PSJCb25qb3VyIGRlcHVpcyBSdXN0IiYmbG9jYWxpemVkTWlycm9yLnRleHQ9PWxvY2FsaXplZEdyZWV0aW5nLnRleHQpOwogY2hlY2tSdW50aW1lKCJhdXRvUmVwbGFjZSBzdGF0ZSBhbmQgcGxhaW4gdGV4dCIsTG9jYWxlLmF1dG9SZXBsYWNlJiZsb2NhbGl6ZWRHcmVldGluZy5odG1sPT1mYWxzZSk7CiBMb2NhbGUuYXV0b1JlcGxhY2U9ZmFsc2U7TG9jYWxlLmxvYWRMYW5ndWFnZVhNTCgiZW4iLGxvYWRlZEVuZ2xpc2hNYW51YWwpOwp9CmZ1bmN0aW9uIHJlbG9hZEZyZW5jaCgpOlZvaWQge0xvY2FsZS5hdXRvUmVwbGFjZT10cnVlO0xvY2FsZS5sb2FkTGFuZ3VhZ2VYTUwoImZyIixsb2FkZWRGcmVuY2gpO30KcmVsb2FkRnJlbmNoKCk7Cg=="
+    },
+    {
+      "id": "runtime-lang-1",
+      "path": "scripts/helpers/check.as",
+      "media_type": "text/plain",
+      "data_base64": "I2luY2x1ZGUgIi4uL3NoYXJlZC5hcyIKZnVuY3Rpb24gY2hlY2tSdW50aW1lKGxhYmVsOlN0cmluZyxvazpCb29sZWFuKTpWb2lkIHsKIGlmKG9rKXtjaGVja3MrKzt9ZWxzZXtmYWlsdXJlcysrO30KIHZhcmlhYmxlRGV0YWlscy50ZXh0Kz0ob2s/IlBBU1MgICI6IkZBSUwgICIpK2xhYmVsKyJcbiI7CiB2YXJpYWJsZVN0YXR1cy50ZXh0PSJBUzJfUlVOVElNRV9MQU5HVUFHRV9SRVNVTFQgIitjaGVja3MrIiBwYXNzZWQgLyAiK2ZhaWx1cmVzKyIgZmFpbGVkIjsKfQo="
+    },
+    {
+      "id": "runtime-lang-2",
+      "path": "scripts/shared.as",
+      "media_type": "text/plain",
+      "data_base64": "ZnVuY3Rpb24gc3VwcGxpZWQoYTpOdW1iZXIsYjpOdW1iZXIpOk51bWJlciB7IHJldHVybiBhcmd1bWVudHMubGVuZ3RoOyB9Cg=="
+    },
+    {
+      "id": "runtime-lang-3",
+      "path": "locale/en.xml",
+      "media_type": "application/xml",
+      "data_base64": "PHhsaWZmIHZlcnNpb249IjEuMCIgeG1sOmxhbmc9ImVuIj48ZmlsZSBkYXRhdHlwZT0icGxhaW50ZXh0Ij48Ym9keT48dHJhbnMtdW5pdCBpZD0iMSIgcmVzbmFtZT0iR1JFRVRJTkciPjxzb3VyY2U+SGVsbG8gZnJvbSBSdXN0PC9zb3VyY2U+PC90cmFucy11bml0PjwvYm9keT48L2ZpbGU+PC94bGlmZj4="
+    },
+    {
+      "id": "runtime-lang-4",
+      "path": "locale/fr.xml",
+      "media_type": "application/xml",
+      "data_base64": "PHhsaWZmIHZlcnNpb249IjEuMCIgeG1sOmxhbmc9ImZyIj48ZmlsZSBkYXRhdHlwZT0icGxhaW50ZXh0Ij48Ym9keT48dHJhbnMtdW5pdCBpZD0iMSIgcmVzbmFtZT0iR1JFRVRJTkciPjxzb3VyY2U+Qm9uam91ciBkZXB1aXMgUnVzdDwvc291cmNlPjwvdHJhbnMtdW5pdD48L2JvZHk+PC9maWxlPjwveGxpZmY+"
+    }
+  ]
+}

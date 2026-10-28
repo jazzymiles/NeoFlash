@@ -8,6 +8,9 @@ pub(super) struct As2Input {
     pub tab_enabled: Option<bool>,
     pub tab_index: Option<i32>,
     pub tab_children: Option<bool>,
+    pub track_as_menu: Option<bool>,
+    pub focus_rect: Option<bool>,
+    pub force_smoothing: Option<bool>,
 }
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
@@ -16,6 +19,7 @@ enum Command {
     Set { name: String, value: Value },
     Focusable { has_button_handler: bool },
     TabOrder { button_targets: Vec<ObjectRef> },
+    MenuTransfer { target: ObjectRef },
 }
 impl RuntimeGraph {
     fn as2_input(&self, target: &ObjectRef) -> As2Input {
@@ -44,6 +48,8 @@ impl Player {
                 let mut state = self.graph.as2_input(target);
                 state.enabled = Some(state.enabled.unwrap_or(true));
                 state.tab_children = Some(state.tab_children.unwrap_or(true));
+                state.track_as_menu = Some(state.track_as_menu.unwrap_or(false));
+                state.force_smoothing = Some(state.force_smoothing.unwrap_or(false));
                 serde_json::to_string(&state).map_err(|e| error(&e.to_string()))
             }
             Command::Set { name, value } => {
@@ -67,9 +73,19 @@ impl Player {
                 if name == "focusEnabled" && node.display.owner != "movie_clip" {
                     return Err(error("focusEnabled belongs to MovieClip"));
                 }
+                if name == "forceSmoothing" && node.display.owner != "movie_clip" {
+                    return Err(error("forceSmoothing belongs to MovieClip"));
+                }
                 if name == "enabled" && node.display.owner == "text" {
                     return Err(error(
                         "AS2 TextField has no enabled switch; use type/selectable",
+                    ));
+                }
+                if matches!(name.as_str(), "trackAsMenu" | "_focusrect")
+                    && !matches!(node.display.owner.as_str(), "movie_clip" | "button")
+                {
+                    return Err(error(
+                        "AS2 menu tracking and focus rectangles require MovieClip or Button",
                     ));
                 }
                 let mut state = self.graph.as2_input(target);
@@ -81,7 +97,8 @@ impl Player {
                             Some(value.as_i64().filter(|n|(0..=i32::MAX as i64).contains(n)).ok_or_else(||error("AS2 tabIndex requires a nonnegative signed integer or undefined"))?as i32)
                         };
                     }
-                    "enabled" | "tabEnabled" | "focusEnabled" | "tabChildren" => {
+                    "enabled" | "tabEnabled" | "focusEnabled" | "tabChildren" | "trackAsMenu"
+                    | "_focusrect" | "forceSmoothing" => {
                         let value = if value.is_null() {
                             None
                         } else {
@@ -93,6 +110,9 @@ impl Player {
                             "enabled" => state.enabled = value,
                             "tabEnabled" => state.tab_enabled = value,
                             "focusEnabled" => state.focus_enabled = value,
+                            "trackAsMenu" => state.track_as_menu = value,
+                            "_focusrect" => state.focus_rect = value,
+                            "forceSmoothing" => state.force_smoothing = value,
                             _ => state.tab_children = value,
                         }
                     }
@@ -100,6 +120,13 @@ impl Player {
                 }
                 self.graph.as2_input_states.insert(target.clone(), state);
                 encode(&Value::Null)
+            }
+            Command::MenuTransfer { target: next } => {
+                let allowed = self.graph.alive(&next)
+                    && self.graph.as2_input(target).track_as_menu.unwrap_or(false)
+                    && self.graph.as2_input(&next).track_as_menu.unwrap_or(false)
+                    && self.graph.as2_input(&next).enabled.unwrap_or(true);
+                encode(&Value::Bool(allowed))
             }
             Command::Focusable { has_button_handler } => {
                 let scene = self.runtime_snapshot(project);

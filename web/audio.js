@@ -112,6 +112,8 @@
       }).catch(error=>{if(disposed||epoch!==generation||context!==ctx)return false;throw error;}).finally(()=>{if(epoch===generation){resuming=null;changed();}});
       return resuming;
     }
+    // Private AS2 capture transport into the existing publication mute/output bus.
+    function captureBus(){open();if(!isUserGesture())throw new Error('Microphone playback needs an actual user gesture.');const ctx=ensureContext();return {context:ctx,destination:master,ready:resumeFromGesture()};}
     function setMuted(value){open();if(typeof value!=='boolean')throw new TypeError('Audio mute requires a Boolean.');if(!value)return resumeFromGesture();muted=true;if(master)master.gain.value=0;changed();return Promise.resolve(true);}
     class SoundChannel extends events.EventDispatcher {
       constructor(){super();fail('direct SoundChannel construction; use Sound.play()');}
@@ -268,7 +270,7 @@
       try{old?.close()?.catch(()=>{});}catch(_){}changed();
     }
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({Sound,SoundChannel,SoundTransform,LegacySound,stopAllLegacySounds,resumeFromGesture,setMuted,status,reset,dispose});
+    return Object.freeze({Sound,SoundChannel,SoundTransform,LegacySound,stopAllLegacySounds,captureBus,resumeFromGesture,setMuted,status,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAudio=api;
 })(globalThis);

@@ -173,6 +173,105 @@ fn encode_component(text: &str) -> String {
     output
 }
 
+/// Browser PrintJob uses an explicit virtual CSS page, not printer device facts.
+#[derive(Default)]
+pub struct ScriptAS2Print {
+    started: bool,
+    sent: bool,
+    failed: bool,
+    pages: u32,
+    bytes: u64,
+}
+impl ScriptAS2Print {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn execute(&mut self, input: &str) -> Result<String, String> {
+        if input.len() > 8192 {
+            return Err("PrintJob command exceeds 8 KiB".into());
+        }
+        let q: Value = serde_json::from_str(input).map_err(|e| e.to_string())?;
+        let number = |name: &str| -> Result<f64, String> {
+            q["area"][name]
+                .as_f64()
+                .filter(|x| x.is_finite() && x.abs() <= 1e6)
+                .ok_or_else(|| {
+                    format!("Print area {name} requires a finite coordinate within ±1000000")
+                })
+        };
+        let value = match q["op"].as_str().unwrap_or("") {
+            "start" => {
+                if self.sent || self.started {
+                    return Err("PrintJob has already started or been sent".into());
+                }
+                self.started = q["opened"] == true;
+                json!(self.started)
+            }
+            "properties" => {
+                if !self.started {
+                    return Err(
+                        "PrintJob page properties are available after successful start()".into(),
+                    );
+                }
+                json!({"orientation":"portrait","paperWidth":595,"paperHeight":842,"pageWidth":523,"pageHeight":770,"margin":36})
+            }
+            "plan" => {
+                if !self.started || self.sent || self.failed {
+                    Value::Null
+                } else {
+                    if self.pages >= 8 {
+                        return Err("PrintJob is limited to eight pages".into());
+                    }
+                    let left = number("xMin")?;
+                    let top = number("yMin")?;
+                    let right = number("xMax")?;
+                    let bottom = number("yMax")?;
+                    if right <= left || bottom <= top {
+                        return Err("Print area must have positive width and height".into());
+                    }
+                    let x = left.floor();
+                    let y = top.floor();
+                    let right = right.ceil();
+                    let bottom = bottom.ceil();
+                    json!({"x":x,"y":y,"width":(right-x).min(523.),"height":(bottom-y).min(770.),"page":self.pages+1})
+                }
+            }
+            "commit" => {
+                if !self.started || self.sent || self.failed {
+                    json!(false)
+                } else {
+                    let bytes = q["bytes"]
+                        .as_u64()
+                        .filter(|n| *n > 0 && *n <= 4 * 1024 * 1024)
+                        .ok_or("Print page PNG must contain 1 byte through 4 MiB")?;
+                    if self.pages >= 8 || self.bytes + bytes > 32 * 1024 * 1024 {
+                        return Err("PrintJob exceeds its eight-page / 32 MiB limit".into());
+                    }
+                    self.pages += 1;
+                    self.bytes += bytes;
+                    json!(true)
+                }
+            }
+            "fail" => {
+                self.failed = true;
+                json!(false)
+            }
+            "send" => {
+                if !self.started || self.sent || self.pages == 0 {
+                    return Err(
+                        "PrintJob.send requires a started job with at least one captured page"
+                            .into(),
+                    );
+                }
+                self.sent = true;
+                json!({"pages":self.pages})
+            }
+            _ => return Err("Unknown PrintJob operation".into()),
+        };
+        Ok(json!({"value":value}).to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,5 +298,21 @@ mod tests {
         assert_eq!(language_code("zh-CN"), "zh-CN");
         assert_eq!(language_code(""), "xu");
         assert!(ScriptAS2Platform::new(r#"{"screenWidth":-1}"#).is_err());
+        let mut print = ScriptAS2Print::new();
+        let mut call = |q: Value| -> Value {
+            serde_json::from_str(&print.execute(&q.to_string()).unwrap()).unwrap()
+        };
+        assert_eq!(call(json!({"op":"plan"}))["value"], Value::Null);
+        assert_eq!(call(json!({"op":"start","opened":false}))["value"], false);
+        assert_eq!(call(json!({"op":"start","opened":true}))["value"], true);
+        assert_eq!(call(json!({"op":"properties"}))["value"]["pageWidth"], 523);
+        let plan = call(json!({"op":"plan","area":{"xMin":-10,"yMin":5,"xMax":900,"yMax":1000}}));
+        assert_eq!(
+            plan["value"],
+            json!({"x":-10.,"y":5.,"width":523.,"height":770.,"page":1})
+        );
+        assert_eq!(call(json!({"op":"commit","bytes":1000}))["value"], true);
+        assert_eq!(call(json!({"op":"send"}))["value"]["pages"], 1);
+        assert_eq!(call(json!({"op":"plan"}))["value"], Value::Null);
     }
 }

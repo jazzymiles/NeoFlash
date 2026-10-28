@@ -1,5 +1,8 @@
 //! Thin JavaScript bindings around the same Rust timeline runtime used by the editor.
 mod as2_binding;
+mod as2_boxing;
+mod as2_capture;
+mod as2_connections;
 mod as2_data;
 mod as2_depth_manager;
 mod as2_display;
@@ -10,6 +13,7 @@ mod as2_object;
 mod as2_platform;
 mod as2_services;
 mod as2_sound;
+mod as2_stage;
 mod as2_strings;
 mod as2_text;
 mod as2_transitions;

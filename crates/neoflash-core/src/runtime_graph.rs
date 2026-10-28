@@ -708,7 +708,8 @@ impl Player {
             }
             let text = self.graph.text_state(&reference, display.kind.as_ref());
             let video = self.graph.video_state(&reference, display.kind.as_ref());
-            let bitmap_state = self.graph.bitmap_state(&reference, display.kind.as_ref());
+            let mut bitmap_state = self.graph.bitmap_state(&reference, display.kind.as_ref());
+            bitmap_state.smoothing |= self.graph.loaded_as2_smoothing(&reference);
             let bitmap = bitmap_state
                 .pixel_ref
                 .as_ref()

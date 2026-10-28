@@ -26,7 +26,7 @@ function __nfStringBound(value) {
     return value;
 }
 function __nfStringCreate(as3, args, isNew = false) {
-    if (isNew && !as3) __nfStringUnsupported('AS2 boxed String construction is not implemented; use String(value) or a literal.');
+    if (isNew && !as3) return __nfBoxCreate('String', args);
     // Both VMs ignore extra constructor arguments. Typed String slots retain
     // their separate nullable coercion; calling String(null) produces "null".
     return __nfStringBound(args.length ? __nfStringNative(args[0]) : '');

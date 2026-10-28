@@ -1,6 +1,9 @@
 //! Document model and deterministic authoring/runtime evaluation shared by desktop and web.
 mod amf;
 pub mod as2_binding;
+pub mod as2_boxing;
+pub mod as2_capture;
+pub mod as2_connections;
 pub mod as2_data;
 pub mod as2_files;
 pub mod as2_locale;
@@ -9,6 +12,7 @@ pub mod as2_object;
 pub mod as2_platform;
 pub mod as2_services;
 pub mod as2_sound;
+pub mod as2_stage;
 pub mod as2_strings;
 pub mod as2_text;
 pub mod as2_transitions;

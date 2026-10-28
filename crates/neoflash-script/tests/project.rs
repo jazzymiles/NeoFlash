@@ -16,6 +16,47 @@ fn project(sources: &[(&str, &str)]) -> Project {
 }
 #[test]
 fn module_resolution_fails_with_original_source_path() {
+    // Project-resource includes share one meaningful class/module resolution family.
+    let mut included_project = project(&[]);
+    included_project.resources = vec![
+        neoflash_core::ResourceUnit::from_bytes(
+            "include-main",
+            "scripts/main.as",
+            "text/plain",
+            b"#include '../shared.as'\ntrace(answer);",
+        )
+        .unwrap(),
+        neoflash_core::ResourceUnit::from_bytes(
+            "include-shared",
+            "shared.as",
+            "text/plain",
+            b"var answer:Number=42;",
+        )
+        .unwrap(),
+        neoflash_core::ResourceUnit::from_bytes(
+            "include-cycle",
+            "cycle.as",
+            "text/plain",
+            b"#include 'cycle.as'",
+        )
+        .unwrap(),
+    ];
+    let program = neoflash_script::compile_project(&included_project).unwrap();
+    let script = |source: &str| neoflash_core::Script {
+        language: ScriptLanguage::ActionScript2,
+        source: source.into(),
+    };
+    assert!(
+        neoflash_script::compile_with_program(&script("#include \"scripts/main.as\""), &program)
+            .is_ok()
+    );
+    for source in [
+        "#include \"missing.as\"",
+        "#include \"cycle.as\"",
+        "#include \"../shared.as\"",
+    ] {
+        assert!(neoflash_script::compile_with_program(&script(source), &program).is_err());
+    }
     for sources in [
         vec![(
             "Main.as",

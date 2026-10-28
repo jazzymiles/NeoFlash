@@ -391,12 +391,13 @@
     const existingCallbackNames=new Set(['onEnterFrame','onPress','onRelease','onReleaseOutside','onRollOver','onRollOut']);
     const buttonCallbacks=new Set(['onPress','onRelease','onReleaseOutside','onRollOver','onRollOut','onDragOver','onDragOut']);
     const callbackNames=new Set([...existingCallbackNames,'onMouseDown','onMouseMove','onMouseUp','onKeyDown','onKeyUp','onSetFocus','onKillFocus','onDragOver','onDragOut','onUnload']);
-    const as2InputNames={enabled:'enabled',focusEnabled:'focus_enabled',tabEnabled:'tab_enabled',tabIndex:'tab_index',tabChildren:'tab_children'};
+    const as2InputNames={enabled:'enabled',focusEnabled:'focus_enabled',tabEnabled:'tab_enabled',tabIndex:'tab_index',tabChildren:'tab_children',trackAsMenu:'track_as_menu',_focusrect:'focus_rect',forceSmoothing:'force_smoothing'};
     let as2TabActive=false,pressedInside=false;
     function as2Input(target,request={op:'get'}){descriptor(target);return JSON.parse(player.as2_input_command(referenceOf(target).key,JSON.stringify(request)));}
     function buttonLike(target){const ref=referenceOf(target),record=ref&&legacy.get(ref.key+'\u0000'+ref.lifetime);return [...buttonCallbacks].some(name=>callback(record,name));}
     function as2CanFocus(target){if(target===null)return true;return as2Input(target,{op:'focusable',has_button_handler:buttonLike(target)});}
     function as2Ref(target,name){
+      if((name==='width'||name==='height')&&descriptor(target).owner==='video')return {has:()=>true,delete:()=>false,get:()=>getVideo().get(target,name==='width'?'videoWidth':'videoHeight'),set:()=>{throw new TypeError('AS2 Video.width/height report decoded dimensions; use _width/_height to resize.');}};
       if(['loadMovie','unloadMovie','getBytesLoaded','getBytesTotal'].includes(name)&&descriptor(target).owner==='movie_clip'){
         const method=()=>{const loader=getLoader();if(!loader)throw new Error('MovieClip image methods require the publication Loader service.');return loader.as2MovieMethods(target)[name];};
         return {has:()=>true,delete:()=>false,get:method,set:()=>{throw new TypeError('MovieClip image methods are read-only.');}};
@@ -408,11 +409,12 @@
       }
       if(!Object.hasOwn(as2InputNames,name)&&!callbackNames.has(name))return null;
       const owner=descriptor(target).owner;if(!['movie_clip','button','text'].includes(owner))return null;
+      if(name==='forceSmoothing'&&owner!=='movie_clip')return null;
       if(callbackNames.has(name)){
         if(owner==='text')return null;
         return {has:()=>true,delete:()=>{setLegacyCallback(target,name,null);return true;},get:()=>target[name],set:value=>{setLegacyCallback(target,name,value);return value;}};
       }
-      if((owner==='text'&&['enabled','focusEnabled','tabChildren'].includes(name))||(name==='focusEnabled'&&owner!=='movie_clip'))return null;
+      if((owner==='text'&&['enabled','focusEnabled','tabChildren','trackAsMenu','_focusrect'].includes(name))||(name==='focusEnabled'&&owner!=='movie_clip'))return null;
       return {has:()=>true,delete:()=>{as2Input(target,{op:'set',name,value:null});return true;},get:()=>{const value=as2Input(target)[as2InputNames[name]];return value===null?undefined:value;},set:value=>{as2Input(target,{op:'set',name,value:value===undefined?null:value});as2TabActive=true;return value;}};
     }
     function as2Tab(event={}){
@@ -504,6 +506,11 @@
       const broadcast={mouseDown:'onMouseDown',mouseMove:'onMouseMove',mouseUp:'onMouseUp'}[type];
       if(broadcast)for(const record of [...legacy.values()])if(alive(record.target)&&descriptor(record.target).on_stage)callLegacy(record.target,broadcast);
       if(type==='mouseMove'&&pressed&&alive(pressed)){
+        const next=callbackOwner(target,[...buttonCallbacks]);
+        if(next&&next!==pressed&&as2Input(pressed,{op:'menu_transfer',target:referenceOf(next).objectRef})){
+          const old=pressed,wasInside=pressedInside;pressed=next;pressedInside=true;if(wasInside)callLegacy(old,'onDragOut');if(pressed===next&&alive(next))callLegacy(next,'onDragOver');
+        }
+        if(!pressed||!alive(pressed)){pressed=null;pressedInside=false;return;}
         const inside=Boolean(target&&target!==getStage()&&alive(target)&&descendant(descriptor(target),descriptor(pressed),nodes()));
         if(inside!==pressedInside){pressedInside=inside;callLegacy(pressed,inside?'onDragOver':'onDragOut');}
       }
@@ -512,6 +519,7 @@
       if(type==='mouseUp'&&(event.button===undefined||event.button===0)){const old=pressed;pressed=null;pressedInside=false;if(old&&alive(old)){const inside=target&&target!==getStage()&&alive(target)&&descendant(descriptor(target),descriptor(old),nodes());callLegacy(old,inside?'onRelease':'onReleaseOutside');}}
     }
     function cancelPointer(){dragging=null;pressed=null;hovered=null;pressedInside=false;}
+    function as2FocusBounds(){const target=getStage()?.focus;if(!target||target===getStage()||!alive(target)||!['movie_clip','button'].includes(descriptor(target).owner)||as2Input(target).focus_rect!==true)return null;const rect=bounds(target,getStage(),true);return {x:rect.x,y:rect.y,width:rect.width,height:rect.height};}
     function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&as2Input(current).enabled&&(node.input.button_mode||[...buttonCallbacks].some(name=>callback(record,name))))return true;}return false;}
     function methods(target) {
       const result={
@@ -745,7 +753,7 @@
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});
       builtins[(name==='TextField'?'flash.text.':'flash.display.')+name]=NativeDisplay;
     }
-    return {methods,get,set,builtins,as2Ref,as2CanFocus,as2Tab,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();as2TabActive=false;cancelPointer();},UNHANDLED};
+    return {methods,get,set,builtins,as2Ref,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();as2TabActive=false;cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

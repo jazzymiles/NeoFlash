@@ -24,6 +24,11 @@ const AS2_FILES: &str = include_str!("../../../web/as2-files.js");
 const AS2_LOCALE: &str = include_str!("../../../web/as2-locale.js");
 const AS2_TRANSITIONS: &str = include_str!("../../../web/as2-transitions.js");
 const AS2_DEPTH_MANAGER: &str = include_str!("../../../web/as2-depth-manager.js");
+const AS2_PRINT: &str = include_str!("../../../web/as2-print.js");
+const AS2_BOXING: &str = include_str!("../../../web/as2-boxing.js");
+const AS2_CAPTURE: &str = include_str!("../../../web/as2-capture.js");
+const AS2_CONNECTIONS: &str = include_str!("../../../web/as2-connections.js");
+const AS2_STAGE: &str = include_str!("../../../web/as2-stage.js");
 const AS2_MEDIA: &str = include_str!("../../../web/as2-media.js");
 const AS2_SERVICES: &str = include_str!("../../../web/as2-services.js");
 const AS2_OBJECT: &str = include_str!("../../../web/as2-object.js");
@@ -289,6 +294,11 @@ pub fn export_project(
         ("as2-object.js", AS2_OBJECT),
         ("as2-transitions.js", AS2_TRANSITIONS),
         ("as2-depth-manager.js", AS2_DEPTH_MANAGER),
+        ("as2-print.js", AS2_PRINT),
+        ("as2-boxing.js", AS2_BOXING),
+        ("as2-capture.js", AS2_CAPTURE),
+        ("as2-connections.js", AS2_CONNECTIONS),
+        ("as2-stage.js", AS2_STAGE),
         ("as2-media.js", AS2_MEDIA),
         ("as2-services.js", AS2_SERVICES),
         ("as2-locale.js", AS2_LOCALE),
@@ -399,6 +409,11 @@ fn html_document(title: &str) -> String {
   <script defer src="as2-object.js"></script>
   <script defer src="as2-transitions.js"></script>
   <script defer src="as2-depth-manager.js"></script>
+  <script defer src="as2-print.js"></script>
+  <script defer src="as2-boxing.js"></script>
+  <script defer src="as2-capture.js"></script>
+  <script defer src="as2-connections.js"></script>
+  <script defer src="as2-stage.js"></script>
   <script defer src="as2-media.js"></script>
   <script defer src="as2-services.js"></script>
   <script defer src="as2-locale.js"></script>

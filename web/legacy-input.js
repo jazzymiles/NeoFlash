@@ -137,7 +137,7 @@
     bind(); options.keyTarget?.addEventListener?.('blur', blur);
     options.keyTarget?.addEventListener?.('keydown', observeKey, true);
     options.keyTarget?.addEventListener?.('keyup', observeKey, true);
-    return Object.freeze({ Key, Mouse, Stage, reset, dispose });
+    return Object.freeze({ Key, Mouse, Stage, reset, dispose,broadcastStage:(name,args=[])=>{active();broadcast(stageListeners,name,args);} });
   }
   const api = Object.freeze({ create });
   global.NeoFlashLegacyInput = api;

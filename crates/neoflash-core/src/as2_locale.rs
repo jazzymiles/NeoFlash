@@ -19,6 +19,8 @@ pub struct ScriptAS2Locale {
     loaded: bool,
     token: u32,
     pending: Option<String>,
+    auto_replace: bool,
+    instances: BTreeMap<u32, String>,
 }
 impl Default for ScriptAS2Locale {
     fn default() -> Self {
@@ -32,6 +34,8 @@ impl Default for ScriptAS2Locale {
             loaded: false,
             token: 0,
             pending: None,
+            auto_replace: false,
+            instances: BTreeMap::new(),
         }
     }
 }
@@ -89,7 +93,50 @@ impl ScriptAS2Locale {
             serde_json::from_str(input).map_err(|e| format!("Invalid Locale request: {e}"))?;
         let result = match string(&request, "op", 64)? {
             "state" => {
-                json!({"default":self.default_language,"current":self.current_language,"loaded":self.loaded,"languages":self.languages,"ids":self.ids})
+                json!({"default":self.default_language,"current":self.current_language,"loaded":self.loaded,"autoReplace":self.auto_replace,"languages":self.languages,"ids":self.ids})
+            }
+            "auto" => {
+                self.auto_replace = request["value"]
+                    .as_bool()
+                    .ok_or("Locale.autoReplace requires Boolean")?;
+                Value::Null
+            }
+            "instance" => {
+                let token = request["token"]
+                    .as_u64()
+                    .and_then(|v| u32::try_from(v).ok())
+                    .filter(|v| *v > 0)
+                    .ok_or("Locale instance requires a positive identity")?;
+                let id = string(&request, "id", 1024)?.to_owned();
+                if !self.instances.contains_key(&token) && self.instances.len() >= MAX_STRINGS {
+                    return Err("Locale supports at most 10000 delayed fields".into());
+                }
+                self.instances.insert(token, id);
+                Value::Null
+            }
+            "forget" => {
+                if let Some(token) = request["token"]
+                    .as_u64()
+                    .and_then(|v| u32::try_from(v).ok())
+                {
+                    self.instances.remove(&token);
+                }
+                Value::Null
+            }
+            "replacements" => {
+                if !self.loaded || !self.auto_replace {
+                    json!([])
+                } else {
+                    let table = self.tables.get(&self.current_language);
+                    json!(
+                        self.instances
+                            .iter()
+                            .filter_map(|(token, id)| table
+                                .and_then(|t| t.get(id))
+                                .map(|text| json!({"token":token,"text":text})))
+                            .collect::<Vec<_>>()
+                    )
+                }
             }
             "default" => {
                 let language = language(&request, "language")?;
@@ -397,6 +444,18 @@ mod tests {
             call(&mut locale, json!({"op":"get","id":"TEXT"})),
             "<b>Texte</b>"
         );
+        call(
+            &mut locale,
+            json!({"op":"instance","token":1,"id":"GREETING"}),
+        );
+        assert_eq!(call(&mut locale, json!({"op":"replacements"})), json!([]));
+        call(&mut locale, json!({"op":"auto","value":true}));
+        assert_eq!(
+            call(&mut locale, json!({"op":"replacements"})),
+            json!([{"token":1,"text":"Bonjour & bienvenue!"}])
+        );
+        call(&mut locale, json!({"op":"forget","token":1}));
+        assert_eq!(call(&mut locale, json!({"op":"replacements"})), json!([]));
         let state = call(&mut locale, json!({"op":"state"}));
         assert_eq!(state["languages"], json!(["en", "fr"]));
         assert_eq!(state["ids"], json!(["GREETING", "EMPTY", "TEXT"]));

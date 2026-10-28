@@ -1,13 +1,14 @@
 /* AS2 Locale browser transport. Translation tables, language choice and XLIFF
- * parsing are Rust-owned. No editor Strings panel or automatic field replacement. */
+ * parsing are Rust-owned. Field identities and writes remain host adapters; Rust plans replacements. */
 (function(global){
   'use strict';
   function create(wasm,options={}){
     if(typeof wasm?.ScriptAS2Locale!=='function'||typeof options.URLLoader!=='function'||typeof options.URLRequest!=='function')throw new Error('AS2 Locale requires Rust Locale and the shared URLLoader.');
-    let core=new wasm.ScriptAS2Locale(),callback=null,active=null,generation=1,disposed=false;
+    let core=new wasm.ScriptAS2Locale(),callback=null,active=null,generation=1,disposed=false,nextField=0;let fieldIds=new WeakMap();const fields=new Map();
     function request(value){if(disposed)throw new Error('This Locale service has been disposed.');try{return JSON.parse(core.execute(JSON.stringify(value)));}catch(error){throw new Error(String(error));}}
     function text(value,name){if(typeof value!=='string')throw new TypeError(`Locale.${name} requires a string.`);return value;}
-    function unsupported(name){throw new Error(`Locale.${name} requires automatic TextField replacement, which is unavailable in this nonvisual Locale profile.`);}
+    function replaceFields(){const born=generation;for(const row of request({op:'replacements'})){if(disposed||born!==generation)return;const field=fields.get(row.token);if(!field||!options.fields?.alive(field)){request({op:'forget',token:row.token});fields.delete(row.token);continue;}options.fields.write(field,row.text);}}
+    function addField(instance,id){if(!options.fields?.isText(instance)||!options.fields.alive(instance))throw new TypeError('Locale.addDelayedInstance requires a live plain TextField.');id=text(id,'addDelayedInstance');let token=fieldIds.get(instance);if(!token){token=++nextField;fieldIds.set(instance,token);}request({op:'instance',token,id});fields.set(token,instance);}
     function stop(){const old=active;active=null;if(old?.loader){try{old.loader.close();}catch(_){}for(const [type,listener]of old.listeners)try{old.loader.removeEventListener(type,listener);}catch(_){}}}
     function failLater(operation){queueMicrotask(()=>finish(operation,false));}
     function finish(operation,success){
@@ -18,6 +19,8 @@
       const handler=operation.callback;
       stop();
       if(detail)options.onDiagnostic?.(String(detail));
+      if(success)replaceFields();
+      if(disposed||operation.generation!==generation)return;
       if(handler)Reflect.apply(handler,Locale,[Boolean(success)]);
     }
     function load(language,custom){
@@ -43,15 +46,15 @@
       setDefaultLang(language){request({op:'default',language:text(language,'setDefaultLang')});},
       setLoadCallback(next){if(next!==null&&typeof next!=='function')throw new TypeError('Locale.setLoadCallback requires a function or null.');if(disposed)throw new Error('Locale disposed.');callback=next;},
       setString(id,language,value){request({op:'set',id:text(id,'setString'),language:text(language,'setString'),value:text(value,'setString')});},
-      addDelayedInstance(){unsupported('addDelayedInstance');},
+      addDelayedInstance(instance,id){addField(instance,id);},
     });
     Object.defineProperties(Locale,{
       languageCodeArray:{get(){return request({op:'state'}).languages;}},stringIDArray:{get(){return request({op:'state'}).ids;}},
-      autoReplace:{get(){return false;},set(value){if(value)unsupported('autoReplace=true');}},
+      autoReplace:{get(){return request({op:'state'}).autoReplace;},set(value){request({op:'auto',value});}},
       __nfIs:{value:()=>false},__nfInitialize:{value:()=>{throw new TypeError('mx.lang.Locale native subclassing is unavailable.');}},
     });
-    function reset(){if(disposed)return;stop();generation++;callback=null;core.free?.();core=new wasm.ScriptAS2Locale();}
-    function dispose(){if(disposed)return;stop();generation++;callback=null;core.free?.();disposed=true;}
+    function reset(){if(disposed)return;stop();generation++;callback=null;fields.clear();fieldIds=new WeakMap();nextField=0;core.free?.();core=new wasm.ScriptAS2Locale();}
+    function dispose(){if(disposed)return;stop();generation++;callback=null;fields.clear();fieldIds=new WeakMap();nextField=0;core.free?.();disposed=true;}
     return{builtins:{'mx.lang.Locale':Locale},reset,dispose};
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAS2Locale=api;
