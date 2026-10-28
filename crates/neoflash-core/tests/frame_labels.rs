@@ -5,6 +5,7 @@ use neoflash_core::{
 
 fn layer(id: &str, labels: &[(u32, &str)]) -> Layer {
     Layer {
+        properties: Default::default(),
         id: id.into(),
         name: id.into(),
         visible: true,
@@ -99,6 +100,7 @@ fn absent_as2_labels_do_not_change_frame_or_playback() {
 fn as2_resolves_only_the_target_timeline() {
     let mut project = fixture();
     project.symbols.push(Symbol {
+        folder: String::new(),
         class_name: None,
         linkage_id: None,
         id: "child-symbol".into(),

@@ -60,11 +60,11 @@ impl Project {
 pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if !matches!(project.format_version, 1..=3) {
+    if !matches!(project.format_version, 1..=4) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported versions are 1, 2 and 3",
+                "unsupported version {}; supported versions are 1, 2, 3 and 4",
                 project.format_version
             ),
         );
@@ -80,6 +80,34 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
             "format_version".into(),
             "portable resources require document version 3".into(),
         );
+    }
+    if (!project.library_folders.is_empty() || project.symbols.iter().any(|s| !s.folder.is_empty()))
+        && project.format_version < 4
+    {
+        add(
+            "format_version".into(),
+            "library folders require document version 4".into(),
+        );
+    }
+    if project.library_folders.len() > 10000 {
+        add(
+            "library_folders".into(),
+            "folder count exceeds 10000".into(),
+        );
+    }
+    let mut library_folders = HashSet::new();
+    for (index, folder) in project.library_folders.iter().enumerate() {
+        if folder.is_empty() || !valid_library_folder(folder) {
+            add(
+                format!("library_folders[{index}]"),
+                "expected a named, slash-separated logical folder path".into(),
+            );
+        } else if !library_folders.insert(folder) {
+            add(
+                format!("library_folders[{index}]"),
+                "folder paths must be unique".into(),
+            );
+        }
     }
     if project.width == 0 || project.height == 0 || project.width > 65535 || project.height > 65535
     {
@@ -214,6 +242,14 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     let mut exported_classes = HashSet::new();
     for (si, symbol) in project.symbols.iter().enumerate() {
         let sp = format!("symbols[{si}]");
+        if !valid_library_folder(&symbol.folder)
+            || (symbol.id == project.root && !symbol.folder.is_empty())
+        {
+            add(
+                format!("{sp}.folder"),
+                "expected a logical library folder; the scene must remain at root".into(),
+            );
+        }
         if let Some(linkage) = &symbol.linkage_id {
             if linkage.is_empty() || linkage.len() > 512 || linkage.chars().any(char::is_control) {
                 add(
@@ -281,6 +317,9 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                     "script frame is outside the timeline".into(),
                 );
             }
+        }
+        for error in crate::authored_layers::validate_layers(project, symbol) {
+            add(format!("{sp}.timeline.layers"), error);
         }
         for (li, layer) in symbol.timeline.layers.iter().enumerate() {
             let lp = format!("{sp}.timeline.layers[{li}]");

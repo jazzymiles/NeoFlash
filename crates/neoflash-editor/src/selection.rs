@@ -57,8 +57,9 @@ impl Editor {
     pub(crate) fn target_editable(&self, target: &SelectionTarget) -> bool {
         self.target_layer_index(target).is_some_and(|index| {
             let layer = &self.symbol().timeline.layers[index];
-            layer.visible
-                && !layer.locked
+            layer.properties.role != LayerRole::Folder
+                && layer_effectively_visible(&self.symbol().timeline, layer)
+                && !layer_effectively_locked(&self.symbol().timeline, layer)
                 && layer.key_at(self.frame).is_some_and(|key| {
                     key.elements
                         .iter()
@@ -71,7 +72,11 @@ impl Editor {
             .timeline
             .layers
             .iter()
-            .filter(|layer| layer.visible && !layer.locked)
+            .filter(|layer| {
+                layer.properties.role != LayerRole::Folder
+                    && layer_effectively_visible(&self.symbol().timeline, layer)
+                    && !layer_effectively_locked(&self.symbol().timeline, layer)
+            })
             .flat_map(|layer| {
                 layer.key_at(self.frame).into_iter().flat_map(move |key| {
                     key.elements.iter().map(move |element| SelectionTarget {

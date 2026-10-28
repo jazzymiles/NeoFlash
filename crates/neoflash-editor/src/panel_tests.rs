@@ -26,10 +26,9 @@ fn frame(
         |ctx| {
             editor.shortcuts(ctx);
             editor.menu(ctx);
-            editor.timeline(ctx);
-            editor.tools(ctx);
-            editor.library(ctx);
-            editor.bottom_panel(ctx);
+            editor.bitmap_textures.begin_frame(&editor.project);
+            editor.prepare_docked_panel_focus(ctx);
+            editor.dock_grid(ctx);
             editor.stage(ctx);
         },
     )
@@ -111,7 +110,7 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
             primary_button(fit.center(), true),
         ],
     );
-    frame(
+    let before_library_scroll = frame(
         &mut editor,
         &ctx,
         size,
@@ -123,12 +122,30 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
         "Fit must recalculate stage zoom"
     );
     assert_eq!(editor.pan, Vec2::ZERO);
+    let library = editor
+        .detached
+        .dock_groups
+        .iter()
+        .find(|group| {
+            group
+                .tabs
+                .iter()
+                .any(|(panel, _)| *panel == PanelId::Library)
+        })
+        .expect("Library has a dock group")
+        .rect;
+    let first = named_bounds(&before_library_scroll, "Symbol 000")
+        .expect("first symbol remains accessible");
+    assert!(
+        library.contains_rect(first),
+        "first symbol must be visible in Library: {first:?} in {library:?}"
+    );
     frame(
         &mut editor,
         &ctx,
         size,
         0.5,
-        wheel(Pos2::new(900., 400.), Vec2::new(0., -10000.)),
+        wheel(first.center(), Vec2::new(0., -10000.)),
     );
     let mut out = frame(&mut editor, &ctx, size, 0.51, vec![]);
     for step in 1..10 {
@@ -136,6 +153,10 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
     }
     let last = named_bounds(&out, "Symbol 099").expect("last symbol remains accessible");
     assert!(last.bottom() <= 720. && last.top() > 200., "{last:?}");
+    assert!(
+        library.contains_rect(last),
+        "last symbol must be visible in Library: {last:?} in {library:?}"
+    );
     frame(
         &mut editor,
         &ctx,
@@ -221,6 +242,7 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
             + crate::timeline_paint::ROW_HEIGHT / 2.;
         let mut visible = 0;
         let mut first_row = usize::MAX;
+        let mut first_label = None;
         for shape in &out.shapes {
             if let egui::Shape::Text(text) = &shape.shape
                 && text.galley.job.text.starts_with("Row ")
@@ -233,7 +255,12 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
                     && y <= row_bottom
                 {
                     visible += 1;
-                    first_row = first_row.min(text.galley.job.text[4..].parse::<usize>().unwrap());
+                    let row = text.galley.job.text[4..].parse::<usize>().unwrap();
+                    if row < first_row {
+                        first_row = row;
+                        first_label = Some(Pos2::new(text.pos.x + 2., y));
+                    }
+                    assert!(text.pos.x < 24., "layer names must align at the left edge");
                     assert!(
                         keys.iter().any(|key| (*key - y).abs() < 1.),
                         "unaligned label at {y}, keys {keys:?}"
@@ -288,6 +315,52 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
             !editor.history.can_undo(),
             "a complete key drag is one undo step"
         );
+
+        // Rename through the same visible row used above; committing is a single
+        // document edit, while the in-progress field itself changes no project.
+        let point = first_label.unwrap();
+        for time in [0.8, 0.9] {
+            frame(
+                &mut editor,
+                &ctx,
+                Vec2::new(1024., 720.),
+                time,
+                vec![
+                    Event::PointerMoved(point),
+                    primary_button(point, true),
+                    primary_button(point, false),
+                ],
+            );
+        }
+        frame(&mut editor, &ctx, Vec2::new(1024., 720.), 1., vec![]);
+        frame(
+            &mut editor,
+            &ctx,
+            Vec2::new(1024., 720.),
+            1.1,
+            vec![Event::Text("Renamed layer".into())],
+        );
+        assert_eq!(editor.project, before, "typing a name is still a draft");
+        frame(
+            &mut editor,
+            &ctx,
+            Vec2::new(1024., 720.),
+            1.2,
+            vec![Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert_eq!(
+            editor.symbol().timeline.layers[first_row].name,
+            "Renamed layer"
+        );
+        editor.undo();
+        assert_eq!(editor.project, before);
+        assert!(!editor.history.can_undo());
     }
 }
 

@@ -257,9 +257,18 @@ impl Editor {
             .into_iter()
             .map(|target| (target.element.clone(), target))
             .collect();
+        let authored = evaluate_scene(
+            &self.project,
+            self.symbol_id(),
+            self.frame,
+            true,
+            self.show_layer_masking(p.ctx()),
+        );
         scene.iter().rev().find_map(|item| {
             let target = eligible.get(item.instance_path.first()?)?;
-            crate::stage::hit_item(item, p, point, self.zoom).then(|| target.clone())
+            (authored.contains_point(&item.instance_path, [point.x as f64, point.y as f64])
+                && crate::stage::hit_item(item, p, point, self.zoom))
+            .then(|| target.clone())
         })
     }
 

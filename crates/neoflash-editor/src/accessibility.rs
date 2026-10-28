@@ -122,6 +122,7 @@ mod tests {
         let mut editor = editor_with_object();
         let selected_layer = editor.selection.single().unwrap().layer.clone();
         editor.symbol_mut().timeline.layers.push(Layer {
+            properties: Default::default(),
             id: new_id("layer"),
             name: "Locked insertion layer".into(),
             visible: true,

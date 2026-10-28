@@ -9,7 +9,7 @@ mod as2_input;
 mod as2_render;
 mod as2_snapshot;
 mod bitmap;
-mod clipping;
+pub(crate) mod clipping;
 pub use clipping::{ClipComponent, RuntimeClip, ScrollRect};
 mod filters;
 pub use filters::RuntimeFilterGroup;
@@ -569,6 +569,11 @@ impl Player {
             .filter_map(|node| self.object_ref(&node.path).map(|id| (id, node)))
             .collect();
         let base = self.authored_snapshot(project);
+        let mut layer_masks: Vec<_> = base
+            .masks
+            .iter()
+            .map(|plan| plan.resolve("root", |path| self.object_ref(path)))
+            .collect();
         let mut items: HashMap<_, _> = base
             .items
             .into_iter()
@@ -593,6 +598,11 @@ impl Player {
                 }
             }
             let source = scope.player.authored_snapshot(project);
+            layer_masks.extend(source.masks.iter().map(|plan| {
+                plan.resolve(&format!("{:?}", namespace), |path| {
+                    self.graph.linked_ref(namespace, path)
+                })
+            }));
             for item in source.items {
                 if let Some(reference) = self.graph.linked_ref(namespace, &item.instance_path) {
                     items.insert(reference, item);
@@ -980,6 +990,7 @@ impl Player {
         }
         RuntimeGraph::sanitize_input(&mut result);
         self.graph.apply_clipping(&mut result);
+        crate::authored_layers::apply_runtime_masks(&mut result, &layer_masks);
         self.graph.apply_filters(&mut result);
         // Eligibility follows final descendant paint alpha. A signed parent
         // transform may hide 0..255 itself while a child's unclamped transform

@@ -414,7 +414,6 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle) {
 impl Editor {
     pub fn stage(&mut self, ctx: &egui::Context) {
         let palette = UiPalette::current(ctx);
-        self.bitmap_textures.begin_frame(&self.project);
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(palette.pasteboard))
             .show(ctx, |ui| {
@@ -499,6 +498,7 @@ impl Editor {
                 let nested = self.editing.len() > 1;
                 let page = Rect::from_center_size(rect.center() + self.pan, size * self.zoom);
                 let origin = if nested { page.center() } else { page.min };
+                self.stage_file_drop(ui, rect, origin);
                 let visible_page = page.intersect(rect);
                 let center = if visible_page.is_positive() {
                     visible_page.center()
@@ -537,44 +537,13 @@ impl Editor {
                         } else {
                             palette.onion_after
                         };
-                        for item in evaluate(&self.project, &id, frame) {
-                            let bitmap_texture = if self.onion_outlines {
-                                None
-                            } else {
-                                self.bitmap_textures.texture(ctx, &self.project, &item.kind)
-                            };
-                            draw_item(
-                                &content,
-                                &item,
-                                DrawStyle {
-                                    origin,
-                                    zoom: self.zoom,
-                                    opacity,
-                                    tint: Some(tint),
-                                    outlines: self.onion_outlines,
-                                    bitmap_texture,
-                                },
-                            );
-                        }
+                        let ghost = evaluate_scene(&self.project, &id, frame, true, self.show_layer_masking(ctx));
+                        self.paint_authored_scene(&content, &ghost, DrawStyle { origin, zoom: self.zoom, opacity, tint: Some(tint), outlines: self.onion_outlines, bitmap_texture: None });
                     }
                 }
-                let scene = evaluate(&self.project, &id, self.frame);
-                for item in &scene {
-                    let bitmap_texture =
-                        self.bitmap_textures.texture(ctx, &self.project, &item.kind);
-                    draw_item(
-                        &content,
-                        item,
-                        DrawStyle {
-                            origin,
-                            zoom: self.zoom,
-                            opacity: 1.,
-                            tint: None,
-                            outlines: false,
-                            bitmap_texture,
-                        },
-                    );
-                }
+                let authored_scene = evaluate_scene(&self.project, &id, self.frame, true, self.show_layer_masking(ctx));
+                self.paint_authored_scene(&content, &authored_scene, DrawStyle { origin, zoom: self.zoom, opacity: 1., tint: None, outlines: false, bitmap_texture: None });
+                let scene: Vec<_> = authored_scene.draws.into_iter().map(|draw| draw.item).collect();
                 if let Some(warning) = self.bitmap_textures.take_warning() {
                     self.message(warning);
                 }
@@ -662,5 +631,103 @@ impl Editor {
                     ui.label(egui::RichText::new(&self.status).size(11.));
                 });
             });
+    }
+}
+
+impl Editor {
+    pub(crate) fn show_layer_masking(&self, ctx: &egui::Context) -> bool {
+        ctx.data(|data| {
+            data.get_temp::<bool>(egui::Id::new(("layer-masking", &self.clipboard.session)))
+        })
+        .unwrap_or(true)
+    }
+    pub(crate) fn set_layer_masking(&self, ctx: &egui::Context, enabled: bool) {
+        ctx.data_mut(|data| {
+            data.insert_temp(
+                egui::Id::new(("layer-masking", &self.clipboard.session)),
+                enabled,
+            )
+        });
+    }
+    fn paint_authored_scene(
+        &mut self,
+        painter: &egui::Painter,
+        scene: &AuthoredScene,
+        style: DrawStyle,
+    ) {
+        let DrawStyle {
+            origin,
+            zoom,
+            opacity,
+            tint,
+            outlines,
+            ..
+        } = style;
+        let clips = match crate::stage_clipping::ClipMeshes::new(&scene.clips, origin, zoom) {
+            Ok(clips) => clips,
+            Err(error) => {
+                self.message(error);
+                return;
+            }
+        };
+        for draw in &scene.draws {
+            let bitmap_texture =
+                self.bitmap_textures
+                    .texture(painter.ctx(), &self.project, &draw.item.kind);
+            let result = clips.paint(painter, &draw.clip_ids, |target| {
+                draw_item(
+                    target,
+                    &draw.item,
+                    DrawStyle {
+                        origin,
+                        zoom,
+                        opacity,
+                        tint,
+                        outlines: outlines || draw.outline,
+                        bitmap_texture,
+                    },
+                )
+            });
+            if let Err(error) = result {
+                self.message(error);
+                break;
+            }
+        }
+    }
+    pub(crate) fn paint_library_preview(&mut self, ui: &mut egui::Ui, symbol_id: &str) {
+        let (rect, _) =
+            ui.allocate_exact_size(Vec2::new(ui.available_width(), 130.), Sense::hover());
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 2., UiPalette::current(ui.ctx()).window_fill);
+        let scene = evaluate_scene(&self.project, symbol_id, 0, false, true);
+        let bounds = scene.draws.iter().fold(Rect::NOTHING, |bounds, draw| {
+            bounds.union(world_bounds(&draw.item, &painter))
+        });
+        if !bounds.is_finite() || !bounds.is_positive() {
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "Empty first frame",
+                FontId::proportional(11.),
+                UiPalette::current(ui.ctx()).muted_text,
+            );
+            return;
+        }
+        let zoom = ((rect.width() - 16.) / bounds.width().max(1.))
+            .min((rect.height() - 16.) / bounds.height().max(1.))
+            .clamp(0.001, 8.);
+        let origin = rect.center() - bounds.center().to_vec2() * zoom;
+        self.paint_authored_scene(
+            &painter,
+            &scene,
+            DrawStyle {
+                origin,
+                zoom,
+                opacity: 1.,
+                tint: None,
+                outlines: false,
+                bitmap_texture: None,
+            },
+        );
     }
 }

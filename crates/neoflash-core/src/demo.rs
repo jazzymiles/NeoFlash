@@ -5,6 +5,7 @@ impl Project {
         let root = new_id("symbol");
         Self {
             format_version: 1,
+            library_folders: vec![],
             sources: vec![],
             resources: vec![],
             document_class: None,
@@ -15,6 +16,7 @@ impl Project {
             background: [255, 255, 255, 255],
             root: root.clone(),
             symbols: vec![Symbol {
+                folder: String::new(),
                 class_name: None,
                 linkage_id: None,
                 id: root,
@@ -23,6 +25,7 @@ impl Project {
                 timeline: Timeline {
                     frame_count: 120,
                     layers: vec![Layer {
+                        properties: Default::default(),
                         id: new_id("layer"),
                         name: "Layer 1".into(),
                         visible: true,
@@ -52,6 +55,7 @@ impl Project {
         let spark_id = new_id("symbol");
         let dot = ellipse("Spark", 0., 0., 24., 24., orange);
         p.symbols.push(Symbol {
+            folder: String::new(),
             class_name: None,
             linkage_id: None,
             id: spark_id.clone(),
@@ -122,6 +126,7 @@ impl Project {
             })
             .collect();
         p.symbols.push(Symbol {
+            folder: String::new(),
             class_name: None,
             linkage_id: None,
             id: orbit_id.clone(),
@@ -254,6 +259,7 @@ impl Project {
 
 fn layer(name: &str, keyframes: Vec<Keyframe>) -> Layer {
     Layer {
+        properties: Default::default(),
         id: new_id("layer"),
         name: name.into(),
         visible: true,

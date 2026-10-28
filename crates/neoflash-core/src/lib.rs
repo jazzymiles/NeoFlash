@@ -29,12 +29,14 @@ pub mod as_events;
 pub mod as_math;
 pub mod as_number_format;
 pub mod as_timers;
+mod authored_layers;
 mod clipboard;
 mod demo;
 mod evaluate;
 mod filters;
 mod geometry;
 mod history;
+mod library_folders;
 pub mod model;
 mod pixels;
 mod resource_image;
@@ -46,6 +48,10 @@ mod text;
 mod validation;
 mod xml;
 
+pub use authored_layers::{
+    AuthoredDraw, AuthoredScene, evaluate_scene, layer_effectively_locked,
+    layer_effectively_visible,
+};
 pub use clipboard::{
     CLIPBOARD_PREFIX, ClipboardError, ClipboardPayload, MAX_CLIPBOARD_BYTES, PasteResult,
 };
@@ -59,6 +65,7 @@ pub use geometry::{
     hit_test_path, path_bounds, paths_have_same_topology, validate_path_commands,
 };
 pub use history::History;
+pub use library_folders::valid_library_folder;
 pub use model::*;
 pub use pixels::{
     As2BitmapCommand, BitmapError, BitmapRect, MAX_BITMAP_BYTES, MAX_BITMAP_DIMENSION,

@@ -96,6 +96,9 @@ pub struct Project {
     pub background: Color,
     pub root: Id,
     pub symbols: Vec<Symbol>,
+    /// Portable library organization, including folders that are currently empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub library_folders: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<SourceUnit>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -118,6 +121,9 @@ pub struct SourceUnit {
 pub struct Symbol {
     pub id: Id,
     pub name: String,
+    /// Slash-separated logical library path; empty means the library root.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub folder: String,
     pub kind: SymbolKind,
     pub timeline: Timeline,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -150,6 +156,38 @@ pub struct Layer {
     pub visible: bool,
     pub locked: bool,
     pub keyframes: Vec<Keyframe>,
+    #[serde(default, skip_serializing_if = "LayerProperties::is_default")]
+    pub properties: LayerProperties,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LayerRole {
+    #[default]
+    Normal,
+    Guide,
+    Mask,
+    Folder,
+}
+
+/// Authoring relationships use document IDs, never row positions or UI paths.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LayerProperties {
+    #[serde(default)]
+    pub role: LayerRole,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask: Option<Id>,
+    #[serde(default)]
+    pub outline: bool,
+    #[serde(default)]
+    pub collapsed: bool,
+}
+impl LayerProperties {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

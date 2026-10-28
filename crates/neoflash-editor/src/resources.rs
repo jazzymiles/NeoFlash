@@ -57,7 +57,7 @@ impl Editor {
         ui.add_space(18.);
         ui.strong("Resource files");
         ui.separator();
-        ui.small("Stored in the project. Load by path or place PNG/JPEG images.");
+        ui.small("Stored in the project. Load by path or place PNG, JPEG and SVG graphics.");
         if ui.button("Import files…").clicked()
             && let Some(paths) = rfd::FileDialog::new().pick_files()
         {
@@ -105,6 +105,9 @@ impl Editor {
             self.resource_panel.baseline = Some(metadata);
         }
         ui.small(format!("{} bytes", unit.byte_len()));
+        let svg_to_place = (unit.media_type == "image/svg+xml"
+            && ui.button("Place SVG on Stage").clicked())
+        .then(|| unit.id.clone());
         if matches!(unit.media_type.as_str(), "image/png" | "image/jpeg")
             && ui.button("Place image").clicked()
         {
@@ -134,6 +137,12 @@ impl Editor {
                 }
                 Err(error) => self.message(format!("Cannot place image: {error}")),
             }
+        }
+        if let Some(id) = svg_to_place {
+            if let Err(error) = self.place_svg_resource(&id) {
+                self.message(format!("Cannot place SVG: {error}"));
+            }
+            return;
         }
         ui.label("Project path");
         ui.add(
@@ -180,7 +189,7 @@ impl Editor {
     }
 }
 
-fn read_resource(path: &Path, remaining: usize) -> Result<ResourceUnit, String> {
+pub(crate) fn read_resource(path: &Path, remaining: usize) -> Result<ResourceUnit, String> {
     let name = path
         .file_name()
         .and_then(|name| name.to_str())

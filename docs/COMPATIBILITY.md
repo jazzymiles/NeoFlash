@@ -2,6 +2,10 @@
 
 ## Native timeline authoring
 
+Layers support inline rename, compact row labels, folders, guides and vector masks. Native and HTML5 painting share authored mask geometry; guide layers are excluded from publication. Text/bitmap mask sources and nested mask roles inside mask sources diagnose. Four-sided workspace docks support resizable groups, reordered tabs and native floating panels. Convert to Symbol provides name/type/folder, nine-point registration and existing runtime identifier/class linkage. Library adds first-frame preview, search, sorting and persistent folders. Group conversion requires contiguous artwork on one layer. Button state authoring, 9-slice guides, recursive dock splits and legacy shared-library options remain unsupported.
+
+SVG/PNG/JPEG import supports the File menu and native file drops. Solid SVG artwork becomes editable paths; richer paint uses a rendered image and retained original source. SVG animation/scripts, embedded HTML and external file references reject. See [workspace behavior and limits](WORKSPACE.md).
+
 The timeline distinguishes held content, blank-key intervals and unused cells after its end. An ordinary key holds its content until the next key or the end of the symbol; a blank key ends that exposure. Moving the last key does not shorten a layer. Layer lengths are not stored independently, and frame-range selection/clipboard remain unfinished.
 
 Keyframe dragging uses the original pressed frame, keeps scrollbars outside frame rows, previews the destination and scrolls at the grid edges. Frame Actions opens from the timeline context or toolbar; selecting a frame makes F9 target that frame. The Actions header identifies the symbol and frame, and opening it pauses playback. Frame scripts belong to the symbol/frame and are shared across its layers. Onion skin has a visible stage-header indicator; its tinted neighbouring frames remain visible even when the current frame is blank. Scrubbing and onion preview do not execute authored scripts.

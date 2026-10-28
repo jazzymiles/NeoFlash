@@ -51,6 +51,7 @@ fn layer(id: &str, elements: Vec<Element>, tween: bool) -> Layer {
         });
     }
     Layer {
+        properties: Default::default(),
         id: id.into(),
         name: id.into(),
         visible: true,
@@ -399,6 +400,7 @@ fn nested_hit_selects_the_outer_placement_and_skips_a_locked_foreground() {
     let mut inside = layer("inside-layer", vec![object("inside", 0., 0.)], false);
     inside.locked = true;
     editor.project.symbols.push(Symbol {
+        folder: String::new(),
         class_name: None,
         linkage_id: None,
         id: "nested-symbol".into(),

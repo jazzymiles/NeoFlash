@@ -1,5 +1,31 @@
-//! Native monitor enumeration; no window mutation or document access.
+//! Read-only native screen/pointer coordinates; no window mutation or document access.
 use crate::workspace::ScreenRect;
+
+/// Continue an already captured panel gesture after the pointer leaves its
+/// viewport. Winit may omit MouseInput release after CursorLeft clears its
+/// local pointer position. AppKit supplies global logical points, not pixels.
+#[cfg(all(target_os = "macos", not(test)))]
+pub fn pointer_state() -> Option<(eframe::egui::Pos2, bool)> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSEvent, NSScreen};
+    let main_thread = MainThreadMarker::new()?;
+    let screens = NSScreen::screens(main_thread);
+    let primary = screens.iter().next()?;
+    let primary_frame = primary.frame();
+    let point = NSEvent::mouseLocation();
+    let position = eframe::egui::pos2(
+        point.x as f32,
+        (primary_frame.origin.y + primary_frame.size.height - point.y) as f32,
+    );
+    position
+        .is_finite()
+        .then(|| (position, NSEvent::pressedMouseButtons() & 1 != 0))
+}
+
+#[cfg(any(not(target_os = "macos"), test))]
+pub fn pointer_state() -> Option<(eframe::egui::Pos2, bool)> {
+    None
+}
 
 /// Empty means the caller must use its known root-window rectangle as fallback.
 /// Cocoa screens use global OS logical points, regardless of Retina scale.

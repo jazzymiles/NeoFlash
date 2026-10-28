@@ -70,6 +70,9 @@ pub struct Editor {
     pub timeline_cell: f32,
     pub timeline_key_drag: Option<(String, String, u32)>,
     pub library_selected: Option<String>,
+    pub(crate) library_panel: crate::library::LibraryPanel,
+    pub(crate) graphic_drop_position: Option<egui::Pos2>,
+    pub(crate) symbol_conversion: Option<crate::symbol_dialog::SymbolConversion>,
     pub resource_panel: crate::resources::ResourcePanel,
     pub bitmap_textures: crate::bitmaps::BitmapTextures,
     pub vector: crate::vector::VectorState,
@@ -115,7 +118,9 @@ impl Editor {
             status: "Ready · F5 frame · F6 keyframe · F7 blank keyframe · ⌘↵ Test Movie".into(),
             output: vec!["NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser.".into()],
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
-            timeline_cell: 13., timeline_key_drag: None, library_selected: None,
+            timeline_cell: 13., timeline_key_drag: None, library_selected: None, symbol_conversion: None,
+            library_panel: crate::library::LibraryPanel::default(),
+            graphic_drop_position: None,
             resource_panel: crate::resources::ResourcePanel::default(),
             bitmap_textures: crate::bitmaps::BitmapTextures::default(),
             vector: crate::vector::VectorState::default(),
@@ -162,7 +167,16 @@ impl Editor {
         // Reset only the panel geometry that we own. Editor drafts, focus and
         // unrelated egui memory are not a workspace layout preference.
         ctx.data_mut(|data| {
-            for id in ["timeline", "tools", "library", "properties"] {
+            for id in [
+                "timeline",
+                "tools",
+                "library",
+                "properties",
+                "dock-edge-top",
+                "dock-edge-bottom",
+                "dock-edge-left",
+                "dock-edge-right",
+            ] {
                 data.remove::<egui::containers::panel::PanelState>(egui::Id::new(id));
             }
         });
@@ -213,6 +227,7 @@ impl Editor {
         }
         if self.symbol().timeline.layers.is_empty() {
             self.symbol_mut().timeline.layers.push(Layer {
+                properties: Default::default(),
                 id: new_id("layer"),
                 name: "Layer 1".into(),
                 visible: true,
@@ -252,7 +267,11 @@ impl Editor {
             .timeline
             .layers
             .get(self.layer)
-            .is_some_and(|l| !l.locked && l.visible)
+            .is_some_and(|layer| {
+                !layer_effectively_locked(&self.symbol().timeline, layer)
+                    && layer.properties.role != LayerRole::Folder
+                    && layer_effectively_visible(&self.symbol().timeline, layer)
+            })
     }
     pub fn make_key(&mut self, blank: bool) {
         self.finish_edits();
@@ -324,52 +343,7 @@ impl Editor {
         self.tool = Tool::Select;
     }
     pub fn convert_to_symbol(&mut self) {
-        self.finish_edits();
-        if !self.selected_editable() {
-            return;
-        }
-        let Some(element) = self.selected_sampled() else {
-            return;
-        };
-        self.transact(|s| {
-            s.ensure_selected_key();
-            let id = new_id("symbol");
-            let mut content = element.clone();
-            content.transform = Transform::default();
-            content.id = new_id("object");
-            content.scripts.clear();
-            content.accessibility = None;
-            s.project.symbols.push(Symbol {
-                class_name: None,
-                linkage_id: None,
-                id: id.clone(),
-                name: format!("{} symbol", element.name),
-                kind: SymbolKind::MovieClip,
-                timeline: Timeline {
-                    frame_count: 24,
-                    layers: vec![Layer {
-                        id: new_id("layer"),
-                        name: "Layer 1".into(),
-                        visible: true,
-                        locked: false,
-                        keyframes: vec![Keyframe {
-                            frame: 0,
-                            elements: vec![content],
-                            tween: None,
-                            label: String::new(),
-                        }],
-                    }],
-                    scripts: vec![],
-                },
-            });
-            if let Some(e) = s.selected_element_mut() {
-                e.kind = ElementKind::Instance {
-                    symbol_id: id.clone(),
-                    playback: InstancePlayback::Independent,
-                };
-            }
-            s.library_selected = Some(id);
-        });
+        self.begin_symbol_conversion();
     }
     pub fn enter_symbol(&mut self, id: String) {
         self.finish_edits();
@@ -425,6 +399,8 @@ impl Editor {
                 };
                 self.clipboard = Default::default();
                 self.resource_panel = Default::default();
+                self.library_panel = Default::default();
+                self.graphic_drop_position = None;
                 self.bitmap_textures = Default::default();
                 self.editing = vec![self.project.root.clone()];
                 self.frame = 0;
@@ -468,6 +444,8 @@ impl Editor {
                 self.project = project;
                 self.clipboard = Default::default();
                 self.resource_panel = Default::default();
+                self.library_panel = Default::default();
+                self.graphic_drop_position = None;
                 self.bitmap_textures = Default::default();
                 self.editing = vec![self.project.root.clone()];
                 self.frame = 0;
@@ -502,6 +480,8 @@ impl Editor {
                             self.project = project;
                             self.clipboard = Default::default();
                             self.resource_panel = Default::default();
+                            self.library_panel = Default::default();
+                            self.graphic_drop_position = None;
                             self.bitmap_textures = Default::default();
                             self.editing = vec![self.project.root.clone()];
                             self.frame = 0;
@@ -615,6 +595,9 @@ impl Editor {
         }
     }
     pub(crate) fn shortcuts(&mut self, ctx: &egui::Context) {
+        if self.symbol_conversion.is_some() {
+            return;
+        }
         self.clipboard_events(ctx);
         let typing = ctx.wants_keyboard_input();
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S)) {
@@ -828,13 +811,12 @@ impl eframe::App for Editor {
         }
         self.normalize_selection();
         self.menu(ctx);
-        self.timeline(ctx);
-        self.tools(ctx);
-        self.library(ctx);
+        self.bitmap_textures.begin_frame(&self.project);
         self.prepare_docked_panel_focus(ctx);
-        self.bottom_panel(ctx);
+        self.dock_grid(ctx);
         self.stage(ctx);
         self.draw_dialogs(ctx);
+        self.symbol_creation_dialog(ctx);
         self.detached_panels(ctx);
         let name = self
             .path

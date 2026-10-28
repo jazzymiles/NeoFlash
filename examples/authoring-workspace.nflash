@@ -1,0 +1,482 @@
+{
+  "format_version": 4,
+  "name": "Classic authoring workspace",
+  "width": 800,
+  "height": 480,
+  "fps": 24,
+  "background": [
+    20,
+    27,
+    40,
+    255
+  ],
+  "root": "scene",
+  "library_folders": [
+    "Graphics",
+    "Graphics/Badges",
+    "Reference"
+  ],
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Scene 1",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 48,
+        "layers": [
+          {
+            "id": "labels",
+            "name": "Labels",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 40,
+                      "y": 30,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Layers, masks and a modern workspace",
+                      "font_family": "Arial",
+                      "font_size": 27,
+                      "color": [
+                        225,
+                        233,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "subtitle",
+                    "name": "subtitle",
+                    "transform": {
+                      "x": 40,
+                      "y": 74,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "A vector mask clips three bands. The green guide stays in the editor.",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        225,
+                        233,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "caption",
+                    "name": "caption",
+                    "transform": {
+                      "x": 40,
+                      "y": 416,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Library: Graphics / Badges \u00b7 Linkage: OrbitBadge",
+                      "font_family": "Arial",
+                      "font_size": 15,
+                      "color": [
+                        225,
+                        233,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "art-folder",
+            "name": "Masked artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              }
+            ],
+            "properties": {
+              "role": "folder"
+            }
+          },
+          {
+            "id": "circle-mask",
+            "name": "Circular mask",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "mask-shape",
+                    "name": "mask-shape",
+                    "transform": {
+                      "x": 280,
+                      "y": 130,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 240,
+                      "height": 240,
+                      "fill": [
+                        255,
+                        255,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ],
+            "properties": {
+              "role": "mask",
+              "parent": "art-folder"
+            }
+          },
+          {
+            "id": "color-bands",
+            "name": "Color bands",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "coral-band",
+                    "name": "coral-band",
+                    "transform": {
+                      "x": 100,
+                      "y": 120,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 600,
+                      "height": 90,
+                      "fill": [
+                        232,
+                        80,
+                        90,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "blue-band",
+                    "name": "blue-band",
+                    "transform": {
+                      "x": 100,
+                      "y": 210,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 600,
+                      "height": 90,
+                      "fill": [
+                        73,
+                        145,
+                        244,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "gold-band",
+                    "name": "gold-band",
+                    "transform": {
+                      "x": 100,
+                      "y": 300,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 600,
+                      "height": 80,
+                      "fill": [
+                        244,
+                        190,
+                        67,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ],
+            "properties": {
+              "mask": "circle-mask",
+              "parent": "art-folder"
+            }
+          },
+          {
+            "id": "layout-guide",
+            "name": "Layout guide",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "green-guide",
+                    "name": "green-guide",
+                    "transform": {
+                      "x": 260,
+                      "y": 110,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 280,
+                      "height": 280,
+                      "fill": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke": [
+                        35,
+                        210,
+                        154,
+                        255
+                      ],
+                      "stroke_width": 2
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ],
+            "properties": {
+              "role": "guide",
+              "parent": "art-folder"
+            }
+          },
+          {
+            "id": "badge-layer",
+            "name": "Library instance",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "badge-instance",
+                    "name": "badge-instance",
+                    "transform": {
+                      "x": 650,
+                      "y": 300,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "badge",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "java_script",
+              "source": "trace(\"Vector layer mask active; guide excluded from HTML5\");\nstop();"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "badge",
+      "name": "Orbit badge",
+      "folder": "Graphics/Badges",
+      "kind": "movie_clip",
+      "linkage_id": "OrbitBadge",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "badge-art",
+            "name": "Artwork",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "badge-circle",
+                    "name": "badge-circle",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 80,
+                      "height": 80,
+                      "fill": [
+                        246,
+                        166,
+                        61,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "badge-cut",
+                    "name": "badge-cut",
+                    "transform": {
+                      "x": 30,
+                      "y": 15,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 20,
+                      "height": 50,
+                      "fill": [
+                        20,
+                        27,
+                        40,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ]
+}

@@ -444,7 +444,7 @@ fn rectangle(width: f64, height: f64) -> Vec<PathCommand> {
         PathCommand::Close,
     ]
 }
-fn vector_path(kind: &ElementKind) -> Option<(Vec<PathCommand>, FillRule)> {
+pub(crate) fn vector_path(kind: &ElementKind) -> Option<(Vec<PathCommand>, FillRule)> {
     let commands = match kind {
         ElementKind::Path {
             commands,

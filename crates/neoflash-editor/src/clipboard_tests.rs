@@ -664,6 +664,7 @@ fn deferred_text_paste_cancels_on_scope_change_expiry_or_new_user_command() {
             "frame" => editor.frame = 1,
             "layer" => {
                 editor.symbol_mut().timeline.layers.push(Layer {
+                    properties: Default::default(),
                     id: new_id("layer"),
                     name: "Other".into(),
                     visible: true,

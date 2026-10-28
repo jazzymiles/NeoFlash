@@ -75,23 +75,21 @@ fn immediate_panels_share_state_close_reopen_and_dock_without_duplicate_contents
             },
             |ctx| {
                 editor.shortcuts(ctx);
-                editor.timeline(ctx);
-                editor.tools(ctx);
                 editor.prepare_docked_panel_focus(ctx);
-                editor.bottom_panel(ctx);
+                editor.dock_grid(ctx);
                 editor.stage(ctx);
                 editor.detached_panels(ctx);
             },
         );
     };
     render(&mut editor, vec![]);
-    assert_eq!(seen.borrow().len(), 3);
+    assert_eq!(seen.borrow().len(), PanelId::DETACHABLE.len());
     assert_eq!(
         seen.borrow()
             .iter()
             .collect::<std::collections::HashSet<_>>()
             .len(),
-        3
+        PanelId::DETACHABLE.len()
     );
     assert!(outputs.borrow().iter().all(|out| !out.shapes.is_empty()));
     let actions_id = egui::ViewportId::from_hash_of(PanelId::Actions.viewport_key().unwrap());
@@ -131,12 +129,96 @@ fn immediate_panels_share_state_close_reopen_and_dock_without_duplicate_contents
     editor.set_panel_placement(&ctx, PanelId::Actions, PanelPlacement::Docked);
     seen.borrow_mut().clear();
     render(&mut editor, vec![]);
-    assert_eq!(seen.borrow().len(), 2);
+    assert_eq!(seen.borrow().len(), PanelId::DETACHABLE.len() - 1);
     assert_eq!(editor.bottom, BottomTab::Actions);
     editor.restore_workspace(&ctx);
     seen.borrow_mut().clear();
     render(&mut editor, vec![]);
     assert!(seen.borrow().is_empty());
+
+    // Exercise the same header handler with a complete gesture batched between
+    // paints, then with a release outside the floating viewport over the root
+    // dock. Native screen positions stay separate from viewport-local input.
+    let library_id = egui::ViewportId::from_hash_of(PanelId::Library.viewport_key().unwrap());
+    let header_frame = |editor: &mut Editor, id, origin: egui::Pos2, events| {
+        let mut input = egui::RawInput {
+            viewport_id: id,
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1440., 960.),
+            )),
+            events,
+            ..Default::default()
+        };
+        input.viewports.insert(
+            id,
+            egui::ViewportInfo {
+                parent: (id != egui::ViewportId::ROOT).then_some(egui::ViewportId::ROOT),
+                inner_rect: Some(egui::Rect::from_min_size(origin, egui::vec2(1440., 960.))),
+                ..Default::default()
+            },
+        );
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.panel_title(ui, PanelId::Library, "Library")
+            });
+        });
+    };
+    let gesture = |to| {
+        vec![
+            egui::Event::PointerMoved(egui::pos2(20., 14.)),
+            crate::tests::primary_button(egui::pos2(20., 14.), true),
+            egui::Event::PointerMoved(to),
+            crate::tests::primary_button(to, false),
+        ]
+    };
+    header_frame(
+        &mut editor,
+        egui::ViewportId::ROOT,
+        egui::pos2(100., 100.),
+        vec![],
+    );
+    header_frame(
+        &mut editor,
+        egui::ViewportId::ROOT,
+        egui::pos2(100., 100.),
+        gesture(egui::pos2(400., 300.)),
+    );
+    assert!(!editor.workspace.is_panel_docked(PanelId::Library));
+    header_frame(&mut editor, library_id, egui::pos2(500., 400.), vec![]);
+    header_frame(
+        &mut editor,
+        library_id,
+        egui::pos2(500., 400.),
+        vec![
+            egui::Event::PointerMoved(egui::pos2(20., 14.)),
+            crate::tests::primary_button(egui::pos2(20., 14.), true),
+            egui::Event::PointerGone,
+        ],
+    );
+    // The source gets CursorLeft but no release; the receiving root window
+    // must still complete the captured drag using its own local coordinates.
+    let mut input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1440., 960.),
+        )),
+        events: vec![
+            egui::Event::PointerMoved(egui::pos2(1380., 100.)),
+            crate::tests::primary_button(egui::pos2(1380., 100.), false),
+        ],
+        ..Default::default()
+    };
+    input
+        .viewports
+        .get_mut(&egui::ViewportId::ROOT)
+        .unwrap()
+        .inner_rect = Some(egui::Rect::from_min_size(
+        egui::pos2(100., 100.),
+        egui::vec2(1440., 960.),
+    ));
+    let _ = ctx.run(input, |ctx| editor.continue_panel_drag(ctx));
+    assert!(editor.workspace.is_panel_docked(PanelId::Library));
     assert_eq!(editor.project, original);
     assert_eq!(editor.selection, selection);
     assert_eq!(editor.frame, 7);

@@ -67,6 +67,16 @@ fn editor_at_middle(easing: Easing) -> Editor {
     editor
 }
 
+fn accept_default_symbol(editor: &mut Editor) {
+    let draft = editor.symbol_conversion.take().expect("conversion dialog");
+    editor
+        .commit_symbol_conversion(
+            &draft,
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(30., 12.)),
+        )
+        .unwrap();
+}
+
 #[test]
 fn inserting_key_uses_eased_pose_and_undo_restores_document() {
     let mut editor = editor_at_middle(Easing::EaseIn);
@@ -208,6 +218,19 @@ fn conversion_preserves_appearance_identity_and_scripts_on_the_new_instance() {
     editor.convert_to_symbol();
 
     assert_eq!(
+        editor.project, before,
+        "opening the dialog must not convert artwork"
+    );
+    assert!(!editor.history.can_undo());
+    editor.symbol_conversion = None;
+    assert_eq!(
+        editor.project, before,
+        "Cancel does not change the document"
+    );
+    editor.convert_to_symbol();
+    accept_default_symbol(&mut editor);
+
+    assert_eq!(
         editor.symbol().timeline.layers[0].keyframes[0],
         previous_key
     );
@@ -229,6 +252,7 @@ fn conversion_preserves_appearance_identity_and_scripts_on_the_new_instance() {
     assert_eq!(*playback, InstancePlayback::Independent);
     let new_symbol_id = symbol_id.clone();
     let symbol = editor.project.symbol(symbol_id).unwrap();
+    assert_eq!(symbol.timeline.frame_count, 1);
     let content = &symbol.timeline.layers[0].keyframes[0].elements[0];
     assert_eq!(content.kind, expected.kind);
     assert_eq!(content.transform, Transform::default());
@@ -248,6 +272,87 @@ fn conversion_preserves_appearance_identity_and_scripts_on_the_new_instance() {
     assert_eq!(editor.project, before);
     assert_eq!(editor.symbol_id(), editor.project.root);
     assert!(editor.selection.is_empty());
+
+    // The same conversion transaction handles a chosen registration point and
+    // runtime identifier without changing a transformed object's visible pose.
+    let mut editor = editor_at_middle(Easing::Linear);
+    editor.ensure_selected_key();
+    editor.selected_element_mut().unwrap().transform = Transform {
+        x: 80.,
+        y: 40.,
+        scale_x: -2.,
+        scale_y: 1.5,
+        rotation: 30.,
+        alpha: 0.7,
+    };
+    let before = editor.project.clone();
+    let visible = evaluate(&editor.project, editor.symbol_id(), editor.frame);
+    editor.convert_to_symbol();
+    let mut draft = editor.symbol_conversion.take().unwrap();
+    draft.registration = 4;
+    draft.name = "Card".into();
+    draft.export_enabled = true;
+    draft.linkage_id = "card-export".into();
+    editor
+        .commit_symbol_conversion(
+            &draft,
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(30., 12.)),
+        )
+        .unwrap();
+    let symbol = editor
+        .project
+        .symbol(editor.library_selected.as_ref().unwrap())
+        .unwrap();
+    assert_eq!(symbol.name, "Card");
+    assert_eq!(symbol.linkage_id.as_deref(), Some("card-export"));
+    let converted = evaluate(&editor.project, editor.symbol_id(), editor.frame);
+    for (before, after) in visible.iter().zip(&converted) {
+        assert_eq!(before.kind, after.kind);
+        assert_eq!(before.alpha, after.alpha);
+        for (before, after) in before.transform.iter().zip(after.transform) {
+            assert!((before - after).abs() < 1e-10);
+        }
+    }
+    editor.undo();
+    assert_eq!(editor.project, before);
+    // A contiguous multi-selection becomes one Graphic without changing its
+    // draw order. An unselected object between selections is not flattened.
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    for x in [10., 30., 50.] {
+        editor.add_element(rectangle(), x, 20.);
+    }
+    let targets = editor.editable_targets();
+    editor.set_selection(vec![targets[0].clone(), targets[2].clone()]);
+    let before = editor.project.clone();
+    editor.convert_to_symbol();
+    assert!(editor.symbol_conversion.is_none());
+    assert_eq!(editor.project, before);
+    editor.select_all();
+    let visible = evaluate(&editor.project, editor.symbol_id(), editor.frame);
+    editor.convert_to_symbol();
+    let mut draft = editor.symbol_conversion.take().unwrap();
+    draft.kind = SymbolKind::Graphic;
+    draft.registration = 8;
+    editor
+        .commit_symbol_conversion(
+            &draft,
+            egui::Rect::from_min_max(egui::pos2(10., 20.), egui::pos2(70., 32.)),
+        )
+        .unwrap();
+    let symbol = editor
+        .project
+        .symbol(editor.library_selected.as_ref().unwrap())
+        .unwrap();
+    assert_eq!(symbol.kind, SymbolKind::Graphic);
+    let converted = evaluate(&editor.project, editor.symbol_id(), editor.frame);
+    assert_eq!(visible.len(), converted.len());
+    for (before, after) in visible.iter().zip(&converted) {
+        assert_eq!(before.kind, after.kind);
+        assert_eq!(before.transform, after.transform);
+    }
+    editor.undo();
+    assert_eq!(editor.project, before);
 }
 
 #[test]
@@ -255,6 +360,7 @@ fn recursive_symbol_placement_is_rejected_without_changing_document_or_history()
     let mut editor = editor_at_middle(Easing::Linear);
     let before_conversion = editor.project.clone();
     editor.convert_to_symbol();
+    accept_default_symbol(&mut editor);
     let root = editor.project.root.clone();
     let child = editor.library_selected.clone().unwrap();
     editor.enter_symbol(child.clone());
@@ -405,7 +511,10 @@ pub(crate) fn stage_input_frame(
             events,
             ..Default::default()
         },
-        |ctx| editor.stage(ctx),
+        |ctx| {
+            editor.bitmap_textures.begin_frame(&editor.project);
+            editor.stage(ctx);
+        },
     )
 }
 
@@ -1032,6 +1141,7 @@ fn conversion_preserves_one_semantic_target_instead_of_duplicating_it_inside_the
     editor.set_accessibility(Some(button_metadata()));
     let id = editor.selected_element().unwrap().id.clone();
     editor.convert_to_symbol();
+    accept_default_symbol(&mut editor);
     let instance = editor.selected_element().unwrap();
     assert_eq!(instance.accessibility, Some(button_metadata()));
     let ElementKind::Instance { symbol_id, .. } = &instance.kind else {

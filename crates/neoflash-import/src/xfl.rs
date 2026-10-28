@@ -661,6 +661,7 @@ impl Parser<'_> {
                 "Timeline lacks layers.",
             );
             return Symbol {
+                folder: String::new(),
                 class_name: None,
                 linkage_id: None,
                 id,
@@ -717,6 +718,7 @@ impl Parser<'_> {
                 );
             }
             let mut layer = Layer {
+                properties: Default::default(),
                 id: new_id("layer"),
                 name: layer_node.attribute("name").unwrap_or("Layer").into(),
                 visible: !excluded,
@@ -888,6 +890,7 @@ impl Parser<'_> {
         // XFL lists topmost layers first; NeoFlash stores painter order.
         timeline.layers.reverse();
         Symbol {
+            folder: String::new(),
             class_name: None,
             linkage_id: None,
             id,

@@ -67,6 +67,7 @@ pub(crate) struct Node {
 pub(crate) struct Evaluation {
     pub items: Vec<DrawItem>,
     pub nodes: Vec<Node>,
+    pub masks: Vec<crate::authored_layers::LayerMaskPlan>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -349,7 +350,7 @@ fn placement_start(layer: &Layer, frame: u32, id: &str) -> u32 {
 }
 
 pub fn evaluate(project: &Project, symbol_id: &str, frame: u32) -> Vec<DrawItem> {
-    snapshot(project, symbol_id, frame, &|_| None, &|_| None).items
+    snapshot_mode(project, symbol_id, frame, &|_| None, &|_| None, true).items
 }
 
 pub(crate) fn snapshot(
@@ -358,6 +359,17 @@ pub(crate) fn snapshot(
     frame: u32,
     clock: &dyn Fn(&[Id]) -> Option<u32>,
     patch: &dyn Fn(&[Id]) -> Option<DisplayPatch>,
+) -> Evaluation {
+    snapshot_mode(project, symbol_id, frame, clock, patch, false)
+}
+
+pub(crate) fn snapshot_mode(
+    project: &Project,
+    symbol_id: &str,
+    frame: u32,
+    clock: &dyn Fn(&[Id]) -> Option<u32>,
+    patch: &dyn Fn(&[Id]) -> Option<DisplayPatch>,
+    include_guides: bool,
 ) -> Evaluation {
     let mut result = Evaluation::default();
     let Some(root) = project.symbol(symbol_id) else {
@@ -389,6 +401,7 @@ pub(crate) fn snapshot(
         clock,
         patch,
         result: &mut result,
+        include_guides,
     };
     walker.walk(
         root,
@@ -409,6 +422,7 @@ struct Walker<'a> {
     clock: &'a dyn Fn(&[Id]) -> Option<u32>,
     patch: &'a dyn Fn(&[Id]) -> Option<DisplayPatch>,
     result: &'a mut Evaluation,
+    include_guides: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -430,9 +444,19 @@ impl Walker<'_> {
         if depth >= MAX_DEPTH || self.result.nodes.len() >= MAX_NODES {
             return;
         }
+        self.result
+            .masks
+            .extend(crate::authored_layers::layer_mask_plans(
+                &symbol.timeline,
+                frame,
+                parent,
+            ));
         // Layer zero is the backmost layer; list order is painter order everywhere.
         for layer in &symbol.timeline.layers {
-            if !layer.visible {
+            if !layer_effectively_visible(&symbol.timeline, layer)
+                || layer.properties.role == LayerRole::Folder
+                || (!self.include_guides && layer.properties.role == LayerRole::Guide)
+            {
                 continue;
             }
             for mut e in sample_layer(layer, frame) {

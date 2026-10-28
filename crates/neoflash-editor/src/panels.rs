@@ -31,6 +31,10 @@ impl Editor {
                             self.request(Pending::Import, ctx);
                             ui.close();
                         }
+                        if ui.button("Import graphics to Stage…").clicked() {
+                            self.import_graphics_dialog();
+                            ui.close();
+                        }
                         if ui.button("Save                         ⌘S").clicked() {
                             self.save(false);
                             ui.close();
@@ -176,7 +180,7 @@ impl Editor {
                         }
                         if ui
                             .add_enabled(
-                                self.selection.len() == 1,
+                                self.can_convert_selection(),
                                 egui::Button::new("Convert to Symbol…  F8"),
                             )
                             .clicked()
@@ -228,7 +232,11 @@ impl Editor {
                         for (name, panel) in [
                             ("Tools", PanelId::Tools),
                             ("Timeline", PanelId::Timeline),
+                            ("Library", PanelId::Library),
+                            ("Properties", PanelId::Properties),
                             ("Actions", PanelId::Actions),
+                            ("Accessibility", PanelId::Accessibility),
+                            ("Output", PanelId::Output),
                         ] {
                             let detached =
                                 self.workspace.placement(panel) == PanelPlacement::Detached;
@@ -296,20 +304,9 @@ impl Editor {
             self.clipboard.menu_viewport = None;
         }
     }
+    #[cfg(test)]
     pub fn timeline(&mut self, ctx: &egui::Context) {
-        if !self.workspace.is_panel_visible(PanelId::Timeline)
-            || !self.workspace.is_panel_docked(PanelId::Timeline)
-        {
-            return;
-        }
-        let maximum = (ctx.content_rect().height() * 0.46).clamp(130., 380.);
-        let panel = egui::TopBottomPanel::top("timeline")
-            .default_height(self.workspace.sizes.timeline_height.min(maximum))
-            .min_height(130.)
-            .max_height(maximum)
-            .resizable(true)
-            .show(ctx, |ui| self.timeline_contents(ui));
-        self.workspace.sizes.timeline_height = panel.response.rect.height();
+        self.dock_edge(ctx, crate::workspace::DockEdge::Top);
     }
     pub(crate) fn timeline_contents(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
@@ -320,9 +317,30 @@ impl Editor {
             self.clipboard.session.clone(),
             self.symbol_id().to_owned(),
         );
+        #[derive(Clone)]
+        struct LayerRename {
+            layer: String,
+            text: String,
+            focus: bool,
+        }
+        let rename_id = egui::Id::new((&id, "layer-rename"));
+        let mut rename = ctx.data(|data| data.get_temp::<LayerRename>(rename_id));
+        let mut commit_rename = None;
+        let mut cancel_rename = false;
+        let previous_cell = self.timeline_cell;
+        let timeline_width = ui.available_width();
         ui.scope_builder(egui::UiBuilder::new().id(id), |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.strong("Timeline");
+            // Keep a usable frame canvas and footer even in the smallest native
+            // Timeline window. Overflowing header controls remain scrollable.
+            ui.spacing_mut().scroll.floating = false;
+            ui.spacing_mut().item_spacing.x = 4.;
+            ui.style_mut().override_font_id = Some(FontId::proportional(11.));
+            egui::ScrollArea::horizontal()
+                .id_salt("timeline_header")
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                self.panel_title(ui, PanelId::Timeline, "Timeline");
                 ui.separator();
                 for (index, id) in self.editing.clone().iter().enumerate() {
                     if index > 0 {
@@ -346,19 +364,40 @@ impl Editor {
                     }
                 }
                 ui.label(format!(
-                    "Frame {} / {}   {:.2} s   {} fps",
+                    "{} FPS   {} F   {:.2} s",
+                    self.project.fps,
                     self.frame + 1,
-                    self.symbol().timeline.frame_count,
-                    self.frame as f64 / self.project.fps as f64,
-                    self.project.fps
+                    self.frame as f64 / self.project.fps as f64
                 ));
+                ui.separator();
+                ui.scope(|ui| {
+                    ui.spacing_mut().slider_width = 84.;
+                    if ui.small_button("−").on_hover_text("Show more frames").clicked() {
+                        self.timeline_cell = (self.timeline_cell / 1.4).max(3.);
+                    }
+                    ui.add(egui::Slider::new(&mut self.timeline_cell, 3.0..=52.0)
+                        .logarithmic(true).show_value(false).text("Zoom"))
+                        .on_hover_text("Change the width of timeline cells without changing the animation");
+                    if ui.small_button("+").on_hover_text("Widen frame cells").clicked() {
+                        self.timeline_cell = (self.timeline_cell * 1.4).min(52.);
+                    }
+                    if ui.small_button("Fit").on_hover_text("Fit the whole timeline").clicked() {
+                        self.timeline_cell = ((timeline_width - 240.).max(1.)
+                            / self.symbol().timeline.frame_count.max(1) as f32).clamp(3., 52.);
+                    }
+                });
             });
+                });
+            let zoom_changed = self.timeline_cell != previous_cell;
+            if zoom_changed {
+                self.timeline_key_drag = None;
+            }
             ui.separator();
             // The frame canvas may be much wider than the viewport. Freeze the
             // toolbar width before allocating it so scrolling frames cannot
             // widen the controls. Small windows keep a bounded, scrollable footer.
             let timeline_width = ui.available_width();
-            let desired_footer: f32 = if timeline_width < 1000. { 66. } else { 34. };
+            let desired_footer: f32 = if timeline_width < 800. { 60. } else { 30. };
             let footer =
                 desired_footer.min((ui.available_height() - RULER_HEIGHT - 25. - 10.).max(24.));
             let height =
@@ -369,7 +408,12 @@ impl Editor {
                 Sense::hover(),
             );
             // Frame exposures are ordered by their frame, independent of JSON order.
-            let mut layers = self.symbol().timeline.layers.clone();
+            let layer_indices = crate::layer_controls::visible_layer_indices(&self.symbol().timeline);
+            if !layer_indices.contains(&self.layer) {
+                self.layer = layer_indices.iter().copied().rfind(|index| *index < self.layer).unwrap_or(0);
+                self.clear_selection();
+            }
+            let mut layers: Vec<_> = layer_indices.iter().map(|index| self.symbol().timeline.layers[*index].clone()).collect();
             for layer in &mut layers {
                 layer.keyframes.sort_by_key(|key| key.frame);
             }
@@ -397,7 +441,8 @@ impl Editor {
                             |ui| {
                                 ui.set_width(210.);
                                 ui.spacing_mut().item_spacing.y = 0.;
-                                for (idx, layer) in layers.iter().enumerate() {
+                                for (row_index, layer) in layers.iter().enumerate() {
+                                    let idx = layer_indices[row_index];
                                     let (row_rect, _) = ui.allocate_exact_size(
                                         Vec2::new(210., ROW_HEIGHT),
                                         Sense::hover(),
@@ -408,19 +453,55 @@ impl Editor {
                                         ),
                                         |ui| {
                                             ui.set_clip_rect(ui.clip_rect().intersect(row_rect));
-                                            if ui
-                                                .add_sized(
-                                                    [146., ROW_HEIGHT],
-                                                    egui::Button::new(&layer.name)
-                                                        .selected(idx == self.layer)
-                                                        .frame(false),
-                                                )
-                                                .clicked()
-                                            {
-                                                self.finish_edits();
-                                                self.timeline_key_drag = None;
-                                                self.layer = idx;
-                                                self.clear_selection();
+                                            if idx == self.layer {
+                                                ui.painter().rect_filled(row_rect, 0, palette.timeline_active_layer);
+                                            }
+                                            if let Some(draft) = rename.as_mut().filter(|draft| draft.layer == layer.id) {
+                                                let field = ui.add_sized([146., ROW_HEIGHT],
+                                                    egui::TextEdit::singleline(&mut draft.text)
+                                                        .id(ui.id().with(("layer-name", &layer.id)))
+                                                        .font(FontId::proportional(11.))
+                                                        .hint_text("Layer name"));
+                                                if draft.focus {
+                                                    field.request_focus();
+                                                    if let Some(mut state) = egui::text_edit::TextEditState::load(ui.ctx(), field.id) {
+                                                        state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+                                                            egui::text::CCursor::new(0),
+                                                            egui::text::CCursor::new(draft.text.chars().count()),
+                                                        )));
+                                                        state.store(ui.ctx(), field.id);
+                                                    }
+                                                    draft.focus = false;
+                                                }
+                                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                                    cancel_rename = true;
+                                                    field.surrender_focus();
+                                                } else if field.lost_focus()
+                                                    || ui.input(|i| i.key_pressed(egui::Key::Enter))
+                                                {
+                                                    commit_rename = Some((draft.layer.clone(), draft.text.trim().to_owned()));
+                                                    field.surrender_focus();
+                                                }
+                                            } else {
+                                                let response = ui.add_sized([146., ROW_HEIGHT],
+                                                    egui::Button::new((egui::RichText::new(crate::layer_controls::layer_label(layer)).size(11.), egui::Atom::grow()))
+                                                        .truncate().selected(idx == self.layer).frame(false));
+                                                if response.clicked() || response.secondary_clicked() {
+                                                    self.finish_edits();
+                                                    self.timeline_key_drag = None;
+                                                    self.layer = idx;
+                                                    self.clear_selection();
+                                                }
+                                                if response.double_clicked() {
+                                                    rename = Some(LayerRename { layer: layer.id.clone(), text: layer.name.clone(), focus: true });
+                                                    ui.ctx().request_repaint();
+                                                }
+                                                response.on_hover_text("Double-click to rename layer").context_menu(|ui| {
+                                                    if self.timeline_layer_menu(ui, idx) {
+                                                        rename = Some(LayerRename { layer: layer.id.clone(), text: layer.name.clone(), focus: true });
+                                                        ui.ctx().request_repaint();
+                                                    }
+                                                });
                                             }
                                             if ui
                                                 .add(
@@ -474,6 +555,10 @@ impl Editor {
                                             }
                                         },
                                     );
+                                    ui.painter().line_segment(
+                                        [row_rect.left_bottom(), row_rect.right_bottom()],
+                                        Stroke::new(1.0_f32, palette.timeline_row_separator),
+                                    );
                                 }
                             },
                         );
@@ -522,7 +607,7 @@ impl Editor {
                                         self.finish_edits();
                                         self.set_playing(false);
                                         self.frame = frame;
-                                        self.layer = layer;
+                                        self.layer = layer_indices[layer];
                                         self.script_target = ScriptTarget::Frame;
                                         self.clear_selection();
                                         // Capture the key before scrolling or drag-threshold motion
@@ -531,7 +616,7 @@ impl Editor {
                                             self.timeline_key_drag = layers[layer].keyframes.iter()
                                                 .any(|key| key.frame == frame)
                                                 .then(|| (self.symbol_id().to_owned(), layers[layer].id.clone(), frame))
-                                                .filter(|_| !layers[layer].locked && layers[layer].visible);
+                                                .filter(|_| layers[layer].properties.role != LayerRole::Folder && !layer_effectively_locked(&self.symbol().timeline, &layers[layer]) && layer_effectively_visible(&self.symbol().timeline, &layers[layer]));
                                         } else if response.secondary_clicked() {
                                             self.timeline_key_drag = None;
                                         }
@@ -548,11 +633,11 @@ impl Editor {
                                             && let Some(layer) = layers.iter().position(|layer| &layer.id == layer_id)
                                         {
                                             self.frame = frame_at_x(pos.x, rect.left(), self.timeline_cell, count);
-                                            self.layer = layer;
+                                            self.layer = layer_indices[layer];
                                         }
                                     } else if let Some((frame, layer)) = timeline_cell_at(pos, rect.min, self.timeline_cell, count, layers.len()) {
                                         self.frame = frame;
-                                        self.layer = layer;
+                                        self.layer = layer_indices[layer];
                                         self.script_target = ScriptTarget::Frame;
                                     }
                                 }
@@ -571,7 +656,7 @@ impl Editor {
                                         && pos.y < grid_clip.bottom().min(rect.top() + content_height)
                                     {
                                         let to = frame_at_x(pos.x, rect.left(), self.timeline_cell, count);
-                                        self.move_key(layer, from, to, copy);
+                                        self.move_key(layer_indices[layer], from, to, copy);
                                     }
                                 } else if ui.input(|i| i.pointer.primary_released()) {
                                     self.timeline_key_drag = None;
@@ -620,7 +705,7 @@ impl Editor {
                                         continue;
                                     }
                                     let p = painter.with_clip_rect(grid_clip.intersect(row));
-                                    if li == self.layer {
+                                    if layer_indices[li] == self.layer {
                                         p.rect_filled(row, 0, palette.timeline_active_layer);
                                     }
                                     for (ki, key) in layer.keyframes.iter().enumerate() {
@@ -701,7 +786,7 @@ impl Editor {
                                     );
                                 }
                                 let selected_cell = Rect::from_min_size(
-                                    Pos2::new(rect.left() + self.frame as f32 * self.timeline_cell, rect.top() + self.layer as f32 * ROW_HEIGHT),
+                                    Pos2::new(rect.left() + self.frame as f32 * self.timeline_cell, rect.top() + layer_indices.iter().position(|i| *i == self.layer).unwrap_or(0) as f32 * ROW_HEIGHT),
                                     Vec2::new(self.timeline_cell, ROW_HEIGHT),
                                 );
                                 painter.rect_stroke(selected_cell, 0, Stroke::new(1.5_f32, palette.selection_stroke), egui::StrokeKind::Inside);
@@ -805,6 +890,14 @@ impl Editor {
                                 });
                                 }
                             });
+                        if zoom_changed {
+                            let mut state = frames.state;
+                            let maximum = (frames.content_size.x - frames.inner_rect.width()).max(0.);
+                            state.offset.x = ((self.frame as f32 + 0.5) * self.timeline_cell
+                                - frames.inner_rect.width() * 0.5).clamp(0., maximum);
+                            state.store(ui.ctx(), frames.id);
+                            ui.ctx().request_repaint();
+                        }
                         // Continue an existing key drag at the horizontal viewport edge;
                         // never start a drag from a scrollbar or an out-of-range cell.
                         if self.timeline_key_drag.is_some()
@@ -852,16 +945,25 @@ impl Editor {
                     .ceil()
                     .max(0.) as u32)
                     .min(count);
+                let label_step = crate::timeline_paint::ruler_label_step(self.timeline_cell, count);
                 for f in first..last {
                     let x = grid_rect.left() + f as f32 * self.timeline_cell;
-                    if f == 0 || (f + 1) % 5 == 0 {
+                    if f == 0 || (f + 1) % label_step == 0 {
                         p.text(
-                            Pos2::new(x + self.timeline_cell / 2., ruler.center().y),
+                            Pos2::new(x + self.timeline_cell / 2., ruler.bottom() - 6.),
                             Align2::CENTER_CENTER,
                             (f + 1).to_string(),
                             FontId::proportional(10.),
                             palette.muted_text,
                         );
+                    }
+                }
+                let fps = self.project.fps.max(1);
+                let seconds_step = ((46. / (self.timeline_cell * fps as f32)).ceil() as u32).max(1);
+                for f in first..last {
+                    if f.is_multiple_of(fps) && (f / fps).is_multiple_of(seconds_step) {
+                        let x = grid_rect.left() + f as f32 * self.timeline_cell;
+                        p.text(Pos2::new(x + 3., ruler.top() + 5.), Align2::LEFT_CENTER, format!("{}s", f / fps), FontId::proportional(9.), palette.muted_text);
                     }
                 }
                 let end_x = grid_rect.left() + count as f32 * self.timeline_cell;
@@ -957,13 +1059,14 @@ impl Editor {
                             ui.set_max_width(ui.available_width().min(timeline_width));
                             ui.horizontal_wrapped(|ui| {
                                 if ui
-                                    .add(IconButton::new(Icon::Plus, "Add layer").text())
+                                    .add(IconButton::new(Icon::Plus, "Add layer"))
                                     .clicked()
                                 {
                                     self.finish_edits();
                                     self.transact(|s| {
                                         let n = s.symbol().timeline.layers.len() + 1;
                                         s.symbol_mut().timeline.layers.push(Layer {
+                                            properties: Default::default(),
                                             id: new_id("layer"),
                                             name: format!("Layer {n}"),
                                             visible: true,
@@ -986,12 +1089,7 @@ impl Editor {
                                     .on_hover_text("Delete selected layer")
                                     .clicked()
                                 {
-                                    self.finish_edits();
-                                    self.transact(|s| {
-                                        let l = s.layer;
-                                        s.symbol_mut().timeline.layers.remove(l);
-                                        s.normalize_selection();
-                                    });
+                                    self.delete_timeline_layer(self.layer);
                                 }
                                 ui.separator();
                                 if ui.add(IconButton::new(Icon::Rewind, "Rewind")).clicked() {
@@ -1024,7 +1122,7 @@ impl Editor {
                                 ui.checkbox(&mut self.onion, "Onion Skin");
                                 ui.checkbox(&mut self.onion_outlines, "Outlines");
                                 ui.allocate_ui_with_layout(
-                                    Vec2::new(92., 24.),
+                                    Vec2::new(76., 24.),
                                     egui::Layout::left_to_right(egui::Align::Center),
                                     |ui| {
                                         ui.label("Before");
@@ -1035,7 +1133,7 @@ impl Editor {
                                     },
                                 );
                                 ui.allocate_ui_with_layout(
-                                    Vec2::new(84., 24.),
+                                    Vec2::new(68., 24.),
                                     egui::Layout::left_to_right(egui::Align::Center),
                                     |ui| {
                                         ui.label("After");
@@ -1055,10 +1153,10 @@ impl Editor {
                                 // Slider's own label is a nested horizontal layout. Reserve
                                 // the complete group so it wraps as one control, not midway.
                                 ui.allocate_ui_with_layout(
-                                    Vec2::new(190., 24.),
+                                    Vec2::new(140., 24.),
                                     egui::Layout::left_to_right(egui::Align::Center),
                                     |ui| {
-                                        ui.spacing_mut().slider_width = 120.;
+                                        ui.spacing_mut().slider_width = 76.;
                                         ui.add(
                                             egui::Slider::new(&mut self.onion_opacity, 0.05..=0.7)
                                                 .text("Opacity")
@@ -1071,6 +1169,36 @@ impl Editor {
                 },
             );
         });
+        if cancel_rename {
+            rename = None;
+        } else if let Some((layer_id, name)) = commit_rename {
+            if !name.is_empty()
+                && let Some(index) = self
+                    .symbol()
+                    .timeline
+                    .layers
+                    .iter()
+                    .position(|layer| layer.id == layer_id)
+                && self.symbol().timeline.layers[index].name != name
+            {
+                self.finish_edits();
+                self.transact(|s| s.symbol_mut().timeline.layers[index].name = name);
+            }
+            rename = None;
+        }
+        ctx.data_mut(|data| {
+            if let Some(rename) = rename.filter(|draft| {
+                self.symbol()
+                    .timeline
+                    .layers
+                    .iter()
+                    .any(|layer| layer.id == draft.layer)
+            }) {
+                data.insert_temp(rename_id, rename);
+            } else {
+                data.remove::<LayerRename>(rename_id);
+            }
+        });
     }
     pub fn onion_range(&self) -> (u32, u32) {
         if self.onion_anchor {
@@ -1082,16 +1210,9 @@ impl Editor {
             )
         }
     }
+    #[cfg(test)]
     pub fn tools(&mut self, ctx: &egui::Context) {
-        if !self.workspace.is_panel_visible(PanelId::Tools)
-            || !self.workspace.is_panel_docked(PanelId::Tools)
-        {
-            return;
-        }
-        egui::SidePanel::left("tools")
-            .exact_width(58.)
-            .resizable(false)
-            .show(ctx, |ui| self.tools_contents(ui));
+        self.dock_edge(ctx, crate::workspace::DockEdge::Left);
     }
     pub(crate) fn tools_contents(&mut self, ui: &mut egui::Ui) {
         let id = (
@@ -1100,7 +1221,7 @@ impl Editor {
             self.clipboard.session.clone(),
         );
         ui.scope_builder(egui::UiBuilder::new().id(id), |ui| {
-            ui.small("Tools");
+            self.panel_title(ui, PanelId::Tools, "Tools");
             ui.separator();
             egui::ScrollArea::vertical()
                 .id_salt("tool_controls")
@@ -1148,155 +1269,45 @@ impl Editor {
                 });
         });
     }
+    #[cfg(test)]
     pub fn library(&mut self, ctx: &egui::Context) {
-        if !self.workspace.is_panel_visible(PanelId::Library) {
-            return;
-        }
-        let maximum = (ctx.content_rect().width() * 0.35).clamp(190., 480.);
-        let panel = egui::SidePanel::right("library")
-            .default_width(self.workspace.sizes.library_width.min(maximum))
-            .max_width(maximum)
-            .min_width(190.)
-            .resizable(true)
-            .show(ctx, |ui| {
-                ui.add_space(4.);
-                ui.strong("Library");
-                ui.separator();
-                egui::ScrollArea::vertical()
-                    .id_salt("library_contents")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        ui.small(format!(
-                            "{} symbols",
-                            self.project.symbols.len().saturating_sub(1)
-                        ));
-                        let symbols = self.project.symbols.clone();
-                        let root = self.project.root.clone();
-                        for symbol in symbols.iter().filter(|s| s.id != root) {
-                            let response = ui.add(
-                                IconButton::new(Icon::Symbol, &symbol.name)
-                                    .text()
-                                    .flat()
-                                    .selected(self.library_selected.as_ref() == Some(&symbol.id))
-                                    .size(Vec2::new(ui.available_width(), 26.)),
-                            );
-                            if response.clicked() {
-                                self.library_selected = Some(symbol.id.clone());
-                            }
-                            if response.double_clicked() {
-                                self.enter_symbol(symbol.id.clone());
-                            }
-                        }
-                        ui.add_space(12.);
-                        if let Some(id) = self.library_selected.clone() {
-                            if let Some(symbol) = self.project.symbol(&id) {
-                                ui.label(format!(
-                                    "{:?} · {} frames",
-                                    symbol.kind, symbol.timeline.frame_count
-                                ));
-                            }
-                            if ui.button("Place instance on stage").clicked() {
-                                if id == self.symbol_id() {
-                                    self.message("A symbol cannot contain itself.");
-                                } else {
-                                    self.finish_edits();
-                                    self.add_element(
-                                        ElementKind::Instance {
-                                            symbol_id: id,
-                                            playback: InstancePlayback::Independent,
-                                        },
-                                        120.,
-                                        120.,
-                                    );
-                                }
-                            }
-                            if ui.button("Edit symbol").clicked() {
-                                self.enter_symbol(self.library_selected.clone().unwrap());
-                            }
-                        }
-                        ui.separator();
-                        if ui
-                            .add_enabled(
-                                self.selection.len() == 1,
-                                egui::Button::new("Convert to Symbol   F8"),
-                            )
-                            .clicked()
-                        {
-                            self.convert_to_symbol();
-                        }
-                        self.resource_library(ui);
-                        ui.add_space(18.);
-                        ui.strong("Document");
-                        ui.separator();
-                        ui.label(&self.project.name);
-                        ui.small(format!(
-                            "{} × {} px · {} fps",
-                            self.project.width, self.project.height, self.project.fps
-                        ));
-                        ui.small("Target: HTML5");
-                        ui.small("Double-click a symbol to edit its timeline.");
-                    });
-            });
-        self.workspace.sizes.library_width = panel.response.rect.width();
+        self.dock_edge(ctx, crate::workspace::DockEdge::Right);
     }
+    pub(crate) fn library_contents(&mut self, ui: &mut egui::Ui) {
+        self.library_body(ui);
+    }
+    #[cfg(test)]
     pub fn bottom_panel(&mut self, ctx: &egui::Context) {
-        if !self.workspace.bottom_visible() {
-            return;
-        }
-        let maximum = (ctx.content_rect().height() * 0.40).clamp(145., 420.);
-        let panel = egui::TopBottomPanel::bottom("properties")
-            .default_height(self.workspace.sizes.bottom_height.min(maximum))
-            .min_height(145.)
-            .max_height(maximum)
-            .resizable(true)
-            .show(ctx, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    for (name, id, tab) in [
-                        ("Properties", PanelId::Properties, BottomTab::Properties),
-                        ("Actions", PanelId::Actions, BottomTab::Actions),
-                        (
-                            "Accessibility",
-                            PanelId::Accessibility,
-                            BottomTab::Accessibility,
-                        ),
-                        ("Output", PanelId::Output, BottomTab::Output),
-                    ] {
-                        if self.workspace.is_panel_visible(id)
-                            && self.workspace.is_panel_docked(id)
-                            && ui.selectable_label(self.bottom == tab, name).clicked()
-                        {
-                            self.show_panel(id);
+        self.dock_edge(ctx, crate::workspace::DockEdge::Bottom);
+    }
+    pub(crate) fn bottom_contents(&mut self, ui: &mut egui::Ui, panel: PanelId) {
+        let ctx = ui.ctx().clone();
+        match panel {
+            PanelId::Properties => {
+                egui::ScrollArea::vertical()
+                    .id_salt("property_contents")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| self.properties(ui, &ctx));
+            }
+            PanelId::Actions => self.actions_contents(ui),
+            PanelId::Accessibility => {
+                egui::ScrollArea::vertical()
+                    .id_salt("accessibility_contents")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| self.accessibility_panel(ui));
+            }
+            PanelId::Output => {
+                egui::ScrollArea::vertical()
+                    .id_salt("output_contents")
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        for line in &self.output {
+                            ui.monospace(line);
                         }
-                    }
-                });
-                ui.separator();
-                match self.bottom {
-                    BottomTab::Properties => {
-                        egui::ScrollArea::vertical()
-                            .id_salt("property_contents")
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| self.properties(ui, ctx));
-                    }
-                    BottomTab::Actions => self.actions_contents(ui),
-                    BottomTab::Accessibility => {
-                        egui::ScrollArea::vertical()
-                            .id_salt("accessibility_contents")
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| self.accessibility_panel(ui));
-                    }
-                    BottomTab::Output => {
-                        egui::ScrollArea::vertical()
-                            .id_salt("output_contents")
-                            .stick_to_bottom(true)
-                            .show(ui, |ui| {
-                                for line in &self.output {
-                                    ui.monospace(line);
-                                }
-                            });
-                    }
-                }
-            });
-        self.workspace.sizes.bottom_height = panel.response.rect.height();
+                    });
+            }
+            _ => {}
+        }
     }
     fn properties(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         if self.selection.len() > 1 {

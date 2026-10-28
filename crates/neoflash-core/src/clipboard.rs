@@ -303,12 +303,33 @@ impl ClipboardPayload {
             imported.id = identities[&original.id].clone();
             for layer in &mut imported.timeline.layers {
                 layer.id = identities[&layer.id].clone();
+                layer.properties.parent = layer
+                    .properties
+                    .parent
+                    .as_ref()
+                    .map(|id| identities[id].clone());
+                layer.properties.mask = layer
+                    .properties
+                    .mask
+                    .as_ref()
+                    .map(|id| identities[id].clone());
                 for element in layer.keyframes.iter_mut().flat_map(|k| &mut k.elements) {
                     element.id = identities[&element.id].clone();
                     remap_reference(element, &identities);
                 }
             }
+            candidate
+                .add_library_folder(&imported.folder)
+                .map_err(ClipboardError::Invalid)?;
             candidate.symbols.push(imported);
+        }
+        if candidate
+            .symbols
+            .iter()
+            .flat_map(|s| &s.timeline.layers)
+            .any(|l| !l.properties.is_default())
+        {
+            candidate.format_version = candidate.format_version.max(4);
         }
         if candidate.has_program() {
             candidate.enable_program();
@@ -377,6 +398,7 @@ impl ClipboardPayload {
         let wrapper_layer = synthetic_id("clipboard-layer", &mut used);
         let mut symbols = self.symbols.clone();
         symbols.push(Symbol {
+            folder: String::new(),
             class_name: None,
             linkage_id: None,
             id: wrapper_id.clone(),
@@ -386,6 +408,7 @@ impl ClipboardPayload {
                 frame_count: 1,
                 scripts: vec![],
                 layers: vec![Layer {
+                    properties: Default::default(),
                     id: wrapper_layer,
                     name: "Selection".into(),
                     visible: true,
@@ -401,10 +424,27 @@ impl ClipboardPayload {
         });
         validate_project(
             &Project {
+                library_folders: self
+                    .symbols
+                    .iter()
+                    .map(|symbol| symbol.folder.clone())
+                    .filter(|folder| !folder.is_empty())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
                 sources: self.sources.clone(),
                 resources: self.resources.clone(),
                 document_class: None,
-                format_version: if !self.resources.is_empty() {
+                format_version: if self.symbols.iter().any(|symbol| {
+                    !symbol.folder.is_empty()
+                        || symbol
+                            .timeline
+                            .layers
+                            .iter()
+                            .any(|layer| !layer.properties.is_default())
+                }) {
+                    4
+                } else if !self.resources.is_empty() {
                     3
                 } else if self.sources.is_empty()
                     && !symbols
@@ -538,9 +578,21 @@ fn canonical_symbol_closure(
             .into_iter()
             .map(|symbol| {
                 let mut result = symbol.clone();
+                // Library organization does not change reusable runtime content.
+                result.folder.clear();
                 result.id = identities[&result.id].clone();
                 for layer in &mut result.timeline.layers {
                     layer.id = identities[&layer.id].clone();
+                    layer.properties.parent = layer
+                        .properties
+                        .parent
+                        .as_ref()
+                        .map(|id| identities[id].clone());
+                    layer.properties.mask = layer
+                        .properties
+                        .mask
+                        .as_ref()
+                        .map(|id| identities[id].clone());
                     for element in layer.keyframes.iter_mut().flat_map(|k| &mut k.elements) {
                         element.id = identities[&element.id].clone();
                         remap_reference(element, &identities);
@@ -707,10 +759,13 @@ fn reject_unknown_fields(
             for (key, value) in a {
                 if let Some(expected) = b.get(key) {
                     reject_unknown_fields(value, expected, &format!("{path}.{key}"))?;
-                } else if !(key == "accessibility"
+                } else if !((key == "accessibility"
                     && value.is_null()
                     && b.contains_key("transform")
                     && b.contains_key("kind"))
+                    || (key == "folder"
+                        && value.as_str() == Some("")
+                        && b.contains_key("timeline")))
                 {
                     return invalid(format!("unknown field {path}.{key}"));
                 }

@@ -38,6 +38,7 @@ fn key(frame: u32, elements: Vec<Element>, tween: Option<Easing>) -> Keyframe {
 }
 fn symbol(id: &str, frames: u32, keys: Vec<Keyframe>) -> Symbol {
     Symbol {
+        folder: String::new(),
         class_name: None,
         linkage_id: None,
         id: id.into(),
@@ -46,6 +47,7 @@ fn symbol(id: &str, frames: u32, keys: Vec<Keyframe>) -> Symbol {
         timeline: Timeline {
             frame_count: frames,
             layers: vec![Layer {
+                properties: Default::default(),
                 id: format!("{id}-layer"),
                 name: "Layer".into(),
                 visible: true,
@@ -58,6 +60,7 @@ fn symbol(id: &str, frames: u32, keys: Vec<Keyframe>) -> Symbol {
 }
 fn project(symbols: Vec<Symbol>) -> Project {
     Project {
+        library_folders: vec![],
         sources: vec![],
         resources: vec![],
         document_class: None,
@@ -103,6 +106,82 @@ fn nested_affine_composition_and_opacity() {
     near(items[0].transform[4], -11.);
     near(items[0].transform[5], 30.);
     near(items[0].alpha, 0.2);
+
+    // Authored layers share their clip plan between scrubbing and the browser
+    // runtime; guides never become live display objects or dispatch scripts.
+    let mut authored = project(vec![symbol(
+        "root",
+        3,
+        vec![key(0, vec![shape("content", 0.)], None)],
+    )]);
+    authored.format_version = 4;
+    let timeline = &mut authored.symbols[0].timeline;
+    timeline.layers[0].properties.mask = Some("mask-layer".into());
+    let mut mask_shape = shape("mask-shape", 4.);
+    mask_shape.kind = ElementKind::Ellipse {
+        width: 8.,
+        height: 8.,
+        fill: [0, 0, 0, 255],
+        stroke: [0; 4],
+        stroke_width: 0.,
+    };
+    timeline.layers.push(Layer {
+        id: "mask-layer".into(),
+        name: "Mask".into(),
+        visible: true,
+        locked: false,
+        properties: LayerProperties {
+            role: LayerRole::Mask,
+            ..Default::default()
+        },
+        keyframes: vec![key(0, vec![mask_shape], None), key(2, vec![], None)],
+    });
+    timeline.layers.push(Layer {
+        id: "guide-layer".into(),
+        name: "Guide".into(),
+        visible: true,
+        locked: false,
+        properties: LayerProperties {
+            role: LayerRole::Guide,
+            ..Default::default()
+        },
+        keyframes: vec![key(0, vec![shape("guide-shape", 100.)], None)],
+    });
+    authored.validate().unwrap();
+    assert_eq!(
+        Project::from_json(&authored.to_json().unwrap()).unwrap(),
+        authored
+    );
+    let scene = evaluate_scene(&authored, "root", 0, true, true);
+    assert_eq!(scene.draws.len(), 2);
+    assert!(scene.contains_point(&["content".into()], [8., 4.]));
+    assert!(!scene.contains_point(&["content".into()], [4., 0.]));
+    assert!(!scene.contains_point(&["content".into()], [0., 4.]));
+    assert_eq!(
+        evaluate_scene(&authored, "root", 0, true, false)
+            .draws
+            .len(),
+        3
+    );
+    let player = Player::new(&authored);
+    let runtime = player.runtime_snapshot(&authored);
+    assert_eq!(runtime.draws.len(), 1);
+    assert_eq!(runtime.draws[0].clip_ids.len(), 1);
+    assert_eq!(runtime.clips.len(), 1);
+    assert_eq!(runtime.clips[0].components[0].matrix[4], 4.);
+    assert!(
+        runtime
+            .objects
+            .iter()
+            .all(|node| node.display.name != "guide-shape")
+    );
+    assert!(
+        !evaluate_scene(&authored, "root", 2, false, true)
+            .contains_point(&["content".into()], [8., 4.])
+    );
+    let mut invalid = authored.clone();
+    invalid.symbols[0].timeline.layers[0].properties.mask = Some("missing-mask".into());
+    assert!(invalid.validate().is_err());
 }
 
 #[test]

@@ -78,6 +78,89 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
     assert_eq!(editor.project.resources.len(), 2);
     assert!(editor.dirty());
 
+    // One file-drop batch covers editable SVG, rich-paint fallback and atomic Undo.
+    let graphics_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/verification/graphic-import");
+    std::fs::create_dir_all(&graphics_dir).unwrap();
+    let vector_file = graphics_dir.join("solid.svg");
+    let rich_file = graphics_dir.join("gradient.svg");
+    std::fs::write(&vector_file,r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><path fill="#e64b41" d="M10 10H90V90H10Z"/></svg>"##).unwrap();
+    std::fs::write(&rich_file,r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><defs><linearGradient id="g"><stop stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient></defs><rect width="100" height="100" fill="url(#g)"/></svg>"##).unwrap();
+    let graphics_ctx = egui::Context::default();
+    let mut graphic_editor = Editor::from_project(&graphics_ctx, Project::blank());
+    graphic_editor.library_panel.selected_folder = "Artwork/Imported".into();
+    let before = graphic_editor.project.clone();
+    let raw = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1024., 768.),
+        )),
+        events: vec![egui::Event::PointerMoved(egui::pos2(500., 380.))],
+        dropped_files: vec![
+            egui::DroppedFile {
+                path: Some(vector_file.clone()),
+                ..Default::default()
+            },
+            egui::DroppedFile {
+                path: Some(rich_file),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let _ = graphics_ctx.run(raw, |ctx| graphic_editor.stage(ctx));
+    graphic_editor.project.validate().unwrap();
+    assert_eq!(graphic_editor.selection.len(), 2);
+    assert_eq!(
+        graphic_editor.project.symbols.len(),
+        before.symbols.len() + 2
+    );
+    assert!(
+        graphic_editor
+            .project
+            .symbols
+            .iter()
+            .filter(|s| s.id != graphic_editor.project.root)
+            .all(|s| s.folder == "Artwork/Imported")
+    );
+    let kinds: Vec<_> = graphic_editor
+        .project
+        .symbols
+        .iter()
+        .filter(|s| s.id != graphic_editor.project.root)
+        .flat_map(|s| &s.timeline.layers)
+        .flat_map(|l| &l.keyframes)
+        .flat_map(|k| &k.elements)
+        .map(|e| &e.kind)
+        .collect();
+    assert!(
+        kinds
+            .iter()
+            .any(|kind| matches!(kind, neoflash_core::ElementKind::Path { .. }))
+    );
+    assert!(
+        kinds
+            .iter()
+            .any(|kind| matches!(kind, neoflash_core::ElementKind::Bitmap { .. }))
+    );
+    let imported = graphic_editor.project.clone();
+    let invalid_file = graphics_dir.join("not-a-graphic.txt");
+    std::fs::write(&invalid_file, "not a graphic").unwrap();
+    assert!(
+        graphic_editor
+            .import_graphics_paths(&[vector_file, invalid_file], None)
+            .is_err()
+    );
+    assert_eq!(
+        graphic_editor.project, imported,
+        "a failed file batch changes nothing"
+    );
+    graphic_editor.undo();
+    assert_eq!(
+        graphic_editor.project, before,
+        "one Undo removes the complete drop batch"
+    );
+
     // Reuse the resource workflow for native bitmap paint/cache and undo ownership.
     let image_project =
         Project::from_json(include_str!("../../../examples/bitmap-pixels.nflash")).unwrap();

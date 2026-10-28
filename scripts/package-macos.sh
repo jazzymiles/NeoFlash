@@ -14,6 +14,7 @@ app_dir="$project_root/dist/NeoFlash.app"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources/runtime"
 cp "target/$profile/neoflash-editor" "$app_dir/Contents/MacOS/neoflash-editor"
 cp target/web-runtime/neoflash_web.js target/web-runtime/neoflash_web_bg.wasm "$app_dir/Contents/Resources/runtime/"
+cp THIRD_PARTY_NOTICES.txt "$app_dir/Contents/Resources/THIRD_PARTY_NOTICES.txt"
 cat > "$app_dir/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

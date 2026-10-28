@@ -4,7 +4,7 @@ NeoFlash aims to provide a complete Flash-inspired environment for websites, app
 
 ## Authoring
 
-Timeline authoring now makes held content, blank intervals and the symbol end visible, separates frame dragging from scrollbars, and connects selected frames to Actions. The next timeline work includes frame-range selection/clipboard, independent layer lengths and a fuller visual curve editor. Individual key dragging and F5/F6/F7 do not complete these operations.
+Timeline authoring includes compact controls, inline layer rename, frame zoom, folders, guides and vector masks. The workspace has four-sided docks with resizable tab groups; the library has preview, folders, search and linkage. SVG/PNG/JPEG graphics can be imported from files or dropped onto the stage. Next authoring work includes frame-range selection/clipboard, independent layer lengths, richer easing controls, button states, advanced mask sources and motion-path guides.
 
 Further work includes snapping, richer drawing tools, general shape morphing, custom transform pivots, autosave and crash recovery. See [workspace behavior](WORKSPACE.md) for the current controls.
 

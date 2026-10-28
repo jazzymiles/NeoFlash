@@ -2,6 +2,22 @@ use eframe::egui::{Painter, Pos2, Rect, Stroke};
 pub(crate) const ROW_HEIGHT: f32 = 25.;
 pub(crate) const RULER_HEIGHT: f32 = 25.;
 
+/// Use 1/2/5 intervals so labels remain legible from dense overview to wide cells.
+pub(crate) fn ruler_label_step(cell_width: f32, frame_count: u32) -> u32 {
+    let digits = frame_count.max(1).ilog10() + 1;
+    let minimum = ((digits as f32 * 6. + 10.) / cell_width.max(1.)).ceil() as u32;
+    let mut decade = 1_u32;
+    loop {
+        for multiple in [1, 2, 5] {
+            let step = decade.saturating_mul(multiple);
+            if step >= minimum {
+                return step;
+            }
+        }
+        decade = decade.saturating_mul(10);
+    }
+}
+
 /// Actual editable cells exclude the end gutter and the space below the layers.
 pub(crate) fn timeline_cell_at(
     pos: Pos2,
@@ -52,6 +68,9 @@ mod tests {
     use eframe::egui::{self, Color32, Shape, Vec2};
     #[test]
     fn long_tweens_have_constant_heads_and_row_clip_at_every_scale() {
+        assert_eq!(ruler_label_step(52., 500), 1);
+        assert_eq!(ruler_label_step(13., 500), 5);
+        assert_eq!(ruler_label_step(3., 500), 10);
         for frames in [5., 60., 500.] {
             for cell in [8., 13., 26.] {
                 for dpi in [1., 1.5, 2.] {

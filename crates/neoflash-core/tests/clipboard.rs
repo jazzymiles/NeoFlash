@@ -55,6 +55,7 @@ fn key(frame: u32, elements: Vec<Element>, tween: Option<Easing>, label: &str) -
 }
 fn symbol(id: &str, kind: SymbolKind, keys: Vec<Keyframe>) -> Symbol {
     Symbol {
+        folder: String::new(),
         class_name: None,
         linkage_id: None,
         id: id.into(),
@@ -63,6 +64,7 @@ fn symbol(id: &str, kind: SymbolKind, keys: Vec<Keyframe>) -> Symbol {
         timeline: Timeline {
             frame_count: 24,
             layers: vec![Layer {
+                properties: Default::default(),
                 id: format!("{id}-layer"),
                 name: "Artwork".into(),
                 visible: true,
@@ -186,7 +188,29 @@ fn ids(project: &Project) -> HashSet<String> {
 
 #[test]
 fn text_roundtrip_has_only_reachable_library_in_original_order_and_preserves_data() {
-    let project = source();
+    let mut project = source();
+    project.add_library_folder("Characters/Empty").unwrap();
+    project
+        .move_library_symbol("leaf", "Characters/Artwork")
+        .unwrap();
+    project.move_library_symbol("parent", "Characters").unwrap();
+    project
+        .relocate_library_folder("Characters", "Cast")
+        .unwrap();
+    assert_eq!(project.symbol("leaf").unwrap().folder, "Cast/Artwork");
+    assert!(
+        project
+            .library_folder_paths()
+            .contains(&"Cast/Empty".into())
+    );
+    assert!(
+        project
+            .relocate_library_folder("Cast", "Cast/Inside")
+            .is_err()
+    );
+    assert!(project.add_library_folder("../outside").is_err());
+    let project = Project::from_json(&project.to_json().unwrap()).unwrap();
+    assert_eq!(project.format_version, 4);
     let before = project.clone();
     let mut selection = selected(&project);
     selection.reverse();
@@ -213,9 +237,17 @@ fn text_roundtrip_has_only_reachable_library_in_original_order_and_preserves_dat
 
 #[test]
 fn cross_session_remaps_shared_closure_once_and_repeated_frame_placements_consistently() {
-    let source = source();
+    let mut source = source();
+    source
+        .move_library_symbol("leaf", "Sprites/Details")
+        .unwrap();
+    source.move_library_symbol("parent", "Sprites").unwrap();
     let p = payload(&source);
     let mut destination = source.clone();
+    destination.library_folders.clear();
+    for symbol in &mut destination.symbols {
+        symbol.folder.clear();
+    }
     destination.fps = 60;
     destination.name = "Different document".into();
     let original = destination.clone();
@@ -258,6 +290,12 @@ fn cross_session_remaps_shared_closure_once_and_repeated_frame_placements_consis
     assert_ne!(keys[0].elements[0].id, "shared-placement");
     assert_eq!(refs(&keys[0].elements[0]), refs(&keys[1].elements[0]));
     let imported_leaf = result.project.symbol(refs(&keys[0].elements[0])).unwrap();
+    assert_eq!(imported_leaf.folder, "Sprites/Details");
+    assert_eq!(imported_parent.folder, "Sprites");
+    assert_eq!(
+        result.project.library_folder_paths(),
+        vec!["Sprites", "Sprites/Details"]
+    );
     assert_eq!(imported_leaf.name, "Library leaf");
     assert_eq!(imported_leaf.kind, SymbolKind::Graphic);
     assert_eq!(imported_parent.name, "Library parent");
