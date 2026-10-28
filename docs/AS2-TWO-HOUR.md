@@ -14,6 +14,13 @@ Publication and remote validation are independently visible in
 [progress dashboard](https://jazzymiles.github.io/NeoFlash/progress.html).
 No new family is authorized by this document.
 
+Delivery publication was observed at `5b6b865`: both the
+[macOS Rust/WASM/HTML5 check](https://github.com/jazzymiles/NeoFlash/actions/runs/40671064518)
+and [Progress Pages deployment](https://github.com/jazzymiles/NeoFlash/actions/runs/40671064414)
+completed successfully. The public dashboard was inspected in the browser and
+showed that revision and the exact AS2/AS3 counts below. Later reference-book
+ignore rules and this publication note do not change runtime source.
+
 ## New behavior and exact counts
 
 | Package | New methods | New properties | New global functions | New API paths |

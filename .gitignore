@@ -6,6 +6,10 @@
 # User-provided legacy projects are local test inputs, not licensed public fixtures.
 /examples/old flash files/
 
+# User-provided reference books remain local, outside the public repository.
+/book/
+/books/
+
 # Local Python interpreter caches.
 __pycache__/
 *.py[cod]
