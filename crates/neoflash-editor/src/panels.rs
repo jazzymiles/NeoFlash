@@ -1,7 +1,7 @@
 use crate::app::*;
 use crate::{
     theme::{ThemeMode, UiPalette},
-    timeline_paint::{ROW_HEIGHT, RULER_HEIGHT, paint_tween_arrow},
+    timeline_paint::{ROW_HEIGHT, RULER_HEIGHT, frame_at_x, paint_tween_arrow, timeline_cell_at},
     ui_icons::{Icon, IconButton, inline_icon},
     workspace::{PanelId, PanelPlacement},
 };
@@ -368,13 +368,23 @@ impl Editor {
                 Vec2::new(ui.available_width(), RULER_HEIGHT),
                 Sense::hover(),
             );
-            let layers = self.symbol().timeline.layers.clone();
+            // Frame exposures are ordered by their frame, independent of JSON order.
+            let mut layers = self.symbol().timeline.layers.clone();
+            for layer in &mut layers {
+                layer.keyframes.sort_by_key(|key| key.frame);
+            }
             let count = self.symbol().timeline.frame_count;
             let content_height = layers.len() as f32 * ROW_HEIGHT;
+            // Solid scrollbars own a separate strip instead of covering the last
+            // visible key. Content drags belong to frames, not kinetic scrolling.
+            ui.spacing_mut().scroll.floating = false;
+            let scroll_source = egui::scroll_area::ScrollSource::SCROLL_BAR
+                | egui::scroll_area::ScrollSource::MOUSE_WHEEL;
             let mut grid_rect = Rect::NOTHING;
             let mut grid_clip = Rect::NOTHING;
             egui::ScrollArea::vertical()
                 .id_salt("timeline_rows")
+                .scroll_source(scroll_source)
                 .min_scrolled_height(25.)
                 .max_height(height)
                 .auto_shrink([false, false])
@@ -467,20 +477,107 @@ impl Editor {
                                 }
                             },
                         );
-                        egui::ScrollArea::horizontal()
+                        let frames = egui::ScrollArea::horizontal()
                             .id_salt("frames")
+                            .scroll_source(scroll_source)
+                            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
-                                let width = (count.max(72) as f32 * self.timeline_cell)
+                                let width = (count.saturating_add(4).max(72) as f32 * self.timeline_cell)
                                     .max(ui.available_width());
                                 let (rect, response) = ui.allocate_exact_size(
-                                    Vec2::new(width, content_height.max(height - 14.)),
+                                    Vec2::new(width, (content_height + 8.).max(height - 18.)),
                                     Sense::click_and_drag(),
                                 );
                                 grid_rect = rect;
                                 grid_clip = ui.clip_rect().intersect(rect);
+                                let hit = |pos| timeline_cell_at(pos, rect.min, self.timeline_cell, count, layers.len());
+                                // Native platforms can batch a complete press/move/release
+                                // between paints. Capture its press position, even when the
+                                // button is already up and egui has no ongoing drag response.
+                                let (pressed, released) = ui.input(|i| {
+                                    let mut pressed = None;
+                                    let mut released = None;
+                                    for event in &i.events {
+                                        if let egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: down, modifiers } = event {
+                                            if *down { pressed = Some(*pos); released = None; }
+                                            else { released = Some((*pos, modifiers.alt)); }
+                                        }
+                                    }
+                                    (pressed, released)
+                                });
+                                let press_origin = pressed.or_else(|| {
+                                    (response.drag_started_by(egui::PointerButton::Primary) && self.timeline_key_drag.is_none())
+                                        .then(|| ui.input(|i| i.pointer.press_origin())).flatten()
+                                }).filter(|pos| {
+                                    ui.is_enabled() && grid_clip.contains(*pos)
+                                        && !response.context_menu_opened()
+                                        && ui.ctx().layer_id_at(*pos) == Some(ui.layer_id())
+                                });
+                                let primary_press = press_origin.is_some();
+                                let pointed = response.interact_pointer_pos().and_then(hit);
+                                if primary_press || response.clicked() || response.secondary_clicked() {
+                                    let selected = if let Some(pos) = press_origin { hit(pos) } else { pointed };
+                                    if let Some((frame, layer)) = selected {
+                                        self.finish_edits();
+                                        self.set_playing(false);
+                                        self.frame = frame;
+                                        self.layer = layer;
+                                        self.script_target = ScriptTarget::Frame;
+                                        self.clear_selection();
+                                        // Capture the key before scrolling or drag-threshold motion
+                                        // changes the screen position of its cell.
+                                        if primary_press {
+                                            self.timeline_key_drag = layers[layer].keyframes.iter()
+                                                .any(|key| key.frame == frame)
+                                                .then(|| (self.symbol_id().to_owned(), layers[layer].id.clone(), frame))
+                                                .filter(|_| !layers[layer].locked && layers[layer].visible);
+                                        } else if response.secondary_clicked() {
+                                            self.timeline_key_drag = None;
+                                        }
+                                    } else if primary_press || response.secondary_clicked() {
+                                        self.timeline_key_drag = None;
+                                    }
+                                }
+                                if (response.dragged_by(egui::PointerButton::Primary)
+                                    || (self.timeline_key_drag.is_some() && ui.input(|i| i.pointer.primary_down())))
+                                    && let Some(pos) = ui.input(|i| i.pointer.latest_pos())
+                                {
+                                    if let Some((symbol, layer_id, _)) = &self.timeline_key_drag {
+                                        if symbol == self.symbol_id()
+                                            && let Some(layer) = layers.iter().position(|layer| &layer.id == layer_id)
+                                        {
+                                            self.frame = frame_at_x(pos.x, rect.left(), self.timeline_cell, count);
+                                            self.layer = layer;
+                                        }
+                                    } else if let Some((frame, layer)) = timeline_cell_at(pos, rect.min, self.timeline_cell, count, layers.len()) {
+                                        self.frame = frame;
+                                        self.layer = layer;
+                                        self.script_target = ScriptTarget::Frame;
+                                    }
+                                }
+                                if ui.input(|i| i.key_pressed(egui::Key::Escape) || !i.focused) {
+                                    self.timeline_key_drag = None;
+                                }
+                                if let Some((pos, copy)) = released
+                                    && let Some((symbol, layer_id, from)) = self.timeline_key_drag.take()
+                                    && symbol == self.symbol_id()
+                                    && let Some(layer) = layers.iter().position(|layer| layer.id == layer_id)
+                                {
+                                    // A release below/above the frame canvas cancels, including
+                                    // its reserved scrollbar. A horizontal edge release is clamped.
+                                    if !ui.input(|i| i.pointer.primary_clicked())
+                                        && pos.y >= grid_clip.top()
+                                        && pos.y < grid_clip.bottom().min(rect.top() + content_height)
+                                    {
+                                        let to = frame_at_x(pos.x, rect.left(), self.timeline_cell, count);
+                                        self.move_key(layer, from, to, copy);
+                                    }
+                                } else if ui.input(|i| i.pointer.primary_released()) {
+                                    self.timeline_key_drag = None;
+                                }
                                 let painter = ui.painter_at(rect);
-                                painter.rect_filled(rect, 0, palette.timeline_fill);
+                                painter.rect_filled(rect, 0, palette.panel_fill);
                                 let first = (((grid_clip.left() - rect.left())
                                         / self.timeline_cell)
                                         .max(0.)
@@ -490,7 +587,7 @@ impl Editor {
                                     (((grid_clip.right() - rect.left()) / self.timeline_cell)
                                         .ceil()
                                         .max(0.) as u32)
-                                        .min(count.max(72));
+                                        .min(count);
                                 for f in first..last {
                                     let x = rect.left() + f as f32 * self.timeline_cell;
                                     let color = if f == self.frame {
@@ -536,6 +633,23 @@ impl Editor {
                                             continue;
                                         }
                                         let x = rect.left() + key.frame as f32 * self.timeline_cell;
+                                        let end = rect.left() + next.min(count) as f32 * self.timeline_cell;
+                                        let span = Rect::from_min_max(Pos2::new(x, y + 1.), Pos2::new(end, y + ROW_HEIGHT - 1.));
+                                        p.rect_filled(span, 0, if key.elements.is_empty() {
+                                            palette.timeline_blank_key
+                                        } else {
+                                            palette.timeline_major
+                                        });
+                                        p.line_segment([span.left_top(), span.right_top()], Stroke::new(0.5_f32, palette.timeline_grid));
+                                        p.line_segment([span.left_bottom(), span.right_bottom()], Stroke::new(0.5_f32, palette.timeline_grid));
+                                        for frame in key.frame.max(first)..next.min(last) {
+                                            let cell_x = rect.left() + frame as f32 * self.timeline_cell;
+                                            p.line_segment([Pos2::new(cell_x, y + 1.), Pos2::new(cell_x, y + ROW_HEIGHT - 1.)], Stroke::new(0.5_f32, palette.timeline_grid));
+                                        }
+                                        if next > key.frame + 1 && !key.elements.is_empty() {
+                                            let last_x = end - self.timeline_cell / 2.;
+                                            p.rect_stroke(Rect::from_center_size(Pos2::new(last_x, y + ROW_HEIGHT / 2.), Vec2::new(4., 6.)), 0, Stroke::new(1.0_f32, palette.timeline_key), egui::StrokeKind::Inside);
+                                        }
                                         if key.tween.is_some() && ki + 1 < layer.keyframes.len() {
                                             let end =
                                                 rect.left() + next as f32 * self.timeline_cell;
@@ -586,6 +700,45 @@ impl Editor {
                                         Stroke::new(1.0_f32, palette.timeline_row_separator),
                                     );
                                 }
+                                let selected_cell = Rect::from_min_size(
+                                    Pos2::new(rect.left() + self.frame as f32 * self.timeline_cell, rect.top() + self.layer as f32 * ROW_HEIGHT),
+                                    Vec2::new(self.timeline_cell, ROW_HEIGHT),
+                                );
+                                painter.rect_stroke(selected_cell, 0, Stroke::new(1.5_f32, palette.selection_stroke), egui::StrokeKind::Inside);
+                                let end_x = rect.left() + count as f32 * self.timeline_cell;
+                                painter.line_segment([Pos2::new(end_x, rect.top()), Pos2::new(end_x, rect.top() + content_height)], Stroke::new(1.5_f32, palette.border));
+                                if response.hovered()
+                                    && let Some(pos) = response.hover_pos()
+                                {
+                                    if let Some((frame, layer)) = timeline_cell_at(pos, rect.min, self.timeline_cell, count, layers.len()) {
+                                        let key = layers[layer].key_at(frame);
+                                        let label = match key {
+                                            Some(key) if key.frame == frame && key.elements.is_empty() => "Blank keyframe".to_owned(),
+                                            Some(key) if key.frame == frame => "Keyframe · drag to move, Option-drag to copy".to_owned(),
+                                            Some(key) if key.elements.is_empty() => format!("Empty frames from {}", key.frame + 1),
+                                            Some(key) => format!("Content held from keyframe {}", key.frame + 1),
+                                            None => "Empty before the first keyframe".to_owned(),
+                                        };
+                                        if key.is_some_and(|key| key.frame == frame) && !layers[layer].locked && layers[layer].visible {
+                                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                                        }
+                                        response.clone().on_hover_text(format!("{} · Frame {}\n{}\nRight-click for frame commands and Actions", layers[layer].name, frame + 1, label));
+                                    } else if pos.x >= end_x {
+                                        response.clone().on_hover_text(format!("Timeline ends at frame {}. Insert frames (F5) to extend it.", count));
+                                    }
+                                }
+                                if response.dragged_by(egui::PointerButton::Primary)
+                                    && let Some((symbol, layer_id, from)) = &self.timeline_key_drag
+                                    && symbol == self.symbol_id()
+                                    && let Some(layer) = layers.iter().find(|layer| &layer.id == layer_id)
+                                {
+                                    let blocked = self.frame != *from && layer.keyframes.iter().any(|key| key.frame == self.frame);
+                                    let stroke = Stroke::new(2_f32, if blocked { palette.error_text } else { palette.accent });
+                                    painter.rect_stroke(selected_cell.shrink(1.), 0, stroke, egui::StrokeKind::Inside);
+                                    ui.ctx().set_cursor_icon(if blocked { egui::CursorIcon::NotAllowed } else { egui::CursorIcon::Grabbing });
+                                    let text = if blocked { "Destination already has a keyframe".to_owned() } else { format!("{} key {} → {}", if ui.input(|i| i.modifiers.alt) { "Copy" } else { "Move" }, from + 1, self.frame + 1) };
+                                    painter.text(Pos2::new(grid_clip.left() + 5., grid_clip.bottom() - 3.), Align2::LEFT_BOTTOM, text, FontId::proportional(11.), stroke.color);
+                                }
                                 for script in &self.symbol().timeline.scripts {
                                     painter.text(
                                         Pos2::new(
@@ -610,86 +763,18 @@ impl Editor {
                                     ],
                                     Stroke::new(1.5_f32, palette.playhead),
                                 );
-                                if (response.clicked() || response.dragged())
-                                    && let Some(pos) = response.interact_pointer_pos()
+                                if response.context_menu_opened()
+                                    || response.interact_pointer_pos().is_some_and(|pos| timeline_cell_at(pos, rect.min, self.timeline_cell, count, layers.len()).is_some())
                                 {
-                                    self.finish_edits();
-                                    if self.playing {
-                                        self.set_playing(false);
-                                    }
-                                    self.frame = (((pos.x - rect.left()) / self.timeline_cell)
-                                        .floor()
-                                        .max(0.)
-                                        as u32)
-                                        .min(count - 1);
-                                    self.layer =
-                                        (((pos.y - rect.top()) / ROW_HEIGHT).floor().max(0.)
-                                            as usize)
-                                            .min(layers.len() - 1);
-                                    self.clear_selection();
-                                }
-                                if response.drag_started()
-                                    && let Some(pos) = ui.input(|i| i.pointer.press_origin())
-                                {
-                                    let f = (((pos.x - rect.left()) / self.timeline_cell)
-                                        .floor()
-                                        .max(0.)
-                                        as u32)
-                                        .min(count - 1);
-                                    let li = (((pos.y - rect.top()) / ROW_HEIGHT).floor().max(0.)
-                                        as usize)
-                                        .min(layers.len() - 1);
-                                    if layers[li].keyframes.iter().any(|k| k.frame == f) {
-                                        self.timeline_key_drag = Some((
-                                            self.symbol_id().to_owned(),
-                                            layers[li].id.clone(),
-                                            f,
-                                        ));
-                                    }
-                                }
-                                if response.drag_stopped()
-                                    && let Some((symbol, layer_id, from)) =
-                                        self.timeline_key_drag.take()
-                                    && symbol == self.symbol_id()
-                                    && let Some(li) = self
-                                        .symbol()
-                                        .timeline
-                                        .layers
-                                        .iter()
-                                        .position(|layer| layer.id == layer_id)
-                                {
-                                    let release = ui
-                                        .input(|input| {
-                                            input.events.iter().rev().find_map(
-                                                |event| match event {
-                                                    egui::Event::PointerButton {
-                                                        pos,
-                                                        button: egui::PointerButton::Primary,
-                                                        pressed: false,
-                                                        ..
-                                                    } => Some(*pos),
-                                                    _ => None,
-                                                },
-                                            )
-                                        })
-                                        .or_else(|| response.interact_pointer_pos())
-                                        .or_else(|| ui.input(|i| i.pointer.latest_pos()));
-                                    let to = release.map_or(self.frame, |pos| {
-                                        (((pos.x - rect.left()) / self.timeline_cell)
-                                            .floor()
-                                            .max(0.)
-                                            as u32)
-                                            .min(count - 1)
-                                    });
-                                    self.move_key(li, from, to, ui.input(|i| i.modifiers.alt));
-                                }
                                 response.context_menu(|ui| {
-                                    if ui.button("Insert Keyframe   F6").clicked() {
+                                    ui.label(format!("{} · Frame {}", self.symbol().timeline.layers[self.layer].name, self.frame + 1));
+                                    ui.separator();
+                                    if ui.add_enabled(self.layer_editable(), egui::Button::new("Insert Keyframe   F6")).clicked() {
                                         self.finish_edits();
                                         self.make_key(false);
                                         ui.close();
                                     }
-                                    if ui.button("Insert Blank Keyframe   F7").clicked() {
+                                    if ui.add_enabled(self.layer_editable(), egui::Button::new("Insert Blank Keyframe   F7")).clicked() {
                                         self.finish_edits();
                                         self.make_key(true);
                                         ui.close();
@@ -714,12 +799,34 @@ impl Editor {
                                         ui.close();
                                     }
                                     if ui.button("Actions   F9").clicked() {
-                                        self.show_panel(PanelId::Actions);
-                                        self.script_target = ScriptTarget::Frame;
+                                        self.open_frame_actions();
                                         ui.close();
                                     }
                                 });
+                                }
                             });
+                        // Continue an existing key drag at the horizontal viewport edge;
+                        // never start a drag from a scrollbar or an out-of-range cell.
+                        if self.timeline_key_drag.is_some()
+                            && ui.input(|i| i.pointer.primary_down() && i.pointer.is_decidedly_dragging())
+                            && let Some(pos) = ui.input(|i| i.pointer.latest_pos())
+                            && pos.y >= frames.inner_rect.top()
+                            && pos.y < frames.inner_rect.bottom()
+                        {
+                            let margin = 24.;
+                            let direction = if pos.x < frames.inner_rect.left() + margin { -1. } else if pos.x > frames.inner_rect.right() - margin { 1. } else { 0. };
+                            if direction != 0. {
+                                let mut state = frames.state;
+                                let dt = ui.input(|i| i.stable_dt).min(0.05);
+                                let maximum = (frames.content_size.x - frames.inner_rect.width()).max(0.);
+                                let next = (state.offset.x + direction * 360. * dt).clamp(0., maximum);
+                                if next != state.offset.x {
+                                    state.offset.x = next;
+                                    state.store(ui.ctx(), frames.id);
+                                    ui.ctx().request_repaint();
+                                }
+                            }
+                        }
                     });
                 });
             // Paint the fixed ruler after scrolling, using the same current X
@@ -744,7 +851,7 @@ impl Editor {
                 let last = (((ruler.right() - grid_rect.left()) / self.timeline_cell)
                     .ceil()
                     .max(0.) as u32)
-                    .min(count.max(72));
+                    .min(count);
                 for f in first..last {
                     let x = grid_rect.left() + f as f32 * self.timeline_cell;
                     if f == 0 || (f + 1) % 5 == 0 {
@@ -757,6 +864,11 @@ impl Editor {
                         );
                     }
                 }
+                let end_x = grid_rect.left() + count as f32 * self.timeline_cell;
+                if end_x >= ruler.left() && end_x <= ruler.right() {
+                    p.line_segment([Pos2::new(end_x, ruler.top()), Pos2::new(end_x, ruler.bottom())], Stroke::new(1.5_f32, palette.border));
+                    p.text(Pos2::new(end_x + 5., ruler.center().y), Align2::LEFT_CENTER, "End", FontId::proportional(10.), palette.muted_text);
+                }
                 let response =
                     ui.interact(ruler, ui.id().with("ruler_seek"), Sense::click_and_drag());
                 if (response.clicked() || response.dragged())
@@ -765,11 +877,11 @@ impl Editor {
                     self.finish_edits();
                     self.timeline_key_drag = None;
                     self.set_playing(false);
-                    self.frame = (((pos.x - grid_rect.left()) / self.timeline_cell)
-                        .floor()
-                        .max(0.) as u32)
-                        .min(count - 1);
-                    self.clear_selection();
+                    if pos.x < grid_rect.left() + count as f32 * self.timeline_cell {
+                        self.frame = frame_at_x(pos.x, grid_rect.left(), self.timeline_cell, count);
+                        self.script_target = ScriptTarget::Frame;
+                        self.clear_selection();
+                    }
                 }
                 let playx = grid_rect.left()
                     + self.frame as f32 * self.timeline_cell
@@ -903,6 +1015,10 @@ impl Editor {
                                     .clicked()
                                 {
                                     self.set_playing(!self.playing);
+                                }
+                                ui.separator();
+                                if ui.button("Actions · F9").on_hover_text("Edit the selected frame script").clicked() {
+                                    self.open_frame_actions();
                                 }
                                 ui.separator();
                                 ui.checkbox(&mut self.onion, "Onion Skin");
@@ -1609,10 +1725,22 @@ impl Editor {
     }
     fn actions_body(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
+            ui.strong(&self.symbol().name);
+            ui.separator();
+            let has_frame_script = self.symbol().timeline.scripts.iter().any(|script| {
+                script.frame == self.frame && !script.script.source.trim().is_empty()
+            });
             ui.selectable_value(
                 &mut self.script_target,
                 ScriptTarget::Frame,
-                format!("Frame {}", self.frame + 1),
+                format!(
+                    "Frame {}{}",
+                    self.frame + 1,
+                    if has_frame_script { " · script" } else { "" }
+                ),
+            )
+            .on_hover_text(
+                "Edit this symbol's frame script. Frame scripts are shared across its layers.",
             );
             ui.add_enabled_ui(self.selected_editable(), |ui| {
                 ui.selectable_value(

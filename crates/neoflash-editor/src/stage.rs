@@ -428,6 +428,16 @@ impl Editor {
                     if self.dirty() {
                         ui.label("•");
                     }
+                    if self.onion {
+                        ui.label(
+                            egui::RichText::new("Onion skin")
+                                .small()
+                                .color(palette.onion_before),
+                        )
+                        .on_hover_text(
+                            "Tinted outlines or shapes show neighbouring frames. They are not content of the current frame; turn off Onion Skin to see this frame alone.",
+                        );
+                    }
                     if self.vector.draft.is_some() {
                         if ui.small_button("Finish · Enter").clicked() {
                             self.finish_path(false);

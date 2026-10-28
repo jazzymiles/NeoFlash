@@ -196,7 +196,19 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
 #[test]
 fn f9_reveals_hidden_actions_even_while_a_text_field_has_focus() {
     let ctx = egui::Context::default();
-    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 8;
+    project.symbols[0]
+        .timeline
+        .scripts
+        .push(neoflash_core::FrameScript {
+            frame: 4,
+            script: neoflash_core::Script {
+                language: neoflash_core::ScriptLanguage::JavaScript,
+                source: "this.stop();".into(),
+            },
+        });
+    let mut editor = Editor::from_project(&ctx, project);
     let original = editor.project.clone();
     editor.set_panel_visible(PanelId::Actions, false);
     let mut text = "do not replace this draft".to_owned();
@@ -225,6 +237,29 @@ fn f9_reveals_hidden_actions_even_while_a_text_field_has_focus() {
     assert_eq!(editor.project, original);
     assert_eq!(text, "do not replace this draft");
     assert!(!editor.dirty());
+    assert!(!editor.history.can_undo());
+
+    // A timeline invocation replaces a stale code-tab target, while retaining
+    // source-file selection and document contents. Revealing the dock focuses
+    // the requested frame's editor rather than the widget used before F9.
+    editor.script_target = ScriptTarget::Source;
+    editor.selected_source = Some("remembered-source".into());
+    editor.frame = 4;
+    editor.set_playing(true);
+    editor.open_frame_actions();
+    assert!(editor.script_target == ScriptTarget::Frame);
+    assert_eq!(editor.frame, 4);
+    assert!(!editor.playing);
+    assert_eq!(editor.selected_source.as_deref(), Some("remembered-source"));
+    let frame_editor = editor.actions_editor_id();
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        editor.prepare_docked_panel_focus(ctx);
+        egui::CentralPanel::default().show(ctx, |ui| editor.actions_contents(ui));
+    });
+    assert!(ctx.memory(|memory| memory.has_focus(frame_editor)));
+    editor.frame = 3;
+    assert_ne!(frame_editor, editor.actions_editor_id());
+    assert_eq!(editor.project, original);
     assert!(!editor.history.can_undo());
 }
 

@@ -138,6 +138,18 @@ impl Editor {
             self.detached.focus = Some(panel);
         }
     }
+    pub(crate) fn open_frame_actions(&mut self) {
+        self.script_target = ScriptTarget::Frame;
+        self.open_actions();
+    }
+    pub(crate) fn open_actions(&mut self) {
+        self.set_playing(false);
+        if self.script_target == ScriptTarget::Object && !self.selected_editable() {
+            self.script_target = ScriptTarget::Frame;
+        }
+        self.show_panel(PanelId::Actions);
+        self.detached.focus_docked_actions = self.workspace.is_panel_docked(PanelId::Actions);
+    }
     pub(crate) fn set_panel_visible(&mut self, panel: PanelId, visible: bool) {
         self.workspace.active_bottom = self.bottom;
         self.workspace.set_panel_visible(panel, visible);
@@ -618,7 +630,7 @@ impl Editor {
             self.export(true);
         }
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F9)) {
-            self.show_panel(PanelId::Actions);
+            self.open_actions();
         }
         if !typing {
             if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)) {

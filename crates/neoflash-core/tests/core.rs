@@ -195,22 +195,53 @@ fn removed_and_reinserted_instances_restart() {
     let p = project(vec![
         symbol(
             "root",
-            5,
+            8,
             vec![
-                key(0, vec![instance("one", "clip", 0.)], None),
-                key(2, vec![], None),
-                key(3, vec![instance("one", "clip", 0.)], None),
+                // Serialized keys need not be ordered. Holds are bounded by
+                // the next chronological key, including an empty key.
+                key(6, vec![instance("one", "clip", 0.)], None),
+                key(2, vec![instance("one", "clip", 0.)], None),
+                key(4, vec![], None),
             ],
         ),
         symbol("clip", 10, vec![key(0, vec![shape("leaf", 0.)], None)]),
     ]);
+    p.validate().unwrap();
+    let authored = p.to_json().unwrap();
+    let visible = [false, false, true, true, false, false, true, true];
+    for (frame, expected) in visible.into_iter().enumerate() {
+        assert_eq!(
+            !evaluate(&p, "root", frame as u32).is_empty(),
+            expected,
+            "authoring exposure at frame {frame}"
+        );
+    }
+    assert_eq!(p.to_json().unwrap(), authored);
+
     let mut player = Player::new(&p);
+    let path = vec!["one".into()];
+    assert!(player.evaluate(&p).is_empty());
     player.tick(&p);
-    assert_eq!(player.clip_frame(&["one".into()]), Some(1));
+    assert!(player.evaluate(&p).is_empty());
     player.tick(&p);
-    assert_eq!(player.clip_frame(&["one".into()]), None);
+    assert_eq!(player.clip_frame(&path), Some(0));
+    let first = player.object_ref(&path).unwrap();
     player.tick(&p);
-    assert_eq!(player.clip_frame(&["one".into()]), Some(0));
+    assert_eq!(player.clip_frame(&path), Some(1));
+    assert_eq!(player.object_ref(&path), Some(first.clone()));
+    player.tick(&p);
+    assert_eq!(player.clip_frame(&path), None);
+    assert!(!player.object_alive(&first));
+    assert!(player.evaluate(&p).is_empty());
+    assert!(player.runtime_snapshot(&p).draws.is_empty());
+    player.tick(&p);
+    assert!(player.evaluate(&p).is_empty());
+    player.tick(&p);
+    assert_eq!(player.clip_frame(&path), Some(0));
+    assert_ne!(player.object_ref(&path), Some(first));
+    player.tick(&p);
+    assert_eq!(player.clip_frame(&path), Some(1));
+    assert_eq!(player.evaluate(&p).len(), 1);
 }
 
 #[test]

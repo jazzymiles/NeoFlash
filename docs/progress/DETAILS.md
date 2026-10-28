@@ -740,11 +740,11 @@ Authoring tools: stage, vectors, text, selection and library.
 
 `editor-workspace` · **Partial**
 
-**Scope:** Stage, tools, timeline, library, Properties and Actions; Light/Dark themes, saved panel layout and detached Tools/Timeline/Actions. Actions now includes Sources editing, source import/removal, linkage fields and source-specific project-check feedback. MovieClip export identifiers use the existing source-panel undo and validation flow.
+**Scope:** Stage, tools, timeline, library, Properties and Actions; Light/Dark themes, saved panel layout and detached Tools/Timeline/Actions. Actions now includes Sources editing, source import/removal, linkage fields and source-specific project-check feedback. MovieClip export identifiers use the existing source-panel undo and validation flow. Frame-context Actions identifies the current symbol/frame, focuses the code editor and pauses preview playback when opened.
 
 **Limitations:** Native Sources editing/feedback/save/reopen acceptance is pending. Drag-to-dock, tabs/splits and named presets are missing; VoiceOver/IME and multiple monitors are not fully verified. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified.
 
-**Evidence:** [crates/neoflash-editor/src/panels.rs](../../crates/neoflash-editor/src/panels.rs), [crates/neoflash-editor/src/detached.rs](../../crates/neoflash-editor/src/detached.rs), [crates/neoflash-editor/src/workspace.rs](../../crates/neoflash-editor/src/workspace.rs), [crates/neoflash-editor/src/panel_tests.rs](../../crates/neoflash-editor/src/panel_tests.rs), [docs/WORKSPACE.md](../../docs/WORKSPACE.md), [docs/VERIFICATION.md](../../docs/VERIFICATION.md), [crates/neoflash-editor/src/sources.rs](../../crates/neoflash-editor/src/sources.rs), [docs/progress/actionscript-audit.json](../../docs/progress/actionscript-audit.json), [crates/neoflash-core/src/model.rs](../../crates/neoflash-core/src/model.rs), [crates/neoflash-core/src/clipboard.rs](../../crates/neoflash-core/src/clipboard.rs), [examples/linked-movieclips.nflash](../../examples/linked-movieclips.nflash)
+**Evidence:** [crates/neoflash-editor/src/panels.rs](../../crates/neoflash-editor/src/panels.rs), [crates/neoflash-editor/src/detached.rs](../../crates/neoflash-editor/src/detached.rs), [crates/neoflash-editor/src/workspace.rs](../../crates/neoflash-editor/src/workspace.rs), [crates/neoflash-editor/src/panel_tests.rs](../../crates/neoflash-editor/src/panel_tests.rs), [docs/WORKSPACE.md](../../docs/WORKSPACE.md), [docs/VERIFICATION.md](../../docs/VERIFICATION.md), [crates/neoflash-editor/src/sources.rs](../../crates/neoflash-editor/src/sources.rs), [docs/progress/actionscript-audit.json](../../docs/progress/actionscript-audit.json), [crates/neoflash-core/src/model.rs](../../crates/neoflash-core/src/model.rs), [crates/neoflash-core/src/clipboard.rs](../../crates/neoflash-core/src/clipboard.rs), [examples/linked-movieclips.nflash](../../examples/linked-movieclips.nflash), [crates/neoflash-editor/src/app.rs](../../crates/neoflash-editor/src/app.rs), [crates/neoflash-editor/src/tests.rs](../../crates/neoflash-editor/src/tests.rs), [crates/neoflash-editor/src/workspace_editor_tests.rs](../../crates/neoflash-editor/src/workspace_editor_tests.rs)
 
 ### Rectangle and oval
 
@@ -864,11 +864,11 @@ Nested instances, frames, interpolation and safe authoring previews.
 
 `animation-keys` · **Implemented**
 
-**Scope:** F5/F6/F7 and moving/copying individual keyframes; insertion uses the visible interpolated pose.
+**Scope:** F5/F6/F7 and moving/copying individual keyframes; insertion uses the visible interpolated pose. Held content and blank spans are drawn to the next chronological key or symbol end. Frame rows are separated from scrollbars; key dragging uses the original pressed frame, a destination preview and edge scrolling.
 
-**Limitations:** Frame-range operations are tracked separately.
+**Limitations:** Frame-range selection/clipboard and independent layer lengths remain separate work. The last key holds content to the symbol end; use a blank key to stop that layer's visible content.
 
-**Evidence:** [crates/neoflash-editor/src/app.rs](../../crates/neoflash-editor/src/app.rs), [crates/neoflash-editor/src/tests.rs](../../crates/neoflash-editor/src/tests.rs)
+**Evidence:** [crates/neoflash-editor/src/app.rs](../../crates/neoflash-editor/src/app.rs), [crates/neoflash-editor/src/tests.rs](../../crates/neoflash-editor/src/tests.rs), [crates/neoflash-editor/src/panels.rs](../../crates/neoflash-editor/src/panels.rs), [crates/neoflash-editor/src/timeline_paint.rs](../../crates/neoflash-editor/src/timeline_paint.rs), [crates/neoflash-editor/src/panel_tests.rs](../../crates/neoflash-editor/src/panel_tests.rs), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs)
 
 ### Independent nested timelines
 
@@ -914,11 +914,11 @@ Nested instances, frames, interpolation and safe authoring previews.
 
 `animation-onion` · **Implemented**
 
-**Scope:** Authored evaluation without script execution; onion skin with before/after range, anchoring, outlines and opacity.
+**Scope:** Authored evaluation without script execution; onion skin with before/after range, anchoring, outlines and opacity. The stage header identifies active onion skin so neighbouring-frame ghosts are distinguishable from the current frame.
 
 **Limitations:** Editing multiple frames is outside onion preview.
 
-**Evidence:** [crates/neoflash-editor/src/panels.rs](../../crates/neoflash-editor/src/panels.rs), [crates/neoflash-editor/src/stage.rs](../../crates/neoflash-editor/src/stage.rs), [crates/neoflash-core/src/evaluate.rs](../../crates/neoflash-core/src/evaluate.rs)
+**Evidence:** [crates/neoflash-editor/src/panels.rs](../../crates/neoflash-editor/src/panels.rs), [crates/neoflash-editor/src/stage.rs](../../crates/neoflash-editor/src/stage.rs), [crates/neoflash-core/src/evaluate.rs](../../crates/neoflash-core/src/evaluate.rs), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs)
 
 ### Shape morphing
 
@@ -934,7 +934,7 @@ Nested instances, frames, interpolation and safe authoring previews.
 
 `animation-frame-ranges` · **Planned**
 
-**Scope:** Frame clipboard, span drag/copy/reverse, editing multiple frames and pasting while preserving layer structure.
+**Scope:** Frame-range selection and clipboard, span drag/copy/reverse, editing multiple frames and pasting while preserving layer structure.
 
 **Limitations:** Moving an individual keyframe does not provide range operations.
 

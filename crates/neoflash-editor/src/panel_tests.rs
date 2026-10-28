@@ -170,6 +170,9 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
                 let mut layer = template.clone();
                 layer.id = format!("test-layer-{i}");
                 layer.name = format!("Row {i:02}");
+                let mut last_key = layer.keyframes[0].clone();
+                last_key.frame = 15;
+                layer.keyframes.push(last_key);
                 for key in &mut layer.keyframes {
                     for element in &mut key.elements {
                         element.id = format!("{i}-{}", element.id);
@@ -242,6 +245,48 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
         assert!(
             first_row >= 5,
             "wheel must actually scroll shared rows, first={first_row}"
+        );
+        let from = out
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Circle(circle)
+                    if circle.radius == 3.
+                        && circle.fill == UiPalette::current(&ctx).timeline_key
+                        && shape.clip_rect.contains(circle.center)
+                        && (circle.center.y - row_top - crate::timeline_paint::ROW_HEIGHT / 2.)
+                            .abs()
+                            < 1. =>
+                {
+                    Some(circle.center)
+                }
+                _ => None,
+            })
+            .max_by(|a, b| a.x.total_cmp(&b.x))
+            .unwrap();
+        let to = from - Vec2::new(3. * editor.timeline_cell, 0.);
+        let before = editor.project.clone();
+        frame(
+            &mut editor,
+            &ctx,
+            Vec2::new(1024., 720.),
+            0.6,
+            vec![
+                Event::PointerMoved(from),
+                primary_button(from, true),
+                Event::PointerMoved(to),
+                primary_button(to, false),
+            ],
+        );
+        assert_eq!(editor.frame, 12, "batched key drag selects its destination");
+        let layer = &editor.symbol().timeline.layers[editor.layer];
+        assert!(layer.keyframes.iter().any(|key| key.frame == 12));
+        assert!(!layer.keyframes.iter().any(|key| key.frame == 15));
+        editor.undo();
+        assert_eq!(editor.project, before);
+        assert!(
+            !editor.history.can_undo(),
+            "a complete key drag is one undo step"
         );
     }
 }

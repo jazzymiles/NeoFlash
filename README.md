@@ -4,9 +4,7 @@ Open-source authoring environment inspired by classic Macromedia/Adobe Flash, bu
 
 **Status: development preview, 0.1.0. This is a working foundation, not a complete Flash replacement.** Full AS2/AS3 compatibility, general FLA/SWF import, a complete vector toolset and DOM-based web layouts remain substantial work. See the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
 
-The wider project remains paused. The completed [AS2 runtime two-hour batch](docs/AS2-RUNTIME-TWO-HOUR.md) adds **78 new catalogue method/property paths** within **102 new declarations**, plus seven extensions/corrections and 61 corrections of existing coverage counted separately. Five ordinary HTML5 families cover Stage/content menus, local capture, progressive NetStream, LocalConnection/AMF remoting, primitive boxes, project includes and Locale replacement. AS2 partial entries rise **1,355 → 1,518**, with 737 still missing; full compatibility remains unfinished. Real capture hardware and visual system print-preview acceptance remain unverified. AS3 feature work, native editor UI and FLA remain paused.
-
-Earlier completed deliveries: [second AS2 two-hour batch](docs/AS2-TWO-HOUR-2.md), [first AS2 two-hour batch](docs/AS2-TWO-HOUR.md), [AS2 runtime hour](docs/AS2-RUNTIME-HOUR.md), [runtime hour 2](docs/AS-RUNTIME-HOUR-2.md), [runtime hour 1](docs/AS-RUNTIME-HOUR.md), [Rust reuse experiment](docs/AS-REUSE-EXPERIMENT.md).
+The editor supports nested timelines, keyframes and tweens, frame/object scripts, system fonts and standalone HTML5 export. AS2 and AS3 support remains partial; the catalogue below shows the current audited coverage. Runtime profiles and known limitations are described in the [compatibility matrix](docs/COMPATIBILITY.md).
 
 <!-- progress:start -->
 ## Where we are
@@ -64,9 +62,9 @@ Project workflow checks report all family failures together. After a concrete fa
 1. Open the example, scrub the top timeline and enable **Onion Skin**. Drag the blue range handles or change Before/After; choose outlines and opacity.
 2. Double-click a symbol in the Library or an instance on the stage to edit a nested timeline. Use the breadcrumbs to return.
 3. Draw a rectangle or oval, or add text. Change position, scale, rotation, color and font in Properties. Fonts are discovered through macOS CoreText.
-4. Press **F6** to insert a keyframe, move the object, and set a tween/easing on the preceding keyframe. **F5** extends a layer; **F7** adds a blank keyframe. Drag a key to move it; hold Option to copy it.
+4. Press **F6** to insert a keyframe, move the object, and set a tween/easing on the preceding keyframe. **F5** inserts a frame; **F7** adds a blank keyframe. Filled spans show held content; a blank key ends that layer's visible content. Drag a key to move it; hold Option to copy it.
 5. Select an object and press **F8** to turn it into a reusable symbol. Place more instances from the Library.
-6. Open **Actions** with **F9**. Choose a frame or selected object and an event. JavaScript/TypeScript are the primary working languages; the AS2/AS3 subset is documented explicitly.
+6. Select a timeline frame and press **F9**, use its context menu, or click **Actions · F9** to edit that frame's script. The editor shows the current symbol/frame and focuses the code field. Object events and project source files remain available in Actions. JavaScript/TypeScript are the primary working languages; the AS2/AS3 subset is documented explicitly.
 7. **⌘Enter / Test Movie** exports and opens a browser preview with scripts. **File → Publish HTML5** writes a self-contained folder. The editor's Enter playback is a side-effect-free authoring preview.
 8. Save a `.nflash` project with **⌘S**. Source files are versioned JSON and round-trip through validation.
 
@@ -88,7 +86,7 @@ For object editing, **Selection (V)** moves objects; Shift-click toggles objects
 
 **Display transforms:** AS2/AS3 Transform and ColorTransform connect exact 2D matrices and nested RGBA adjustments to the shared Rust scene. Linked objects retain skew through scalar edits/reparenting; BitmapData views can have independent tints. Native authoring skew and 3D remain planned.
 
-**Video:** Insert → Video placeholder adds an authored viewport; AS3 can also create Video at runtime. NetConnection(null)/NetStream connect embedded media and browser HTTP(S) playback to the same display graph, with pause, seek, resume and publication cleanup. AS2 uses an authored Video with attachVideo. Native authoring shows an explicit placeholder; actual decoding happens in HTML5. RTMP, camera capture, Flash FLV codecs and native timeline synchronization remain separate work.
+**Video:** Insert → Video placeholder adds an authored viewport; AS3 can also create Video at runtime. NetConnection(null)/NetStream connect embedded media and browser HTTP(S) playback to the same display graph, with pause, seek, resume and publication cleanup. AS2 uses an authored Video with attachVideo. Native authoring shows an explicit placeholder; actual decoding happens in HTML5. AS2 local camera/microphone capture has a bounded browser profile; real hardware acceptance remains unverified. RTMP, Flash FLV codecs and native timeline synchronization remain separate work.
 
 **Pointer interaction:** AS2/AS3 scripts can drag MovieClips in parent-space bounds, inspect local mouse coordinates and test bounds or supported shapes. Input flags and hitArea connect picking to the same display graph; legacy release/outside-release callbacks and Restart share the browser pointer lifecycle. Exact limits are in [the compatibility record](docs/COMPATIBILITY.md#pointer-dragging-and-hit-tests).
 

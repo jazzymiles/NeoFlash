@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-28 — Timeline editing
+
+- Show held content, blank intervals and the end of the timeline explicitly. Keep the horizontal scrollbar outside frame rows and improve keyframe dragging with a destination preview and edge scrolling.
+- Open frame Actions from the selected timeline context, with the symbol/frame identified and the code editor focused. Opening Actions pauses preview playback.
+- Mark active onion skin in the stage header so neighbouring-frame ghosts are distinguishable from current content. Frame-range operations and independent layer lengths remain unfinished.
+
 ## 2026-10-28 — AS2 runtime, browser services and language batch
 
 - Add partial Stage/content-menu, Camera/Microphone, LocalConnection/AMF0 HTTP, bitmap PrintJob, primitive-box, project-include and automatic Locale profiles; extend progressive NetStream buffering/completion.
