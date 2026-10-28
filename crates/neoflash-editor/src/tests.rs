@@ -452,6 +452,74 @@ fn moving_key_preserves_instance_identity_tween_and_label_and_is_one_undo_step()
     assert!(!editor.history.can_undo());
     editor.redo();
     assert_eq!(editor.project, moved);
+
+    // Rectangular frame operations share the same transaction boundary, and
+    // global scripts travel once only when their explicit option is enabled.
+    let mut editor = editor_at_middle(Easing::Linear);
+    editor.symbol_mut().timeline.layers[0].keyframes[0].tween = None;
+    editor.symbol_mut().timeline.scripts.push(FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::JavaScript,
+            source: "stop();".into(),
+        },
+    });
+    let layer = editor.symbol().timeline.layers[0].id.clone();
+    let before = editor.project.clone();
+    editor.timeline_edit.include_scripts = true;
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer.clone()],
+        start: 0,
+        end: 1,
+    });
+    editor.copy_frame_range(false);
+    assert!(!editor.history.can_undo());
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer.clone()],
+        start: 4,
+        end: 5,
+    });
+    editor.paste_frame_range();
+    assert_eq!(
+        editor
+            .symbol()
+            .timeline
+            .scripts
+            .iter()
+            .map(|script| script.frame)
+            .collect::<Vec<_>>(),
+        [0, 4]
+    );
+    assert!(!sample_layer(&editor.symbol().timeline.layers[0], 4).is_empty());
+    editor.undo();
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+    assert!(editor.apply_frame_edit(TimelineEdit::Move {
+        range: FrameRange {
+            layers: vec![layer.clone()],
+            start: 0,
+            end: 1
+        },
+        layers: vec![layer.clone()],
+        at: 2,
+        copy: false,
+        include_scripts: true,
+    }));
+    assert_eq!(editor.symbol().timeline.scripts[0].frame, 2);
+    assert!(sample_layer(&editor.symbol().timeline.layers[0], 0).is_empty());
+    assert!(!sample_layer(&editor.symbol().timeline.layers[0], 2).is_empty());
+    editor.undo();
+    assert_eq!(editor.project, before);
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer],
+        start: 0,
+        end: 1,
+    });
+    assert!(editor.set_layer_duration(2));
+    assert!(sample_layer(&editor.symbol().timeline.layers[0], 2).is_empty());
+    editor.undo();
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
 }
 
 #[test]
@@ -1200,4 +1268,128 @@ fn locked_layer_blocks_accessibility_changes() {
     editor.set_accessibility(Some(button_metadata()));
     assert_eq!(editor.project, before);
     assert!(!editor.history.can_undo());
+}
+
+#[test]
+fn preview_transport_keeps_nested_clocks_through_pause_and_resets_after_edits_or_scrubbing() {
+    let (mut project, _) = tween_project(Easing::Linear);
+    project.format_version = 5;
+    let mut child = project.symbols[0].clone();
+    child.id = "preview-child".into();
+    child.kind = SymbolKind::MovieClip;
+    let mut mask = child.timeline.layers[0].clone();
+    mask.id = "preview-moving-mask".into();
+    mask.name = "Moving mask".into();
+    mask.properties.role = LayerRole::Mask;
+    for element in mask.keyframes.iter_mut().flat_map(|key| &mut key.elements) {
+        element.id = "preview-mask-paint".into();
+        element.scripts.clear();
+    }
+    child.timeline.layers[0].properties.mask = Some(mask.id.clone());
+    child.timeline.layers.push(mask);
+    let root = project.root.clone();
+    project.symbol_mut(&root).unwrap().timeline.frame_count = 1;
+    project.symbol_mut(&root).unwrap().timeline.layers[0].keyframes = vec![Keyframe {
+        frame: 0,
+        elements: vec![Element {
+            id: "preview-instance".into(),
+            name: "clip".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Instance {
+                symbol_id: child.id.clone(),
+                playback: InstancePlayback::Independent,
+            },
+            scripts: vec![],
+            accessibility: None,
+        }],
+        tween: None,
+        label: String::new(),
+    }];
+    // Layer and element identities are unique across the edited document.
+    project.symbol_mut(&root).unwrap().timeline.layers[0].id = "preview-root-layer".into();
+    project.symbols.push(child);
+    project.validate().unwrap();
+    let original = project.clone();
+    let mut editor = Editor::from_project(&egui::Context::default(), project);
+    let x = |editor: &mut Editor| editor.current_authored_scene(true).draws[0].item.transform[4];
+    editor.set_playing(true);
+    for _ in 0..5 {
+        editor.tick_authored_preview();
+    }
+    assert_eq!(editor.frame, 0, "one-frame root does not stop its children");
+    assert_eq!(x(&mut editor), 50.);
+    editor.set_playing(false);
+    editor.tick_authored_preview();
+    assert_eq!(
+        x(&mut editor),
+        50.,
+        "pause retains the presented child pose"
+    );
+    let presented = editor.current_authored_scene(true);
+    let point = [55., 25.];
+    assert!(presented.contains_point(&presented.draws[0].item.instance_path, point));
+    assert!(
+        !evaluate_scene(&editor.project, &editor.project.root, 0, true, true)
+            .contains_point(&presented.draws[0].item.instance_path, point)
+    );
+    let scene: Vec<_> = presented.draws.into_iter().map(|draw| draw.item).collect();
+    let ctx = egui::Context::default();
+    let painter = ctx.layer_painter(egui::LayerId::background());
+    assert_eq!(
+        editor
+            .pick_placement(&scene, &painter, egui::pos2(55., 25.))
+            .map(|target| target.element),
+        Some("preview-instance".into()),
+        "picking respects the animated mask retained by pause"
+    );
+    editor.set_playing(true);
+    editor.tick_authored_preview();
+    assert_eq!(
+        x(&mut editor),
+        60.,
+        "resume continues the same placement lifetime"
+    );
+    editor.set_playing(false);
+    editor.reset_authored_preview(); // Rewind or scrub to the same root frame 0.
+    assert_eq!(x(&mut editor), 0.);
+    editor.set_playing(true);
+    editor.tick_authored_preview();
+    editor.set_playing(false);
+    assert_eq!(x(&mut editor), 10.);
+    editor
+        .project
+        .symbol_mut("preview-child")
+        .unwrap()
+        .timeline
+        .layers[0]
+        .keyframes[0]
+        .elements[0]
+        .transform
+        .x = 25.;
+    assert_eq!(
+        editor.presented_authored_scene(true).draws[0]
+            .item
+            .transform[4],
+        25.,
+        "immutable picking also rejects an invalidated presentation"
+    );
+    assert_eq!(
+        x(&mut editor),
+        25.,
+        "direct edits invalidate paused presentation"
+    );
+    editor.project = original.clone();
+    editor.set_playing(true);
+    editor.tick_authored_preview();
+    editor.enter_symbol("preview-child".into());
+    assert_eq!(
+        x(&mut editor),
+        0.,
+        "symbol navigation resets placement clocks"
+    );
+    assert_eq!(
+        editor.project, original,
+        "transport never alters authored content"
+    );
+    assert!(!editor.dirty());
 }

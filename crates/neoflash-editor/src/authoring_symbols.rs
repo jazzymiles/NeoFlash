@@ -32,6 +32,7 @@ impl Editor {
                 {
                     self.finish_edits();
                     self.set_playing(false);
+                    self.reset_authored_preview();
                     self.frame = frame as u32;
                     self.normalize_selection();
                 }

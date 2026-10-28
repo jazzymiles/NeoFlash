@@ -310,7 +310,7 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
                 {
                     visible += 1;
                     let row = text.galley.job.text[4..].parse::<usize>().unwrap();
-                    if row < first_row {
+                    if first_label.is_none() || row > first_row {
                         first_row = row;
                         first_label = Some(Pos2::new(text.pos.x + 2., y));
                     }
@@ -327,7 +327,7 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
         }
         assert!(visible >= 2);
         assert!(
-            first_row >= 5,
+            first_row <= 24,
             "wheel must actually scroll shared rows, first={first_row}"
         );
         let from = out
@@ -459,7 +459,7 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
                 primary_button(destination, false),
             ],
         );
-        assert_eq!(editor.symbol().timeline.layers[first_row + 1].id, moved_id);
+        assert_eq!(editor.symbol().timeline.layers[first_row - 1].id, moved_id);
         editor.undo();
         assert_eq!(editor.project, before);
         assert!(!editor.history.can_undo());
@@ -508,6 +508,19 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
         editor.undo();
         assert_eq!(editor.project, grouped);
         assert!(!editor.history.can_undo());
+
+        let rows = crate::layer_controls::visible_layer_indices(&editor.symbol().timeline);
+        let folder_row = rows.iter().position(|&i| i == 0).unwrap();
+        assert_eq!(&rows[folder_row..folder_row + 3], &[0, 1, 2]);
+        let top = editor.symbol().timeline.layers[rows[0]].id.clone();
+        editor.reorder_timeline_layer_visual(&ids[0], Some(&top));
+        assert_eq!(editor.symbol().timeline.layers.last().unwrap().id, ids[2]);
+        assert_eq!(
+            crate::layer_controls::visible_layer_indices(&editor.symbol().timeline)[0],
+            editor.symbol().timeline.layers.len() - 3
+        );
+        editor.undo();
+        assert_eq!(editor.project, grouped);
     }
 }
 

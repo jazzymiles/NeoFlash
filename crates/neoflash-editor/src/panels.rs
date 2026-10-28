@@ -253,6 +253,7 @@ impl Editor {
                         if ui.button("Rewind").clicked() {
                             self.finish_edits();
                             self.timeline_key_drag = None;
+                            self.reset_authored_preview();
                             self.frame = 0;
                             ui.close();
                         }
@@ -484,6 +485,7 @@ impl Editor {
                         self.finish_edits();
                         self.timeline_key_drag = None;
                         self.editing.truncate(index + 1);
+                        self.reset_authored_preview();
                         self.frame = 0;
                         self.layer = 0;
                         self.clear_selection();
@@ -735,91 +737,7 @@ impl Editor {
                                 );
                                 grid_rect = rect;
                                 grid_clip = ui.clip_rect().intersect(rect);
-                                let hit = |pos| timeline_cell_at(pos, rect.min, cell_width, count, layers.len());
-                                // Native platforms can batch a complete press/move/release
-                                // between paints. Capture its press position, even when the
-                                // button is already up and egui has no ongoing drag response.
-                                let (pressed, released) = ui.input(|i| {
-                                    let mut pressed = None;
-                                    let mut released = None;
-                                    for event in &i.events {
-                                        if let egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: down, modifiers } = event {
-                                            if *down { pressed = Some(*pos); released = None; }
-                                            else { released = Some((*pos, modifiers.alt)); }
-                                        }
-                                    }
-                                    (pressed, released)
-                                });
-                                let press_origin = pressed.or_else(|| {
-                                    (response.drag_started_by(egui::PointerButton::Primary) && self.timeline_key_drag.is_none())
-                                        .then(|| ui.input(|i| i.pointer.press_origin())).flatten()
-                                }).filter(|pos| {
-                                    resize.is_none() && reorder.is_none() && ui.is_enabled() && grid_clip.contains(*pos)
-                                        && !response.context_menu_opened()
-                                        && ui.ctx().layer_id_at(*pos) == Some(ui.layer_id())
-                                });
-                                let primary_press = press_origin.is_some();
-                                let pointed = response.interact_pointer_pos().and_then(hit);
-                                if primary_press || response.clicked() || response.secondary_clicked() {
-                                    let selected = if let Some(pos) = press_origin { hit(pos) } else { pointed };
-                                    if let Some((frame, layer)) = selected {
-                                        self.finish_edits();
-                                        self.set_playing(false);
-                                        self.frame = frame;
-                                        self.layer = layer_indices[layer];
-                                        self.script_target = ScriptTarget::Frame;
-                                        self.clear_selection();
-                                        // Capture the key before scrolling or drag-threshold motion
-                                        // changes the screen position of its cell.
-                                        if primary_press {
-                                            self.timeline_key_drag = layers[layer].keyframes.iter()
-                                                .any(|key| key.frame == frame)
-                                                .then(|| (self.symbol_id().to_owned(), layers[layer].id.clone(), frame))
-                                                .filter(|_| layers[layer].properties.role != LayerRole::Folder && !layer_effectively_locked(&self.symbol().timeline, &layers[layer]) && layer_effectively_visible(&self.symbol().timeline, &layers[layer]));
-                                        } else if response.secondary_clicked() {
-                                            self.timeline_key_drag = None;
-                                        }
-                                    } else if primary_press || response.secondary_clicked() {
-                                        self.timeline_key_drag = None;
-                                    }
-                                }
-                                if (response.dragged_by(egui::PointerButton::Primary)
-                                    || (self.timeline_key_drag.is_some() && ui.input(|i| i.pointer.primary_down())))
-                                    && let Some(pos) = ui.input(|i| i.pointer.latest_pos())
-                                {
-                                    if let Some((symbol, layer_id, _)) = &self.timeline_key_drag {
-                                        if symbol == self.symbol_id()
-                                            && let Some(layer) = layers.iter().position(|layer| &layer.id == layer_id)
-                                        {
-                                            self.frame = frame_at_x(pos.x, rect.left(), cell_width, count);
-                                            self.layer = layer_indices[layer];
-                                        }
-                                    } else if let Some((frame, layer)) = timeline_cell_at(pos, rect.min, cell_width, count, layers.len()) {
-                                        self.frame = frame;
-                                        self.layer = layer_indices[layer];
-                                        self.script_target = ScriptTarget::Frame;
-                                    }
-                                }
-                                if ui.input(|i| i.key_pressed(egui::Key::Escape) || !i.focused) {
-                                    self.timeline_key_drag = None;
-                                }
-                                if let Some((pos, copy)) = released
-                                    && let Some((symbol, layer_id, from)) = self.timeline_key_drag.take()
-                                    && symbol == self.symbol_id()
-                                    && let Some(layer) = layers.iter().position(|layer| layer.id == layer_id)
-                                {
-                                    // A release below/above the frame canvas cancels, including
-                                    // its reserved scrollbar. A horizontal edge release is clamped.
-                                    if !ui.input(|i| i.pointer.primary_clicked())
-                                        && pos.y >= grid_clip.top()
-                                        && pos.y < grid_clip.bottom().min(rect.top() + content_height)
-                                    {
-                                        let to = frame_at_x(pos.x, rect.left(), cell_width, count);
-                                        self.move_key(layer_indices[layer], from, to, copy);
-                                    }
-                                } else if ui.input(|i| i.pointer.primary_released()) {
-                                    self.timeline_key_drag = None;
-                                }
+                                self.timeline_grid_interact(ui, &response, rect, grid_clip, cell_width, count, &layer_indices, resize.is_some() || reorder.is_some());
                                 let painter = ui.painter_at(rect);
                                 painter.rect_filled(rect, 0, palette.panel_fill);
                                 let first = (((grid_clip.left() - rect.left())
@@ -872,7 +790,7 @@ impl Editor {
                                             .keyframes
                                             .get(ki + 1)
                                             .map(|k| k.frame)
-                                            .unwrap_or(count);
+                                            .unwrap_or(layer.properties.end_frame.unwrap_or(count));
                                         if next < first || key.frame > last {
                                             continue;
                                         }
@@ -944,6 +862,7 @@ impl Editor {
                                         Stroke::new(1.0_f32, palette.timeline_row_separator),
                                     );
                                 }
+                                self.paint_frame_selection(ui, rect, cell_width, &layer_indices);
                                 let selected_cell = Rect::from_min_size(
                                     Pos2::new(rect.left() + self.frame as f32 * cell_width, rect.top() + layer_indices.iter().position(|i| *i == self.layer).unwrap_or(0) as f32 * ROW_HEIGHT),
                                     Vec2::new(cell_width, ROW_HEIGHT),
@@ -966,7 +885,7 @@ impl Editor {
                                         if key.is_some_and(|key| key.frame == frame) && !layers[layer].locked && layers[layer].visible {
                                             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                                         }
-                                        response.clone().on_hover_text(format!("{} · Frame {}\n{}\nRight-click for frame commands and Actions", layers[layer].name, frame + 1, label));
+                                        response.clone().on_hover_text(format!("{} · Frame {}\n{}\nShift-click/drag selects a frame range. Drag a selected range to move; Option-drag copies.\nRight-click for frame commands and Actions", layers[layer].name, frame + 1, label));
                                     } else if pos.x >= end_x {
                                         response.clone().on_hover_text(format!("Timeline ends at frame {}. Insert frames (F5) to extend it.", count));
                                     }
@@ -982,20 +901,6 @@ impl Editor {
                                     ui.ctx().set_cursor_icon(if blocked { egui::CursorIcon::NotAllowed } else { egui::CursorIcon::Grabbing });
                                     let text = if blocked { "Destination already has a keyframe".to_owned() } else { format!("{} key {} → {}", if ui.input(|i| i.modifiers.alt) { "Copy" } else { "Move" }, from + 1, self.frame + 1) };
                                     painter.text(Pos2::new(grid_clip.left() + 5., grid_clip.bottom() - 3.), Align2::LEFT_BOTTOM, text, FontId::proportional(11.), stroke.color);
-                                }
-                                for script in &self.symbol().timeline.scripts {
-                                    painter.text(
-                                        Pos2::new(
-                                            rect.left()
-                                                + script.frame as f32 * cell_width
-                                                + cell_width / 2.,
-                                            rect.top() + 3.,
-                                        ),
-                                        Align2::CENTER_TOP,
-                                        "a",
-                                        FontId::monospace(9.),
-                                        palette.timeline_script,
-                                    );
                                 }
                                 let playx = rect.left()
                                     + self.frame as f32 * cell_width
@@ -1013,6 +918,7 @@ impl Editor {
                                 response.context_menu(|ui| {
                                     ui.label(format!("{} · Frame {}", self.symbol().timeline.layers[self.layer].name, self.frame + 1));
                                     ui.separator();
+                                    self.frame_range_menu(ui);
                                     if ui.add_enabled(self.layer_editable(), egui::Button::new("Insert Keyframe").shortcut_text("F6")).clicked() {
                                         self.finish_edits();
                                         self.make_key(false);
@@ -1059,7 +965,7 @@ impl Editor {
                         }
                         // Continue an existing key drag at the horizontal viewport edge;
                         // never start a drag from a scrollbar or an out-of-range cell.
-                        if self.timeline_key_drag.is_some()
+                        if self.timeline_edit.dragging()
                             && ui.input(|i| i.pointer.primary_down() && i.pointer.is_decidedly_dragging())
                             && let Some(pos) = ui.input(|i| i.pointer.latest_pos())
                             && pos.y >= frames.inner_rect.top()
@@ -1168,6 +1074,12 @@ impl Editor {
                         p.text(Pos2::new(x + 3., ruler.top() + 5.), Align2::LEFT_CENTER, format!("{}s", f / fps), FontId::proportional(9.), palette.muted_text);
                     }
                 }
+                // Frame scripts belong to the whole timeline, so their markers
+                // live in the ruler rather than in the first authored layer.
+                for script in &self.symbol().timeline.scripts {
+                    let x = grid_rect.left() + (script.frame as f32 + 0.5) * cell_width;
+                    p.text(Pos2::new(x, ruler.top() + 1.), Align2::CENTER_TOP, "a", FontId::monospace(9.), palette.timeline_script);
+                }
                 let end_x = grid_rect.left() + count as f32 * cell_width;
                 if end_x >= ruler.left() && end_x <= ruler.right() {
                     p.line_segment([Pos2::new(end_x, ruler.top()), Pos2::new(end_x, ruler.bottom())], Stroke::new(1.5_f32, palette.border));
@@ -1182,7 +1094,9 @@ impl Editor {
                     self.timeline_key_drag = None;
                     self.set_playing(false);
                     if pos.x < grid_rect.left() + count as f32 * cell_width {
+                        self.reset_authored_preview();
                         self.frame = frame_at_x(pos.x, grid_rect.left(), cell_width, count);
+                        self.select_frame_range(FrameRange { layers: vec![self.symbol().timeline.layers[self.layer].id.clone()], start: self.frame, end: self.frame });
                         self.script_target = ScriptTarget::Frame;
                         self.clear_selection();
                     }
@@ -1297,6 +1211,7 @@ impl Editor {
                                 if ui.add(IconButton::new(Icon::Rewind, "Rewind")).clicked() {
                                     self.finish_edits();
                                     self.timeline_key_drag = None;
+                                    self.reset_authored_preview();
                                     self.frame = 0;
                                 }
                                 if ui
@@ -1376,7 +1291,7 @@ impl Editor {
             );
         });
         if let Some((layer, before)) = commit_reorder {
-            self.reorder_timeline_layer(&layer, before.as_deref());
+            self.reorder_timeline_layer_visual(&layer, before.as_deref());
         }
         ctx.data_mut(|data| {
             if let Some(drag) = reorder {
@@ -1587,189 +1502,6 @@ impl Editor {
             }
             _ => {}
         }
-    }
-    fn properties(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        use crate::paint_controls::{
-            PropertyChanges, numeric_row, paint_row, percent_row, property_row, text_row,
-        };
-        if self.selection.len() > 1 {
-            self.finish_property_edit();
-            ui.strong(format!("{} objects selected", self.selection.len()));
-            ui.label("Select one object to edit its properties.");
-            ui.small("V: move · Q: scale / rotate · Shift-click: add or remove");
-            return;
-        }
-        let object = self.selected_sampled();
-        let scope = egui::Id::new((
-            "object-properties",
-            &self.clipboard.session,
-            self.symbol_id(),
-            self.frame,
-            self.layer,
-            object.as_ref().map(|e| e.id.as_str()),
-        ));
-        self.property_edit_scope(scope);
-        let mut changes = PropertyChanges::default();
-        ui.push_id(scope, |ui| {
-            if let Some(mut element) = object {
-                let original = element.clone();
-                let mut edit_symbol = None;
-                let mut convert_text = false;
-                ui.add_enabled_ui(self.selected_editable(), |ui| {
-                    ui.strong("Object");
-                    changes.note(text_row(ui, "Name", &mut element.name));
-                    changes.note(percent_row(ui, "Opacity", &mut element.transform.alpha));
-                    ui.separator();
-                    ui.strong("Transform");
-                    for (name, value) in [("X", &mut element.transform.x), ("Y", &mut element.transform.y), ("Scale X", &mut element.transform.scale_x), ("Scale Y", &mut element.transform.scale_y), ("Rotation", &mut element.transform.rotation)] {
-                        changes.note(numeric_row(ui, name, value, -1_000_000. ..=1_000_000., if name.starts_with("Scale") { 0.01 } else { 1. }));
-                    }
-                    ui.separator();
-                    match &mut element.kind {
-                        ElementKind::Rectangle { width, height, fill, stroke, stroke_width }
-                        | ElementKind::Ellipse { width, height, fill, stroke, stroke_width } => {
-                            ui.strong("Shape");
-                            changes.note(numeric_row(ui, "Width", width, 1. ..=10000., 1.));
-                            changes.note(numeric_row(ui, "Height", height, 1. ..=10000., 1.));
-                            changes.note(paint_row(ui, "shape-fill", "Fill", fill));
-                            changes.note(paint_row(ui, "shape-stroke", "Stroke", stroke));
-                            changes.note(numeric_row(ui, "Stroke width", stroke_width, 0. ..=100., 0.25));
-                        }
-                        ElementKind::Text { text, font_family, font_size, color } => {
-                            ui.strong("Text");
-                            changes.note(text_row(ui, "Text", text));
-                            changes.note(numeric_row(ui, "Size", font_size, 4. ..=512., 1.));
-                            changes.note(paint_row(ui, "text-color", "Color", color));
-                            let before = font_family.clone();
-                            let mut response = property_row(ui, "Font", |ui| {
-                                egui::ComboBox::from_id_salt("font_family").selected_text(font_family.as_str()).width(ui.available_width()).show_ui(ui, |ui| {
-                                    ui.add(egui::TextEdit::singleline(&mut self.font_filter).hint_text("Find font").desired_width(220.));
-                                    for family in &self.fonts.families {
-                                        if self.font_filter.is_empty() || family.to_lowercase().contains(&self.font_filter.to_lowercase()) { ui.selectable_value(font_family, family.clone(), family); }
-                                    }
-                                }).response
-                            });
-                            if *font_family != before { response.mark_changed(); }
-                            changes.note(response);
-                            if let Err(error) = self.fonts.load(ctx, font_family) { ui.colored_label(UiPalette::current(ctx).error_text, error); }
-                            let response = ui.button("Use text box");
-                            if response.clicked() { convert_text = true; changes.control = Some(response.id); }
-                        }
-                        kind @ ElementKind::TextBox { .. } => {
-                            if let Some(control) = self.text_box_properties(ui, ctx, kind) { changes.control = Some(control); }
-                        }
-                        ElementKind::Video { width, height } => {
-                            ui.strong("Video");
-                            changes.note(numeric_row(ui, "Width", width, 0. ..=8192., 1.));
-                            changes.note(numeric_row(ui, "Height", height, 0. ..=8192., 1.));
-                            ui.small("Attach a NetStream from ActionScript. Playback runs in the HTML5 preview.");
-                        }
-                        ElementKind::Bitmap { resource_id, width, height, smoothing } => {
-                            ui.strong("Bitmap");
-                            let path = self.project.resources.iter().find(|r| r.id == *resource_id).map(|r| r.path.as_str()).unwrap_or("Missing image");
-                            ui.add(egui::Label::new(path).truncate()).on_hover_text(path);
-                            ui.small(format!("{width} × {height} px"));
-                            changes.note(ui.checkbox(smoothing, "Smoothing"));
-                        }
-                        ElementKind::Path { commands, fill_rule, fill, stroke, stroke_width } | ElementKind::PaintedPath { commands, fill_rule, fill, stroke, stroke_width, .. } => {
-                            ui.strong("Vector path");
-                            ui.small(format!("{} commands", commands.len()));
-                            changes.note(paint_row(ui, "path-fill", "Fill", fill));
-                            changes.note(paint_row(ui, "path-stroke", "Stroke", stroke));
-                            changes.note(numeric_row(ui, "Stroke width", stroke_width, 0. ..=100., 0.25));
-                            let before = *fill_rule;
-                            let mut response = property_row(ui, "Fill rule", |ui| egui::ComboBox::from_id_salt("fill_rule").width(ui.available_width()).selected_text(if *fill_rule == FillRule::EvenOdd { "Even–odd" } else { "Nonzero" }).show_ui(ui, |ui| {
-                                ui.selectable_value(fill_rule, FillRule::NonZero, "Nonzero");
-                                ui.selectable_value(fill_rule, FillRule::EvenOdd, "Even–odd");
-                            }).response);
-                            if *fill_rule != before { response.mark_changed(); }
-                            changes.note(response);
-                            if ui.button("Edit points (A)").clicked() { self.set_tool(Tool::Subselect); self.select_single_id(original.id.clone()); }
-                        }
-                        ElementKind::Instance { symbol_id, playback } => {
-                            ui.strong("Instance");
-                            let name = self.project.symbol(symbol_id).map(|s| s.name.as_str()).unwrap_or("Missing");
-                            property_row(ui, "Symbol", |ui| { ui.add(egui::Label::new(name).truncate()).on_hover_text(name); });
-                            if let Some(control) = self.instance_playback_ui(ui, symbol_id, playback) { changes.control = Some(control); }
-                            if ui.button("Edit symbol").clicked() { edit_symbol = Some(symbol_id.clone()); }
-                        }
-                    }
-                });
-                if convert_text && let ElementKind::Text { text, font_family, font_size, color } = &element.kind {
-                    let named = crate::fonts::styled_family(font_family, false, false);
-                    let family = if ctx.fonts(|fonts| fonts.families().contains(&named)) { named } else { egui::FontFamily::Proportional };
-                    let galley = ui.painter().layout_no_wrap(text.clone(), egui::FontId::new(*font_size as f32, family), egui::Color32::WHITE);
-                    let kind = ElementKind::TextBox {
-                        text: text.clone(), width: (galley.size().x as f64 + 4.).clamp(100., 1000000.), height: (galley.size().y as f64 + 4.).clamp(100., 1000000.),
-                        format: TextFormat { font: font_family.clone(), size: *font_size, color: u32::from_be_bytes([0,color[0],color[1],color[2]]), ..Default::default() }, word_wrap: true, multiline: true,
-                    };
-                    element.transform.alpha *= color[3] as f64 / 255.;
-                    element.kind = kind;
-                }
-                if original != element && let Some(control) = changes.control {
-                    if let Some(field) = TextFieldState::from_kind(&element.kind) && let Err(error) = field.validate() { self.message(format!("Text box edit rejected: {error}")); return; }
-                    self.begin_property_edit(scope, control);
-                    self.select_single_id(original.id.clone());
-                    self.ensure_selected_key();
-                    if let Some(current) = self.selected_element_mut() {
-                        current.name = element.name;
-                        current.transform = element.transform;
-                        current.kind = element.kind;
-                    }
-                }
-                if let Some(id) = edit_symbol { self.enter_symbol(id); }
-            } else {
-                let mut document = self.project.clone();
-                let symbol_id = self.symbol_id().to_owned();
-                let layer_id = self.symbol().timeline.layers[self.layer].id.clone();
-                let layer = self.layer;
-                let frame = self.frame;
-                ui.strong("Document");
-                changes.note(text_row(ui, "Name", &mut document.name));
-                for (label, value, max) in [("Width", &mut document.width,8192), ("Height", &mut document.height,8192), ("FPS", &mut document.fps,1000)] {
-                    changes.note(property_row(ui, label, |ui| ui.add_sized([96.,crate::theme::CONTROL_HEIGHT],egui::DragValue::new(value).range(1..=max).update_while_editing(false))));
-                }
-                changes.note(paint_row(ui, "background", "Background", &mut document.background));
-                ui.separator();
-                ui.strong("Timeline");
-                let timeline = &mut document.symbol_mut(&symbol_id).unwrap().timeline;
-                changes.note(text_row(ui, "Layer", &mut timeline.layers[layer].name));
-                let min = timeline.layers.iter().flat_map(|l| &l.keyframes).map(|k| k.frame+1).chain(timeline.scripts.iter().map(|s|s.frame+1)).max().unwrap_or(1);
-                changes.note(property_row(ui,"Frames",|ui|ui.add_sized([96.,crate::theme::CONTROL_HEIGHT],egui::DragValue::new(&mut timeline.frame_count).range(min..=10000).update_while_editing(false))));
-                ui.add_enabled_ui(self.layer_editable(), |ui| {
-                    if let Some(key) = timeline.layers[layer].key_at_mut(frame) {
-                        changes.note(text_row(ui, "Frame label", &mut key.label));
-                        let before = key.tween;
-                        let mut response = property_row(ui, "Tween", |ui| egui::ComboBox::from_id_salt("tween").width(ui.available_width()).selected_text(match key.tween { None=>"No tween",Some(Easing::Linear)=>"Linear",Some(Easing::EaseIn)=>"Ease in",Some(Easing::EaseOut)=>"Ease out",Some(Easing::EaseInOut)=>"Ease in/out",Some(Easing::CubicBezier{..})=>"Custom curve",Some(Easing::Flash{..})=>"Flash ease" }).show_ui(ui, |ui| {
-                            for (label,value) in [("No tween",None),("Linear",Some(Easing::Linear)),("Ease in",Some(Easing::EaseIn)),("Ease out",Some(Easing::EaseOut)),("Ease in/out",Some(Easing::EaseInOut)),("Custom curve",Some(Easing::CubicBezier{x1:0.25,y1:0.1,x2:0.25,y2:1.}))] { ui.selectable_value(&mut key.tween,value,label); }
-                        }).response);
-                        if key.tween != before { response.mark_changed(); }
-                        changes.note(response);
-                        if let Some(Easing::CubicBezier{x1,y1,x2,y2})=&mut key.tween {
-                            for (label,value) in [("Curve X1",x1),("Curve Y1",y1),("Curve X2",x2),("Curve Y2",y2)] { changes.note(numeric_row(ui,label,value,0. ..=1.,0.01)); }
-                        }
-                    }
-                });
-                if document != self.project && let Some(control) = changes.control {
-                    self.begin_property_edit(scope, control);
-                    // Copy only changed authoring fields, never the cloned document.
-                    self.project.name=document.name.clone(); self.project.width=document.width; self.project.height=document.height;
-                    self.project.fps=document.fps; self.project.background=document.background;
-                    let draft=&document.symbol(&symbol_id).unwrap().timeline;
-                    if let Some(symbol)=self.project.symbol_mut(&symbol_id) {
-                        let timeline=&mut symbol.timeline;
-                        let min=timeline.layers.iter().flat_map(|l|&l.keyframes).map(|k|k.frame+1).chain(timeline.scripts.iter().map(|s|s.frame+1)).max().unwrap_or(1);
-                        timeline.frame_count=draft.frame_count.max(min);
-                        if let Some(target)=timeline.layers.iter_mut().find(|l|l.id==layer_id) {
-                            target.name=draft.layers[layer].name.clone();
-                            if target.visible && !target.locked && let Some(changed)=draft.layers[layer].key_at(frame) && let Some(key)=target.keyframes.iter_mut().find(|k|k.frame==changed.frame) { key.label=changed.label.clone(); key.tween=changed.tween; }
-                        }
-                    }
-                    self.normalize_selection();
-                }
-            }
-        });
-        self.end_property_interaction(ctx);
     }
     pub(crate) fn actions_editor_id(&self) -> egui::Id {
         if self.script_target == ScriptTarget::Source {

@@ -441,6 +441,8 @@ impl Editor {
         self.finish_edits();
         self.timeline_key_drag = None;
         self.playing = playing;
+        self.accumulator = 0.;
+        self.sync_authored_preview();
         self.last_tick = std::time::Instant::now();
     }
     pub(crate) fn set_tool(&mut self, tool: Tool) {

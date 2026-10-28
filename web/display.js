@@ -326,7 +326,10 @@
       return result;
     }
     function initializeLegacy(clip,values) {
-      for(const [key,value]of values){if(callbackNames.has(key))setLegacyCallback(clip,key,value);else clip[key]=value;}
+      for(const [key,value]of values){
+        if(callbackNames.has(key))setLegacyCallback(clip,key,value);
+        else {const ordinary=referenceOf(clip)?.as2TimelineRef?.(key);if(ordinary)ordinary.set(value);else clip[key]=value;}
+      }
     }
     function targetPath(target) {descriptor(target);return player.as2_target_path(referenceOf(target).key,false);}
     function resolveTarget(value,relative=proxyFor([])) {
@@ -390,7 +393,11 @@
           const clip=proxyForRef(JSON.parse(player.create_display('movie_clip')));clip.name=name;
           placeAtDepth(target,clip,depth);return clip;
         },
-        removeMovieClip:()=>{const parent=parentSpace(target);if(parent&&parent!==getStage())containerMethods(parent).removeChild(target);else if(descriptor(target).authored_path!==null)throw new TypeError('Authored timelines cannot be removed at runtime.');},
+        removeMovieClip:()=>{
+          const node=descriptor(target);
+          if(node.authored_path!=null||node.source_path?.length)throw new TypeError('AS2 removeMovieClip cannot remove authored timeline placements.');
+          const parent=parentSpace(target);if(parent&&parent!==getStage())containerMethods(parent).removeChild(target);
+        },
         attachMovie:(identifier,name,depth,initObject)=>{
           requireContainer(target);
           if(typeof identifier!=='string'||!identifier)throw new TypeError('attachMovie requires the exact Export identifier of a MovieClip symbol.');
@@ -417,6 +424,7 @@
     function buttonLike(target){const ref=referenceOf(target),record=ref&&legacy.get(ref.key+'\u0000'+ref.lifetime);return [...buttonCallbacks].some(name=>callback(record,name));}
     function as2CanFocus(target){if(target===null)return true;return as2Input(target,{op:'focusable',has_button_handler:buttonLike(target)});}
     function as2Ref(target,name){
+      const ordinary=referenceOf(target)?.as2TimelineRef?.(name);if(ordinary)return ordinary;
       if((name==='width'||name==='height')&&descriptor(target).owner==='video')return {has:()=>true,delete:()=>false,get:()=>getVideo().get(target,name==='width'?'videoWidth':'videoHeight'),set:()=>{throw new TypeError('AS2 Video.width/height report decoded dimensions; use _width/_height to resize.');}};
       if(['loadMovie','unloadMovie','getBytesLoaded','getBytesTotal'].includes(name)&&descriptor(target).owner==='movie_clip'){
         const method=()=>{const loader=getLoader();if(!loader)throw new Error('MovieClip image methods require the publication Loader service.');return loader.as2MovieMethods(target)[name];};
@@ -601,6 +609,8 @@
         Object.assign(result,getText().methods(referenceOf(target).key));
         result.replaceSel=result.replaceSelectedText;
         result.removeTextField=()=>{
+          const node=descriptor(target);
+          if(node.authored_path!=null||node.source_path?.length)throw new TypeError('AS2 removeTextField cannot remove authored text fields.');
           const parent=parentSpace(target);
           if(parent&&parent!==getStage())containerMethods(parent).removeChild(target);
           else throw new TypeError('removeTextField requires an attached runtime-created TextField; authored fields cannot be removed.');

@@ -57,10 +57,7 @@ impl Editor {
         egui::CollapsingHeader::new(format!("Resource files ({count})"))
             .id_salt("library-resources")
             .show(ui, |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt("resource-files")
-                    .max_height(200.)
-                    .show(ui, |ui| self.resource_files_body(ui));
+                self.resource_files_body(ui);
             });
     }
 

@@ -2,6 +2,8 @@
 
 NeoFlash uses a compact classic workspace. **Window → Appearance → Light / Dark** changes both ordinary controls and manually painted timeline/stage overlays. Authored colors, fonts, scripts and document history are independent of the theme.
 
+The [UI design system](DESIGN-SYSTEM.md) defines the target visual and interaction standard for future and migrated UI, with [tokens](design-system/tokens.json) and an [interactive reference](design-system/preview.html). It is separate from the implemented workflows described here.
+
 ## Panels
 
 Window controls Timeline, Tools, Library, Properties, Actions, Accessibility, Output, Align, Transform and Color. The three utility panels start hidden. A hidden panel can be shown again from the same menu. **F9** reveals Actions and focuses its editor even while typing in another field. Selecting a frame first makes it the Actions target; the timeline's context menu and **Actions · F9** button also open that frame directly. The header identifies the current symbol and frame. Opening Actions pauses preview playback.
@@ -15,6 +17,8 @@ The compact **⋯** header menu contains Edit and docking commands, without a se
 Main-window side groups use stacked rows/columns; arbitrary recursive main-window splits, named workspace presets and multiple open documents remain planned. Native menus, VoiceOver and IME need broader platform acceptance.
 
 ## Timeline and compact windows
+
+**Play preview / Enter** advances independent nested MovieClips even when the edited timeline contains one frame. **Pause** holds the displayed pose and resumes from the same nested clocks. **Rewind**, scrubbing, symbol navigation and document edits reset that transient state. Mask-aware picking follows the displayed pose. Preview never runs frame/object scripts; use **Test Movie** for scripted behavior.
 
 Layer names and frame cells share one vertical scroll body, with a fixed ruler. Frames scroll horizontally within that body. Tools and Library scroll vertically when space is limited. Properties use aligned label/value rows, and onion controls wrap. Panel controls share a compact system font and stable heights. The Library preview stays above the scrolling browser. Tween arrows have a fixed six-point arrowhead clipped to their own row, independent of their span length. Icons use vector geometry instead of relying on installed symbol glyphs.
 
@@ -37,7 +41,7 @@ Right-click a layer for visibility/locking, insert/delete/rename, copy/cut/paste
 
 **Mask** turns a vector layer into a clipping source and initially links the next normal layer. Other normal layers can select that mask in Properties. Filled rectangles, ellipses, paths and vector-only symbols clip artwork on the stage and in HTML5. **Show Masking** switches between the clipped result and editable source shapes. Text/bitmap mask sources and masks inside mask-source symbols are explicitly rejected; convert these sources to vector artwork first.
 
-Click a layer’s colored square to switch between normal artwork and outlines. Right-click the square or layer and choose **Outline color…** to set its RGB color; Apply creates one Undo step and Cancel leaves the document unchanged. Folder outlines include their descendants. Outline display is an authoring aid: HTML5 retains the original fills and strokes.
+Click a layer’s colored square to switch between normal artwork and outlines. Right-click the square or layer and choose **Outline color…** to set its RGB color; Apply creates one Undo step and Cancel leaves the document unchanged. Folder outlines include their descendants. Outline display applies to the currently edited symbol and its layer folders; a nested symbol’s saved outline preferences do not override its parent’s artwork. Play preview shows original fills and strokes, as does HTML5.
 
 **Guide** layers remain visible/editable in the authoring stage and are omitted from published output. These are visual guides, not motion-path constraints. **Show Others Transparent** uses outline display for surrounding layers without changing their published opacity.
 

@@ -683,6 +683,7 @@ fn panning_during_a_drag_cancels_the_frozen_view_transaction() {
 fn timeline_key_drop_uses_final_release_column_and_keeps_the_captured_layer() {
     let (mut editor, ctx, _) = fixture(0);
     let before = editor.project.clone();
+    let captured_layer = crate::layer_controls::visible_layer_indices(&editor.symbol().timeline)[0];
     let mut timeline_input = |time, events| {
         ctx.run(
             egui::RawInput {
@@ -728,11 +729,11 @@ fn timeline_key_drop_uses_final_release_column_and_keeps_the_captured_layer() {
     );
     assert_eq!(editor.frame, 8);
     assert_eq!(
-        editor.layer, 0,
+        editor.layer, captured_layer,
         "moving a key keeps its captured layer despite releasing over another row"
     );
     assert_eq!(
-        editor.symbol().timeline.layers[0]
+        editor.symbol().timeline.layers[captured_layer]
             .keyframes
             .iter()
             .map(|key| key.frame)
@@ -740,8 +741,8 @@ fn timeline_key_drop_uses_final_release_column_and_keeps_the_captured_layer() {
         [8, 10]
     );
     assert_eq!(
-        editor.symbol().timeline.layers[1],
-        before.symbols[0].timeline.layers[1]
+        editor.symbol().timeline.layers[1 - captured_layer],
+        before.symbols[0].timeline.layers[1 - captured_layer]
     );
     editor.undo();
     assert_eq!(editor.project, before);

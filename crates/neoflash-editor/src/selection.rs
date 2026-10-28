@@ -291,6 +291,9 @@ impl Editor {
         }
         key.frame = frame;
         key.label.clear();
+        if let Some(end) = &mut layer.properties.end_frame {
+            *end = (*end).max(frame + 1);
+        }
         layer.keyframes.push(key);
         layer.keyframes.sort_by_key(|key| key.frame);
     }

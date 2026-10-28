@@ -62,27 +62,43 @@ fn group_indices(layers: &[Layer], selected: usize) -> Vec<usize> {
         .collect()
 }
 pub(crate) fn visible_layer_indices(timeline: &Timeline) -> Vec<usize> {
-    timeline
+    // Serialized layers paint back to front. Display siblings front to back,
+    // while keeping folder/mask headers above their children.
+    let indices: HashMap<_, _> = timeline
         .layers
         .iter()
         .enumerate()
-        .filter_map(|(index, layer)| {
-            let mut parent = layer.properties.parent.as_ref();
-            for _ in 0..timeline.layers.len() {
-                let Some(id) = parent else {
-                    return Some(index);
-                };
-                let Some(folder) = timeline.layers.iter().find(|l| &l.id == id) else {
-                    return Some(index);
-                };
-                if folder.properties.collapsed {
-                    return None;
-                }
-                parent = folder.properties.parent.as_ref();
-            }
-            None
-        })
-        .collect()
+        .map(|(index, layer)| (layer.id.as_str(), index))
+        .collect();
+    let mut children = vec![Vec::new(); timeline.layers.len()];
+    let mut roots = Vec::new();
+    for (index, layer) in timeline.layers.iter().enumerate() {
+        let parent = layer
+            .properties
+            .mask
+            .as_ref()
+            .or(layer.properties.parent.as_ref())
+            .and_then(|id| indices.get(id.as_str()).copied());
+        if let Some(parent) = parent {
+            children[parent].push(index);
+        } else {
+            roots.push(index);
+        }
+    }
+    let mut visible = Vec::with_capacity(timeline.layers.len());
+    let mut stack = roots;
+    let mut visited = HashSet::new();
+    while let Some(index) = stack.pop() {
+        if !visited.insert(index) {
+            continue;
+        }
+        visible.push(index);
+        let layer = &timeline.layers[index];
+        if layer.properties.role != LayerRole::Folder || !layer.properties.collapsed {
+            stack.extend(children[index].iter().copied());
+        }
+    }
+    visible
 }
 /// Role icons are vector geometry, independent of installed glyph coverage.
 pub(crate) fn paint_layer_role(
@@ -155,6 +171,41 @@ struct LayerOutlineDraft {
 }
 
 impl Editor {
+    /// A drop above a visual row belongs after that row's group in painter
+    /// order. A drop below every visual row belongs at painter index zero.
+    pub(crate) fn reorder_timeline_layer_visual(&mut self, layer_id: &str, before: Option<&str>) {
+        let layers = &self.symbol().timeline.layers;
+        let Some(index) = layers.iter().position(|layer| layer.id == layer_id) else {
+            return;
+        };
+        let moved: HashSet<_> = group_indices(layers, index).into_iter().collect();
+        let insertion = if let Some(target) = before {
+            let Some(target) = layers.iter().position(|layer| layer.id == target) else {
+                return;
+            };
+            if moved.contains(&target) {
+                return;
+            }
+            let end = group_indices(layers, target)
+                .into_iter()
+                .filter(|i| !moved.contains(i))
+                .max()
+                .unwrap_or(target);
+            layers
+                .iter()
+                .enumerate()
+                .find(|(i, _)| *i > end && !moved.contains(i))
+                .map(|(_, layer)| layer.id.clone())
+        } else {
+            layers
+                .iter()
+                .enumerate()
+                .find(|(i, _)| !moved.contains(i))
+                .map(|(_, layer)| layer.id.clone())
+        };
+        self.reorder_timeline_layer(layer_id, insertion.as_deref());
+    }
+
     fn outline_draft_id(&self) -> egui::Id {
         egui::Id::new(("layer-outline-color", &self.clipboard.session))
     }

@@ -123,9 +123,13 @@ impl Editor {
         if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
             self.library_panel.drag = None;
         }
-        ui.add_space(4.);
         self.panel_title(ui, PanelId::Library, "Library");
         ui.separator();
+        ui.add_sized(
+            [ui.available_width(), crate::theme::CONTROL_HEIGHT],
+            egui::TextEdit::singleline(&mut self.library_panel.search)
+                .hint_text("Search symbols, folders, linkage"),
+        );
         let height = ui.available_height();
         let selected = self
             .library_selected
@@ -142,10 +146,18 @@ impl Editor {
             });
         egui::CollapsingHeader::new("Preview")
             .id_salt("library-preview")
-            .default_open(height >= 330.)
+            .default_open(height >= 330. && selected.is_some())
             .show(ui, |ui| {
                 if let Some(symbol) = selected {
-                    self.paint_library_preview(ui, &symbol.id);
+                    ui.scope_builder(
+                        egui::UiBuilder::new().max_rect(egui::Rect::from_min_size(
+                            ui.cursor().min,
+                            egui::vec2(ui.available_width(), 96.),
+                        )),
+                        |ui| {
+                            self.paint_library_preview(ui, &symbol.id);
+                        },
+                    );
                     ui.add(egui::Label::new(egui::RichText::new(&symbol.name).strong()).truncate())
                         .on_hover_text(&symbol.name);
                     ui.small(format!(
@@ -164,7 +176,7 @@ impl Editor {
                     }
                 } else {
                     let (rect, _) = ui
-                        .allocate_exact_size(Vec2::new(ui.available_width(), 72.), Sense::hover());
+                        .allocate_exact_size(Vec2::new(ui.available_width(), 24.), Sense::hover());
                     ui.painter()
                         .rect_filled(rect, 2., ui.visuals().extreme_bg_color);
                     ui.painter().text(
@@ -177,15 +189,10 @@ impl Editor {
                 }
             });
         ui.separator();
-        // Preview stays anchored. Only the controls/tree below it can overflow.
-        let body_height = ui.available_height();
-        egui::ScrollArea::vertical()
-            .id_salt("library-body")
-            .auto_shrink([false, false])
-            .show(ui, |ui| self.library_browser(ui, body_height));
+        self.library_browser(ui);
     }
 
-    fn library_browser(&mut self, ui: &mut egui::Ui, body_height: f32) {
+    fn library_browser(&mut self, ui: &mut egui::Ui) {
         let folders = self.project.library_folder_paths();
         if !self.library_panel.selected_folder.is_empty()
             && !folders.contains(&self.library_panel.selected_folder)
@@ -212,29 +219,10 @@ impl Editor {
             .as_ref()
             .and_then(|id| symbols.iter().find(|symbol| &symbol.id == id))
             .cloned();
-        ui.add(
-            egui::TextEdit::singleline(&mut self.library_panel.search)
-                .hint_text("Search symbols, folders, linkage")
-                .desired_width(ui.available_width()),
-        );
-        if ui
-            .add_sized(
-                [ui.available_width(), 24.],
-                egui::Button::new("Import graphics…"),
-            )
-            .on_hover_text("Place SVG, PNG or JPEG on the Stage")
-            .clicked()
-        {
-            self.import_graphics_dialog();
-        }
-        let mut new_folder = false;
         ui.horizontal(|ui| {
-            new_folder = ui
-                .add_sized([78., 24.], egui::Button::new("New folder"))
-                .clicked();
             egui::ComboBox::from_id_salt("library-sort")
                 .width((ui.available_width() - 46.).max(50.))
-                .selected_text(self.library_panel.sort.label())
+                .selected_text(format!("Sort: {}", self.library_panel.sort.label()))
                 .show_ui(ui, |ui| {
                     for sort in [LibrarySort::Name, LibrarySort::Type, LibrarySort::Linkage] {
                         ui.selectable_value(&mut self.library_panel.sort, sort, sort.label());
@@ -255,12 +243,6 @@ impl Editor {
                 self.library_panel.descending = !self.library_panel.descending;
             }
         });
-        if new_folder {
-            self.start_library_edit(
-                EditTarget::NewFolder,
-                &self.library_panel.selected_folder.clone(),
-            );
-        }
         self.library_edit_form(ui, &folders);
         ui.separator();
         let query = self.library_panel.search.trim().to_lowercase();
@@ -275,7 +257,7 @@ impl Editor {
             &mut rows,
         );
         let mut action = None;
-        let tree_height = (body_height - 220.).max(50.);
+        let tree_height = (ui.available_height() - 40.).max(24.);
         egui::ScrollArea::vertical()
             .id_salt("library-tree")
             .auto_shrink([false, false])
@@ -396,6 +378,7 @@ impl Editor {
                 {
                     ui.weak("No matching library items.");
                 }
+                self.resource_library(ui);
             });
         if let Some(action) = action {
             match action {
@@ -423,64 +406,72 @@ impl Editor {
             }
         }
         ui.separator();
-        ui.vertical(|ui| {
-            ui.small(format!(
+        ui.horizontal(|ui| {
+            if ui
+                .add(crate::ui_icons::IconButton::new(Icon::Symbol, "New symbol"))
+                .clicked()
+            {
+                self.begin_new_symbol();
+            }
+            if ui
+                .add(crate::ui_icons::IconButton::new(Icon::Plus, "New folder"))
+                .clicked()
+            {
+                self.start_library_edit(
+                    EditTarget::NewFolder,
+                    &self.library_panel.selected_folder.clone(),
+                );
+            }
+            if ui
+                .button("Import…")
+                .on_hover_text("Import SVG, PNG or JPEG to Stage")
+                .clicked()
+            {
+                self.import_graphics_dialog();
+            }
+            ui.menu_button("Actions", |ui| {
+                if let Some(symbol) = &selected {
+                    if ui.button("Place instance").clicked() {
+                        if let Err(error) = self.place_library_symbol(ui.ctx(), &symbol.id, None) {
+                            self.message(error);
+                        }
+                        ui.close();
+                    }
+                    if ui.button("Edit symbol").clicked() {
+                        self.enter_symbol(symbol.id.clone());
+                        ui.close();
+                    }
+                    if ui.button("Symbol properties…").clicked() {
+                        self.start_library_edit(EditTarget::Symbol(symbol.id.clone()), "");
+                        ui.close();
+                    }
+                }
+                if !self.library_panel.selected_folder.is_empty()
+                    && ui.button("Folder properties…").clicked()
+                {
+                    self.start_library_edit(
+                        EditTarget::Folder(self.library_panel.selected_folder.clone()),
+                        "",
+                    );
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(
+                        self.can_convert_selection(),
+                        egui::Button::new("Convert to Symbol").shortcut_text("F8"),
+                    )
+                    .clicked()
+                {
+                    self.convert_to_symbol();
+                    ui.close();
+                }
+            })
+            .response
+            .on_hover_text(format!(
                 "{} symbols · {} folders",
                 symbols.len(),
                 folders.len()
             ));
-            if let Some(symbol) = selected {
-                ui.horizontal(|ui| {
-                    let width = ((ui.available_width() - 12.) / 3.).max(40.);
-                    if ui
-                        .add_sized([width, 24.], egui::Button::new("Place"))
-                        .on_hover_text("Place instance on Stage")
-                        .clicked()
-                        && let Err(error) = self.place_library_symbol(ui.ctx(), &symbol.id, None)
-                    {
-                        self.message(error);
-                    }
-                    if ui
-                        .add_sized([width, 24.], egui::Button::new("Edit"))
-                        .clicked()
-                    {
-                        self.enter_symbol(symbol.id.clone());
-                    }
-                    if ui
-                        .add_sized([width, 24.], egui::Button::new("Props"))
-                        .on_hover_text("Symbol properties: name, folder and type")
-                        .clicked()
-                    {
-                        self.start_library_edit(EditTarget::Symbol(symbol.id.clone()), "");
-                    }
-                });
-            } else if !self.library_panel.selected_folder.is_empty()
-                && ui.button("Rename / move folder…").clicked()
-            {
-                self.start_library_edit(
-                    EditTarget::Folder(self.library_panel.selected_folder.clone()),
-                    "",
-                );
-            }
-            if ui
-                .add_enabled(
-                    self.can_convert_selection(),
-                    egui::Button::new("Convert to Symbol   F8"),
-                )
-                .clicked()
-            {
-                self.convert_to_symbol();
-            }
-            self.resource_library(ui);
-            ui.add_space(8.);
-            ui.collapsing("Document", |ui| {
-                ui.label(&self.project.name);
-                ui.small(format!(
-                    "{} × {} px · {} fps",
-                    self.project.width, self.project.height, self.project.fps
-                ));
-                ui.small("Target: HTML5");
-            });
         });
     }
 
@@ -807,7 +798,7 @@ fn library_row(
     selected: bool,
     expanded: bool,
 ) -> egui::Response {
-    let height = if linkage.is_empty() { 23. } else { 36. };
+    let height = 24.;
     let (rect, response) = ui.allocate_exact_size(
         Vec2::new(ui.available_width(), height),
         if folder {
@@ -822,7 +813,7 @@ fn library_row(
         painter.rect_filled(rect, 2., visuals.weak_bg_fill);
     }
     let x = rect.left() + depth as f32 * 12. + 3.;
-    let center = Pos2::new(x + 19., rect.top() + 11.5);
+    let center = Pos2::new(x + 19., rect.center().y);
     if folder {
         let points = if expanded {
             vec![
@@ -864,24 +855,33 @@ fn library_row(
             Stroke::new(1.0_f32, visuals.text_color()),
         );
     }
-    painter.text(
-        Pos2::new(x + 31., rect.top() + 11.5),
+    let name_right = if linkage.is_empty() {
+        rect.right()
+    } else {
+        rect.right() - (rect.width() * 0.3).min(100.)
+    };
+    let name_painter = painter.with_clip_rect(Rect::from_min_max(
+        rect.min,
+        Pos2::new(name_right - 4., rect.bottom()),
+    ));
+    name_painter.text(
+        Pos2::new(x + 31., rect.center().y),
         Align2::LEFT_CENTER,
         name,
         FontId::proportional(12.),
         visuals.text_color(),
     );
     if !linkage.is_empty() {
-        painter.text(
-            Pos2::new(x + 31., rect.top() + 28.),
+        let linkage_painter = painter.with_clip_rect(Rect::from_min_max(
+            Pos2::new(name_right, rect.top()),
+            rect.max,
+        ));
+        linkage_painter.text(
+            Pos2::new(name_right, rect.center().y),
             Align2::LEFT_CENTER,
-            format!("ID: {linkage}"),
-            FontId::proportional(10.),
-            if selected {
-                visuals.text_color()
-            } else {
-                ui.visuals().weak_text_color()
-            },
+            linkage,
+            FontId::proportional(11.),
+            visuals.text_color(),
         );
     }
     response.widget_info(|| {

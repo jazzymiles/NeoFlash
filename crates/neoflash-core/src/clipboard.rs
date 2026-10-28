@@ -162,6 +162,11 @@ impl ClipboardPayload {
                 .flat_map(|symbol| &symbol.timeline.layers)
                 .flat_map(|layer| &layer.keyframes)
                 .any(|key| matches!(key.tween, Some(Easing::Flash { .. })))
+            || self
+                .symbols
+                .iter()
+                .flat_map(|symbol| &symbol.timeline.layers)
+                .any(|layer| layer.properties.end_frame.is_some())
         {
             5
         } else if !self.groups.is_empty()

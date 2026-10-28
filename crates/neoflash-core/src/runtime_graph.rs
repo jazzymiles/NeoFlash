@@ -13,6 +13,7 @@ pub(crate) mod clipping;
 pub use clipping::{ClipComponent, RuntimeClip, ScrollRect};
 mod filters;
 pub use filters::RuntimeFilterGroup;
+mod hierarchy;
 mod input;
 pub use input::DisplayInputState;
 mod linked;
@@ -250,6 +251,8 @@ pub(crate) struct RuntimeGraph {
     paths: HashMap<ObjectRef, Vec<Id>>,
     prefix: HashMap<ObjectRef, Vec<ObjectRef>>,
     suffix: HashMap<ObjectRef, Vec<ObjectRef>>,
+    parent_overrides: HashMap<ObjectRef, Option<ObjectRef>>,
+    child_order: HashMap<ObjectRef, Vec<ObjectRef>>,
     dynamic: BTreeMap<ObjectRef, DynamicObject>,
     as2_depths: HashMap<ObjectRef, (ObjectRef, i32)>,
     as2_input_states: HashMap<ObjectRef, as2_input::As2Input>,
@@ -292,6 +295,8 @@ impl RuntimeGraph {
         self.paths.clear();
         self.prefix.clear();
         self.suffix.clear();
+        self.parent_overrides.clear();
+        self.child_order.clear();
         self.dynamic.clear();
         self.as2_depths.clear();
         self.as2_input_states.clear();
@@ -324,40 +329,7 @@ impl RuntimeGraph {
             .map(|(_, node)| node.reference.clone())
             .collect();
         self.retire_loader_children(&retired);
-        for parent in &retired {
-            let children = self.suffix.get(parent).cloned().unwrap_or_default();
-            for child in children {
-                let route = self.route(&child);
-                let on_stage = self.on_stage(&child);
-                let subtree = self.subtree(&child);
-                let stage_routes: Vec<_> = subtree
-                    .iter()
-                    .map(|id| (id.clone(), self.route(id)))
-                    .collect();
-                self.dynamic.get_mut(&child).expect("dynamic suffix").parent = None;
-                // Retirement must never reattach a child to a replacement path.
-                if self.events.len() + 1 + stage_routes.len() <= MAX_DISPLAY_EVENTS {
-                    self.events.push(DisplayEvent {
-                        kind: "removed".into(),
-                        target_ref: child,
-                        route,
-                    });
-                    if on_stage {
-                        for (target_ref, route) in stage_routes {
-                            self.events.push(DisplayEvent {
-                                kind: "removed_from_stage".into(),
-                                target_ref,
-                                route,
-                            });
-                        }
-                    }
-                } else {
-                    self.events_overflowed = true;
-                }
-            }
-            self.suffix.remove(parent);
-            self.prefix.remove(parent);
-        }
+        self.retire_hierarchy(&retired);
         self.authored
             .retain(|path, node| active.get(path.as_slice()) == Some(&node.lifetime));
         self.paths
@@ -404,6 +376,12 @@ impl RuntimeGraph {
             || self.linked_paths.contains_key(id)
     }
     fn parent(&self, id: &ObjectRef) -> Option<ObjectRef> {
+        self.parent_overrides
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| self.source_parent(id))
+    }
+    fn source_parent(&self, id: &ObjectRef) -> Option<ObjectRef> {
         if let Some(dynamic) = self.dynamic.get(id) {
             return dynamic.parent.clone();
         }
@@ -429,11 +407,18 @@ impl RuntimeGraph {
         }
     }
     fn children(&self, id: &ObjectRef) -> Vec<ObjectRef> {
-        self.prefix
+        let mut seen = BTreeSet::new();
+        self.child_order
             .get(id)
             .into_iter()
             .flatten()
+            .chain(self.prefix.get(id).into_iter().flatten())
             .chain(self.suffix.get(id).into_iter().flatten())
+            .filter(|child| {
+                self.alive(child)
+                    && self.parent(child).as_ref() == Some(id)
+                    && seen.insert((*child).clone())
+            })
             .cloned()
             .collect()
     }
@@ -652,6 +637,15 @@ impl Player {
                     .dynamic
                     .iter()
                     .filter(|(_, node)| node.parent.is_none())
+                    .map(|(id, _)| id.clone()),
+            );
+            roots.extend(
+                self.graph
+                    .parent_overrides
+                    .iter()
+                    .filter(|(id, parent)| {
+                        parent.is_none() && self.graph.alive(id) && root.as_ref() != Some(*id)
+                    })
                     .map(|(id, _)| id.clone()),
             );
         }
@@ -1149,13 +1143,11 @@ impl Player {
         ) {
             return Err(error("This object cannot contain children"));
         }
-        if !self.graph.dynamic.contains_key(child) {
-            return Err(error(
-                "Moving or removing authored timeline children is not supported",
-            ));
+        if self.graph.paths.get(child).is_some_and(Vec::is_empty) {
+            return Err(error("The source root cannot be moved or removed"));
         }
-        let prefix = self.graph.prefix.get(parent).map_or(0, Vec::len);
-        let current = self.graph.suffix.get(parent).cloned().unwrap_or_default();
+        self.validate_authored_hierarchy_change(project, child)?;
+        let current = self.graph.children(parent);
         let mut result = MutationResult::default();
         match mutation {
             DisplayMutation::Add {
@@ -1165,7 +1157,7 @@ impl Player {
             } => {
                 let old_parent = self.graph.parent(&child);
                 let same = old_parent.as_ref() == Some(&parent);
-                let length = prefix + current.len();
+                let length = current.len();
                 let index = index.unwrap_or(if same {
                     length.saturating_sub(1)
                 } else {
@@ -1176,10 +1168,8 @@ impl Player {
                 } else {
                     length
                 };
-                if index < prefix || index > maximum {
-                    return Err(error(
-                        "Dynamic child index must stay in the suffix after authored children",
-                    ));
+                if index > maximum {
+                    return Err(error("Child index is outside the container"));
                 }
                 let subtree = self.graph.subtree(&child);
                 if subtree.contains(&parent) {
@@ -1205,13 +1195,14 @@ impl Player {
                     Some((&child, &parent)),
                 )?;
                 if same {
-                    let siblings = self.graph.suffix.entry(parent).or_default();
+                    let mut siblings = current;
                     let old = siblings
                         .iter()
                         .position(|id| id == &child)
                         .expect("same parent");
                     siblings.remove(old);
-                    siblings.insert(index - prefix, child);
+                    siblings.insert(index, child);
+                    self.graph.set_child_order(&parent, siblings);
                     return Ok(result);
                 }
                 let was_stage = self.graph.on_stage(&child);
@@ -1242,19 +1233,7 @@ impl Player {
                         });
                     }
                 }
-                if let Some(old) = old_parent {
-                    self.graph
-                        .suffix
-                        .get_mut(&old)
-                        .expect("old children")
-                        .retain(|id| id != &child);
-                }
-                self.graph.dynamic.get_mut(&child).expect("dynamic").parent = Some(parent.clone());
-                self.graph
-                    .suffix
-                    .entry(parent)
-                    .or_default()
-                    .insert(index - prefix, child.clone());
+                self.graph.attach_child(&parent, &child, index);
                 result.events.push(DisplayEvent {
                     kind: "added".into(),
                     target_ref: child.clone(),
@@ -1293,12 +1272,7 @@ impl Player {
                         });
                     }
                 }
-                self.graph
-                    .suffix
-                    .get_mut(&parent)
-                    .expect("parent children")
-                    .retain(|id| id != &child);
-                self.graph.dynamic.get_mut(&child).expect("dynamic").parent = None;
+                self.graph.detach_child(&child);
             }
             DisplayMutation::SetIndex {
                 parent,
@@ -1309,23 +1283,25 @@ impl Player {
                     .iter()
                     .position(|id| id == &child)
                     .ok_or_else(|| error("Object is not a child of this container"))?;
-                if index < prefix || index >= prefix + current.len() {
-                    return Err(error(
-                        "Dynamic child index must stay in the suffix after authored children",
-                    ));
+                if index >= current.len() {
+                    return Err(error("Child index is outside the container"));
                 }
-                let siblings = self.graph.suffix.get_mut(&parent).expect("parent children");
+                let mut siblings = current;
                 siblings.remove(position);
-                siblings.insert(index - prefix, child);
+                siblings.insert(index, child);
+                self.graph.set_child_order(&parent, siblings);
             }
             DisplayMutation::Swap {
                 parent,
                 first,
                 second,
             } => {
-                if !self.graph.dynamic.contains_key(&second) {
-                    return Err(error("Only dynamic children can be swapped"));
+                if !self.graph.alive(&second) {
+                    return Err(error(
+                        "Display reference is stale or belongs to another player",
+                    ));
                 }
+                self.validate_authored_hierarchy_change(project, &second)?;
                 let a = current
                     .iter()
                     .position(|id| id == &first)
@@ -1334,18 +1310,16 @@ impl Player {
                     .iter()
                     .position(|id| id == &second)
                     .ok_or_else(|| error("Second object is not a child"))?;
-                self.graph
-                    .suffix
-                    .get_mut(&parent)
-                    .expect("parent children")
-                    .swap(a, b);
+                let mut siblings = current;
+                siblings.swap(a, b);
+                self.graph.set_child_order(&parent, siblings);
             }
         }
         Ok(result)
     }
 
     /// Detach an inclusive child range after validating the complete request.
-    /// This bounded runtime-child profile delivers lifecycle events after the
+    /// This bounded active-source-lifetime profile delivers lifecycle events after the
     /// batch; native reentrant per-child removal callbacks are not modeled.
     pub fn object_remove_children(
         &mut self,
@@ -1396,11 +1370,7 @@ impl Player {
             .collect();
         let mut result = MutationResult::default();
         for child in &selected {
-            if !self.graph.dynamic.contains_key(child) {
-                return Err(error(
-                    "removeChildren cannot remove authored timeline children; select only runtime-created or linked children",
-                ));
-            }
+            self.validate_authored_hierarchy_change(project, child)?;
             self.graph
                 .validate_loader_mutation(&DisplayMutation::Remove {
                     parent: parent.clone(),
@@ -1427,20 +1397,8 @@ impl Player {
                 }
             }
         }
-        if !selected.is_empty() {
-            let removed: BTreeSet<_> = selected.iter().cloned().collect();
-            self.graph
-                .suffix
-                .get_mut(parent)
-                .expect("runtime children")
-                .retain(|child| !removed.contains(child));
-            for child in selected {
-                self.graph
-                    .dynamic
-                    .get_mut(&child)
-                    .expect("validated runtime child")
-                    .parent = None;
-            }
+        for child in selected {
+            self.graph.detach_child(&child);
         }
         Ok(result)
     }

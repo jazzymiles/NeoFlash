@@ -64,6 +64,7 @@ impl RuntimeGraph {
         Ok(())
     }
     fn retire_objects(&mut self, retired: &BTreeSet<ObjectRef>) {
+        self.forget_hierarchy(retired);
         for reference in retired {
             if let Some(node) = self.dynamic.remove(reference) {
                 self.graphics_cost -= node.graphics.cost();
@@ -168,6 +169,16 @@ impl Player {
                     "MovieClipLoader requires a non-root MovieClip target",
                 ));
             }
+            if self
+                .graph
+                .subtree(target)
+                .iter()
+                .any(|id| self.graph.parent_overrides.contains_key(id))
+            {
+                return Err(error(
+                    "AS2 image replacement cannot retire reparented authored content; restore its source hierarchy before loading",
+                ));
+            }
         } else if self
             .graph
             .dynamic
@@ -264,6 +275,7 @@ impl Player {
             }
             self.graph.prefix.remove(target);
             self.graph.suffix.remove(target);
+            self.graph.child_order.remove(target);
             if let Some(address) = self.graph.source_address(target) {
                 self.graph
                     .namespaces
@@ -282,6 +294,7 @@ impl Player {
                 }
             }
             self.graph.suffix.remove(target);
+            self.graph.child_order.remove(target);
         }
         let content = pixels.map(|pixel_ref| {
             let id = self.graph.allocate();

@@ -53,6 +53,7 @@ pub struct Editor {
     pub tool: Tool,
     pub(crate) authoring_tools: crate::authoring_tools::AuthoringToolsState,
     pub playing: bool,
+    pub(crate) authored_preview: Option<crate::preview::AuthoringPreview>,
     pub last_tick: Instant,
     pub accumulator: f64,
     pub onion: bool,
@@ -84,6 +85,7 @@ pub struct Editor {
     pub allow_close: bool,
     pub timeline_cell: f32,
     pub timeline_key_drag: Option<(String, String, u32)>,
+    pub(crate) timeline_edit: crate::timeline_edit::TimelineSelection,
     pub library_selected: Option<String>,
     pub(crate) library_panel: crate::library::LibraryPanel,
     pub(crate) graphic_drop_position: Option<egui::Pos2>,
@@ -124,7 +126,7 @@ impl Editor {
         let mut s = Self {
             project, history: History::new(150), path: None, saved_project,
             editing: vec![root.clone()], frame: 0, layer: 0, selection: crate::selection::Selection { symbol: root, targets: vec![] }, object_gesture: None, tool: Tool::Select,
-            playing: false, last_tick: Instant::now(), accumulator: 0.,
+            playing: false, authored_preview: None, last_tick: Instant::now(), accumulator: 0.,
             onion: false, onion_outlines: false, onion_before: 3, onion_after: 3,
             onion_anchor: false, anchored_range: (0, 6), onion_opacity: 0.3,
             zoom: 0.75, pan: Vec2::ZERO, shape_draft: None,
@@ -136,7 +138,7 @@ impl Editor {
             status: "Ready · F5 frame · F6 keyframe · F7 blank keyframe · ⌘↵ Test Movie".into(),
             output: vec!["NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser.".into()],
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
-            timeline_cell: 13., timeline_key_drag: None, library_selected: None, symbol_conversion: None,
+            timeline_cell: 13., timeline_key_drag: None, timeline_edit: Default::default(), library_selected: None, symbol_conversion: None,
             library_panel: crate::library::LibraryPanel::default(),
             graphic_drop_position: None,
             resource_panel: crate::resources::ResourcePanel::default(),
@@ -421,6 +423,7 @@ impl Editor {
                 self.clipboard = Default::default();
                 self.resource_panel = Default::default();
                 self.library_panel = Default::default();
+                self.timeline_edit = Default::default();
                 self.graphic_drop_position = None;
                 self.bitmap_textures = Default::default();
                 self.editing = vec![self.project.root.clone()];
@@ -466,6 +469,7 @@ impl Editor {
                 self.clipboard = Default::default();
                 self.resource_panel = Default::default();
                 self.library_panel = Default::default();
+                self.timeline_edit = Default::default();
                 self.graphic_drop_position = None;
                 self.bitmap_textures = Default::default();
                 self.editing = vec![self.project.root.clone()];
@@ -502,6 +506,7 @@ impl Editor {
                             self.clipboard = Default::default();
                             self.resource_panel = Default::default();
                             self.library_panel = Default::default();
+                            self.timeline_edit = Default::default();
                             self.graphic_drop_position = None;
                             self.bitmap_textures = Default::default();
                             self.editing = vec![self.project.root.clone()];
@@ -619,6 +624,7 @@ impl Editor {
         if self.symbol_conversion.is_some() {
             return;
         }
+        self.timeline_shortcuts(ctx);
         self.clipboard_events(ctx);
         let typing = ctx.wants_keyboard_input();
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S)) {
@@ -708,10 +714,12 @@ impl Editor {
             }
             if ctx.input(|i| i.key_pressed(Key::ArrowLeft)) {
                 self.finish_edits();
+                self.reset_authored_preview();
                 self.frame = self.frame.saturating_sub(1);
             }
             if ctx.input(|i| i.key_pressed(Key::ArrowRight)) {
                 self.finish_edits();
+                self.reset_authored_preview();
                 self.frame = (self.frame + 1).min(self.symbol().timeline.frame_count - 1);
             }
         }
@@ -722,7 +730,12 @@ impl Editor {
         let Some(l) = timeline.layers.get(layer) else {
             return false;
         };
-        if l.locked || !l.visible || to >= timeline.frame_count || from == to {
+        if layer_effectively_locked(timeline, l)
+            || !layer_effectively_visible(timeline, l)
+            || l.properties.role == LayerRole::Folder
+            || to >= timeline.frame_count
+            || from == to
+        {
             return false;
         }
         if l.keyframes.iter().any(|k| k.frame == to) {
@@ -732,6 +745,21 @@ impl Editor {
         let Some(mut key) = l.keyframes.iter().find(|k| k.frame == from).cloned() else {
             return false;
         };
+        let script = self
+            .timeline_edit
+            .include_scripts
+            .then(|| {
+                timeline
+                    .scripts
+                    .iter()
+                    .find(|script| script.frame == from)
+                    .cloned()
+            })
+            .flatten();
+        if script.is_some() && timeline.scripts.iter().any(|script| script.frame == to) {
+            self.message("A frame script already exists at the destination. The key and script were not moved.");
+            return false;
+        }
         self.transact(|s| {
             let l = &mut s.symbol_mut().timeline.layers[layer];
             if !copy {
@@ -743,6 +771,18 @@ impl Editor {
             }
             l.keyframes.push(key);
             l.keyframes.sort_by_key(|k| k.frame);
+            if let Some(end) = &mut l.properties.end_frame {
+                *end = (*end).max(to + 1);
+            }
+            if let Some(mut script) = script {
+                let scripts = &mut s.symbol_mut().timeline.scripts;
+                if !copy {
+                    scripts.retain(|item| item.frame != from);
+                }
+                script.frame = to;
+                scripts.push(script);
+                scripts.sort_by_key(|item| item.frame);
+            }
             s.frame = to;
             s.layer = layer;
             s.clear_selection();
@@ -751,22 +791,22 @@ impl Editor {
     }
 
     pub fn insert_frame(&mut self) {
+        if self.timeline_edit.focused && self.selected_frame_range().is_some() {
+            self.insert_frame_range();
+            return;
+        }
         self.finish_edits();
         if !self.layer_editable() {
             return;
         }
-        self.transact(|s| {
-            let frame = s.frame;
-            let layer = s.layer;
-            let t = &mut s.symbol_mut().timeline;
-            for k in &mut t.layers[layer].keyframes {
-                if k.frame > frame {
-                    k.frame += 1;
-                }
-            }
-            t.frame_count += 1;
+        self.apply_frame_edit(TimelineEdit::Insert {
+            layers: vec![self.symbol().timeline.layers[self.layer].id.clone()],
+            at: (self.frame + 1).min(self.symbol().timeline.frame_count),
+            count: 1,
+            include_scripts: self.timeline_edit.include_scripts,
         });
     }
+
     pub fn draw_dialogs(&mut self, ctx: &egui::Context) {
         if self.show_about {
             egui::Window::new("About NeoFlash")
@@ -833,13 +873,14 @@ impl eframe::App for Editor {
             }
         }
         self.shortcuts(ctx);
+        self.sync_authored_preview();
         if self.playing {
             let elapsed = self.last_tick.elapsed().as_secs_f64().min(0.25);
             self.last_tick = Instant::now();
             self.accumulator += elapsed;
             let step = 1. / self.project.fps.max(1) as f64;
             while self.accumulator >= step {
-                self.frame = (self.frame + 1) % self.symbol().timeline.frame_count.max(1);
+                self.tick_authored_preview();
                 self.accumulator -= step;
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(8));

@@ -35,7 +35,7 @@ The important foundation comes first: mathematics and types, objects, MovieClips
 
 ### Product capabilities
 
-| Area | Implemented | Partial | Planned | Registry coverage |
+| Area | Closed | Partial | Planned | Closed capability groups |
 | --- | ---: | ---: | ---: | ---: |
 | Editor and graphics | 5/12 | 7 | 0 | 41.7% |
 | Timelines and animation | 5/10 | 3 | 2 | 50.0% |
@@ -43,7 +43,7 @@ The important foundation comes first: mathematics and types, objects, MovieClips
 | Import and file compatibility | 1/10 | 7 | 2 | 10.0% |
 | Platform and quality | 4/10 | 5 | 1 | 40.0% |
 
-Implemented means the item's stated scope is complete; partial items do not contribute to the percentage. This measures our capability registry, **not Flash compatibility or test line coverage**. Items differ in size, so there is no overall product completion percentage.
+Closed means the group's stated scope is implemented. Partial groups already contain working features; improvements within partial or already closed groups do not change the percentage. Closed capability groups = closed / tracked groups. This is **not overall product completion, Flash compatibility or test line coverage**. See the detailed registry for working subsets and remaining limits.
 
 [Current coverage](https://jazzymiles.github.io/NeoFlash/progress.html) · [Daily history](https://jazzymiles.github.io/NeoFlash/history.html) · [Detailed registry](docs/progress/DETAILS.md) · [Counting rules](docs/progress/README.md)
 
@@ -72,7 +72,7 @@ Open [authoring-workspace.nflash](examples/authoring-workspace.nflash) for masks
 4. Press **F6** to insert a keyframe, move the object, and set a tween/easing on the preceding keyframe. **F5** inserts a frame; **F7** adds a blank keyframe. Filled spans show held content; a blank key ends that layer's visible content. Drag a key to move it; hold Option to copy it.
 5. Select artwork and press **F8**. Choose a name, Movie Clip / Graphic / Button, a library folder, a registration point, and optional ActionScript linkage. Confirm to create a reusable symbol without moving its artwork; Cancel leaves the document unchanged. Drag more instances from the Library onto the Stage.
 6. Select a timeline frame and press **F9**, use its context menu, or click **Actions · F9** to edit that frame's script. The editor shows the current symbol/frame and focuses the code field. Object events and project source files remain available in Actions. JavaScript/TypeScript are the primary working languages; the AS2/AS3 subset is documented explicitly.
-7. **⌘Enter / Test Movie** exports and opens a browser preview with scripts. **File → Publish HTML5** writes a self-contained folder. The editor's Enter playback is a side-effect-free authoring preview.
+7. **⌘Enter / Test Movie** exports and opens a browser preview with scripts. **File → Publish HTML5** writes a self-contained folder. The editor's Enter playback is a side-effect-free authoring preview with independent nested MovieClip clocks, including one-frame parent timelines. Pause retains the current pose; Rewind or scrubbing resets the preview.
 8. Save a `.nflash` project with **⌘S**. Source files are versioned JSON and round-trip through validation.
 
 ## Editing and publishing

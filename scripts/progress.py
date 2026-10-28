@@ -87,7 +87,7 @@ def counts(features):
 
 
 def summary_table(categories, features):
-    lines = ["| Area | Implemented | Partial | Planned | Registry coverage |", "| --- | ---: | ---: | ---: | ---: |"]
+    lines = ["| Area | Closed | Partial | Planned | Closed capability groups |", "| --- | ---: | ---: | ---: | ---: |"]
     for category in categories:
         count = counts([f for f in features if f["category"] == category["id"]])
         percentage = 100 * count["implemented"] / count["total"]
@@ -212,7 +212,7 @@ def reports(root, categories, features, write=False):
         "",
         coverage,
         "",
-        "Implemented means the item's stated scope is complete; partial items do not contribute to the percentage. This measures our capability registry, **not Flash compatibility or test line coverage**. Items differ in size, so there is no overall product completion percentage.",
+        "Closed means the group's stated scope is implemented. Partial groups already contain working features; improvements within partial or already closed groups do not change the percentage. Closed capability groups = closed / tracked groups. This is **not overall product completion, Flash compatibility or test line coverage**. See the detailed registry for working subsets and remaining limits.",
         "",
         "[Current coverage](https://jazzymiles.github.io/NeoFlash/progress.html) · [Daily history](https://jazzymiles.github.io/NeoFlash/history.html) · [Detailed registry](docs/progress/DETAILS.md) · [Counting rules](docs/progress/README.md)",
         "",

@@ -230,7 +230,7 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
         DisplayMutation::Add {
             parent: root.clone(),
             child: right.clone(),
-            index: Some(0),
+            index: Some(99),
         },
         DisplayMutation::Add {
             parent: shape.clone(),
@@ -243,7 +243,7 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
             index: None,
         },
         DisplayMutation::Remove {
-            parent: root.clone(),
+            parent: right.clone(),
             child: holder.clone(),
         },
     ] {
@@ -398,7 +398,239 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
     video_viewports_share_display_state_and_lifetimes();
     mouse_input_capabilities_follow_identity(project.clone());
     movieclip_button_labels_follow_mouse_input(project.clone());
+    authored_children_follow_runtime_parents_until_source_retirement(project.clone());
     linked_timelines_are_independent_namespaces(project);
+}
+
+fn authored_children_follow_runtime_parents_until_source_retirement(mut project: Project) {
+    let component = project.symbol_mut("component").unwrap();
+    component.timeline.frame_count = 4;
+    component.timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "authored-marker".into(),
+            name: "marker".into(),
+            transform: Transform {
+                x: 7.,
+                ..Transform::default()
+            },
+            scripts: vec![],
+            accessibility: None,
+            kind: ElementKind::Rectangle {
+                width: 10.,
+                height: 10.,
+                fill: [255; 4],
+                stroke: [0; 4],
+                stroke_width: 0.,
+            },
+        });
+    component.timeline.scripts = vec![FrameScript {
+        frame: 1,
+        script: Script {
+            language: ScriptLanguage::JavaScript,
+            source: "detachedFrame();".into(),
+        },
+    }];
+    let document = project.to_json().unwrap();
+    let mut player = Player::new(&project);
+    player.control(&project, &[], PlaybackCommand::Stop);
+    let root = player.object_ref(&[]).unwrap();
+    let holder = player.object_ref(&["authored-container".into()]).unwrap();
+    let marker = player
+        .object_ref(&["authored-container".into(), "authored-marker".into()])
+        .unwrap();
+    let right = player.create_display(DynamicKind::Sprite).unwrap();
+    let overlay = player.create_display(DynamicKind::Shape).unwrap();
+    let survivor = player.create_display(DynamicKind::Sprite).unwrap();
+    assert!(player.object_set_property(&right, "x", 300.));
+    assert!(player.object_set_property(&overlay, "x", 20.));
+    assert!(player.object_set_property(&survivor, "x", 10.));
+    add(&mut player, &project, &root, &right);
+    player
+        .display_mutate(
+            &project,
+            DisplayMutation::Add {
+                parent: root.clone(),
+                child: overlay.clone(),
+                index: Some(0),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        object(&player.runtime_snapshot(&project), &root).children,
+        vec![overlay.clone(), holder.clone(), right.clone()]
+    );
+    player
+        .display_mutate(
+            &project,
+            DisplayMutation::SetIndex {
+                parent: root.clone(),
+                child: holder.clone(),
+                index: 0,
+            },
+        )
+        .unwrap();
+    player
+        .display_mutate(
+            &project,
+            DisplayMutation::Swap {
+                parent: root.clone(),
+                first: holder.clone(),
+                second: right.clone(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        object(&player.runtime_snapshot(&project), &root).children,
+        vec![right.clone(), overlay.clone(), holder.clone()]
+    );
+    player
+        .display_mutate(
+            &project,
+            DisplayMutation::Add {
+                parent: root.clone(),
+                child: holder.clone(),
+                index: Some(1),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        object(&player.runtime_snapshot(&project), &root).children,
+        vec![right.clone(), holder.clone(), overlay.clone()]
+    );
+    let moved = add(&mut player, &project, &right, &holder);
+    assert_eq!(
+        moved
+            .events
+            .iter()
+            .map(|event| event.kind.as_str())
+            .collect::<Vec<_>>(),
+        vec!["removed", "added"]
+    );
+    assert_eq!(moved.events[0].route, vec![holder.clone(), root.clone()]);
+    assert_eq!(
+        moved.events[1].route,
+        vec![holder.clone(), right.clone(), root.clone()]
+    );
+    let scene = player.runtime_snapshot(&project);
+    assert_eq!(object(&scene, &holder).local_matrix[4], 100.);
+    assert_eq!(object(&scene, &holder).display.world[4], 400.);
+    assert_eq!(object(&scene, &marker).display.world[4], 407.);
+    let paint = scene
+        .draws
+        .iter()
+        .find(|draw| draw.owner_ref == marker)
+        .expect("reparented authored artwork remains painted");
+    assert_eq!(paint.item.transform[4], 407.);
+    add(&mut player, &project, &holder, &survivor);
+    add(&mut player, &project, &right, &overlay);
+    let before = serde_json::to_value(player.runtime_snapshot(&project)).unwrap();
+    for mutation in [
+        DisplayMutation::Add {
+            parent: survivor.clone(),
+            child: right.clone(),
+            index: None,
+        },
+        DisplayMutation::Add {
+            parent: holder.clone(),
+            child: root.clone(),
+            index: None,
+        },
+        DisplayMutation::Remove {
+            parent: root.clone(),
+            child: holder.clone(),
+        },
+        DisplayMutation::SetIndex {
+            parent: right.clone(),
+            child: holder.clone(),
+            index: 99,
+        },
+    ] {
+        assert!(player.display_mutate(&project, mutation).is_err());
+        assert_eq!(
+            serde_json::to_value(player.runtime_snapshot(&project)).unwrap(),
+            before
+        );
+    }
+    assert!(
+        player
+            .object_remove_children(&project, &right, 0, 2)
+            .is_err()
+    );
+    assert_eq!(
+        serde_json::to_value(player.runtime_snapshot(&project)).unwrap(),
+        before
+    );
+    let removed = player
+        .object_remove_children(&project, &right, 0, i32::MAX)
+        .unwrap();
+    assert_eq!(
+        removed
+            .events
+            .iter()
+            .filter(|event| event.kind == "removed")
+            .count(),
+        2
+    );
+    assert!(
+        removed
+            .events
+            .iter()
+            .any(|event| event.kind == "removed_from_stage"
+                && event.target_ref == marker
+                && event.route
+                    == vec![marker.clone(), holder.clone(), right.clone(), root.clone()])
+    );
+    let scene = player.runtime_snapshot(&project);
+    assert!(object(&scene, &right).children.is_empty());
+    for reference in [&holder, &marker, &overlay, &survivor] {
+        assert!(player.object_alive(reference));
+        assert!(!object(&scene, reference).on_stage);
+    }
+    assert!(object(&scene, &holder).parent_ref.is_none());
+    assert!(object(&scene, &overlay).parent_ref.is_none());
+    assert_eq!(object(&scene, &holder).display.world[4], 100.);
+    assert_eq!(object(&scene, &marker).display.world[4], 107.);
+    assert!(scene.draws.iter().all(|draw| draw.owner_ref != marker));
+    let detached_frame = player.object_frame(&holder).unwrap();
+    player.tick(&project);
+    assert_eq!(player.object_frame(&holder), Some((detached_frame + 1) % 4));
+    let detached_dispatch = player
+        .drain_runtime_scripts()
+        .into_iter()
+        .find(|item| item.target_ref == holder && item.dispatch.script.source == "detachedFrame();")
+        .expect("detached active authored timeline retains frame scripts");
+    assert!(player.is_runtime_dispatch_current(&project, &detached_dispatch));
+    assert!(player.object_set_property(&holder, "x", 125.));
+    add(&mut player, &project, &right, &holder);
+    add(&mut player, &project, &right, &overlay);
+    assert_eq!(
+        object(&player.runtime_snapshot(&project), &marker)
+            .display
+            .world[4],
+        432.
+    );
+
+    // Source lifetime remains the ownership boundary: moving an authored
+    // placement does not turn it into an independently allocated object.
+    player.control(&project, &[], PlaybackCommand::GotoAndStop(1));
+    assert!(!player.object_alive(&holder));
+    assert!(!player.object_alive(&marker));
+    assert!(!player.is_runtime_dispatch_current(&project, &detached_dispatch));
+    let scene = player.runtime_snapshot(&project);
+    assert_eq!(object(&scene, &right).children, vec![overlay.clone()]);
+    assert!(player.object_alive(&survivor));
+    assert!(object(&scene, &survivor).parent_ref.is_none());
+    assert_eq!(object(&scene, &survivor).display.world[4], 10.);
+    assert!(!player.object_set_property(&holder, "x", 1.));
+    player.control(&project, &[], PlaybackCommand::GotoAndStop(2));
+    let replacement = player.object_ref(&["authored-container".into()]).unwrap();
+    assert_ne!(replacement, holder);
+    let scene = player.runtime_snapshot(&project);
+    assert_eq!(object(&scene, &replacement).parent_ref, Some(root.clone()));
+    assert_eq!(object(&scene, &replacement).display.world[4], 100.);
+    assert_eq!(object(&scene, &right).children, vec![overlay]);
+    assert_eq!(project.to_json().unwrap(), document);
 }
 
 fn movieclip_button_labels_follow_mouse_input(mut project: Project) {
@@ -1849,6 +2081,26 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
         Some("PulseLater")
     );
     assert!(nested_metadata.is_playing);
+    let linked_move = add(&mut player, &project, &second, &first_nested);
+    assert_eq!(
+        linked_move
+            .events
+            .iter()
+            .map(|event| event.kind.as_str())
+            .collect::<Vec<_>>(),
+        vec!["removed", "added"]
+    );
+    let moved_scene = player.runtime_snapshot(&project);
+    assert_eq!(
+        object(&moved_scene, &first_nested).parent_ref,
+        Some(second.clone())
+    );
+    assert_eq!(
+        object(&moved_scene, &first_nested).namespace_ref,
+        Some(first.clone())
+    );
+    assert_eq!(object(&moved_scene, &first_nested).local_matrix[4], 10.);
+    assert_eq!(object(&moved_scene, &first_leaf).display.world[4], 15.);
     player.object_control(&project, &first, PlaybackCommand::GotoAndStop(2));
     assert!(player.object_metadata(&project, &first_nested).is_none());
     assert!(!player.object_alive(&first_leaf));
@@ -1936,11 +2188,31 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
     let children = object(&player.runtime_snapshot(&project), &root)
         .children
         .clone();
+    let authored_removal = player
+        .object_remove_children(&project, &root, 0, 0)
+        .unwrap();
     assert!(
-        player
-            .object_remove_children(&project, &root, 0, i32::MAX)
-            .is_err()
+        authored_removal
+            .events
+            .iter()
+            .any(|event| event.kind == "removed" && event.target_ref == holder)
     );
+    assert!(player.object_alive(&holder));
+    assert!(
+        object(&player.runtime_snapshot(&project), &holder)
+            .parent_ref
+            .is_none()
+    );
+    player
+        .display_mutate(
+            &project,
+            DisplayMutation::Add {
+                parent: root.clone(),
+                child: holder.clone(),
+                index: Some(0),
+            },
+        )
+        .unwrap();
     assert_eq!(
         object(&player.runtime_snapshot(&project), &root).children,
         children

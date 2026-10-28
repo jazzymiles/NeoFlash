@@ -14,14 +14,20 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
   const { createRuntimeHost } = await import('../../crates/neoflash-script/tests/host-integration.mjs');
   let player;
   try {
+    const familyProject=JSON.parse(fs.readFileSync(resolve(root,'examples/display-family.nflash'),'utf8'));
+    const familyLayer=familyProject.symbols.find(symbol=>symbol.id===familyProject.root).timeline.layers.find(layer=>layer.keyframes[0].elements.some(element=>element.name==='widget'));
+    const retiredFrame=JSON.parse(JSON.stringify(familyLayer.keyframes[0]));retiredFrame.frame=100;
+    retiredFrame.elements=retiredFrame.elements.filter(element=>element.name!=='widget');familyLayer.keyframes.push(retiredFrame);
+    const familySource=resolve(directory,'display-family-lifetime.nflash');fs.writeFileSync(familySource,JSON.stringify(familyProject));
+    const familyDirectory=resolve(directory,'family');
     const exported = spawnSync(cargo,
-      ['run', '--quiet', '--locked', '-p', 'neoflash-export', '--', 'examples/display-family.nflash', '--output', directory],
+      ['run', '--quiet', '--locked', '-p', 'neoflash-export', '--', familySource, '--output', familyDirectory],
       { cwd: root, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     assert.equal(exported.status, 0, exported.error?.message || exported.stderr);
     const context = vm.createContext({ TextEncoder, TextDecoder, WebAssembly, console, URL, Request, Response });
-    vm.runInContext(fs.readFileSync(resolve(directory, 'bundle.js'), 'utf8'), context);
+    vm.runInContext(fs.readFileSync(resolve(familyDirectory, 'bundle.js'), 'utf8'), context);
     const bundle = vm.runInContext('NeoFlashBundle', context);
-    vm.runInContext(fs.readFileSync(resolve(directory, 'neoflash_web.js'), 'utf8'), context);
+    vm.runInContext(fs.readFileSync(resolve(familyDirectory, 'neoflash_web.js'), 'utf8'), context);
     context.wasmBytes = Buffer.from(bundle.wasm, 'base64');
     const wasm = await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)', context);
     player = new wasm.WebPlayer(JSON.stringify(bundle.project));
@@ -75,7 +81,7 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     assert.equal(host.program().type('flash.display.MovieClip').__nfIs(widget), true);
     assert.equal(host.program().type('flash.display.DisplayObject').__nfIs(scene.stage), true);
     // Dynamic objects use the same Rust scene and keep identity through hierarchy edits.
-    const Sprite=host.program().type('flash.display.Sprite'),Shape=host.program().type('flash.display.Shape');
+    const Sprite=host.program().type('flash.display.Sprite'),Shape=host.program().type('flash.display.Shape'),MovieClip=host.program().type('flash.display.MovieClip');
     const left=new Sprite(),right=new Sprite(),shape=new Shape();
     left.name='runtimeLeft';right.name='runtimeRight';shape.name='drawing';
     left.x=20;left.y=30;right.x=180;right.scaleX=2;
@@ -101,8 +107,29 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     right.addChild(shape);assert.equal(events.at(-1)[0],'added','listeners survive detachment');
     scene.swapChildren(left,right);assert.equal(scene.getChildIndex(right),prefix);
     scene.setChildIndex(left,prefix);assert.equal(scene.getChildAt(prefix),left);
-    assert.throws(()=>scene.addChildAt(left,0),/authored|prefix/i);
-    assert.throws(()=>scene.removeChild(widget),/authored/i);
+    assert.throws(()=>widget.removeMovieClip(),/AS2.*authored/,'AS2 negative-depth removal remains outside the authored mutation profile');
+    const widgetIdentity=widget.toJSON().object_ref,widgetTransform=[widget.x,widget.y,widget.scaleX,widget.scaleY,widget.rotation],authoredEvents=[];
+    widget.addEventListener('removed',event=>authoredEvents.push(['removed',event.target===widget,event.currentTarget===widget]));
+    widget.addEventListener('added',event=>authoredEvents.push(['added',event.target===widget,event.currentTarget===widget]));
+    scene.addEventListener('removed',event=>{if(event.target===widget)authoredEvents.push(['scene-route',event.currentTarget===scene]);});
+    right.addEventListener('added',event=>{if(event.target===widget)authoredEvents.push(['right-route',event.currentTarget===right]);});
+    scene.addChildAt(left,0);assert.equal(scene.getChildAt(0),left,'runtime children may precede authored children');
+    scene.swapChildren(left,widget);assert.equal(scene.getChildAt(0),widget);
+    scene.setChildIndex(widget,1);assert.equal(scene.getChildAt(1),widget,'authored and runtime children share one order');
+    const leftIndex=scene.getChildIndex(left);scene.swapChildrenAt(1,leftIndex);
+    assert.equal(scene.getChildAt(1),left);assert.equal(scene.getChildAt(leftIndex),widget,'index swaps accept mixed authored and runtime children');
+    assert.equal(right.addChild(widget),widget);assert.equal(scene.getChildByName('widget'),null);assert.equal(right.getChildByName('widget'),widget);
+    assert.equal(widget.parent,right);assert.equal(widget.root,scene);assert.equal(widget.stage,scene.stage);assert.equal(tile.parent,widget);
+    assert.deepEqual([widget.x,widget.y,widget.scaleX,widget.scaleY,widget.rotation],widgetTransform,'reparenting preserves the authored local transform');
+    assert.deepEqual(widget.toJSON().object_ref,widgetIdentity);
+    assert.deepEqual(authoredEvents,[['removed',true,true],['scene-route',true],['added',true,true],['right-route',true]],'lifecycle events use the old removal and new addition routes');
+    host.broadcastFrame();player.tick();host.dispatchScripts();
+    assert.equal(widget.parent,right,'timeline refresh retains the effective authored parent');
+    assert.equal(right.removeChildAt(right.getChildIndex(widget)),widget);assert.equal(widget.parent,null);assert.equal(widget.root,null);assert.equal(widget.stage,null);assert.equal(tile.stage,null);
+    assert.equal(JSON.parse(player.runtime_snapshot_json()).draws.some(item=>item.owner_ref.id===widgetIdentity.id),false);
+    host.broadcastFrame();player.tick();host.dispatchScripts();assert.equal(widget.parent,null,'timeline refresh retains explicit authored detachment');
+    scene.addChildAt(widget,0);assert.equal(scene.widget,widget);assert.equal(scene.getChildAt(0),widget);assert.equal(tile.stage,scene.stage);
+    assert.deepEqual(widget.toJSON().object_ref,widgetIdentity);assert.equal(authoredEvents.at(-1)[0],'added','authored listeners survive detachment');
     assert.throws(()=>shape.graphics.lineStyle(0),/hairlines/);
     const legacy=scene.createEmptyMovieClip('legacyRuntime',scene.getNextHighestDepth());
     legacy.beginFill(0xaa33bb,100);legacy.moveTo(0,0);legacy.lineTo(20,0);legacy.lineTo(10,20);legacy.endFill();
@@ -113,6 +140,7 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
 
     // Plain authored TextFields are live display objects backed by Rust overrides.
     const title = scene.title, originalText = title.text;
+    assert.throws(()=>title.removeTextField(),/AS2.*authored/);
     title.text = 'Zoe:45\r\nAda:30';
     assert.equal(title.text, 'Zoe:45\rAda:30');
     assert.equal(title.appendText('\nBob:20'), undefined);
@@ -134,6 +162,12 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     assert.throws(() => { title.htmlText = '<b>pending</b>'; }, /plain-text profile/);
     widget.text = 'custom'; widget.htmlText = 'custom html';
     assert.equal(widget.text, 'custom'); assert.equal(widget.htmlText, 'custom html');
+    const survivor=new MovieClip();survivor.name='survivor';assert.equal(survivor.totalFrames,1);widget.addChild(survivor);right.addChild(widget);
+    scene.gotoAndStop(101);host.dispatchScripts();
+    assert.throws(()=>widget.x,/removed|replaced/,'moving an authored instance does not extend its source lifetime');
+    assert.throws(()=>tile.x,/removed|replaced/);assert.equal(right.getChildByName('widget'),null);
+    assert.equal(survivor.parent,null);assert.equal(survivor.stage,null);assert.equal(survivor.root,null);
+    survivor.x=17;assert.equal(survivor.x,17,'retiring the authored parent preserves an independent runtime child');
     host.resetProject();
     assert.throws(() => title.text, /removed|replaced/);
     assert.throws(() => shape.x, /removed|replaced/);
@@ -144,7 +178,18 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     // independent authored namespaces, project constructors and AS2 attachMovie.
     player.free();player=null;
     const linkedDirectory=resolve(directory,'linked');
-    const linkedExport=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/linked-movieclips.nflash','--output',linkedDirectory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const linkedProject=JSON.parse(fs.readFileSync(resolve(root,'examples/linked-movieclips.nflash'),'utf8'));
+    const legacyStart=linkedProject.symbols.find(symbol=>symbol.id===linkedProject.root).timeline.scripts.find(entry=>entry.script.language==='action_script2').script;
+    legacyStart.source=legacyStart.source.replace('tag:"init-before-constructor"','tag:"init-before-constructor", currentLabel:"init label"')+`
+trace("AS2 metadata initial", classic.currentLabel, classic.scenes === undefined, this.currentLabel === undefined);
+classic.currentLabel = "legacy label";
+classic.scenes = ["legacy scene"];
+this.currentLabel = "root custom";
+trace("AS2 metadata values", classic.currentLabel, classic.scenes[0], this.currentLabel);
+trace("AS2 metadata deleted", delete classic.currentLabel, delete classic.scenes, classic.currentLabel === undefined, classic.scenes === undefined);
+`;
+    const linkedSource=resolve(directory,'linked-metadata.nflash');fs.writeFileSync(linkedSource,JSON.stringify(linkedProject));
+    const linkedExport=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--',linkedSource,'--output',linkedDirectory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(linkedExport.status,0,linkedExport.error?.message||linkedExport.stderr);
     const linkedSandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
     vm.runInContext(fs.readFileSync(resolve(linkedDirectory,'bundle.js'),'utf8'),linkedSandbox);
@@ -156,6 +201,15 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     const {host:linked,traceCalls:linkedTraces}=createRuntimeHost(root,player,Array.from(linkedBundle.scripts,item=>({script:{language:item.language,source:item.source},code:item.code,location:item.location})),{bundle:linkedBundle,context:{measureText:line=>({width:line.length*8})}});
     linked.dispatchScripts();
     const document=linked.proxyFor([]),a=document.a,b=document.b,classic=document.classic;
+    assert.throws(()=>classic.badge.removeMovieClip(),/AS2.*authored/,'linked authored descendants retain the AS2 removal boundary');
+    assert.deepEqual(linkedTraces.find(row=>row[0]==='AS2 metadata initial'),['AS2 metadata initial','init label',true,true]);
+    assert.deepEqual(linkedTraces.find(row=>row[0]==='AS2 metadata values'),['AS2 metadata values','legacy label','legacy scene','root custom']);
+    assert.deepEqual(linkedTraces.find(row=>row[0]==='AS2 metadata deleted'),['AS2 metadata deleted',true,true,true,true]);
+    assert.equal(classic.currentLabel,'first','AS3 metadata reads do not expose ordinary AS2 fields');
+    assert.throws(()=>{document.currentLabel='overwrite';},/read-only/);
+    assert.throws(()=>{classic.scenes=[];},/read-only/);
+    const legacyLabelRef=linked.legacy().nativeRef(classic,'currentLabel');
+    assert.equal(legacyLabelRef.has(),false);assert.equal(legacyLabelRef.get(),undefined);
     assert.notEqual(a,b);assert.notEqual(a.caption,b.caption);assert.notEqual(a.badge,b.badge);
     assert.deepEqual([a.totalFrames,b.totalFrames,classic.totalFrames],[12,12,12]);
     assert.deepEqual([document.currentLabel,document.currentFrameLabel,document.framesLoaded,document.isPlaying],['scene','scene',1,false]);
@@ -242,7 +296,10 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     pointer('pointerup');pointer('pointermove',document);assert.equal(labeled.currentFrameLabel,'_up');
     assert.match(document.buttonReadout.text,/Button _up \| enabled true/);
     const originalChildren=Array.from({length:document.numChildren},(_,index)=>document.getChildAt(index));
-    assert.throws(()=>document.removeChildren(0,document.numChildren-1),/authored|runtime|range/i,'a range containing authored children must refuse atomically');
+    assert.equal(document.removeChildren(0,document.numChildren-1),undefined,'one inclusive range may contain authored and runtime children');
+    assert.equal(document.numChildren,0);
+    for(const child of originalChildren){assert.equal(child.parent,null);assert.equal(child.root,null);assert.equal(child.stage,null);}
+    for(const child of originalChildren)document.addChild(child);
     assert.deepEqual(Array.from({length:document.numChildren},(_,index)=>document.getChildAt(index)),originalChildren);
     a.gotoAndPlay(2);b.gotoAndPlay(3);a.badge.gotoAndPlay(2);b.badge.gotoAndPlay(3);
     const cleanup=document.sceneCleanup,clocks=[a,b,a.badge,b.badge],stoppedFrames=clocks.map(clip=>clip.currentFrame),savedClicks=b.clicks;
@@ -263,6 +320,7 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     assert.match(document.buttonReadout.text,/Scene restored \| children \d+ \| twins attached true/);
     assert.throws(()=>document.attachMovie('linked card','wrong',document.getNextHighestDepth()),/identifier|linkage|export/i,'display names do not substitute for Export identifiers');
     const oldBadge=a.badge;linked.resetProject();
+    assert.throws(()=>legacyLabelRef.get(),/removed|replaced/,'retired AS2 property references must not read a replacement instance');
     assert.throws(()=>oldBadge.x,/removed|replaced/);assert.notEqual(linked.proxyFor([]).a,a);
     for(const property of ['currentLabel','currentFrameLabel','currentLabels','framesLoaded','isPlaying','currentScene','scenes'])assert.throws(()=>oldBadge[property],/removed|replaced/,'retired timeline metadata must not read a replacement instance');
     const resetDocument=linked.proxyFor([]);

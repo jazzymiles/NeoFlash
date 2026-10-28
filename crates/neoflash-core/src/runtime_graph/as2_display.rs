@@ -48,6 +48,22 @@ impl RuntimeGraph {
         if let Some(children) = self.suffix.get_mut(parent) {
             children.sort_by_key(|child| depths.get(child).copied().unwrap_or(0));
         }
+        // Keep authored slots in their explicit AS3 order, while depth changes
+        // reorder the runtime siblings within the runtime slots.
+        if let Some(order) = self.child_order.get_mut(parent) {
+            let mut runtime: Vec<_> = order
+                .iter()
+                .filter(|id| depths.contains_key(*id))
+                .cloned()
+                .collect();
+            runtime.sort_by_key(|id| depths[id]);
+            let mut runtime = runtime.into_iter();
+            for child in order.iter_mut() {
+                if depths.contains_key(child) {
+                    *child = runtime.next().expect("runtime slot");
+                }
+            }
+        }
     }
 }
 impl Player {
@@ -200,7 +216,8 @@ impl Player {
         if depth < 0 {
             return Ok(usize::try_from(depth + 16384)
                 .ok()
-                .and_then(|index| self.graph.prefix.get(parent)?.get(index).cloned()));
+                .and_then(|index| self.graph.prefix.get(parent)?.get(index).cloned())
+                .filter(|child| self.graph.parent(child).as_ref() == Some(parent)));
         }
         Ok(self
             .graph

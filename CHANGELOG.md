@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-29 — Frame ranges and contextual panels
+
+- Select rectangular frame ranges across layers; copy, cut, paste, move, clear, insert and remove time with one Undo per operation. Include symbol-level frame scripts explicitly; code collisions reject the whole edit.
+- Set independent layer ends with a drag handle or a number. Trimming removes later keys; older documents retain their existing exposure until edited.
+- Match timeline stacking to the stage: upper layer rows are in front, and layer drags and frame pastes follow the visible order.
+- Separate selection and tool properties, use collapsible inspector sections and paired numeric fields, and give the Library a single scrolling list with fixed search and commands.
+- Show Closed / Partial / Planned capability groups and the working scope of partial features on the existing progress page.
+
 ## 2026-10-28 — Drawing tools and symbol authoring
 
 - Add ten tools, Modify commands and Align/Transform/Color panels, including exact spacing and group-aware layout.
@@ -57,7 +65,7 @@ See the [compatibility matrix](docs/COMPATIBILITY.md) for current support and li
 
 ### Display, media and HTML5
 
-- Add runtime display objects, dynamic hierarchy changes, linked timelines, events and Stage input. Expose local MovieClip label/playback/loaded-frame metadata, typed FrameLabel values and a single unnamed Scene snapshot. Add MovieClip buttonMode label transitions and enabled while retaining ordinary mouse/key events, plus subtree timeline stopping and validated runtime-child range removal. Correct Stage mouse-click delivery while retaining secondary-pointer filtering.
+- Add runtime display objects, dynamic hierarchy changes, linked timelines, events and Stage input. Expose local MovieClip label/playback/loaded-frame metadata, typed FrameLabel values and a single unnamed Scene snapshot. Add MovieClip buttonMode label transitions and enabled while retaining ordinary mouse/key events, plus subtree timeline stopping and validated mixed-child range removal. Allow authored objects to reorder, interleave with runtime objects, detach and reparent while their source placement is live; retain instance state and listeners. Preserve ordinary AS2 fields whose names match AS3 timeline metadata. Correct Stage mouse-click delivery while retaining secondary-pointer filtering.
 - Add transformed dragging, hit tests, hitArea, input flags and legacy pointer callbacks. Hidden objects retain their clocks and state; symbol replacement creates fresh instance state.
 - Add runtime Graphics gradients/paths, vector masks, scroll rectangles, exact 2D transforms and nested color transforms.
 - Add shared BitmapData pixels, filters, channel operations, capture, bulk byte transfers and PNG output. Add AS3 Loader/LoaderInfo and AS2 MovieClipLoader with cancellation and unload behavior.
@@ -69,6 +77,7 @@ See the [compatibility matrix](docs/COMPATIBILITY.md) for current support and li
 ### Import, coverage and tooling
 
 - Separate AS3 reporting into ordered Flash Player foundations, later media/services, AIR-only APIs, external libraries and unresolved availability. Show purpose and all four audit statuses without changing the complete catalogue denominator or treating existing partial APIs as new work.
+- Fix native banner preview: independent MovieClips advance inside one-frame parent timelines, Pause retains nested poses, and source outline preferences stay local to the edited symbol. Mask-aware picking follows the displayed animation.
 - Add direct native Flash MX/CS4 FLA import for the supported `Clock.fla` and `300x600.fla` profiles. Preserve nested symbols/layers, classic tweens, masks, text, bitmap media and original ActionScript; embed the exact FLA and source provenance. Missing installed fonts are nonblocking.
 - Extend document version 5 with authored affine skew, gradient paths, color transforms and Flash easing. Imported buttons retain separate Up/Over/Down/Hit frames; Hit geometry remains invisible during playback.
 - Add a bounded AS1 timeline profile for Clock, retaining its language/source and resolving dynamic names with SWF6 case rules. Unsupported binary records and script features continue to diagnose.

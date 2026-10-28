@@ -193,10 +193,22 @@ pub fn evaluate_scene(
         &|_| None,
         include_guides,
     );
-    // Every placement along an instance path contributes its owning layer's
-    // editor mode. The outermost outlined layer/folder colors the whole subtree.
+    scene_from_evaluation(project, evaluation, show_masking, Some(symbol))
+}
+
+/// Shared authored geometry/mask assembly. Only the edited symbol's layer
+/// preferences affect authoring outlines; transport preview passes no scope.
+pub(crate) fn scene_from_evaluation(
+    project: &Project,
+    evaluation: crate::evaluate::Evaluation,
+    show_masking: bool,
+    outline_symbol: Option<&str>,
+) -> AuthoredScene {
+    // Outline is a local editing preference, not inherited published artwork.
+    // An outlined layer/folder in the edited timeline colors its whole subtree,
+    // while preferences saved inside nested symbols stay local to those symbols.
     let mut outlines = HashMap::new();
-    for symbol in &project.symbols {
+    if let Some(symbol) = outline_symbol.and_then(|id| project.symbol(id)) {
         for layer in &symbol.timeline.layers {
             if let Some(color) = layer_effective_outline_color(&symbol.timeline, layer) {
                 for element in layer.keyframes.iter().flat_map(|key| &key.elements) {

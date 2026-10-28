@@ -798,6 +798,39 @@
         return field.map(label=>new frameLabelType(label.name,label.frame));
       }
       const target = Object.create(null);
+      function dynamicGet(name){
+        if(Object.hasOwn(target,name))return Reflect.get(target,name,proxy);
+        if(Object.hasOwn(custom,name))return custom[name];
+        if(Reflect.has(target,name))return Reflect.get(target,name,proxy);
+        if(objectRef){const child=display.children(proxy).find(node=>node.name===name);return child?display.nodeProxy(child):undefined;}
+        const child=JSON.parse(player.child_path(key,name));return child?proxyFor(child):undefined;
+      }
+      function dynamicHas(name){
+        if(Reflect.has(target,name)||Object.hasOwn(custom,name))return true;
+        if(typeof name!=='string')return false;
+        if(objectRef)return display.children(proxy).some(node=>node.name===name);
+        return JSON.parse(player.child_path(key,name))!==null;
+      }
+      function dynamicSet(name,value){
+        if(Object.hasOwn(target,name)||(!Object.hasOwn(custom,name)&&Reflect.has(target,name)))return Reflect.set(target,name,value,proxy);
+        program?.assertDynamicWrite?.(proxy,name);custom[name]=value;return true;
+      }
+      function dynamicDelete(name){
+        if(program?.hasFixedProperty?.(proxy,name))return false;
+        if(Object.hasOwn(custom,name))return delete custom[name];
+        return Reflect.deleteProperty(target,name);
+      }
+      // These names are native AS3 traits but remain ordinary AS2 properties.
+      // The per-access AS2 reference preserves mixed-dialect instance identity.
+      function as2TimelineRef(name){
+        if(!ownsTimelineMetadata(name))return null;
+        return {
+          get(){assertAlive();return dynamicGet(name);},
+          has(){assertAlive();return dynamicHas(name);},
+          set(value){assertAlive();if(!dynamicSet(name,value))throw new TypeError(`Cannot write AS2 property ${name}.`);return value;},
+          delete(){assertAlive();return dynamicDelete(name);},
+        };
+      }
       const methods = {
         play: () => control('play'),
         stop: () => control('stop'),
@@ -826,15 +859,10 @@
       }
       const proxy = new Proxy(target, {
         has(_target,name){
-          if(nativeHas(name)||Reflect.has(target,name)||Object.hasOwn(custom,name))return true;
-          if(typeof name!=='string')return false;
-          if(objectRef)return display.children(proxy).some(node=>node.name===name);
-          return JSON.parse(player.child_path(key,name))!==null;
+          return nativeHas(name)||dynamicHas(name);
         },
         deleteProperty(_target,name){
-          if(nativeHas(name)||program?.hasFixedProperty?.(proxy,name))return false;
-          if(Object.hasOwn(custom,name))return delete custom[name];
-          return Reflect.deleteProperty(target,name);
+          return !nativeHas(name)&&dynamicDelete(name);
         },
         get(_target, name) {
           if (name === Symbol.toStringTag) return 'NeoFlashDisplayObject';
@@ -857,12 +885,7 @@
             const value = call('property',propertyMap[name]);
             return percentage.has(name) ? value * 100 : propertyMap[name]==='rotation' ? ((value%360)>180?value%360-360:(value%360)<-180?value%360+360:value%360) : value;
           }
-          if(Object.hasOwn(target,name))return Reflect.get(target,name,proxy);
-          if (Object.hasOwn(custom, name)) return custom[name];
-          if(Reflect.has(target,name))return Reflect.get(target,name,proxy);
-          if(objectRef){const child=display.children(proxy).find(node=>node.name===name);return child?display.nodeProxy(child):undefined;}
-          const child = JSON.parse(player.child_path(key, name));
-          return child ? proxyFor(child) : undefined;
+          return dynamicGet(name);
         },
         set(_target, name, value) {
           if (typeof name !== 'string') return false;
@@ -883,12 +906,11 @@
             }
           } else if (ownsTimelineMetadata(name)||['currentFrame', 'totalFrames', '_currentframe', '_totalframes', '_root', '_parent', 'root', 'parent'].includes(name)) {
             throw new Error(`${name} is read-only.`);
-          } else if(Object.hasOwn(target,name)||(!Object.hasOwn(custom,name)&&Reflect.has(target,name)))return Reflect.set(target,name,value,proxy);
-          else {program?.assertDynamicWrite?.(proxy,name);custom[name] = value;}
+          } else return dynamicSet(name,value);
           return true;
         },
       });
-      references.set(proxy,{path:path?[...path]:null,objectRef,key,lifetime,nativeHas,nativeKeys:()=>[...Object.keys(methods),...Object.keys(propertyMap),'onEnterFrame','onPress','onRelease','onReleaseOutside','onRollOver','onRollOut','onDragOver','onDragOut','_root','_parent','_visible','_currentframe','_totalframes'],customKeys:()=>Object.keys(custom)});
+      references.set(proxy,{path:path?[...path]:null,objectRef,key,lifetime,nativeHas,as2TimelineRef,nativeKeys:()=>[...Object.keys(methods),...Object.keys(propertyMap),'onEnterFrame','onPress','onRelease','onReleaseOutside','onRollOver','onRollOut','onDragOver','onDragOut','_root','_parent','_visible','_currentframe','_totalframes'],customKeys:()=>Object.keys(custom)});
       if(display)Object.assign(methods,display.methods(proxy));
       if(eventHub)Object.assign(methods,eventHub.methods(proxy));
       as2.register(methods.gotoAndPlay, proxy, 'gotoAndPlay', value => goto('goto_and_play', value, true));

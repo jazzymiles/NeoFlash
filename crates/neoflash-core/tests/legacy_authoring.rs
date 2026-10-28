@@ -297,3 +297,321 @@ fn button_hit_frame_is_input_only_and_visible_states_keep_placement_identity() {
     assert!(player.object_button_state(&project, &linked, 0));
     assert!(player.runtime_snapshot(&project).draws.is_empty());
 }
+
+#[test]
+fn authored_playback_advances_independent_clips_without_scripts_or_editor_outlines() {
+    fn symbol(id: &str, count: u32, keys: Vec<Keyframe>) -> Symbol {
+        Symbol {
+            id: id.into(),
+            name: id.into(),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            timeline: Timeline {
+                frame_count: count,
+                layers: vec![Layer {
+                    id: format!("{id}-layer"),
+                    name: id.into(),
+                    visible: true,
+                    locked: false,
+                    keyframes: keys,
+                    properties: LayerProperties::default(),
+                }],
+                scripts: vec![],
+            },
+            class_name: None,
+            linkage_id: None,
+        }
+    }
+    fn instance(id: &str, symbol: &str, playback: InstancePlayback) -> Element {
+        element(
+            id,
+            ElementKind::Instance {
+                symbol_id: symbol.into(),
+                playback,
+            },
+        )
+    }
+    fn draw<'a>(scene: &'a AuthoredScene, id: &str) -> &'a AuthoredDraw {
+        scene
+            .draws
+            .iter()
+            .find(|d| d.item.element_id == id)
+            .unwrap()
+    }
+
+    let mut project = Project::blank();
+    project.format_version = 5;
+    let root_id = project.root.clone();
+    let mut first = element(
+        "animated-paint",
+        ElementKind::PaintedPath {
+            commands: vec![
+                PathCommand::MoveTo { x: 0., y: 0. },
+                PathCommand::LineTo { x: 20., y: 0. },
+                PathCommand::LineTo { x: 20., y: 20. },
+                PathCommand::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0, 0, 0, 255],
+            stroke: [0; 4],
+            fill_gradient: Some(gradient(GradientKind::Linear)),
+            stroke_gradient: None,
+            stroke_width: 0.,
+        },
+    );
+    first.scripts.push(ObjectScript {
+        event: ObjectEvent::EnterFrame,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "this._x = 10000; getURL('https://example.invalid/');".into(),
+        },
+    });
+    let mut last = first.clone();
+    last.transform.x = 380.;
+    last.transform.color_transform = ColorTransform {
+        multipliers: [0.2, 0.6, 1., 0.25],
+        offsets: [80., 0., 0., 0.],
+    };
+    let mut movie = symbol(
+        "long-movie",
+        381,
+        vec![
+            key(0, vec![first], Some(Easing::Linear)),
+            key(380, vec![last], None),
+        ],
+    );
+    movie.timeline.layers[0].properties.outline = true;
+    movie.timeline.layers[0].properties.outline_color = Some([255, 0, 255]);
+    movie.timeline.scripts.push(FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "stop();".into(),
+        },
+    });
+    let mut graphic_first = element("graphic-paint", rectangle());
+    graphic_first.transform.y = 40.;
+    let mut graphic_last = graphic_first.clone();
+    graphic_last.transform.x = 100.;
+    let mut graphic = symbol(
+        "graphic",
+        11,
+        vec![
+            key(0, vec![graphic_first], Some(Easing::Linear)),
+            key(10, vec![graphic_last], None),
+        ],
+    );
+    graphic.kind = SymbolKind::Graphic;
+    movie.timeline.layers.push(Layer {
+        id: "movie-graphic-layer".into(),
+        name: "Graphic follows movie".into(),
+        visible: true,
+        locked: false,
+        keyframes: vec![key(
+            0,
+            vec![instance("movie-graphic", "graphic", InstancePlayback::Loop)],
+            None,
+        )],
+        properties: LayerProperties::default(),
+    });
+    project.symbols.extend([movie, graphic]);
+    let placement = instance("movie", "long-movie", InstancePlayback::Independent);
+    let root = project.symbol_mut(&root_id).unwrap();
+    root.timeline.frame_count = 1;
+    root.timeline.layers[0].keyframes = vec![key(0, vec![placement.clone()], None)];
+    root.timeline.layers[0].properties.mask = Some("preview-mask".into());
+    root.timeline.layers.push(Layer {
+        id: "root-graphic-layer".into(),
+        name: "Graphic follows one-frame root".into(),
+        visible: true,
+        locked: false,
+        keyframes: vec![key(
+            0,
+            vec![instance("root-graphic", "graphic", InstancePlayback::Loop)],
+            None,
+        )],
+        properties: LayerProperties::default(),
+    });
+    root.timeline.layers.push(Layer {
+        id: "preview-mask".into(),
+        name: "Mask".into(),
+        visible: true,
+        locked: false,
+        keyframes: vec![key(
+            0,
+            vec![element(
+                "mask-paint",
+                ElementKind::Rectangle {
+                    width: 400.,
+                    height: 100.,
+                    fill: [255; 4],
+                    stroke: [0; 4],
+                    stroke_width: 0.,
+                },
+            )],
+            None,
+        )],
+        properties: LayerProperties {
+            role: LayerRole::Mask,
+            ..Default::default()
+        },
+    });
+    project.validate().unwrap();
+    let original = project.to_json().unwrap();
+    let static_scene = evaluate_scene(&project, &root_id, 0, true, true);
+    assert!(
+        draw(&static_scene, "animated-paint")
+            .outline_color
+            .is_none()
+    );
+    let edited_movie = evaluate_scene(&project, "long-movie", 0, true, true);
+    assert_eq!(
+        draw(&edited_movie, "animated-paint").outline_color,
+        Some([255, 0, 255, 255])
+    );
+    let mut outlined_root = project.clone();
+    let root = outlined_root.symbol_mut(&root_id).unwrap();
+    root.timeline.layers[0].properties.parent = Some("outline-folder".into());
+    root.timeline.layers.push(Layer {
+        id: "outline-folder".into(),
+        name: "Outline folder".into(),
+        visible: true,
+        locked: false,
+        keyframes: vec![key(0, vec![], None)],
+        properties: LayerProperties {
+            role: LayerRole::Folder,
+            outline: true,
+            outline_color: Some([0, 255, 0]),
+            ..Default::default()
+        },
+    });
+    outlined_root.validate().unwrap();
+    let static_outline = evaluate_scene(&outlined_root, &root_id, 0, true, true);
+    assert_eq!(
+        draw(&static_outline, "animated-paint").outline_color,
+        Some([0, 255, 0, 255])
+    );
+    let mut preview = AuthoredPlayback::new(&project, &root_id, 0);
+    for _ in 0..190 {
+        preview.tick(&project);
+    }
+    assert_eq!(preview.frame(), 0, "root playhead stays on its only frame");
+    let middle = preview.scene(&project, true, true);
+    let animated = draw(&middle, "animated-paint");
+    near(animated.item.transform[4], 190.);
+    assert_eq!(
+        animated.item.color_transform.apply([100, 150, 200, 255]),
+        [100, 120, 200, 159]
+    );
+    assert!(animated.outline_color.is_none());
+    assert!(matches!(
+        animated.item.kind,
+        ElementKind::PaintedPath {
+            fill_gradient: Some(_),
+            ..
+        }
+    ));
+    assert_eq!(animated.clip_ids.len(), 1);
+    assert_eq!(middle.clips.len(), 1);
+    assert!(
+        !middle
+            .draws
+            .iter()
+            .any(|draw| draw.item.element_id == "mask-paint")
+    );
+    assert!(middle.contains_point(&animated.item.instance_path, [195., 5.]));
+    assert!(!middle.contains_point(&animated.item.instance_path, [405., 5.]));
+    let graphic_x = |parent: &str| {
+        middle
+            .draws
+            .iter()
+            .find(|draw| {
+                draw.item.element_id == "graphic-paint"
+                    && draw.item.instance_path.iter().any(|part| part == parent)
+            })
+            .unwrap()
+            .item
+            .transform[4]
+    };
+    near(graphic_x("movie-graphic"), 30.);
+    near(graphic_x("root-graphic"), 0.);
+    assert!(
+        preview
+            .scene(&project, true, false)
+            .draws
+            .iter()
+            .any(|draw| draw.item.element_id == "mask-paint")
+    );
+    // No tick means a paused transport preserves the independent frame.
+    near(
+        draw(&preview.scene(&project, true, true), "animated-paint")
+            .item
+            .transform[4],
+        190.,
+    );
+    for _ in 190..381 {
+        preview.tick(&project);
+    }
+    near(
+        draw(&preview.scene(&project, true, true), "animated-paint")
+            .item
+            .transform[4],
+        0.,
+    );
+    assert_eq!(project.to_json().unwrap(), original);
+    near(
+        draw(
+            &evaluate_scene(&project, &root_id, 0, true, true),
+            "animated-paint",
+        )
+        .item
+        .transform[4],
+        0.,
+    );
+
+    // A blank interval ends the placement lifetime even when the author reuses
+    // the same element ID. Re-entry starts a fresh independent clock.
+    let root = project.symbol_mut(&root_id).unwrap();
+    root.timeline.frame_count = 4;
+    root.timeline.layers[0].keyframes = vec![
+        key(0, vec![placement.clone()], None),
+        key(2, vec![], None),
+        key(3, vec![placement], None),
+    ];
+    project.validate().unwrap();
+    let mut preview = AuthoredPlayback::new(&project, &root_id, 0);
+    preview.tick(&project);
+    near(
+        draw(&preview.scene(&project, true, true), "animated-paint")
+            .item
+            .transform[4],
+        1.,
+    );
+    preview.tick(&project);
+    assert!(
+        !preview
+            .scene(&project, true, true)
+            .draws
+            .iter()
+            .any(|draw| draw.item.element_id == "animated-paint")
+    );
+    preview.tick(&project);
+    near(
+        draw(&preview.scene(&project, true, true), "animated-paint")
+            .item
+            .transform[4],
+        0.,
+    );
+    let mut selected_symbol = AuthoredPlayback::new(&project, "long-movie", 190);
+    assert_eq!(selected_symbol.frame(), 190);
+    selected_symbol.tick(&project);
+    near(
+        draw(
+            &selected_symbol.scene(&project, true, true),
+            "animated-paint",
+        )
+        .item
+        .transform[4],
+        191.,
+    );
+}

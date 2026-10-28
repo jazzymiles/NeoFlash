@@ -36,7 +36,11 @@ The classifier and report checks validate exact ID coverage, metadata provenance
 
 ## Product capability groups
 
-`product.json` tracks bounded capabilities in editor, animation, HTML5, imports and platform. **Implemented** means the explicit scope is implemented; **partial** contributes zero to the completed numerator; **planned** remains in the denominator. Percentage = implemented / total × 100, displayed to one decimal place. This is not test line coverage or overall product completion.
+`product.json` tracks 54 bounded capability groups in editor, animation, HTML5, imports and platform. The main presentation is **Closed / Partial / Planned**. **Closed** is the display label for the existing `implemented` status: the group's stated scope is implemented. **Partial** means a working subset exists with explicit remaining limits; **planned** means the group remains future work.
+
+The secondary **Closed capability groups** percentage remains implemented / total × 100, displayed to one decimal place. Partial groups contribute zero to this numerator. Adding working tools inside a partial group, or improving a group that is already closed, can leave the percentage unchanged. Groups differ in size; this is not a percentage of working features, effort, overall product completion or test line coverage. No weights or extra groups are introduced to make the number rise.
+
+The existing coverage page shows working partial scopes and remaining limits, with links to the full registry. Keep those descriptions current and record user-visible improvements in the existing changelog. Keep each group's completion boundary stable; promote its status only when its defined scope and validation support that decision. Presentation labels do not rewrite stored statuses, denominators or historical counts.
 
 `as2.json` and `as3.json` remain supplementary implementation notes. Their 35/36 groups are **not** the AS coverage denominator. The [detailed notes](DETAILS.md) explain scopes and limitations without substituting those groups for the complete declaration catalogue.
 

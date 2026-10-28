@@ -510,6 +510,13 @@ impl Editor {
                 let avail = ui.available_size() - Vec2::new(0., 25.);
                 let (rect, response) =
                     ui.allocate_exact_size(avail.max(Vec2::splat(1.)), Sense::click_and_drag());
+                let stage_press = ui.input(|input| input.events.iter().find_map(|event| match event {
+                    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, .. } if rect.contains(*pos) => Some(*pos),
+                    _ => None,
+                }));
+                if stage_press.is_some_and(|pos| ui.ctx().layer_id_at(pos) == Some(ui.layer_id())) {
+                    self.timeline_edit.focused = false;
+                }
                 let size = Vec2::new(self.project.width as f32, self.project.height as f32);
                 if self.zoom == 0. {
                     self.zoom = ((rect.width() - 60.) / size.x)
@@ -586,7 +593,7 @@ impl Editor {
                         self.paint_authored_scene(&content, &ghost, DrawStyle { origin, zoom: self.zoom, opacity, tint: Some(tint), outlines: self.onion_outlines, bitmap_texture: None });
                     }
                 }
-                let authored_scene = evaluate_scene(&self.project, &id, self.frame, true, self.show_layer_masking(ctx));
+                let authored_scene = self.current_authored_scene(self.show_layer_masking(ctx));
                 self.paint_authored_scene(&content, &authored_scene, DrawStyle { origin, zoom: self.zoom, opacity: 1., tint: None, outlines: false, bitmap_texture: None });
                 let scene: Vec<_> = authored_scene.draws.into_iter().map(|draw| draw.item).collect();
                 if let Some(warning) = self.bitmap_textures.take_warning() {
@@ -749,13 +756,8 @@ impl Editor {
         }
     }
     pub(crate) fn paint_library_preview(&mut self, ui: &mut egui::Ui, symbol_id: &str) {
-        let (rect, _) = ui.allocate_exact_size(
-            Vec2::new(
-                ui.available_width(),
-                (ui.available_height() * 0.24).clamp(48., 120.),
-            ),
-            Sense::hover(),
-        );
+        let (rect, _) =
+            ui.allocate_exact_size(Vec2::new(ui.available_width(), 96.), Sense::hover());
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 2., UiPalette::current(ui.ctx()).window_fill);
         let scene = evaluate_scene(&self.project, symbol_id, 0, false, true);

@@ -174,36 +174,7 @@ impl Player {
             .map(|(_, node)| node.reference.clone())
             .collect();
         self.graph.retire_loader_children(&retired);
-        for parent in &retired {
-            for child in self.graph.suffix.get(parent).cloned().unwrap_or_default() {
-                let mut events = vec![DisplayEvent {
-                    kind: "removed".into(),
-                    target_ref: child.clone(),
-                    route: self.graph.route(&child),
-                }];
-                if self.graph.on_stage(&child) {
-                    for id in self.graph.subtree(&child) {
-                        events.push(DisplayEvent {
-                            kind: "removed_from_stage".into(),
-                            target_ref: id.clone(),
-                            route: self.graph.route(&id),
-                        });
-                    }
-                }
-                self.graph
-                    .dynamic
-                    .get_mut(&child)
-                    .expect("dynamic child")
-                    .parent = None;
-                if self.graph.events.len() + events.len() > MAX_DISPLAY_EVENTS {
-                    self.graph.events_overflowed = true;
-                } else {
-                    self.graph.events.extend(events);
-                }
-            }
-            self.graph.suffix.remove(parent);
-            self.graph.prefix.remove(parent);
-        }
+        self.graph.retire_hierarchy(&retired);
         self.graph
             .linked_authored
             .retain(|address, node| active.get(address) == Some(&node.lifetime));

@@ -325,6 +325,20 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
         }
         for (li, layer) in symbol.timeline.layers.iter().enumerate() {
             let lp = format!("{sp}.timeline.layers[{li}]");
+            if let Some(end) = layer.properties.end_frame {
+                if end > symbol.timeline.frame_count {
+                    add(
+                        format!("{lp}.properties.end_frame"),
+                        "layer exposure ends outside the timeline".into(),
+                    );
+                }
+                if project.format_version < 5 {
+                    add(
+                        format!("{lp}.properties.end_frame"),
+                        "independent layer exposure requires document version 5".into(),
+                    );
+                }
+            }
             register(
                 &mut identities,
                 &layer.id,
@@ -364,6 +378,13 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                         format!("{kp}.frame"),
                         "keyframe is outside the timeline".into(),
                     );
+                }
+                if layer
+                    .properties
+                    .end_frame
+                    .is_some_and(|end| key.frame >= end)
+                {
+                    add(format!("{kp}.frame"), "keyframe is outside this layer's exposure; explicitly extend the layer before inserting a key".into());
                 }
                 if !keys.insert(key.frame) {
                     add(format!("{kp}.frame"), "duplicate frame in a layer".into());

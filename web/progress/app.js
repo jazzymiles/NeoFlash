@@ -206,15 +206,19 @@
 
   function renderCategories(data) {
     data.categories.filter(category => !isActionScript(category.id)).forEach(category => {
-      const counts = countsFor(data.features.filter(feature => feature.category === category.id));
+      const features = data.features.filter(feature => feature.category === category.id);
+      const counts = countsFor(features);
       const card = element('article', 'category-card');
       const heading = element('h3');
       heading.append(link(category.title, pathUrl(data.revision, 'docs/progress/DETAILS.md')));
       card.append(heading);
-      const metric = element('p', 'metric');
-      metric.append(element('span', '', counts.implemented), element('span', 'denominator', `/ ${counts.total}`), element('span', 'percent', percent(counts)));
-      metric.setAttribute('aria-label', `Implemented ${counts.implemented} of ${counts.total}, ${percent(counts)}`);
-      card.append(metric);
+      const statuses = element('dl', 'product-statuses');
+      for (const [status, title] of [['implemented', 'Closed'], ['partial', 'Partial'], ['planned', 'Planned']]) {
+        const item = element('div', `product-status ${status}`);
+        item.append(element('dt', '', title), element('dd', '', number(counts[status])));
+        statuses.append(item);
+      }
+      card.append(statuses, element('p', 'product-closed-share', `Closed capability groups: ${counts.implemented}/${counts.total} (${percent(counts)})`));
       const bar = element('div', 'progress-bar');
       bar.setAttribute('aria-hidden', 'true');
       for (const [status, className] of [['implemented', 'done'], ['partial', 'part']]) {
@@ -222,14 +226,35 @@
         segment.style.width = `${counts.total ? 100 * counts[status] / counts.total : 0}%`;
         bar.append(segment);
       }
-      const breakdown = element('div', 'category-breakdown');
-      breakdown.append(element('span', '', `Partial: ${counts.partial}`), element('span', '', `Planned: ${counts.planned}`));
-      card.append(bar, breakdown, element('p', 'category-description', category.description));
-      const features = data.features.filter(feature => feature.category === category.id);
+      card.append(bar, element('p', 'category-description', category.description));
       const working = features.filter(feature => feature.status === 'implemented').slice(0, 2);
+      const partial = features.filter(feature => feature.status === 'partial');
       const remaining = features.filter(feature => feature.status === 'planned').slice(0, 2);
-      if (working.length) card.append(element('p', 'category-examples', `Available: ${working.map(feature => feature.title).join('; ')}.`));
-      else if (counts.partial) card.append(element('p', 'category-examples', 'A limited subset works; no tracked item is complete yet.'));
+      if (working.length) card.append(element('p', 'category-examples', `Closed scope: ${working.map(feature => feature.title).join('; ')}.`));
+      if (partial.length) {
+        card.append(element('p', 'category-examples partial', `Working subsets: ${partial.slice(0, 2).map(feature => feature.title).join('; ')}${partial.length > 2 ? '; more below' : ''}.`));
+        const details = element('details', 'product-partial-details');
+        details.append(element('summary', '', `Working partial features and limits (${partial.length})`));
+        const list = element('ul', 'product-partial-list');
+        const excerpt = value => {
+          const text = value.trim();
+          if (text.length <= 240) return text;
+          const end = text.lastIndexOf(' ', 240);
+          return `${text.slice(0, end > 0 ? end : 240)}…`;
+        };
+        for (const feature of partial) {
+          const item = element('li');
+          item.append(element('strong', 'product-partial-title', feature.title));
+          const scope = element('p');
+          scope.append(element('span', 'product-detail-label', 'Works: '), document.createTextNode(excerpt(feature.scope)));
+          const limits = element('p');
+          limits.append(element('span', 'product-detail-label', 'Still open: '), document.createTextNode(excerpt(feature.limitations)));
+          item.append(scope, limits);
+          list.append(item);
+        }
+        details.append(list, link('Full scopes, limits and evidence →', pathUrl(data.revision, 'docs/progress/DETAILS.md'), 'text-link'));
+        card.append(details);
+      }
       if (remaining.length) card.append(element('p', 'category-examples pending', `Planned: ${remaining.map(feature => feature.title).join('; ')}.`));
       byId('categories').append(card);
     });
@@ -251,7 +276,7 @@
 
   function historyReadout(point, counts, category) {
     if (isActionScript(category)) return `${date(point.date)} · subset ${number(counts.implemented)} · partial ${number(counts.partial)} · missing ${number(counts.planned)} · needs review ${number(counts.needs_review || 0)} · total ${number(counts.total)} · v${methodologyFor(point, category)}`;
-    return `${date(point.date)} · implemented ${counts.implemented}/${counts.total} (${percent(counts)}) · partial ${counts.partial} · planned ${counts.planned} · v${methodologyFor(point, category)}`;
+    return `${date(point.date)} · closed ${counts.implemented} · partial ${counts.partial} · planned ${counts.planned} · closed capability groups ${counts.implemented}/${counts.total} (${percent(counts)}) · v${methodologyFor(point, category)}`;
   }
 
   function renderChart(category, history) {
@@ -274,7 +299,7 @@
     const x = time => first === last ? left + plotWidth / 2 : left + (time - first) / (last - first) * plotWidth;
     const y = count => top + plotHeight * (1 - count / ceiling);
     const svg = svgElement('svg', { viewBox: `0 0 ${width} ${height}`, role: 'group', 'aria-labelledby': title.id });
-    svg.append(svgElement('title', {}, isActionScript(category.id) ? `${category.title}: implemented subsets, partial support, needs review and total documented entries by day` : `${category.title}: implemented, partial and total tracked milestones by day`));
+    svg.append(svgElement('title', {}, isActionScript(category.id) ? `${category.title}: implemented subsets, partial support, needs review and total documented entries by day` : `${category.title}: closed, partial and total tracked capability groups by day`));
     for (let index = 0; index <= 4; index += 1) {
       const value = ceiling * index / 4;
       svg.append(svgElement('line', { x1: left, y1: y(value), x2: width - right, y2: y(value), class: 'grid-line' }));
@@ -327,13 +352,14 @@
   function renderHistoryRows(data, history) {
     const category = byId('history-category').value;
     const catalogue = isActionScript(category);
-    byId('history-implemented-label').textContent = catalogue ? 'Implemented subset' : 'Implemented';
+    byId('history-implemented-label').textContent = catalogue ? 'Implemented subset' : 'Closed';
     byId('history-remaining-label').textContent = catalogue ? 'Missing' : 'Planned';
     byId('history-review-label').hidden = !catalogue;
     byId('history-share-label').hidden = catalogue;
+    byId('history-share-label').textContent = 'Closed capability groups';
     byId('history-table-note').textContent = catalogue
       ? 'Full documented catalogue, including framework, component and platform-extension entries. “Implemented subset” does not mean full support. Needs-review entries remain in the denominator. Values reflect a dated audit, not fresh conformance verification.'
-      : 'Share = implemented milestones / all tracked milestones in this product area. Partial support does not count as complete. These milestones are independent of the ActionScript catalogue.';
+      : 'Closed capability groups = closed / tracked groups in this product area. Partial groups contain working features; improvements inside a group can leave these counts unchanged. Historical statuses and denominators are unchanged. These groups are independent of the ActionScript catalogue.';
     const body = byId('history-rows');
     body.replaceChildren();
     [...historyFor(category, history)].reverse().forEach(point => {

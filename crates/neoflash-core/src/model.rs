@@ -173,6 +173,10 @@ pub enum LayerRole {
 /// Authoring relationships use document IDs, never row positions or UI paths.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LayerProperties {
+    /// Exclusive authored exposure end; absent in legacy documents means the
+    /// containing timeline's end. Zero is an empty layer, not a hidden key store.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_frame: Option<u32>,
     #[serde(default)]
     pub role: LayerRole,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -497,12 +501,18 @@ impl Project {
 
 impl Layer {
     pub fn key_at(&self, frame: u32) -> Option<&Keyframe> {
+        if self.properties.end_frame.is_some_and(|end| frame >= end) {
+            return None;
+        }
         self.keyframes
             .iter()
             .filter(|k| k.frame <= frame)
             .max_by_key(|k| k.frame)
     }
     pub fn key_at_mut(&mut self, frame: u32) -> Option<&mut Keyframe> {
+        if self.properties.end_frame.is_some_and(|end| frame >= end) {
+            return None;
+        }
         self.keyframes
             .iter_mut()
             .filter(|k| k.frame <= frame)

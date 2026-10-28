@@ -75,6 +75,51 @@ pub(crate) fn numeric_row(
     property_row(ui, label, |ui| compact_number(ui, value, range, speed, ""))
 }
 
+/// Paired values use the same scrub/commit interaction as single rows.
+pub(crate) fn numeric_pair(
+    ui: &mut egui::Ui,
+    labels: [&str; 2],
+    values: [&mut f64; 2],
+    range: RangeInclusive<f64>,
+    speed: f64,
+) -> [Response; 2] {
+    let [a, b] = values;
+    if ui.available_width() < 248. {
+        return [
+            numeric_row(ui, labels[0], a, range.clone(), speed),
+            numeric_row(ui, labels[1], b, range, speed),
+        ];
+    }
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.;
+        let width = (ui.available_width() - 8.) / 2.;
+        let first = ui
+            .allocate_ui_with_layout(
+                egui::vec2(width, CONTROL_HEIGHT),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.set_max_width(width);
+                    ui.label(labels[0]);
+                    compact_number(ui, a, range.clone(), speed, "").on_hover_text(labels[0])
+                },
+            )
+            .inner;
+        let second = ui
+            .allocate_ui_with_layout(
+                egui::vec2(width, CONTROL_HEIGHT),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.set_max_width(width);
+                    ui.label(labels[1]);
+                    compact_number(ui, b, range, speed, "").on_hover_text(labels[1])
+                },
+            )
+            .inner;
+        [first, second]
+    })
+    .inner
+}
+
 /// A single click edits text; dragging scrubs. Typed text is committed by
 /// Enter/blur, while Escape discards it without touching authoring history.
 pub(crate) fn compact_number(
