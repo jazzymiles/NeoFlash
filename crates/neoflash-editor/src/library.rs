@@ -17,12 +17,50 @@ pub(crate) struct LibraryPanel {
     collapsed: HashSet<String>,
     editing: Option<LibraryEdit>,
     pub(crate) drag: Option<LibraryDrag>,
+    drag_press: Option<(egui::ViewportId, u64, Pos2)>,
 }
 
 #[derive(Clone)]
 pub(crate) enum LibraryDrag {
     Symbol(String),
     Resource(String),
+}
+
+/// Keep a source-row press even when native input batches the entire drag in
+/// one paint. Stage owns release/cancellation; ordinary row clicks keep their
+/// existing selection, double-click and context-menu responses.
+pub(crate) fn capture_row_drag(
+    state: &mut LibraryPanel,
+    ui: &egui::Ui,
+    response: &egui::Response,
+    payload: impl FnOnce() -> LibraryDrag,
+) {
+    let press = ui.input(|input| {
+        input.events.iter().rev().find_map(|event| match event {
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                ..
+            } => Some((*pos, input.time.to_bits())),
+            _ => None,
+        })
+    });
+    let Some((position, time)) = press.filter(|(position, _)| {
+        ui.is_enabled()
+            && response.rect.contains(*position)
+            && ui.clip_rect().contains(*position)
+            && ui.ctx().layer_id_at(*position) == Some(ui.layer_id())
+    }) else {
+        return;
+    };
+    let key = (ui.ctx().viewport_id(), time, position);
+    if state.drag_press == Some(key) {
+        return;
+    }
+    state.drag_press = Some(key);
+    state.drag = Some(payload());
+    ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -322,11 +360,9 @@ impl Editor {
                                     &symbol.folder
                                 }
                             ));
-                            if response.drag_started() {
-                                self.library_panel.drag =
-                                    Some(LibraryDrag::Symbol(symbol.id.clone()));
-                                ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
-                            }
+                            capture_row_drag(&mut self.library_panel, ui, &response, || {
+                                LibraryDrag::Symbol(symbol.id.clone())
+                            });
                             if response.clicked() {
                                 action = Some(Action::SelectSymbol(
                                     symbol.id.clone(),

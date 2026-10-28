@@ -70,9 +70,9 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
     let mut project = Project::blank();
     for i in 0..100 {
         let mut symbol = project.symbols[0].clone();
-        symbol.id = format!("symbol-{i}");
+        symbol.id = format!("fixture-symbol-{i}");
         symbol.name = format!("Symbol {i:03}");
-        symbol.timeline.layers[0].id = format!("layer-{i}");
+        symbol.timeline.layers[0].id = format!("fixture-layer-{i}");
         project.symbols.push(symbol);
     }
     let mut editor = Editor::from_project(&ctx, project);
@@ -174,9 +174,44 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
         0.9,
         vec![primary_button(last.center(), false)],
     );
-    assert_eq!(editor.library_selected.as_deref(), Some("symbol-99"));
+    assert_eq!(
+        editor.library_selected.as_deref(),
+        Some("fixture-symbol-99")
+    );
     assert_eq!(editor.project, before);
     assert!(!editor.dirty());
+    let settled = frame(&mut editor, &ctx, size, 1., vec![]);
+    let source = named_bounds(&settled, "Symbol 099").unwrap().center();
+    let destination = Pos2::new(512., 400.);
+    frame(
+        &mut editor,
+        &ctx,
+        size,
+        1.1,
+        vec![
+            Event::PointerMoved(source),
+            primary_button(source, true),
+            Event::PointerMoved(destination),
+            primary_button(destination, false),
+        ],
+    );
+    assert!(
+        matches!(editor.selected_element().map(|element| &element.kind),
+        Some(ElementKind::Instance { symbol_id, .. }) if symbol_id == "fixture-symbol-99"),
+        "source={source:?} target={destination:?} status={} drag={} selected={:?}",
+        editor.status,
+        editor.library_panel.drag.is_some(),
+        editor.selected_element()
+    );
+    assert!(
+        editor.library_panel.drag.is_none(),
+        "Stage consumes the source payload once"
+    );
+    editor.undo();
+    assert_eq!(
+        editor.project, before,
+        "one Undo removes the single batched drag placement"
+    );
 }
 
 #[test]

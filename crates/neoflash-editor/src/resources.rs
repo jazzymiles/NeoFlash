@@ -94,15 +94,13 @@ impl Editor {
                         .sense(egui::Sense::click_and_drag()),
                 )
                 .on_hover_text(format!("{}\n{}", unit.path, unit.media_type));
-            if response.drag_started()
-                && matches!(
-                    unit.media_type.as_str(),
-                    "image/png" | "image/jpeg" | "image/svg+xml"
-                )
-            {
-                self.library_panel.drag =
-                    Some(crate::library::LibraryDrag::Resource(unit.id.clone()));
-                ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
+            if matches!(
+                unit.media_type.as_str(),
+                "image/png" | "image/jpeg" | "image/svg+xml"
+            ) {
+                crate::library::capture_row_drag(&mut self.library_panel, ui, &response, || {
+                    crate::library::LibraryDrag::Resource(unit.id.clone())
+                });
             }
             if response.clicked() {
                 self.resource_panel.selected = Some(unit.id.clone());
