@@ -5,11 +5,14 @@ Authorized window: **08:53:22–10:53:22 UTC**. Three subsystem agents and the
 coordinator worked in one source tree. The native editor, FLA, AS3 feature work,
 the wider project and monitor automations remain paused.
 
-**Implementation and local acceptance complete.** Feature work is frozen. Eight
-ordinary HTML5 families passed their recorded browser scopes, and the shared
-regression failure passed its focused rerun. The exact catalogue review is applied; requested main/GitHub Pages publication
-and remote CI remain pending until separately observed. No new family is authorized by this
-document.
+**Implementation and local acceptance complete.** Eight ordinary HTML5 families
+passed their recorded browser scopes, and the shared regression failure passed
+its focused rerun. The exact catalogue review is applied. Implementation commit
+`ffa3bad` was fast-forwarded into `main`; further feature work remains paused.
+Publication and remote validation are independently visible in
+[GitHub Actions](https://github.com/jazzymiles/NeoFlash/actions) and the
+[progress dashboard](https://jazzymiles.github.io/NeoFlash/progress.html).
+No new family is authorized by this document.
 
 ## New behavior and exact counts
 
@@ -160,9 +163,8 @@ The workspace all-target check passed in **13.5 seconds**. Clippy across all
 targets in the four affected crates passed in **7.854 seconds**. These durations
 are command timings, not the entire verification budget. The final WASM grows
 from **3,004,039 to 3,856,955 bytes**, an increase of **852,916 bytes (28.4%)** before
-HTTP compression. Cargo manifests and lockfile versions are unchanged. Final
-publication checks remain coordinator tasks; remote CI is not
-inferred from successful local checks.
+HTTP compression. Cargo manifests and lockfile versions are unchanged. Formatting, source fingerprints, progress consistency and all 25 progress
+checks passed. Remote CI is not inferred from successful local checks.
 
 ## Reuse, ownership and efficiency
 
