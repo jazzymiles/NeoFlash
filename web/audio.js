@@ -185,7 +185,7 @@
     class LegacySound {
       constructor(...args){
         open();if(args.length)fail('AS2 Sound target/MovieClip hierarchy');
-        const sound=new Sound(),record={receiver:this,generation,sound,volume:100,pan:0,channel:null,owned:new Set()};legacy.set(this,record);
+        const sound=new Sound(),record={receiver:this,generation,sound,volume:100,pan:0,channel:null,owned:new Set()};legacy.set(this,record);sounds.get(sound).legacyOwner=record;
         sound.addEventListener('complete',()=>legacyCallback(record,'onLoad',[true]));sound.addEventListener('ioError',()=>legacyCallback(record,'onLoad',[false]));
       }
       loadSound(url,isStreaming=false){const record=state(this,legacy);if(isStreaming!==false)fail('AS2 streaming Sound');record.sound.load(new net.URLRequest(url));}
@@ -194,7 +194,7 @@
         const channel=record.sound.play(offset*1000,loops-1,new SoundTransform(record.volume/100,record.pan/100));record.channel=channel;record.owned.add(channel);
         channel.addEventListener('soundComplete',()=>{record.owned.delete(channel);legacyCallback(record,'onSoundComplete',[]);});
       }
-      stop(...args){if(args.length)fail('AS2 Sound.stop linkage identifiers');const record=state(this,legacy);for(const channel of record.owned)channel.stop();record.owned.clear();}
+      stop(...args){if(args.length)fail('AS2 Sound.stop linkage identifiers');stopLegacy(state(this,legacy));}
       getVolume(){return state(this,legacy).volume;}
       setVolume(value){const record=state(this,legacy);record.volume=number(value,'AS2 Sound volume',0,100);for(const channel of record.owned)channel.soundTransform=new SoundTransform(record.volume/100,record.pan/100);}
       getPan(){return state(this,legacy).pan;}
@@ -208,6 +208,8 @@
     for(const[Ctor,name,table]of [[Sound,'Sound',sounds],[SoundChannel,'SoundChannel',channels],[SoundTransform,'SoundTransform',transforms],[LegacySound,'AS2 Sound',legacy]]){
       Ctor.__nfIs=value=>table.has(value);Ctor.__nfInitialize=()=>fail(name+' native subclassing');Object.defineProperty(Ctor,Symbol.hasInstance,{value:Ctor.__nfIs});
     }
+    function stopLegacy(record){for(const channel of record.owned)channel.stop();record.owned.clear();}
+    function stopAllLegacySounds(){open();for(const record of soundRecords)if(record.legacyOwner)stopLegacy(record.legacyOwner);}
     function reset(){
       open();if(master)master.gain.value=0;
       for(const record of [...playing])stop(record);
@@ -219,7 +221,7 @@
       try{old?.close()?.catch(()=>{});}catch(_){}changed();
     }
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({Sound,SoundChannel,SoundTransform,LegacySound,resumeFromGesture,setMuted,status,reset,dispose});
+    return Object.freeze({Sound,SoundChannel,SoundTransform,LegacySound,stopAllLegacySounds,resumeFromGesture,setMuted,status,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAudio=api;
 })(globalThis);

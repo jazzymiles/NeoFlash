@@ -2056,6 +2056,7 @@ version = "0.1.0"
 dependencies = [
  "js-sys",
  "neoflash-core",
+ "serde",
  "serde_json",
  "wasm-bindgen",
 ]

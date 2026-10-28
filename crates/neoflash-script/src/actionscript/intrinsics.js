@@ -50,45 +50,8 @@ function __nfPropertyValue(receiver, key) {
     // Preserve native computed-key conversion, getter receiver and exceptions.
     return __nfMethodValue(receiver[key]);
 }
-function __nfParseInt2(value, radix) {
-    if (arguments.length === 0) return undefined;
-    const explicit = arguments.length > 1;
-    let base = explicit ? (__nfNumber(radix) | 0) : 10;
-    // AVM1 converts/checks radix before converting the input string, and an
-    // explicitly supplied zero/undefined radix is not automatic detection.
-    if (explicit && (base < 2 || base > 36)) return NaN;
-    let text = __nfString(value);
-    const signedHex = /^[+-]0[xX]/.test(text);
-    let ignoreSign = false;
-    if (signedHex) {
-        if (!explicit || base <= 33) return NaN;
-        ignoreSign = true;
-    } else if (/^0[xX]/.test(text)) {
-        text = text.slice(2);
-        if (!explicit) base = 16;
-    } else if (!explicit && /^[+-]?0[0-7]*$/.test(text)) {
-        base = 8;
-    }
-    text = text.replace(/^[\t\n\r ]+/, '');
-    let negative = false;
-    let index = 0;
-    if (text[0] === '+' || text[0] === '-') {
-        negative = !ignoreSign && text[0] === '-';
-        index = 1;
-    }
-    let result = 0;
-    const start = index;
-    for (; index < text.length; index++) {
-        const code = text.charCodeAt(index);
-        const digit = code >= 48 && code <= 57 ? code - 48
-            : code >= 65 && code <= 90 ? code - 55
-            : code >= 97 && code <= 122 ? code - 87 : 36;
-        if (digit >= base) break;
-        result = result * base + digit;
-    }
-    if (index === start) return NaN;
-    return negative ? -result : result;
-}
+function __nfParseInt2(...args) { return __nfAs2Strings().invoke('global.parseInt', '', args); }
+function __nfLegacyStringOperator(op, left, right) { return __nfAs2Strings().invoke('operator.' + op, '', [left, right]); }
 function __nfParseInt3(value, radix) {
     // AS3 has decimal default radix; no AVM1 automatic octal or signed-hex quirks.
     // The pinned VM's native signature is String="NaN", int=0. Explicit

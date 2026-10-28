@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-28 — bounded AS2 runtime batch
+
+- Add 71 catalogue method/global/property paths, 13 source constructs, eight constants, one event and six static namespaces; keep AS3 declarations unchanged.
+- Extend 13 existing declarations, move parseInt into Rust and correct 77 stale catalogue decisions. Exact AS2 partial count rises 563 → 745.
+- Deliver five real HTML5 projects, including an actual XML HTTP POST, with three new grouped Rust tests and unchanged 90 execution fixtures / 24 project workflows.
+- Fix AS2 `<>` token isolation from AS3 XMLList syntax and baseline all-target Clippy test lints.
+- See [counts, limits, verification and efficiency](docs/AS2-RUNTIME-HOUR.md). The rest of the project remains paused.
+
 ## 2026-10-28 — second bounded AS runtime batch
 
 - Add four rendered Rust filter families, 22 event payload classes, DateTimeFormatter and NumberFormatter/NumberParseResult; migrate Date arithmetic to Rust.

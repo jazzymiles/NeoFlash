@@ -1,6 +1,8 @@
 # Script and runtime compatibility
 
-The latest [bounded runtime hour](AS-RUNTIME-HOUR.md) adds 192 partial API paths and migrates 117 existing entries into Rust. Its five ordinary HTML5 examples cover String/URI, geometry/Color, easing/Tween/CustomEase, callback timers/AsBroadcaster, ByteArray codecs and Math. Constructors, constants, events, codecs and shared algorithms are counted separately. Full catalogue reassessment, UI and FLA remain outside this delivery.
+The latest [AS2-only runtime delivery](AS2-RUNTIME-HOUR.md) adds 71 catalogue API paths and 13 language constructs with five ordinary HTML5 examples. Sparse MovieClip depths/duplication, System/input/component events, XML transport, legacy operators and source interfaces now have bounded working profiles. AS2 has 745 partial declarations; full AS2 is not complete. AS3 feature work, UI and FLA stay paused. The catalogue distinguishes new functionality from 77 corrections of already-existing support.
+
+The earlier [bounded runtime hour](AS-RUNTIME-HOUR.md) adds 192 partial API paths and migrates 117 existing entries into Rust. Its five ordinary HTML5 examples cover String/URI, geometry/Color, easing/Tween/CustomEase, callback timers/AsBroadcaster, ByteArray codecs and Math. Constructors, constants, events, codecs and shared algorithms are counted separately. Full catalogue reassessment, UI and FLA remain outside this delivery.
 
 The bounded Rust reuse experiment adds 10 AS2 globals and 52 AS3 geometry methods/properties, and moves 14 existing AS2 String members into Rust. Both ordinary exports have grouped browser and Restart evidence. This is a partial standard-library increment; no new language constructs, full VM, 3D renderer or FLA converter are claimed. See [counts, boundaries and efficiency comparison](AS-REUSE-EXPERIMENT.md). The catalogue below retains its separately dated audit.
 

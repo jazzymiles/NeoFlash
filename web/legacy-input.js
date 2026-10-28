@@ -5,13 +5,13 @@
  * snapshots the object list (mutations affect the next broadcast), but reads each
  * callback when invoked. Reset/dispose cancels the old snapshot immediately.
  * This is an ordinary browser-input profile, not exact AVM1 input conformance:
- * no cross-domain key access, toggled keys, IME, Selection, full-screen/scale modes,
+ * no cross-domain key access, Selection, full-screen/scale modes,
  * OS cursor control or historical keyboard layout rules. getAscii exposes the
  * Stage event's ASCII character/control code, not a remapped English keyboard.
  * Stage width/height are logical dimensions; onResize requires a host logical
  * resize, not preview zoom/window resizing. Mouse visibility requires a host hook.
  * Integration: create after Stage setup; call reset AFTER Stage.reset() on restart.
- * This module does not install independent key/pointer DOM handlers or hijack text.
+ * A capture observer reads browser lock-key flags without dispatching extra input.
  */
 (function (global) {
   'use strict';
@@ -101,6 +101,9 @@
     }
     function blur() { pressed.clear(); }
     const Key = Object.freeze({ ...constants,
+      get _listeners() { return Object.freeze([...keyListeners]); },
+      isAccessible() { active(); return true; },
+      isToggled(value) { active(); if (!options.platform) throw new Error('Key.isToggled requires the Rust AS2 platform adapter.'); return options.platform.isToggled(value); },
       isDown(value) { return pressed.has(Number(value) | 0); },
       getCode() { return code; }, getAscii() { return ascii; },
       addListener(listener) { add(keyListeners, listener); },
@@ -126,9 +129,14 @@
       if (disposed) return;
       unbind(); clear(); disposed = true;
       options.keyTarget?.removeEventListener?.('blur', blur);
+      options.keyTarget?.removeEventListener?.('keydown', observeKey, true);
+      options.keyTarget?.removeEventListener?.('keyup', observeKey, true);
       if (!visible) { options.onVisibility(true); visible = true; }
     }
+    function observeKey(event) { options.platform?.observeKeyEvent(event); }
     bind(); options.keyTarget?.addEventListener?.('blur', blur);
+    options.keyTarget?.addEventListener?.('keydown', observeKey, true);
+    options.keyTarget?.addEventListener?.('keyup', observeKey, true);
     return Object.freeze({ Key, Mouse, Stage, reset, dispose });
   }
   const api = Object.freeze({ create });

@@ -1,0 +1,1369 @@
+{
+  "schemaVersion": 1,
+  "baseCatalogSha256": "b7199f72f7d6652b23f0b4af56cb748629f5562af799f0abf8263cadc08c539d",
+  "reviews": [
+    {
+      "id": "COORD-AS2-HOUR-20261028-DISPLAY",
+      "title": "AS2 hour: display",
+      "reason": "Bounded AS2-only delivery with ordinary HTML5 execution. New implementations, expanded existing behavior and stale catalogue corrections are counted separately in docs/AS2-RUNTIME-HOUR.md.",
+      "limitations": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance.",
+      "evidence": [
+        {
+          "path": "docs/AS2-DISPLAY-BATCH.md",
+          "sha256": "5da1d46374d1bd47cf39c57bc040f0a5fcfd37690e2d6d4bb0752b45c8d9a9b6"
+        },
+        {
+          "path": "crates/neoflash-core/src/runtime_graph/as2_display.rs",
+          "sha256": "2f386322de250cd8854b2dbfb6663ab2c105215f71a67f4be31d88767da68893"
+        },
+        {
+          "path": "crates/neoflash-web/src/as2_display.rs",
+          "sha256": "b89833c6c4492e09b2805abbc792cf8a7c5cf1d6b1e9f2f1845829104d0f65e0"
+        },
+        {
+          "path": "web/display.js",
+          "sha256": "2268883359b7a66e61e857f278a660087b97cd34784d8994f0a1981d2746e8ba"
+        },
+        {
+          "path": "examples/as2-display-batch.nflash",
+          "sha256": "f73c5a77b2a3707091ff148c695722386a98b89a2ca769df786f321a13b76a64"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-HOUR-20261028-DISPLAY",
+        "recordedHead": "dad0097fa0d2a8fc78231ce4fcb9366f647da63d",
+        "sourceCapturedAt": "2026-10-28T08:33:55.989189+00:00",
+        "verifiedAt": "2026-10-28T08:33:55.989189+00:00",
+        "sourceManifestSha256": "d664804140c734ccb4b6bcd4b2d5fa4f9001f9b9a7a3ee9338639234e6e09142",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Reviewed exact AS2 declarations against owned source and representative ordinary HTML5 family results. No per-entry Flash conformance claim.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:MovieClip.html#getDepth()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getInstanceAtDepth()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#swapDepths()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#duplicateMovieClip()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_target",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_url",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_framesloaded",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#getDepth()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#_target",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#_url",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Button.html#getDepth()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Button.html#_target",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Button.html#_url",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getNextHighestDepth()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#createEmptyMovieClip()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#createTextField()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#attachMovie()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#attachBitmap()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getBounds()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getRect()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#localToGlobal()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#globalToLocal()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#clear()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#curveTo()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#removeMovieClip()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_width",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_height",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Button.html#_width",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Button.html#_height",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#replaceSel()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#removeTextField()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#_name",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#_visible",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#_xmouse",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#_ymouse",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#filters",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#maxChars",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#password",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#replaceText()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#restrict",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#selectable",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#textHeight",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#textWidth",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextField.html#type",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextFormat.html#font",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextFormat.html#size",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextFormat.html#bold",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:TextFormat.html#italic",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Runtime-created AS2 clips: sparse depth placement/lookup/swap, duplication of drawing/matrix/colour state, target metadata, legacy bounds/point conventions, TextField aliases and existing uniform-format fields. Authored/linked timeline duplication diagnoses; no SWF byte/version fabrication, no rich mixed-format text. HTML5 20/20 plus Restart; source-family review, not individual conformance."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-HOUR-20261028-PLATFORM",
+      "title": "AS2 hour: platform",
+      "reason": "Bounded AS2-only delivery with ordinary HTML5 execution. New implementations, expanded existing behavior and stale catalogue corrections are counted separately in docs/AS2-RUNTIME-HOUR.md.",
+      "limitations": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance.",
+      "evidence": [
+        {
+          "path": "docs/AS2-PLATFORM-BATCH.md",
+          "sha256": "dcdbdcc4e5e48d4c4df1eb1ca952735e9b078894a0e750f2aa51fce9f0c8e57d"
+        },
+        {
+          "path": "crates/neoflash-core/src/as2_platform.rs",
+          "sha256": "a0e74791b8492f42eb4cf25cb1aebbe443b3702b8ddb7f7ba17a65567e8fe95a"
+        },
+        {
+          "path": "web/as2-platform.js",
+          "sha256": "d6f292adfe2fede96a7631ee48479631839c9ad77f60c0ac965d818d27d19d81"
+        },
+        {
+          "path": "web/legacy-input.js",
+          "sha256": "128fd0e0711ed47924c39438c4f3f216b619d420335d55b4dbb86e72dfb0a19b"
+        },
+        {
+          "path": "web/audio.js",
+          "sha256": "68750d7a7e6d0135f7c9f2c87ca51f49aad078d9f93da0e5fd73ddeaa70d72cc"
+        },
+        {
+          "path": "examples/as2-platform-batch.nflash",
+          "sha256": "1b463366907b44ba769c3374df405dc59bd2f3673c4d90b36944417ed65eb3f4"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-HOUR-20261028-PLATFORM",
+        "recordedHead": "dad0097fa0d2a8fc78231ce4fcb9366f647da63d",
+        "sourceCapturedAt": "2026-10-28T08:33:55.989189+00:00",
+        "verifiedAt": "2026-10-28T08:33:55.989189+00:00",
+        "sourceManifestSha256": "c3d5ef972f2448ee18c330c7fb258a4738297d5af7204edf5cb2952e72a8953a",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Reviewed exact AS2 declarations against owned source and representative ordinary HTML5 family results. No per-entry Flash conformance claim.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:System/capabilities.html#avHardwareDisable",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAccessibility",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAudio",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAudioEncoder",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasEmbeddedVideo",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasIME",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasMP3",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasPrinting",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasScreenBroadcast",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasScreenPlayback",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasStreamingAudio",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasStreamingVideo",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasVideoEncoder",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#isDebugger",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#language",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#localFileReadDisable",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#manufacturer",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#os",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#pixelAspectRatio",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#playerType",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenColor",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenDPI",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenResolutionX",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenResolutionY",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#serverString",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#version",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System.html#exactSettings",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System.html#useCodepage",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/security.html#sandboxType",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#_listeners",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#isAccessible()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#isToggled()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/IME.html#addListener()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/IME.html#removeListener()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "AS2:components:method:mx.utils.Delegate.create",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "AS2:components:method:EventDispatcher.addEventListener",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "AS2:components:method:EventDispatcher.removeEventListener",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "AS2:components:method:EventDispatcher.dispatchEvent",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/IME.html#ALPHANUMERIC_FULL",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/IME.html#ALPHANUMERIC_HALF",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/IME.html#CHINESE",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_HIRAGANA",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_KATAKANA_FULL",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_KATAKANA_HALF",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/IME.html#KOREAN",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/IME.html#UNKNOWN",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/IME.html#event:onIMEComposition",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/IME.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:System/security.html#class",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "AS2:components:class:mx.utils.Delegate.Delegate",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "AS2:components:class:EventDispatcher.EventDispatcher",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:global_functions.html#getVersion()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:global_functions.html#updateAfterEvent()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:global_functions.html#stopAllSounds()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#BACKSPACE",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#CAPSLOCK",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#CONTROL",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#DELETEKEY",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#DOWN",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#END",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#ENTER",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#ESCAPE",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#HOME",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#INSERT",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#PGDN",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#PGUP",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#SHIFT",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#TAB",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#UP",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Key.html#removeListener()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Mouse.html#removeListener()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Stage.html#addListener()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Stage.html#removeListener()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Mouse.html#event:onMouseMove",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Mouse.html#event:onMouseUp",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Mouse.html#event:onMouseWheel",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Stage.html#event:onResize",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Number.html#valueOf()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Boolean.html#valueOf()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:global_functions.html#getTimer()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Browser-backed NeoFlash System capability profile, IME composition listener registration, observed keyboard modifiers, Delegate and plain-object EventDispatcher via owned Rust broadcaster, getVersion/updateAfterEvent and AS2-owned stopAllSounds. No OS IME control, Flash identity, policy bypass, UI components, audible-playback or native IME input acceptance. HTML5 8/8, real key A and Restart; source-family review, not individual conformance."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-HOUR-20261028-XML-DATA",
+      "title": "AS2 hour: xml-data",
+      "reason": "Bounded AS2-only delivery with ordinary HTML5 execution. New implementations, expanded existing behavior and stale catalogue corrections are counted separately in docs/AS2-RUNTIME-HOUR.md.",
+      "limitations": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance.",
+      "evidence": [
+        {
+          "path": "docs/AS2-XML-DATA-BATCH.md",
+          "sha256": "7e8c1323f570020c9e47bc9b9aa4e8f6199e874726ca409e97dba769ed2c34b7"
+        },
+        {
+          "path": "crates/neoflash-core/src/as2_xml.rs",
+          "sha256": "e7623879243ccf43ee87ca6e3352c90b3a6856c0ea8315186e09f95de968e638"
+        },
+        {
+          "path": "web/xml.js",
+          "sha256": "002874384dca2184c44dc19d4542138a7af18af4dd6ca0aa866501332b319eb8"
+        },
+        {
+          "path": "web/net.js",
+          "sha256": "477394a772c523c724a409a9b9eae75db6f5941f7448360a7c2bb9b683c8fcfb"
+        },
+        {
+          "path": "examples/as2-xml-data-batch.nflash",
+          "sha256": "5a4c09458616b4e9b26d1ae0bf4841e4843eee09f56c5c66365a14e0f06be1ce"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project-runtime.js",
+          "sha256": "f63e7c2fa1a411f03d148f21c0ea3f20a31bc2d7bdc54d093fbd59da2604ff52"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-HOUR-20261028-XML-DATA",
+        "recordedHead": "dad0097fa0d2a8fc78231ce4fcb9366f647da63d",
+        "sourceCapturedAt": "2026-10-28T08:33:55.989189+00:00",
+        "verifiedAt": "2026-10-28T08:33:55.989189+00:00",
+        "sourceManifestSha256": "c0c822203ec15d6364dd08fe1b677ba0e851dddf775ead0ebb26eb9c1ec053ff",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Reviewed exact AS2 declarations against owned source and representative ordinary HTML5 family results. No per-entry Flash conformance claim.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:XML.html#addRequestHeader()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XML.html#contentType",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XML.html#docTypeDecl",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XML.html#idMap",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XML.html#send()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XML.html#sendAndLoad()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XMLNode.html#getNamespaceForPrefix()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XMLNode.html#getPrefixForNamespace()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XML.html#xmlDecl",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:LoadVars.html#event:onData",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:LoadVars.html#addRequestHeader()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XML.html#createElement()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XML.html#createTextNode()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XML.html#parseXML()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XML.html#event:onData",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XML.html#event:onHTTPStatus",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:LoadVars.html#contentType",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:LoadVars.html#event:onHTTPStatus",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:LoadVars.html#send()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:LoadVars.html#toString()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XMLNode.html#XMLNode()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XMLNode.html#hasChildNodes()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XMLNode.html#insertBefore()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XMLNode.html#localName",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XMLNode.html#namespaceURI",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XMLNode.html#prefix",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XMLNode.html#nextSibling",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:XMLNode.html#previousSibling",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Object.html#Object()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Object.html#hasOwnProperty()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Object.html#valueOf()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Object.html#isPrototypeOf()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Object.html#prototype",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        },
+        {
+          "catalogId": "as2:Array.html#CASEINSENSITIVE",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Bounded AS2 XML DOM, inert declaration/DOCTYPE metadata, parsed idMap snapshot, namespace lookup, LoadVars and XML GET/POST/header/callback integration. No DTD/custom entities, XML raw-POST navigation or ID-map live mutation. Existing Object/Array profiles exclude watch/unwatch/addProperty/native boxed primitives. HTML5 18 checks without failures including actual same-origin XML POST/response; source-family review, not individual conformance."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-HOUR-20261028-INTERFACES",
+      "title": "AS2 hour: interfaces",
+      "reason": "Bounded AS2-only delivery with ordinary HTML5 execution. New implementations, expanded existing behavior and stale catalogue corrections are counted separately in docs/AS2-RUNTIME-HOUR.md.",
+      "limitations": "Qualified AS2 source interfaces/public method signatures, one interface parent, multiple class implements, inherited methods and exact signatures in existing Rust linker. No interface fields/bodies/accessors/static/private/default/rest/multiple parents or new instanceof/cast syntax. Ordinary browser counter 3 to 4 via typed interface after click; existing grouped compiler test extended.",
+      "evidence": [
+        {
+          "path": "docs/AS2-INTERFACES-BATCH.md",
+          "sha256": "b291fa98955a936150f26e8d40da17e474c4a2dd288641c32a74f09f2382ab68"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript/project.rs",
+          "sha256": "f382e14dce3880c7de4aa29810ae44bed9d07f8e63c76af101ec85c11b22c58c"
+        },
+        {
+          "path": "crates/neoflash-script/tests/project.rs",
+          "sha256": "b13ec905daa1c76a405028b327eb09cb1cec9b5af85bd9e8c26d7534e7d3d69b"
+        },
+        {
+          "path": "examples/as2-interfaces-batch.nflash",
+          "sha256": "43e28c63af69e3dcab025a263104ef1c63edf6857923525e49a6abc7679034ad"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-HOUR-20261028-INTERFACES",
+        "recordedHead": "dad0097fa0d2a8fc78231ce4fcb9366f647da63d",
+        "sourceCapturedAt": "2026-10-28T08:33:55.989189+00:00",
+        "verifiedAt": "2026-10-28T08:33:55.989189+00:00",
+        "sourceManifestSha256": "535c14134ac1c34435e2bcd6211d75b0d18be436f59ab6ea667e0042ef9f79bc",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Reviewed exact AS2 declarations against owned source and representative ordinary HTML5 family results. No per-entry Flash conformance claim.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:statements.html#interface",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Qualified AS2 source interfaces/public method signatures, one interface parent, multiple class implements, inherited methods and exact signatures in existing Rust linker. No interface fields/bodies/accessors/static/private/default/rest/multiple parents or new instanceof/cast syntax. Ordinary browser counter 3 to 4 via typed interface after click; existing grouped compiler test extended."
+        },
+        {
+          "catalogId": "as2:statements.html#implements",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Qualified AS2 source interfaces/public method signatures, one interface parent, multiple class implements, inherited methods and exact signatures in existing Rust linker. No interface fields/bodies/accessors/static/private/default/rest/multiple parents or new instanceof/cast syntax. Ordinary browser counter 3 to 4 via typed interface after click; existing grouped compiler test extended."
+        },
+        {
+          "catalogId": "as2:statements.html#extends",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Qualified AS2 source interfaces/public method signatures, one interface parent, multiple class implements, inherited methods and exact signatures in existing Rust linker. No interface fields/bodies/accessors/static/private/default/rest/multiple parents or new instanceof/cast syntax. Ordinary browser counter 3 to 4 via typed interface after click; existing grouped compiler test extended."
+        }
+      ]
+    },
+    {
+      "id": "COORD-AS2-HOUR-20261028-LEGACY",
+      "title": "AS2 hour: legacy",
+      "reason": "Bounded AS2-only delivery with ordinary HTML5 execution. New implementations, expanded existing behavior and stale catalogue corrections are counted separately in docs/AS2-RUNTIME-HOUR.md.",
+      "limitations": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior.",
+      "evidence": [
+        {
+          "path": "docs/AS2-LEGACY-BATCH.md",
+          "sha256": "061dbc9bb8c9566cd4a9243344483b8d06cca5171bcf8e6b6d1ccb2879bc6743"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "9168be4635633d1f6904d09b05bee2b2bc076dd87a61eb02b7a3f5b9c5a0bb0a"
+        },
+        {
+          "path": "crates/neoflash-core/src/as2_strings.rs",
+          "sha256": "54119e41e3f6059986f1b8941176db884417d4d2c1c4ea45e9d797a027e7cfe8"
+        },
+        {
+          "path": "web/as2-strings.js",
+          "sha256": "0b13841fd6e98d4c99f306a3b2a908499e6c42d6009f91f01a8071e5cef34921"
+        },
+        {
+          "path": "web/runtime.js",
+          "sha256": "2c7cd4a96bfc585dd38e03fefbc9bf2b08d388393d442b17241c7368aee60dc4"
+        },
+        {
+          "path": "examples/as2-legacy-batch.nflash",
+          "sha256": "f8bf061bb9f5ef76887e398ded5968af8ccc80a914ea752ec8df1fb180b57ed1"
+        }
+      ],
+      "verification": {
+        "id": "COORD-AS2-HOUR-20261028-LEGACY",
+        "recordedHead": "dad0097fa0d2a8fc78231ce4fcb9366f647da63d",
+        "sourceCapturedAt": "2026-10-28T08:33:55.989189+00:00",
+        "verifiedAt": "2026-10-28T08:33:55.989189+00:00",
+        "sourceManifestSha256": "ae439acefb2d145ba3ad6e138d9584ee6599f70004e48cf32c982f93dea8c91f",
+        "browser": "Codex in-app browser",
+        "engine": "Engine/version not separately identified",
+        "originalFlashComparison": "documented_only",
+        "decision": "Reviewed exact AS2 declarations against owned source and representative ordinary HTML5 family results. No per-entry Flash conformance claim.",
+        "currentSourceVerified": false,
+        "reviewKind": "coordinator"
+      },
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:global_functions.html#duplicateMovieClip()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:global_functions.html#getProperty()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:global_functions.html#int()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:global_functions.html#parseInt()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:global_functions.html#removeMovieClip()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:global_functions.html#setProperty()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:global_functions.html#startDrag()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:global_functions.html#stopDrag()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:global_functions.html#targetPath()",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:operators.html#comma",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:operators.html#concatenation_(strings)_deprecated",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:operators.html#equality_(strings)_deprecated",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:operators.html#greater_than_(strings)_deprecated",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:operators.html#greater_than_or_equal_to_(strings)_deprecated",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:operators.html#inequality_deprecated",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:operators.html#less_than_(strings)_deprecated",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:operators.html#less_than_or_equal_to_(strings)_deprecated",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:operators.html#logical_AND_deprecated",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:operators.html#logical_NOT_deprecated",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:operators.html#logical_OR_deprecated",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:operators.html#not_equal_(strings)_deprecated",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:operators.html#void",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        },
+        {
+          "catalogId": "as2:statements.html#delete",
+          "status": "partial",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance",
+          "scopeNote": "Eleven legacy operators in Rust frontend/core, seven global display entry points through existing Rust graph/AS2 method bridge; parseInt migrated from JavaScript. SWF6+ primitive profile, root-relative string paths, runtime-created duplicate only, supported numeric slots only; no complete historical coercion or SWF4 numeric Boolean mode. HTML5 24/24 and Restart; comma/void/delete/int are reviewed existing behavior."
+        }
+      ]
+    }
+  ]
+}

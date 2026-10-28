@@ -347,6 +347,16 @@
       const record={receiver:null,generation,operation:null,data:null,format:'binary',loadedBytes:0,total:0,raw:callbacks};
       start(record,request);return Object.freeze({close:()=>cancel(record)});
     }
+    // AS2 request-header wiring shares the existing browser validation rules.
+    function legacyRequestHeaders(current,name,value){
+      open();const next=current.slice(),input=Array.isArray(name)?name:[name,value];
+      if(input.length%2)throw new TypeError('Header array requires alternating names and values.');
+      for(let i=0;i<input.length;i+=2){
+        const header=new URLRequestHeader(input[i],input[i+1]),index=next.findIndex(h=>h.name.toLowerCase()===header.name.toLowerCase());
+        if(index<0)next.push(header);else next[index]=header;
+      }
+      headerPairs(next);return next;
+    }
     const legacyReserved=new Set(['onLoad','onData','onHTTPStatus','loaded','contentType']);
     class LoadVars {
       constructor(){open();legacy.set(this,{receiver:this,generation,operation:null,loaded:undefined,loadedBytes:undefined,total:undefined,contentType:'application/x-www-form-urlencoded',headers:[]});}
@@ -360,7 +370,15 @@
         const source=state(this,legacy),destination=state(target,legacy),request=new URLRequest(url);request.method=method;
         request.data=formString(this,legacyReserved);request.contentType=source.contentType;request.requestHeaders=source.headers.slice();start(destination,request,true);return true;
       }
-      addRequestHeader(name,value){const record=state(this,legacy),next=record.headers.slice();if(Array.isArray(name)){if(name.length%2)throw new TypeError('Header array requires alternating names and values.');for(let i=0;i<name.length;i+=2)next.push(new URLRequestHeader(name[i],name[i+1]));}else next.push(new URLRequestHeader(name,value));headerPairs(next);record.headers=next;}
+      addRequestHeader(name,value){const record=state(this,legacy);record.headers=legacyRequestHeaders(record.headers,name,value);}
+      onData(source){
+        const record=state(this,legacy),born=generation,operation=record.operation;
+        if(source!==undefined&&source!==null)this.decode(source);
+        if(disposed||generation!==born||record.operation!==operation)return;
+        record.loaded=source!==undefined&&source!==null;const fn=this.onLoad;
+        if(disposed||generation!==born||record.operation!==operation)return;
+        if(typeof fn==='function')Reflect.apply(fn,this,[record.loaded]);
+      }
       send(url,target,method='POST'){
         const record=state(this,legacy);
         if(arguments.length===0)return false;
@@ -373,7 +391,7 @@
     noBase(LoadVars,'LoadVars',value=>legacy.has(value));
     function reset(){open();for(const operation of [...active])cancel(operation.record);generation++;hub.clear();resourceCache.clear();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({URLRequest,URLRequestHeader,URLRequestMethod,URLVariables,URLLoader,URLLoaderDataFormat,ProgressEvent,IOErrorEvent,HTTPStatusEvent,LoadVars,loadBytes,mediaSource,prepareNavigation,navigateToURL,sendToURL,getURL,reset,dispose});
+    return Object.freeze({URLRequest,URLRequestHeader,URLRequestMethod,URLVariables,URLLoader,URLLoaderDataFormat,ProgressEvent,IOErrorEvent,HTTPStatusEvent,LoadVars,legacyRequestHeaders,loadBytes,mediaSource,prepareNavigation,navigateToURL,sendToURL,getURL,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashNet=api;
 })(globalThis);

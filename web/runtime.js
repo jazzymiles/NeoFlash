@@ -276,7 +276,7 @@
     const graphMode=typeof player.runtime_snapshot_json==='function';
     const references = new WeakMap();
     const attachedClasses = new Map();
-    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, externalHost = null, program = null;
+    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, externalHost = null, program = null, as2PlatformHost = null;
     let geometryHost = null, geometry3dHost = null, easingHost = null, broadcasterHost = null;
     let eventFamilies = {};
     let timerRenderGeneration=0, capturePainter=null,inputPaths=null;
@@ -344,6 +344,7 @@
     function initializeFamily() {
       if (!global.NeoFlashDisplay || typeof player.display_nodes_json !== 'function') return;
       const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
+      if(global.NeoFlashAS2Platform)as2PlatformHost=global.NeoFlashAS2Platform.create(wasm,{global,document:global.document,onError:inputFailure,requestRender:requestTimerRender});
       eventFamilies=global.NeoFlashEvents?.createFamilies?.(wasm,{isByteArray:value=>Boolean(binaryHost?.ByteArray.__nfIs(value)),requestRender:requestTimerRender})||{};
       geometryHost=global.NeoFlashGeom.create(wasm,{getVector3D:()=>geometry3dHost.Vector3D});
       if(global.NeoFlashBitmap)bitmapHost=global.NeoFlashBitmap.create({player,geometry:geometryHost,as2,
@@ -382,13 +383,29 @@
           onLegacyInput:(type,target,event)=>display.pointer(type,target,event),
           afterInput:()=>{dispatchScripts();if(typeof context!=='undefined')render();},onError:inputFailure});
         if(global.NeoFlashLegacyInput){
-          legacyHost=global.NeoFlashLegacyInput.create({stage:stageHost.stage,
+          legacyHost=global.NeoFlashLegacyInput.create({stage:stageHost.stage,platform:as2PlatformHost,
             keyTarget:typeof global.addEventListener==='function'?global:null,
             alive:listener=>!references.has(listener)||display.alive(listener),
             onVisibility:visible=>{legacyCursorVisible=visible;updateCursor();},onError:inputFailure});
           legacyGlobals=Object.freeze({Key:legacyHost.Key,Mouse:legacyHost.Mouse,Stage:legacyHost.Stage});
         }
       }
+      if(as2PlatformHost)legacyGlobals=Object.freeze({...legacyGlobals,System:as2PlatformHost.System,getVersion:as2PlatformHost.getVersion,updateAfterEvent:as2PlatformHost.updateAfterEvent});
+      function legacyProperty(target, index) {
+        if(!Number.isInteger(Number(index))||Number(index)<0||Number(index)>21)throw new RangeError('AS2 property index must be between 0 and 21.');
+        const receiver=display.resolveTarget(target,proxyFor([])),name=wasm.as2_property_name(Number(index));
+        if(!references.get(receiver)?.nativeHas(name))throw new Error('AS2 getProperty/setProperty does not yet support '+name+'.');
+        return {receiver,name};
+      }
+      const legacyDisplayCall=(target,method,args)=>as2.method(display.resolveTarget(target,proxyFor([])),method)(...args);
+      legacyGlobals=Object.freeze({...legacyGlobals,
+        duplicateMovieClip:(target,name,depth)=>legacyDisplayCall(target,'duplicateMovieClip',[name,depth]),
+        removeMovieClip:target=>legacyDisplayCall(target,'removeMovieClip',[]),
+        startDrag:(target,...args)=>legacyDisplayCall(target,'startDrag',args),
+        stopDrag:()=>legacyDisplayCall(proxyFor([]),'stopDrag',[]),
+        targetPath:target=>display.targetPath(display.resolveTarget(target,proxyFor([]))),
+        getProperty:(target,index)=>{const {receiver,name}=legacyProperty(target,index);return receiver[name];},
+        setProperty:(target,index,value)=>{const {receiver,name}=legacyProperty(target,index);receiver[name]=value;}});
       if(global.NeoFlashTextInput&&textHost&&stageHost&&typeof player.object_text_input==='function'){
         textInputHost=global.NeoFlashTextInput.create({player,text:textHost,display,events:global.NeoFlashEvents,hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,
           canvas:typeof canvas==='undefined'?null:canvas,surface:typeof document==='undefined'?null:document.getElementById('stage-surface'),document:typeof document==='undefined'?null:document,project:typeof project==='undefined'?null:project,
@@ -423,14 +440,14 @@
       }
       if(global.NeoFlashAudio&&netHost&&binaryHost&&global.NeoFlashEvents){
         audioHost=global.NeoFlashAudio.create({events:global.NeoFlashEvents,net:netHost,binary:binaryHost,onError:audioFailure,afterEvent:afterTimerEvent,onState:updateAudioStatus});
-        legacyGlobals=Object.freeze({...legacyGlobals,Sound:audioHost.LegacySound});
+        legacyGlobals=Object.freeze({...legacyGlobals,Sound:audioHost.LegacySound,stopAllSounds:audioHost.stopAllLegacySounds});
       }
       if(global.NeoFlashVideo&&netHost&&global.NeoFlashEvents&&typeof player.object_video_info==='function'){
         videoHost=global.NeoFlashVideo.create({player,events:global.NeoFlashEvents,net:netHost,getSoundTransform:()=>audioHost?.SoundTransform,referenceOf:target=>references.get(target),proxyForRef,onError:netFailure,afterEvent:afterTimerEvent,onFrame:()=>{if(typeof context!=='undefined')render();},onState:updateAudioStatus});
         legacyGlobals=Object.freeze({...legacyGlobals,NetConnection:videoHost.LegacyNetConnection,NetStream:videoHost.LegacyNetStream});
       }
       if(global.NeoFlashXML){
-        xmlHost=global.NeoFlashXML.create({parse:source=>{const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;if(typeof wasm?.parse_xml_json!=='function')throw new Error('XML parser is missing. Re-export this project.');return wasm.parse_xml_json(source);},net:netHost,onError:netFailure});
+        xmlHost=global.NeoFlashXML.create({parseLegacy:source=>wasm.parse_as2_xml_json(source),namespaceLookup:(ancestors,value,reverse)=>JSON.parse(wasm.as2_xml_namespace_json(JSON.stringify(ancestors),value,reverse)),parse:source=>{const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;if(typeof wasm?.parse_xml_json!=='function')throw new Error('XML parser is missing. Re-export this project.');return wasm.parse_xml_json(source);},net:netHost,onError:netFailure});
         legacyGlobals=Object.freeze({...legacyGlobals,XML:xmlHost.LegacyXML,XMLNode:xmlHost.XMLNode});
       }
       if(textHost)legacyGlobals=Object.freeze({...legacyGlobals,TextFormat:textHost.TextFormat});
@@ -448,6 +465,7 @@
       if(!display)return;
       const builtins={...display.builtins};
       builtins.__nfTrace=trace;
+      if(as2PlatformHost){builtins['mx.utils.Delegate']=as2PlatformHost.Delegate;builtins['mx.events.EventDispatcher']=as2PlatformHost.EventDispatcher;}
       builtins.__nfAs2Method=as2.method;builtins.__nfAs2Value=as2.value;
       builtins.__nfDisplay=display;builtins.__nfLegacy=legacyGlobals;
       if(global.NeoFlashGeom3D){
@@ -501,7 +519,7 @@
       capturePainter?.clear();capturePainter=null;
       filterHost?.renderer.clear();
       externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
-      proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();lastTrace = '';
+      proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();lastTrace = '';
       player.reset();
       initializeProgram();
       dispatchScripts();
@@ -511,7 +529,7 @@
       capturePainter?.clear();capturePainter=null;
       filterHost?.renderer.clear();
       externalHost?.dispose();textInputHost?.dispose();storageHost?.dispose();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
-      legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
+      as2PlatformHost?.dispose();legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
     function prepareLinked(receiver,allocatedByProgram) {
       if(!program?.attach&&display.descriptor(receiver).class_name)throw new Error('Linked symbol class construction requires an initialized project program; creation during static field initialization is not supported yet.');

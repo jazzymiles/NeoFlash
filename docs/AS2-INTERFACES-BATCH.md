@@ -1,0 +1,13 @@
+# AS2 source interface batch
+
+Two AS2 language catalogue entries gain working partial support: `interface` and `implements`. The existing `extends` implementation is expanded to interface inheritance. This is source/compiler work in Rust, reusing NeoFlash's own class linker, canonical method signatures and nominal contract registry. No new runtime, dependency or foreign implementation is introduced.
+
+An AS2 source interface can declare public method signatures with optional explicit `public`, use a qualified name matching its `.as` path, and extend one project interface. Classes can implement multiple interfaces, satisfy a contract with an inherited public method, and combine a class base with interface contracts. The existing linker checks method names, parameter/return signatures, missing methods, inherited conflicts, unresolved types and dependency cycles. Interface names are available in source annotations and imports.
+
+AS3 acceptance rules remain unchanged. AS2 interface fields, constructors, method bodies, static/private signatures, get/set accessors, optional/default/rest parameters and multiple interface parents remain rejected. AS2 `instanceof` and class/interface function-cast syntax are still outside the frontend profile; this delivery does not claim runtime source type-test syntax. Signature verification here means compiler/linker contract checking, not complete historical AS2 coercion or type-check behavior.
+
+`examples/as2-interfaces-batch.nflash` contains five ordinary AS2 source units and a frame script. A concrete class inherits its label method, implements a derived counter interface and an independent reset interface, and is accessed through typed parameters/variables. The visible **Advance typed counter** control invokes the interface method and updates the stage. It starts at value 3 and increments to 4 on the first click. There is no AS3 `is` syntax or hidden test-only runtime.
+
+Verification extended the existing `class_syntax_outside_profile_is_never_erased` grouped Rust test with a valid linked family and representative signature/member rejections. The test count did not increase: one selected existing test passed, two were filtered out. Ordinary HTML5 export to `dist/as2-interfaces-batch/` passed. Browser interaction belongs to the coordinator's shared delivery pass.
+
+Behavioral contract: Adobe's [AS2 statements reference](https://open-flash.github.io/mirrors/as2-language-reference/statements.html#interface) and [Learning ActionScript 2.0](https://open-flash.github.io/mirrors/learning-as2.pdf), interface inheritance examples. This package adapts existing owned code; it copies no external implementation.

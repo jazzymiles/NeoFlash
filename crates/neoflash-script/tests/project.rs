@@ -168,7 +168,7 @@ fn class_syntax_outside_profile_is_never_erased() {
         "import flash.external.ExternalInterface;class A {public function A(){new ExternalInterface();}}",
         "import flash.net.navigateToURL;class A {}",
         "class A {public function run(...values):Void{}}",
-        "interface A {function value():Number;}",
+        "interface A {function value():Number{return 1;}}",
         "class A {public function A(){new Video();}}",
         "class A {public function A(){new NetConnection(1);}}",
         "class A {public function A(){new NetStream();}}",
@@ -598,6 +598,48 @@ fn class_syntax_outside_profile_is_never_erased() {
         "{:?}",
         shadow_video_result.err()
     );
+    let mut legacy_interfaces = project(&[
+        (
+            "contracts/Named.as",
+            "interface contracts.Named {public function label():String;}",
+        ),
+        (
+            "contracts/Counter.as",
+            "interface contracts.Counter extends contracts.Named {function value():Number;}",
+        ),
+        (
+            "contracts/Resettable.as",
+            "interface contracts.Resettable {function reset():Void;}",
+        ),
+        (
+            "model/Base.as",
+            "class model.Base {public function label():String{return \"counter\";}}",
+        ),
+        (
+            "model/Counter.as",
+            "class model.Counter extends model.Base implements contracts.Counter, contracts.Resettable {public function value():Number{return 3;} public function reset():Void{}}",
+        ),
+    ]);
+    for unit in &mut legacy_interfaces.sources {
+        unit.language = ScriptLanguage::ActionScript2;
+    }
+    let linked = neoflash_script::compile_project(&legacy_interfaces)
+        .expect("AS2 inherited interfaces reuse the owned linker");
+    let legacy_interface_script = neoflash_core::Script {language:ScriptLanguage::ActionScript2,source:"import model.Counter;import contracts.Named;var value:Named=new Counter();result=value.label();".into()};
+    assert!(neoflash_script::compile_with_program(&legacy_interface_script, &linked).is_ok());
+    for bad in [
+        "interface contracts.Named {function get label():String;}",
+        "interface contracts.Named {public static function label():String;}",
+        "interface contracts.Named {public function label():Number;}",
+        "interface contracts.Named {function missing():Void;}",
+        "interface contracts.Named {var label:String;}",
+    ] {
+        legacy_interfaces.sources[0].source = bad.into();
+        assert!(
+            neoflash_script::compile_project(&legacy_interfaces).is_err(),
+            "{bad}"
+        );
+    }
     let optional_contracts = project(&[
         (
             "I.as",

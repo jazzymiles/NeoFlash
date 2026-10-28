@@ -231,13 +231,15 @@ impl<'a> Lexer<'a> {
                 const OPERATORS: &[&str] = &[
                     ">>>=", "===", "!==", ">>>", "...", "<<=", ">>=", "&&=", "||=", "++", "--",
                     "+=", "-=", "*=", "/=", "%=", "==", "!=", "<=", ">=", "&&", "||", "<<", ">>",
-                    "&=", "|=", "^=", "::", "..", "{", "}", "(", ")", "[", "]", ";", ",", ".", ":",
-                    "?", "+", "-", "*", "/", "%", "=", "!", "~", "<", ">", "&", "|", "^", "@",
+                    "&=", "|=", "^=", "<>", "::", "..", "{", "}", "(", ")", "[", "]", ";", ",",
+                    ".", ":", "?", "+", "-", "*", "/", "%", "=", "!", "~", "<", ">", "&", "|", "^",
+                    "@",
                 ];
-                let Some(operator) = OPERATORS
-                    .iter()
-                    .find(|operator| self.rest().starts_with(**operator))
-                else {
+                let Some(operator) = OPERATORS.iter().find(|operator| {
+                    self.rest().starts_with(**operator)
+                        && (**operator != "<>"
+                            || self.script.language == ScriptLanguage::ActionScript2)
+                }) else {
                     return Err(self.error(
                         start,
                         format!("Unsupported character {c:?} in ActionScript."),
@@ -1318,6 +1320,7 @@ impl<'a> Frontend<'a> {
             || self.is("+")
             || self.is("typeof")
             || self.is("void")
+            || (self.script.language == ScriptLanguage::ActionScript2 && self.is("not"))
         {
             let operator = self.token_text();
             self.pos += 1;
@@ -1461,6 +1464,15 @@ impl<'a> Frontend<'a> {
             }
             if matches!(operator.as_str(), "instanceof" | "::" | ".." | "@") {
                 return Err(self.error(format!("ActionScript operator '{operator}' requires compatibility semantics not implemented yet.")));
+            }
+            if self.script.language == ScriptLanguage::ActionScript3
+                && matches!(
+                    operator.as_str(),
+                    "add" | "eq" | "ne" | "lt" | "le" | "gt" | "ge" | "<>" | "and" | "or"
+                )
+            {
+                return Err(self
+                    .error("Legacy string operators belong to AS2; use AS3 symbolic operators."));
             }
             let Some((left_bp, right_bp, assignment)) = binding_power(&operator) else {
                 break;
@@ -1989,15 +2001,15 @@ fn binding_power(operator: &str) -> Option<(u8, u8, bool)> {
     Some(match operator {
         "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=" | ">>>="
         | "&&=" | "||=" => (1, 1, true),
-        "||" => (3, 4, false),
-        "&&" => (5, 6, false),
+        "||" | "or" => (3, 4, false),
+        "&&" | "and" => (5, 6, false),
         "|" => (7, 8, false),
         "^" => (9, 10, false),
         "&" => (11, 12, false),
-        "==" | "!=" | "===" | "!==" => (13, 14, false),
-        "<" | "<=" | ">" | ">=" | "in" => (15, 16, false),
+        "==" | "!=" | "===" | "!==" | "eq" | "ne" | "<>" => (13, 14, false),
+        "<" | "<=" | ">" | ">=" | "in" | "lt" | "le" | "gt" | "ge" => (15, 16, false),
         "<<" | ">>" | ">>>" => (17, 18, false),
-        "+" | "-" => (19, 20, false),
+        "+" | "-" | "add" => (19, 20, false),
         "*" | "/" | "%" => (21, 22, false),
         _ => return None,
     })
@@ -2133,7 +2145,23 @@ impl Emitter<'_> {
             && self.analysis.resolve(self.scope, name).is_none()
             && (matches!(
                 name,
-                "Key" | "Mouse" | "Stage" | "LoadVars" | "TextFormat" | "Sound"
+                "Key"
+                    | "Mouse"
+                    | "Stage"
+                    | "LoadVars"
+                    | "TextFormat"
+                    | "Sound"
+                    | "System"
+                    | "targetPath"
+                    | "getProperty"
+                    | "setProperty"
+                    | "getVersion"
+                    | "updateAfterEvent"
+                    | "stopAllSounds"
+                    | "duplicateMovieClip"
+                    | "removeMovieClip"
+                    | "startDrag"
+                    | "stopDrag"
             ) || (matches!(
                 name,
                 "MovieClipLoader"
@@ -2453,7 +2481,16 @@ impl Emitter<'_> {
         }
     }
     fn binary(&self, op: &str, left: String, right: String) -> String {
-        if self.as3 && matches!(op, "+" | "==" | "!=" | "===" | "!==") {
+        if !self.as3
+            && matches!(
+                op,
+                "add" | "eq" | "ne" | "lt" | "le" | "gt" | "ge" | "and" | "or"
+            )
+        {
+            format!("__nfLegacyStringOperator({op:?}, {left}, {right})")
+        } else if !self.as3 && op == "<>" {
+            format!("__nfLegacyStringOperator(\"unequal\", {left}, {right})")
+        } else if self.as3 && matches!(op, "+" | "==" | "!=" | "===" | "!==") {
             format!("__nfXMLBinary({op:?}, {left}, {right})")
         } else {
             format!("({left} {op} {right})")
@@ -2664,6 +2701,10 @@ impl Emitter<'_> {
                     .map(|(k, v)| format!("{}: {}", k.source, self.expression(v)))
                     .collect::<Vec<_>>()
                     .join(", ")
+            ),
+            Expr::Unary(op, value) if op == "not" => format!(
+                "__nfLegacyStringOperator(\"not\", {}, undefined)",
+                self.expression(value)
             ),
             Expr::Unary(op, value) => format!("({op} {})", self.expression(value)),
             Expr::Binary(op, left, right) if op == "in" => format!(
@@ -3070,6 +3111,19 @@ impl Emitter<'_> {
                     match callee.as_ref() {
                         Expr::Name(name)
                             if self.analysis.resolve(self.scope, name).is_none()
+                                && !matches!(
+                                    name.as_str(),
+                                    "getProperty"
+                                        | "setProperty"
+                                        | "targetPath"
+                                        | "getVersion"
+                                        | "updateAfterEvent"
+                                        | "stopAllSounds"
+                                        | "duplicateMovieClip"
+                                        | "removeMovieClip"
+                                        | "startDrag"
+                                        | "stopDrag"
+                                )
                                 && (!is_global(name)
                                     || matches!(name.as_str(), "gotoAndPlay" | "gotoAndStop")) =>
                         {

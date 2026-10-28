@@ -994,7 +994,7 @@ mod tests {
             &[0, 0, 255, 255]
         );
         assert_eq!(
-            filter_padding(&[bevel.clone()]).unwrap(),
+            filter_padding(std::slice::from_ref(&bevel)).unwrap(),
             FilterPadding::default()
         );
         let mut outer = bevel.clone();
@@ -1032,7 +1032,7 @@ mod tests {
             placement: "outer".into(),
             knockout: false,
         };
-        let glow = filter_rgba(7, 7, &shape, &[gradient.clone()]).unwrap();
+        let glow = filter_rgba(7, 7, &shape, std::slice::from_ref(&gradient)).unwrap();
         assert!(glow[(3 * 7 + 1) * 4 + 1] > 0 && glow[(3 * 7 + 1) * 4 + 3] > 0);
         assert_eq!(
             &glow[(3 * 7 + 3) * 4..(3 * 7 + 3) * 4 + 4],

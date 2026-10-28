@@ -1,0 +1,441 @@
+{
+  "format_version": 1,
+  "name": "AS2 legacy operators and target globals",
+  "width": 960,
+  "height": 570,
+  "fps": 24,
+  "background": [
+    14,
+    24,
+    33,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 42,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / AS2 LANGUAGE BATCH",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        115,
+                        213,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 42,
+                      "y": 82,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Legacy operators + target globals",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 42,
+                      "y": 125,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Rust UTF-16 operators, integer parsing and display-property indexing.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel",
+                    "name": "panel",
+                    "transform": {
+                      "x": 32,
+                      "y": 175,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 890,
+                      "height": 195,
+                      "fill": [
+                        25,
+                        42,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "result",
+                    "name": "result",
+                    "transform": {
+                      "x": 52,
+                      "y": 205,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Running checks…",
+                      "font_family": "Arial",
+                      "font_size": 25,
+                      "color": [
+                        115,
+                        229,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pipeline",
+                    "name": "pipeline",
+                    "transform": {
+                      "x": 52,
+                      "y": 248,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "String comparison and concatenation",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "casing",
+                    "name": "casing",
+                    "transform": {
+                      "x": 52,
+                      "y": 286,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Legacy Boolean operators evaluate both operands.",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "codec",
+                    "name": "codec",
+                    "transform": {
+                      "x": 52,
+                      "y": 324,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Numeric getProperty/setProperty + targetPath",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rerun",
+                    "name": "rerun",
+                    "transform": {
+                      "x": 42,
+                      "y": 397,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "run-button",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.runReuse();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 285,
+                      "y": 417,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run again executes the same authored AS2 function.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "counts",
+                    "name": "counts",
+                    "transform": {
+                      "x": 42,
+                      "y": 480,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "11 operators + 7 target globals; parseInt moved to Rust.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 42,
+                      "y": 522,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Useful partial AS2 profile · no SWF4 numeric-Boolean mode",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop(); runs = 0;\nfunction runReuse() {\n runs += 1; var passed=0; var checks=0; var failures=\"\";\n function check(name:String, ok:Boolean) { checks++; if(ok)passed++;else failures+=name+\"; \"; }\n check(\"add\", (2 add 3)==\"23\");\n check(\"eq\", (2 eq \"2\")); check(\"ne\", (\"02\" ne 2));\n check(\"lt\", (10 lt 2)); check(\"le\", (\"a\" le \"a\"));\n check(\"gt\", (2 gt 10)); check(\"ge\", (\"b\" ge \"a\"));\n check(\"not\", (not 0)===true); check(\"and\", (1 and 2)===true); check(\"or\", (0 or \"yes\")===true);\n check(\"inequality\", 2 <> 3);\n var calls=0; function touch(){calls++;return true;}\n var eager=false and touch();check(\"eager\", calls==1 && eager===false);\n check(\"precedence\", (1 add 2 eq \"12\") && (\"a\" lt \"b\" and true));\n check(\"utf16\", (\"\\ud800\" lt \"\\ud801\"));\n check(\"parseInt\", parseInt(\"010\")==8 && parseInt(\"0x100\",10)==100 && parseInt(\"0x  -10\")==-16);\n check(\"parseInt-NaN\", isNaN(parseInt(\"-0x10\")) && isNaN(parseInt(\"12\",0)));\n var parse=parseInt;check(\"parseInt-alias\", parse(\"101\",2)==5);\n var saved=_root.pipeline._x;setProperty(_root.pipeline,0,saved+5);\n check(\"setProperty\", getProperty(_root.pipeline,0)==saved+5);setProperty(_root.pipeline,0,saved);\n check(\"getProperty-path\", getProperty(\"_root.pipeline\",0)==saved);\n check(\"targetPath\", targetPath(_root.pipeline)==\"_level0.pipeline\");\n var temporary=_root.createEmptyMovieClip(\"legacyTemporary\",300);\n temporary.beginFill(16746496);temporary.moveTo(0,0);temporary.lineTo(10,0);temporary.lineTo(10,10);temporary.endFill();\n duplicateMovieClip(temporary,\"legacyCopy\",301);\n check(\"global-duplicate\",_root.legacyCopy.getDepth()==301);\n startDrag(_root.legacyCopy,true,10,10,20,20);stopDrag();\n check(\"global-drag\",_root.legacyCopy._x>=10&&_root.legacyCopy._x<=20);\n removeMovieClip(\"_root.legacyCopy\");removeMovieClip(temporary);\n check(\"global-remove\",_root.getInstanceAtDepth(301)==undefined);\n var pair=(1,2);var old={x:1};var removed=delete old.x;\n check(\"existing-language\",pair==2 && (void 5)==undefined && removed && !old.hasOwnProperty(\"x\") && int(3.8)==3);\n _root.result.text=passed+\" / \"+checks+\" checks passed · run \"+runs;\n _root.pipeline.text=\"2 add 3 = \"+(2 add 3)+\" / 10 lt 2 = \"+(10 lt 2);\n _root.codec.text=targetPath(_root.pipeline)+\" · x=\"+getProperty(_root.pipeline,0);\n _root.report=\"AS2_LEGACY_RESULT \"+passed+\"/\"+checks+\" failures=\"+failures;trace(_root.report);\n}\nrunReuse();"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-button",
+      "name": "run-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "run-button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 56,
+                      "fill": [
+                        32,
+                        116,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 35,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RUN AGAIN",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ]
+}

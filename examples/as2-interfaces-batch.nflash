@@ -1,0 +1,292 @@
+{
+  "format_version": 3,
+  "name": "AS2 source interfaces and linked contracts",
+  "width": 1040,
+  "height": 420,
+  "fps": 24,
+  "background": [
+    13,
+    21,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "AS2 XML data",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "heading",
+                    "name": "heading",
+                    "transform": {
+                      "x": 40,
+                      "y": 28,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "AS2 / interfaces and typed contracts",
+                      "width": 960,
+                      "height": 50,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 30,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 40,
+                      "y": 90,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "AS2 source interfaces, inherited contracts and multiple implements use the existing Rust linker. Click to call through a typed interface.",
+                      "width": 960,
+                      "height": 65,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 16,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "summary",
+                    "name": "summary",
+                    "transform": {
+                      "x": 40,
+                      "y": 170,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Running one data workflow\u2026",
+                      "width": 960,
+                      "height": 90,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 19,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "advance-interface",
+                    "name": "advance-interface",
+                    "transform": {
+                      "x": 40,
+                      "y": 300,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "advance-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.advanceInterface();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Advance typed counter",
+                      "description": "Invoke the step method through an AS2 interface annotation.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import model.Counter;\nimport contracts.Named;\nimport contracts.Resettable;\nstop();\nvar instance:Counter = new Counter();\nvar typed:contracts.Counter = instance;\nvar named:Named = instance;\nvar resetter:Resettable = instance;\nvar steps:Number = 0;\nfunction describe(value:Named):String { return value.label(); }\nfunction refreshInterfaces():Void {\n summary.text = describe(named) + \" / value: \" + typed.value() + \" / clicks: \" + steps + \"\\nInherited method + interface annotations + multiple contracts.\";\n}\nfunction advanceInterface():Void { steps++; typed.step(); refreshInterfaces(); }\nfunction resetInterface():Void { resetter.reset(); refreshInterfaces(); }\nrefreshInterfaces();\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "advance-control",
+      "name": "Update both catalogs",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "advance-control-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Advance typed counter",
+                      "width": 200,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "interface-source-0",
+      "path": "contracts/Named.as",
+      "language": "action_script2",
+      "source": "interface contracts.Named { public function label():String; }"
+    },
+    {
+      "id": "interface-source-1",
+      "path": "contracts/Counter.as",
+      "language": "action_script2",
+      "source": "interface contracts.Counter extends contracts.Named { function value():Number; function step():Number; }"
+    },
+    {
+      "id": "interface-source-2",
+      "path": "contracts/Resettable.as",
+      "language": "action_script2",
+      "source": "interface contracts.Resettable { function reset():Void; }"
+    },
+    {
+      "id": "interface-source-3",
+      "path": "model/Base.as",
+      "language": "action_script2",
+      "source": "class model.Base { public function label():String { return \"Linked AS2 counter\"; } }"
+    },
+    {
+      "id": "interface-source-4",
+      "path": "model/Counter.as",
+      "language": "action_script2",
+      "source": "class model.Counter extends model.Base implements contracts.Counter, contracts.Resettable { public var total:Number=3; public function value():Number { return total; } public function step():Number { total++; return total; } public function reset():Void { total=0; } }"
+    }
+  ],
+  "resources": []
+}

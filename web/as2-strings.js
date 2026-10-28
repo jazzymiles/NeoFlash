@@ -26,6 +26,7 @@
         case 'string': return text(result.value);
         case 'strings': return result.value.map(text);
         case 'number': return toNumber(result.value);
+        case 'boolean': return result.value;
         case 'undefined': return undefined;
         default: throw new TypeError('Invalid AS2 String result from Rust.');
       }
@@ -36,6 +37,15 @@
       for (let i = 0; i < Math.min(args.length, 2); i++) if (args[i] === undefined) request.undefined.push(i);
       const numeric = value => toString(toNumber(value));
       switch (operation) {
+        case 'operator.unequal': { const right=numeric(args[1]),left=numeric(args[0]);request.numbers.push(left,right);break;}
+        case 'operator.and': case 'operator.or': case 'operator.not': request.numbers.push(args[0] ? '1' : '0', args[1] ? '1' : '0'); break;
+        case 'operator.add': case 'operator.eq': case 'operator.ne': case 'operator.lt': case 'operator.le': case 'operator.gt': case 'operator.ge':
+          // AVM1 stack operands are converted right, then left.
+          request.strings.push(units(toString(args[1]))); request.receiver = units(toString(args[0])); break;
+        case 'global.parseInt': {
+          if (args.length > 1) { const radix = toNumber(args[1]) | 0; request.numbers.push(toString(radix)); if (radix < 2 || radix > 36) return NaN; }
+          if (args.length) request.receiver = units(toString(args[0])); break;
+        }
         case 'charAt': case 'charCodeAt': request.numbers.push(numeric(args[0])); break;
         case 'concat': for (const value of args) request.strings.push(units(toString(value))); break;
         case 'indexOf': case 'lastIndexOf':

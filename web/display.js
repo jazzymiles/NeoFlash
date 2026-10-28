@@ -286,6 +286,34 @@
         swapChildrenAt:(first,second)=>{const api=methods(target);mutate({op:'swap',parent:ref(),first:childRef(api.getChildAt(first)),second:childRef(api.getChildAt(second))});},
       };
     }
+    function legacyDepth(value) {
+      if(!Number.isInteger(value)||value<0||value>1048575)throw new RangeError('AS2 runtime depth requires an integer from 0 through 1048575.');
+      return value;
+    }
+    function placeAtDepth(parent,child,depth,deliver=true) {
+      requireContainer(parent);descriptor(child);
+      const packet=JSON.parse(player.as2_place_depth(referenceOf(parent).key,referenceOf(child).key,legacyDepth(depth)));
+      if(deliver)onMutation(packet.events);return packet.events;
+    }
+    function initValues(value) {
+      const result=[];
+      if(value!==null&&typeof value==='object')for(const [key,item]of Object.entries(Object.getOwnPropertyDescriptors(value))){
+        if(!item.enumerable)continue;
+        if(!Object.hasOwn(item,'value'))throw new TypeError('AS2 initObject requires ordinary enumerable data properties; accessors are unsupported.');
+        if(result.length>=1024)throw new RangeError('AS2 initObject exceeds 1024 properties.');
+        result.push([key,item.value]);
+      }
+      return result;
+    }
+    function initializeLegacy(clip,values) {
+      for(const [key,value]of values){if(callbackNames.has(key))setLegacyCallback(clip,key,value);else clip[key]=value;}
+    }
+    function targetPath(target) {descriptor(target);return player.as2_target_path(referenceOf(target).key,false);}
+    function resolveTarget(value,relative=proxyFor([])) {
+      if(typeof value!=='string'){descriptor(value);return value;}
+      descriptor(relative);const ref=JSON.parse(player.as2_resolve_target(referenceOf(relative).key,value));
+      return ref?proxyForRef(ref):undefined;
+    }
     function legacyDrawing(target) {
       const drawing=graphics(target);
       return {
@@ -304,44 +332,53 @@
         lineGradientStyle:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>drawing.lineGradientStyle(type,colors,graphicsNumbers(alphas,'AS2 alphas',15).map(alpha=>alpha/100),ratios,matrix,spread,interpolation==='RGB'?'rgb':interpolation,focal),
         endFill:drawing.endFill,lineStyle:(width,color=0,alpha=100,...options)=>drawing.lineStyle(width,color,alpha/100,...options),
         moveTo:drawing.moveTo,lineTo:drawing.lineTo,curveTo:drawing.curveTo,clear:drawing.clear,
-        getNextHighestDepth:()=>children(target).length,
+        getNextHighestDepth:()=>{requireContainer(target);return player.as2_next_depth(referenceOf(target).key);},
+        getInstanceAtDepth:depth=>{
+          requireContainer(target);if(!Number.isInteger(depth)||depth< -16384||depth>1048575)throw new RangeError('AS2 lookup depth requires an integer from -16384 through 1048575.');
+          const ref=JSON.parse(player.as2_child_at_depth(referenceOf(target).key,depth));return ref?proxyForRef(ref):undefined;
+        },
+        swapDepths:value=>{
+          let depth=value;
+          if(typeof value!=='number'){
+            const other=resolveTarget(value,parentSpace(target));
+            if(!other)throw new ReferenceError('swapDepths target path was not found.');
+            if(parentSpace(other)!==parentSpace(target))throw new TypeError('swapDepths requires siblings in the same container.');
+            depth=player.as2_get_depth(referenceOf(other).key);
+          }
+          player.as2_swap_depth(referenceOf(target).key,legacyDepth(depth));
+        },
+        duplicateMovieClip:(name,depth,initObject)=>{
+          descriptor(target);if(typeof name!=='string')throw new TypeError('duplicateMovieClip requires a string instance name.');
+          const values=initValues(initObject),packet=JSON.parse(player.as2_duplicate(referenceOf(target).key,name,legacyDepth(depth)));
+          const clip=proxyForRef(packet.object_ref);initializeLegacy(clip,values);onMutation(packet.events);return clip;
+        },
         attachBitmap:(data,depth,pixelSnapping='auto',smoothing=false)=>{
-          if(depth!==children(target).length)throw new RangeError('attachBitmap currently supports append-only depth: pass getNextHighestDepth().');
-          const image=new builtins['flash.display.Bitmap'](data,pixelSnapping,smoothing);containerMethods(target).addChild(image);
+          legacyDepth(depth);
+          const image=new builtins['flash.display.Bitmap'](data,pixelSnapping,smoothing);placeAtDepth(target,image,depth);
         },
         createTextField:(name,depth,x,y,width,height)=>{
           if(typeof name!=='string'||new TextEncoder().encode(name).length>4096)throw new TypeError('createTextField requires a name of at most 4096 UTF-8 bytes.');
-          if(depth!==children(target).length)throw new RangeError('createTextField currently supports append-only depth: pass getNextHighestDepth().');
+          legacyDepth(depth);
           if(![x,y,width,height].every(Number.isFinite)||width<0||height<0)throw new RangeError('createTextField requires finite coordinates and nonnegative box dimensions.');
           const text=new builtins['flash.text.TextField']();text.name=name;text.x=x;text.y=y;text.width=width;text.height=height;
-          containerMethods(target).addChild(text);return text;
+          placeAtDepth(target,text,depth);return text;
         },
         createEmptyMovieClip:(name,depth)=>{
           if(typeof name!=='string'||new TextEncoder().encode(name).length>4096)throw new TypeError('createEmptyMovieClip requires a name of at most 4096 UTF-8 bytes.');
-          if(depth!==children(target).length)throw new RangeError('createEmptyMovieClip currently supports append-only depth: pass getNextHighestDepth(). Flash depth replacement is pending.');
+          legacyDepth(depth);
           const clip=proxyForRef(JSON.parse(player.create_display('movie_clip')));clip.name=name;
-          containerMethods(target).addChild(clip);return clip;
+          placeAtDepth(target,clip,depth);return clip;
         },
         removeMovieClip:()=>{const parent=parentSpace(target);if(parent&&parent!==getStage())containerMethods(parent).removeChild(target);else if(descriptor(target).authored_path!==null)throw new TypeError('Authored timelines cannot be removed at runtime.');},
         attachMovie:(identifier,name,depth,initObject)=>{
           requireContainer(target);
           if(typeof identifier!=='string'||!identifier)throw new TypeError('attachMovie requires the exact Export identifier of a MovieClip symbol.');
           if(typeof name!=='string'||new TextEncoder().encode(name).length>4096)throw new TypeError('attachMovie requires a name of at most 4096 UTF-8 bytes.');
-          if(depth!==children(target).length)throw new RangeError('attachMovie currently supports append-only depth: pass getNextHighestDepth(). Flash depth replacement is pending.');
-          // The bounded initObject profile copies ordinary enumerable own data
-          // before the linked constructor, without invoking foreign getters.
-          const values=[];
-          if(initObject!==null&&typeof initObject==='object'){
-            const descriptors=Object.getOwnPropertyDescriptors(initObject);
-            for(const key of Object.keys(descriptors))if(descriptors[key].enumerable){
-              if(!Object.hasOwn(descriptors[key],'value'))throw new TypeError('attachMovie initObject currently requires enumerable data properties; accessors are unsupported.');
-              if(values.length>=1024)throw new RangeError('attachMovie initObject exceeds 1024 properties.');
-              values.push([key,descriptors[key].value]);
-            }
-          }
+          legacyDepth(depth);
+          const values=initValues(initObject);
           const clip=proxyForRef(JSON.parse(player.create_linked(identifier)));clip.name=name;
-          for(const [key,value]of values){if(key==='onEnterFrame'||key==='onPress')setLegacyCallback(clip,key,value);else clip[key]=value;}
-          const events=mutate({op:'add',parent:referenceOf(target).objectRef,child:referenceOf(clip).objectRef,index:null},false);
+          initializeLegacy(clip,values);
+          const events=placeAtDepth(target,clip,depth,false);
           prepareLinked(clip,false);onMutation(events);return clip;
         },
       };
@@ -430,6 +467,7 @@
     function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&(node.input.button_mode||['onPress','onRelease','onReleaseOutside'].some(name=>callback(record,name))))return true;}return false;}
     function methods(target) {
       const result={
+        getDepth:()=>{descriptor(target);return player.as2_get_depth(referenceOf(target).key);},
         hitTestPoint:(x,y,shape=false)=>hitTestPoint(target,x,y,shape),hitTestObject:other=>hitTestObject(target,other),
         hitTest:(...args)=>args.length===1?hitTestObject(target,args[0]):hitTestPoint(target,args[0],args[1],args[2]??false),
         getBounds: space=>bounds(target,space===undefined?target:space,true),
@@ -441,13 +479,32 @@
         getChildIndex: child=>{requireContainer(target);const node=descriptor(child),index=children(target).findIndex(candidate=>nodeKey(candidate)===nodeKey(node));if(index<0)throw new RangeError('Object is not a direct child of this container.');return index;},
         contains: child=>{requireContainer(target);const parent=descriptor(target),node=descriptor(child);return descendant(node,parent,nodes());},
       };
+      if(as2) {
+        for(const name of ['getBounds','getRect'])as2.register(result[name],target,name,space=>{
+          const destination=space===undefined?target:resolveTarget(space,target);
+          if(!destination)throw new ReferenceError('AS2 bounds target path was not found.');
+          const box=bounds(target,destination,name==='getBounds');return {xMin:box.x,yMin:box.y,xMax:box.x+box.width,yMax:box.y+box.height};
+        });
+        for(const name of ['localToGlobal','globalToLocal'])as2.register(result[name],target,name,value=>{
+          if(value===null||typeof value!=='object')throw new TypeError('AS2 coordinate conversion requires a point object.');
+          const position=convert(target,value,name==='localToGlobal');value.x=position.x;value.y=position.y;
+        });
+      }
       if(dragOwners.has(descriptor(target).owner)){result.startDrag=(lockCenter=false,bounds=null)=>startDrag(target,lockCenter,bounds);result.stopDrag=()=>stopDrag(target);if(as2)as2.register(result.startDrag,target,'startDrag',(lockCenter=false,...limits)=>{if(limits.length!==0&&limits.length!==4)throw new TypeError('AS2 startDrag requires lockCenter and optional left,top,right,bottom.');let bounds=null;if(limits.length){const[left,top,right,bottom]=limits;if(!limits.every(Number.isFinite)||right<left||bottom<top)throw new RangeError('AS2 drag bounds require ordered finite coordinates.');bounds=new Rectangle(left,top,right-left,bottom-top);}startDrag(target,lockCenter,bounds);});}
       if(graph&&['movie_clip','sprite','graphic','button'].includes(descriptor(target).owner))Object.assign(result,containerMethods(target));
       if(graph&&descriptor(target).owner==='movie_clip')Object.assign(result,legacyDrawing(target));
       if(descriptor(target).owner==='movie_clip')result.getURL=(url,window,method)=>{descriptor(target);const net=getNet();if(!net)throw new Error('Browser navigation requires the publication network service.');return net.getURL(target,url,window,method);};
       if(graph&&descriptor(target).owner==='loader')Object.assign(result,getLoader().methods(target));
       if(graph&&descriptor(target).owner==='video'&&getVideo())Object.assign(result,getVideo().methods(target));
-      if(descriptor(target).owner==='text'&&getText())Object.assign(result,getText().methods(referenceOf(target).key));
+      if(descriptor(target).owner==='text'&&getText()){
+        Object.assign(result,getText().methods(referenceOf(target).key));
+        result.replaceSel=result.replaceSelectedText;
+        result.removeTextField=()=>{
+          const parent=parentSpace(target);
+          if(parent&&parent!==getStage())containerMethods(parent).removeChild(target);
+          else throw new TypeError('removeTextField requires an attached runtime-created TextField; authored fields cannot be removed.');
+        };
+      }
       else if(descriptor(target).owner==='text')Object.assign(result,{
         appendText:value=>{if(typeof value!=='string')throw new TypeError('appendText currently requires a string.');writeText(target,textValue(textKind(target).text)+value);},
         replaceText:(begin,end,value)=>{
@@ -462,6 +519,10 @@
       return result;
     }
     function get(target,name) {
+      if(name==='_target'){descriptor(target);return player.as2_target_path(referenceOf(target).key,true);}
+      if(name==='_framesloaded')return descriptor(target).total_frames;
+      if(name==='_url'){descriptor(target);if(!global.location)throw new TypeError('AS2 _url requires a browser publication URL.');return global.location.href;}
+
       if(Object.hasOwn(inputNames,name)){const input=nativeInput(target);return name==='hitArea'?(input.hit_area?proxyForRef(input.hit_area):null):input[inputNames[name]];}
       if(['mouseX','mouseY','_xmouse','_ymouse'].includes(name)){const p=mousePoint(target);return name==='mouseX'||name==='_xmouse'?p.x:p.y;}
       if(name==='enabled'&&['movie_clip','button'].includes(descriptor(target).owner))throw new TypeError('AS2 enabled is a separate callback-only switch not yet supported; use mouseEnabled for the current input profile.');
@@ -516,7 +577,7 @@
     function set(target,name,value) {
       if(name==='enabled'&&['movie_clip','button'].includes(descriptor(target).owner))throw new TypeError('AS2 enabled is a separate callback-only switch not yet supported; use mouseEnabled for the current input profile.');
       if(Object.hasOwn(inputNames,name)){inputWrite(target,name,value);return true;}
-      if(['mouseX','mouseY','_xmouse','_ymouse','dropTarget','_droptarget'].includes(name))throw new TypeError(`${name} is read-only.`);
+      if(['mouseX','mouseY','_xmouse','_ymouse','dropTarget','_droptarget','_target','_framesloaded','_url'].includes(name))throw new TypeError(`${name} is read-only.`);
       if(descriptor(target).owner==='video'&&getVideo()&&getVideo().set(target,name,value))return true;
       if(name==='filters'){
         descriptor(target);const host=getFilters();if(!host)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
@@ -634,7 +695,7 @@
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});
       builtins[(name==='TextField'?'flash.text.':'flash.display.')+name]=NativeDisplay;
     }
-    return {methods,get,set,builtins,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();cancelPointer();},UNHANDLED};
+    return {methods,get,set,builtins,targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

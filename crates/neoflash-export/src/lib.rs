@@ -19,6 +19,7 @@ const STAGE: &str = include_str!("../../../web/stage.js");
 const LEGACY_INPUT: &str = include_str!("../../../web/legacy-input.js");
 const GEOMETRY: &str = include_str!("../../../web/geom.js");
 const GEOMETRY_3D: &str = include_str!("../../../web/geom3d.js");
+const AS2_PLATFORM: &str = include_str!("../../../web/as2-platform.js");
 const AS2_STRINGS: &str = include_str!("../../../web/as2-strings.js");
 const AS3_STRINGS: &str = include_str!("../../../web/as3-strings.js");
 const SCRIPT_EASING: &str = include_str!("../../../web/easing.js");
@@ -273,6 +274,7 @@ pub fn export_project(
         ("geom.js", GEOMETRY),
         ("geom3d.js", GEOMETRY_3D),
         ("as2-strings.js", AS2_STRINGS),
+        ("as2-platform.js", AS2_PLATFORM),
         ("as3-strings.js", AS3_STRINGS),
         ("easing.js", SCRIPT_EASING),
         ("math.js", SCRIPT_MATH),
@@ -371,6 +373,7 @@ fn html_document(title: &str) -> String {
   <script defer src="geom.js"></script>
   <script defer src="geom3d.js"></script>
   <script defer src="as2-strings.js"></script>
+  <script defer src="as2-platform.js"></script>
   <script defer src="as3-strings.js"></script>
   <script defer src="easing.js"></script>
   <script defer src="math.js"></script>

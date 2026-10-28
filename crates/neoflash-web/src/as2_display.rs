@@ -1,0 +1,86 @@
+//! Transport only: all AS2 depth/path/duplication behavior lives in core Rust.
+use super::*;
+#[wasm_bindgen]
+impl WebPlayer {
+    pub fn as2_get_depth(&self, reference: &str) -> Result<i32, JsValue> {
+        self.player
+            .as2_get_depth(&object_ref(reference)?)
+            .map_err(display_error)
+    }
+    pub fn as2_next_depth(&self, parent: &str) -> Result<i32, JsValue> {
+        self.player
+            .as2_next_depth(&object_ref(parent)?)
+            .map_err(display_error)
+    }
+    pub fn as2_child_at_depth(&self, parent: &str, depth: i32) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .as2_child_at_depth(&object_ref(parent)?, depth)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn as2_place_depth(
+        &mut self,
+        parent: &str,
+        child: &str,
+        depth: i32,
+    ) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .as2_place_depth(
+                    &self.project,
+                    &object_ref(parent)?,
+                    &object_ref(child)?,
+                    depth,
+                )
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn as2_swap_depth(&mut self, reference: &str, depth: i32) -> Result<(), JsValue> {
+        self.player
+            .as2_swap_depth(&object_ref(reference)?, depth)
+            .map_err(display_error)
+    }
+    pub fn as2_duplicate(
+        &mut self,
+        source: &str,
+        name: &str,
+        depth: i32,
+    ) -> Result<String, JsValue> {
+        let (object_ref, result) = self
+            .player
+            .as2_duplicate(&self.project, &object_ref(source)?, name, depth)
+            .map_err(display_error)?;
+        // Preserve ObjectRef's canonical id/generation field order. Passing it
+        // through serde_json::Value sorts keys and breaks the existing host's
+        // reference-key identity convention.
+        #[derive(serde::Serialize)]
+        struct DuplicatePacket {
+            object_ref: ObjectRef,
+            events: Vec<neoflash_core::DisplayEvent>,
+        }
+        serde_json::to_string(&DuplicatePacket {
+            object_ref,
+            events: result.events,
+        })
+        .map_err(display_error)
+    }
+    pub fn as2_target_path(&self, target: &str, slash: bool) -> Result<String, JsValue> {
+        self.player
+            .as2_target_path(&self.project, &object_ref(target)?, slash)
+            .map_err(display_error)
+    }
+    pub fn as2_resolve_target(&self, relative: &str, path: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .as2_resolve_target(&self.project, &object_ref(relative)?, path)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+}

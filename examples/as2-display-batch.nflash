@@ -1,0 +1,125 @@
+{
+  "format_version": 1,
+  "name": "AS2 MovieClip depth and duplication batch",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    16,
+    23,
+    37,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 45,
+                      "y": 55,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "AS2 / MOVIECLIP DEPTHS + DUPLICATION",
+                      "font_family": "Arial",
+                      "font_size": 25,
+                      "color": [
+                        218,
+                        234,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "result",
+                    "name": "result",
+                    "transform": {
+                      "x": 45,
+                      "y": 110,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Running...",
+                      "font_family": "Arial",
+                      "font_size": 24,
+                      "color": [
+                        218,
+                        234,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "note",
+                    "name": "note",
+                    "transform": {
+                      "x": 45,
+                      "y": 465,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Sparse depths, mutable points and legacy target paths run in a real publication.",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        218,
+                        234,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop();\nvar passed = 0;\nvar checks = 0;\nvar failures = \"\";\nfunction check(label, condition) {\n  checks++;\n  if (condition) passed++; else failures += label + \"; \";\n}\nvar holder = _root.createEmptyMovieClip(\"holder\", 500);\nholder._x = 80;\nholder._y = 185;\nvar first = holder.createEmptyMovieClip(\"first\", 100);\nfirst.beginFill(0x55D9A7, 100);\nfirst.moveTo(0, 0); first.lineTo(130, 0); first.lineTo(130, 100); first.lineTo(0, 100); first.lineTo(0, 0); first.endFill();\nvar second = holder.createEmptyMovieClip(\"second\", 4);\ncheck(\"sparse depths\", first.getDepth() == 100 && second.getDepth() == 4 && holder.getNextHighestDepth() == 101);\ncheck(\"lookup\", holder.getInstanceAtDepth(100) === first && holder.getInstanceAtDepth(7) === undefined);\nfirst.swapDepths(second);\ncheck(\"swap object\", first.getDepth() == 4 && second.getDepth() == 100);\nfirst.swapDepths(999);\ncheck(\"swap empty depth\", first.getDepth() == 999 && holder.getInstanceAtDepth(4) === undefined);\nvar copy = first.duplicateMovieClip(\"copy\", 100, {caption:\"independent duplicate\"});\ncopy._x = 190;\ncheck(\"replacement\", holder.getInstanceAtDepth(100) === copy && second._parent === null);\ncheck(\"duplicate metadata\", copy.caption == \"independent duplicate\" && copy._width == 130 && copy._height == 100);\ncheck(\"target paths\", copy._target == \"/holder/copy\" && targetPath(copy) == \"_level0.holder.copy\");\ncheck(\"loaded frames\", copy._framesloaded == 1);\ncheck(\"publication url\", _root._url.indexOf(\"http\") == 0);\nvar point = {x:0, y:0};\ncopy.localToGlobal(point);\ncheck(\"AS2 point mutation\", point.x == 270 && point.y == 185);\ncopy.globalToLocal(point);\ncheck(\"AS2 inverse point\", point.x == 0 && point.y == 0);\nvar box = copy.getBounds(\"_root\");\nvar rect = copy.getRect(\"/holder\");\ncheck(\"AS2 bounds\", box.xMin == 270 && box.xMax == 400 && rect.xMin == 190 && rect.yMax == 100);\nfirst.clear();\nfirst.beginFill(0x728FE8);first.moveTo(0,0);first.lineTo(90,0);first.curveTo(140,50,90,100);first.lineTo(0,100);first.lineTo(0,0);first.endFill();\ncheck(\"independent graphics\", copy._width == 130 && first._width != copy._width);\nvar label = holder.createTextField(\"caption\", 2000, 0, 135, 600, 50);\nlabel.text = \"Rust depth graph | independent drawings | AS2 paths\";\nlabel.textColor = 0xD5E7FA;\ncheck(\"text depth\", label.getDepth() == 2000 && holder.getInstanceAtDepth(2000) === label);\nvar removed = holder.createEmptyMovieClip(\"removed\", 4000);\nremoved.removeMovieClip();\ncheck(\"remove\", holder.getInstanceAtDepth(4000) === undefined && holder.getNextHighestDepth() == 2001);\nvar format = new TextFormat();\nformat.font = \"Arial\";format.size = 18;format.bold = true;format.italic = true;\nlabel.setTextFormat(format);\nvar copiedFormat = label.getTextFormat();\nlabel.setNewTextFormat(copiedFormat);\ncheck(\"TextFormat shared properties\", copiedFormat.font == \"Arial\" && copiedFormat.size == 18 && copiedFormat.bold && copiedFormat.italic);\nlabel.type = \"dynamic\";label.selectable = true;label.password = false;label.maxChars = 90;label.restrict = \"A-Z a-z|\";\ncheck(\"TextField input state\", label.type == \"dynamic\" && label.selectable && !label.password && label.maxChars == 90 && label.restrict == \"A-Z a-z|\");\nlabel.setSelection(0,4);label.replaceSel(\"Core\");\nlabel.replaceText(0,4,\"Rust\");\ncheck(\"TextField replacements\", label.text.indexOf(\"Rust depth\") == 0);\ncheck(\"TextField metrics and identity\", label.textWidth > 0 && label.textHeight > 0 && label._name == \"caption\" && label._visible);\nvar temporary = holder.createTextField(\"temporary\", 5000, 0, 0, 100, 30);\ntemporary.removeTextField();\ncheck(\"removeTextField\", holder.getInstanceAtDepth(5000) === undefined);\n_root.result.text = passed + \" / \" + checks + \" checks passed\";\n_root.report = '{\"suite\":\"as2-display-batch\",\"passed\":' + passed + ',\"checks\":' + checks + ',\"failures\":\"' + failures + '\"}';\ntrace(_root.report);\n"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

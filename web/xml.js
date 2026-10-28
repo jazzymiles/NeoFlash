@@ -26,7 +26,7 @@
     return result;
   }
   function node(kind,name=null,value=''){return {kind,name,value,attributes:[],declarations:[],children:[],parent:null};}
-  function create({parse,net,afterCallback,onError}={}){
+  function create({parse,parseLegacy,namespaceLookup,net,afterCallback,onError}={}){
     if(typeof parse!=='function')throw new TypeError('XML requires the shared Rust parse_xml_json service. Re-export this project.');
     let generation=1,disposed=false,nodeCount=0,stringBytes=0,listRefs=0,settings={...defaults};
     const nodes=new Set(),records=new WeakMap(),xmlWrappers=new WeakMap(),legacyWrappers=new WeakMap(),attributeWrappers=new WeakMap(),loads=new Set();
@@ -36,7 +36,7 @@
     const is=value=>records.has(value);
     const kind=value=>records.get(value)?.kind||(namespaces.has(value)?'namespace':qnames.has(value)?'qname':null);
     function units(n){return 1+n.declarations.length;}
-    function bytes(n){return encoder.encode(n.value+(n.declaration||'')+(n.name?Object.values(n.name).join(''):'')+n.declarations.map(d=>d.prefix+d.uri).join('')).length;}
+    function bytes(n){return encoder.encode(n.value+(n.declaration||'')+(n.doctype||'')+(n.name?Object.values(n.name).join(''):'')+n.declarations.map(d=>d.prefix+d.uri).join('')).length;}
     function walk(roots){
       const found=[],seen=new Set(),stack=roots.map(n=>[n,n.kind==='element'?1:0]);
       while(stack.length){const[n,depth]=stack.pop();if(depth>128)throw new RangeError('XML tree exceeds 128 levels.');if(seen.has(n))throw new TypeError('XML tree contains a cycle or duplicate child.');seen.add(n);found.push(n);if(found.length>MAX_NODES)throw new RangeError('XML tree exceeds 50000 nodes.');for(const a of n.attributes)stack.push([a,depth]);for(const child of n.children)stack.push([child,depth+(child.kind==='element'?1:0)]);}
@@ -49,12 +49,12 @@
       for(const n of added)nodes.add(n);nodeCount+=count;stringBytes+=size;return roots;
     }
     function change(n,property,value){const old=bytes(n),saved=n[property];n[property]=value;const next=bytes(n);n[property]=saved;if(stringBytes-old+next>MAX_BYTES)throw new RangeError('XML publication text exceeds 8 MiB.');n[property]=value;stringBytes+=next-old;}
-    function rawParse(source){
+    function rawParse(source,legacy=false){
       source=text(source);if(encoder.encode(source).length>1024*1024)throw new RangeError('XML parser input exceeds 1 MiB.');
-      const result=JSON.parse(parse(source));if(result.error){const e=new SyntaxError(`XML ${result.error.kind} at UTF-8 byte ${result.error.offset}: ${result.error.message}`);e.xmlCategory=result.error.kind;throw e;}return result.ok;
+      const result=JSON.parse((legacy&&parseLegacy?parseLegacy:parse)(source));if(result.error){const e=new SyntaxError(`XML ${result.error.kind} at UTF-8 byte ${result.error.offset}: ${result.error.message}`);e.xmlCategory=result.error.kind;throw e;}return result.ok;
     }
     function parsed(source,policy){
-      const ir=rawParse(source),map=new Map();
+      const ir=rawParse(source,policy.legacy),map=new Map();
       function build(index){
         if(map.has(index))return map.get(index);const p=ir.nodes[index];
         if((p.kind==='comment'&&policy.ignoreComments)||(p.kind==='pi'&&policy.ignoreProcessingInstructions))return null;
@@ -67,10 +67,11 @@
         n.attributes=p.attributes.map(a=>{const child=node('attribute',{...a.name},a.value);child.parent=n;return child;});
         n.children=p.children.map(build).filter(Boolean);for(const child of n.children)child.parent=n;return n;
       }
-      return {roots:ir.roots.map(build).filter(Boolean),declaration:ir.declaration};
+      const roots=ir.roots.map(build).filter(Boolean);
+      return {roots,declaration:ir.declaration,doctype:ir.doctype??null,idMap:Object.fromEntries(Object.entries(ir.id_map||{}).map(([key,index])=>[key,map.get(index)]))};
     }
     function clone(n,deep=true){
-      const copy=node(n.kind,n.name?{...n.name}:null,n.value);copy.declarations=n.declarations.map(d=>({...d}));copy.declaration=n.declaration;
+      const copy=node(n.kind,n.name?{...n.name}:null,n.value);copy.declarations=n.declarations.map(d=>({...d}));copy.declaration=n.declaration;copy.doctype=n.doctype;
       copy.attributes=n.attributes.map(a=>{const child=clone(a);child.parent=copy;return child;});
       if(deep)copy.children=n.children.map(c=>{const child=clone(c);child.parent=copy;return child;});return copy;
     }
@@ -347,7 +348,7 @@
     function legacyWrap(n,document=false){
       if(legacyWrappers.has(n))return legacyWrappers.get(n);
       const value=Object.create(document?LegacyXML.prototype:XMLNode.prototype);
-      records.set(value,{kind:'legacy',nodes:[n],generation,ignoreWhite:false,status:0,loaded:undefined,operation:null,bytesLoaded:undefined,bytesTotal:undefined});legacyWrappers.set(n,value);return value;
+      records.set(value,{kind:'legacy',nodes:[n],generation,ignoreWhite:false,status:0,loaded:undefined,operation:null,bytesLoaded:undefined,bytesTotal:undefined,contentType:'application/x-www-form-urlencoded',headers:[],idMap:Object.create(null)});legacyWrappers.set(n,value);return value;
     }
     function attributes(value){
       const n=legacyNode(value);if(attributeWrappers.has(n))return attributeWrappers.get(n);
@@ -378,12 +379,19 @@
       get parentNode(){const p=legacyNode(this).parent;return p?legacyWrap(p,p.kind==='document'):null;}
       get previousSibling(){const n=legacyNode(this),i=n.parent?.children.indexOf(n);return i>0?legacyWrap(n.parent.children[i-1]):null;}
       get nextSibling(){const n=legacyNode(this),i=n.parent?.children.indexOf(n),s=i===undefined?null:n.parent.children[i+1];return s?legacyWrap(s):null;}
+      getNamespaceForPrefix(prefix){return legacyNamespace(this,prefix,false);}
+      getPrefixForNamespace(uri){return legacyNamespace(this,uri,true);}
       hasChildNodes(){return legacyNode(this).children.length>0;}
       appendChild(child){legacyInsert(this,child,null);}
       insertBefore(child,before){legacyInsert(this,child,before);}
       removeNode(){detach(legacyNode(this));}
       cloneNode(deep=false){const n=clone(legacyNode(this),Boolean(deep));commit([n]);return legacyWrap(n,n.kind==='document');}
-      toString(){const n=legacyNode(this);return serialize(n.kind==='document'?n.children:[n],false,n.kind==='document'?n.declaration:null);}
+      toString(){const n=legacyNode(this);return serialize(n.kind==='document'?n.children:[n],false,n.kind==='document'?(n.declaration||'')+(n.doctype||''):null);}
+    }
+    function legacyNamespace(value,query,reverse){
+      if(typeof namespaceLookup!=='function')unsupported('namespace lookup without Rust AS2 service; re-export this project');
+      const ancestry=[];for(let p=legacyNode(value);p;p=p.parent)ancestry.push(p.declarations);
+      return namespaceLookup(ancestry,text(query),reverse);
     }
     function legacyInsert(value,input,before){
       const parent=legacyNode(value),child=legacyNode(input);if(!['element','document'].includes(parent.kind)||child.kind==='document')throw new TypeError('XML DOM insertion requires an element/document parent and a non-document child.');
@@ -393,27 +401,40 @@
     }
     class LegacyXML extends XMLNode {
       constructor(source=''){
-        super(documentConstruction);const n=node('document');let status=0;
+        super(documentConstruction);const n=node('document');let status=0,idMap=Object.create(null);
         if(source!==undefined&&source!==''){
-          try{const result=parsed(source,{ignoreComments:false,ignoreProcessingInstructions:false,ignoreWhitespace:false,trim:false});n.children=result.roots;n.declaration=result.declaration;for(const child of n.children)child.parent=n;}
+          try{const result=parsed(source,{ignoreComments:false,ignoreProcessingInstructions:false,ignoreWhitespace:false,trim:false,legacy:true});n.children=result.roots;n.declaration=result.declaration;n.doctype=result.doctype;idMap=result.idMap;for(const child of n.children)child.parent=n;}
           catch(error){if(error.xmlCategory&&['syntax','namespace','character'].includes(error.xmlCategory))status=-6;else throw error;}
         }
-        commit([n]);const value=legacyWrap(n,true);legacyRecord(value).status=status;return value;
+        commit([n]);const value=legacyWrap(n,true);legacyRecord(value).status=status;legacyRecord(value).idMap=Object.fromEntries(Object.entries(idMap).map(([key,n])=>[key,legacyWrap(n)]));return value;
       }
       get ignoreWhite(){return legacyRecord(this).ignoreWhite;}set ignoreWhite(value){legacyRecord(this).ignoreWhite=Boolean(value);}
       get status(){return legacyRecord(this).status;}get loaded(){return legacyRecord(this).loaded;}set loaded(value){legacyRecord(this).loaded=Boolean(value);}
-      get xmlDecl(){return legacyNode(this).declaration??null;}set xmlDecl(value){unsupported('XML declaration mutation');}
-      get docTypeDecl(){legacyRecord(this);return null;}set docTypeDecl(value){unsupported('DOCTYPE declarations');}
+      get xmlDecl(){return legacyNode(this).declaration??null;}set xmlDecl(value){change(legacyNode(this),'declaration',value==null?null:text(value));}
+      get docTypeDecl(){return legacyNode(this).doctype??null;}set docTypeDecl(value){change(legacyNode(this),'doctype',value==null?null:text(value));}
+      get idMap(){return legacyRecord(this).idMap;}
+      get contentType(){return legacyRecord(this).contentType;}set contentType(value){legacyRecord(this).contentType=text(value);}
       createElement(value){return new XMLNode(1,value);}createTextNode(value){return new XMLNode(3,value);}
       parseXML(source){
         const r=legacyRecord(this),n=r.nodes[0];let result;
-        try{result=parsed(source,{ignoreComments:false,ignoreProcessingInstructions:false,ignoreWhitespace:r.ignoreWhite,trim:false});commit(result.roots,encoder.encode(result.declaration||'').length-encoder.encode(n.declaration||'').length);}
+        try{result=parsed(source,{ignoreComments:false,ignoreProcessingInstructions:false,ignoreWhitespace:r.ignoreWhite,trim:false,legacy:true});commit(result.roots,encoder.encode((result.declaration||'')+(result.doctype||'')).length-encoder.encode((n.declaration||'')+(n.doctype||'')).length);}
         catch(error){r.status=-6;if(error.xmlCategory&&['syntax','namespace','character'].includes(error.xmlCategory))return;throw error;}
         // Old nodes remain valid detached snapshots; failure above never mutates them.
         const declaration=result.declaration??null;
-        for(const old of n.children)old.parent=null;n.children=result.roots;for(const child of n.children)child.parent=n;change(n,'declaration',declaration);r.status=0;
+        for(const old of n.children)old.parent=null;n.children=result.roots;for(const child of n.children)child.parent=n;const previousBytes=bytes(n);n.declaration=declaration;n.doctype=result.doctype;stringBytes+=bytes(n)-previousBytes;r.idMap=Object.fromEntries(Object.entries(result.idMap).map(([key,node])=>[key,legacyWrap(node)]));r.status=0;
       }
       load(url){return load(this,url);}
+      addRequestHeader(name,value){const r=legacyRecord(this);if(!net)unsupported('request headers without network service');r.headers=net.legacyRequestHeaders(r.headers,name,value);}
+      sendAndLoad(url,target,method='POST'){
+        if(legacyNode(target).kind!=='document')throw new TypeError('XML.sendAndLoad requires an XML document target.');
+        const request=legacyRequest(this,url,method);load(target,url,request);
+      }
+      send(url,target='_self',method='POST'){
+        legacyRecord(this);if(arguments.length===0)return false;
+        const request=legacyRequest(this,url,method);
+        if(request.method.toUpperCase()!=='GET')unsupported('send POST browser navigation; use sendAndLoad for XML POST responses or send with GET');
+        net.navigateToURL(request,target);return true;
+      }
       getBytesLoaded(){return legacyRecord(this).bytesLoaded;}getBytesTotal(){return legacyRecord(this).bytesTotal;}
       onData(source){
         const r=legacyRecord(this),born=generation,operation=r.operation;
@@ -425,7 +446,11 @@
       onLoad(success){}
     }
     function cancel(r){if(!r.operation)return;const op=r.operation;r.operation=null;loads.delete(op);try{op.loader.close();}catch(_){};}
-    function load(receiver,url){
+    function legacyRequest(receiver,url,method){
+      const r=legacyRecord(receiver);if(!net)unsupported('sending without network service');
+      const request=new net.URLRequest(url);request.method=method;request.contentType=r.contentType;request.requestHeaders=r.headers.slice();request.data=receiver.toString();return request;
+    }
+    function load(receiver,url,request=null){
       const r=legacyRecord(receiver);if(!net)unsupported('load without URLLoader service');if(typeof url!=='string')throw new TypeError('XML.load URL requires a string.');cancel(r);r.loaded=false;r.bytesLoaded=0;r.bytesTotal=0;
       const loader=new net.URLLoader(),op={loader,record:r,receiver,generation};r.operation=op;loads.add(op);
       const current=()=>!disposed&&generation===op.generation&&r.operation===op;
@@ -434,9 +459,8 @@
       loader.addEventListener('httpStatus',event=>invoke('onHTTPStatus',[event.status]));
       const done=success=>{if(!current())return;r.bytesLoaded=loader.bytesLoaded;r.bytesTotal=loader.bytesTotal;try{invoke('onData',[success?loader.data:undefined]);}finally{if(r.operation===op)r.operation=null;loads.delete(op);}};
       loader.addEventListener('complete',()=>done(true));loader.addEventListener('ioError',()=>done(false));
-      try{loader.load(new net.URLRequest(url));}catch(error){cancel(r);throw error;}return true;
+      try{loader.load(request||new net.URLRequest(url));}catch(error){cancel(r);throw error;}return true;
     }
-    for(const name of ['send','sendAndLoad','addRequestHeader'])Object.defineProperty(LegacyXML.prototype,name,{value(){unsupported(name);}});
     for(const[Type,predicate]of [[XML,v=>records.get(v)?.kind==='xml'],[XMLList,v=>records.get(v)?.kind==='list'],[LegacyXML,v=>records.get(v)?.kind==='legacy'&&records.get(v).nodes[0].kind==='document'],[XMLNode,v=>records.get(v)?.kind==='legacy']])Object.defineProperties(Type,{__nfIs:{value:predicate},__nfInitialize:{value:()=>unsupported('native subclassing')},[Symbol.hasInstance]:{value:predicate}});
     function ref(value,key,as3){
       const r=state(value);if(r.kind==='legacy')return {get:()=>value[key],set:next=>{value[key]=next;return next;},delete:()=>Reflect.deleteProperty(value,key),has:()=>key in value};

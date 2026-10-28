@@ -5,6 +5,8 @@ use neoflash_core::Project;
 use std::collections::{BTreeMap, BTreeSet};
 
 const BUILTINS: &[&str] = &[
+    "mx.utils.Delegate",
+    "mx.events.EventDispatcher",
     "Object",
     "Array",
     "flash.display.DisplayObject",
@@ -415,10 +417,18 @@ fn visible_names(
             languages.get(*name).map_or_else(
                 || {
                     (language == ScriptLanguage::ActionScript3
-                        && !name.starts_with("mx.transitions."))
+                        && !name.starts_with("mx.transitions.")
+                        && !matches!(
+                            name.as_str(),
+                            "mx.utils.Delegate" | "mx.events.EventDispatcher"
+                        ))
                         || matches!(name.as_str(), "Object" | "Array")
                         || (language == ScriptLanguage::ActionScript2
-                            && name.starts_with("mx.transitions."))
+                            && (name.starts_with("mx.transitions.")
+                                || matches!(
+                                    name.as_str(),
+                                    "mx.utils.Delegate" | "mx.events.EventDispatcher"
+                                )))
                         || name.starts_with("flash.geom.")
                         || (name.starts_with("flash.filters.")
                             && name.as_str() != "flash.filters.BitmapFilterQuality")
@@ -563,11 +573,6 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
     if is_interface && (dynamic || final_) {
         return Err(p.error("Interfaces cannot be dynamic or final."));
     }
-    if is_interface && as2 {
-        return Err(p.error(
-            "Project interfaces currently require AS3; AS2 interface semantics remain unsupported.",
-        ));
-    }
     if !is_interface {
         p.expect("class")?;
     }
@@ -597,6 +602,11 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
                 if !p.eat(",") {
                     break;
                 }
+                if as2 {
+                    return Err(
+                        p.error("AS2 interfaces extend one parent interface in this profile.")
+                    );
+                }
             }
             None
         } else {
@@ -606,8 +616,10 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
         None
     };
     if p.eat("implements") {
-        if as2 || is_interface {
-            return Err(p.error("Only AS3 project classes can use implements in this profile."));
+        if is_interface {
+            return Err(
+                p.error("An interface extends a parent contract; only classes use implements.")
+            );
         }
         loop {
             interfaces.push(qualified(&mut p)?);
@@ -803,6 +815,16 @@ fn parse_class(
             })
         })
         .transpose()?;
+    if base
+        .as_deref()
+        .is_some_and(|name| matches!(name, "mx.utils.Delegate" | "mx.events.EventDispatcher"))
+    {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "AS2 utility classes provide static factory/initialize methods and cannot be subclassed.",
+        ));
+    }
     if base.as_deref() == Some("flash.external.ExternalInterface") {
         return Err(Diagnostic::at(
             &header.script,
@@ -1010,6 +1032,7 @@ fn parse_class(
         };
         let mut access_seen = false;
         if header.is_interface
+            && !(as2 && p.is("public"))
             && matches!(
                 p.token_text().as_str(),
                 "public" | "static" | "override" | "private" | "protected" | "internal" | "final"
@@ -1052,6 +1075,9 @@ fn parse_class(
             } else {
                 break;
             }
+        }
+        if header.is_interface && (is_static || access != Access::Public) {
+            return Err(p.error("Interface methods must be public instance signatures."));
         }
         if p.is("var") || p.is("const") {
             if header.is_interface {

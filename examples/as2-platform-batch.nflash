@@ -1,0 +1,443 @@
+{
+  "format_version": 2,
+  "name": "AS2 platform and component events",
+  "width": 960,
+  "height": 570,
+  "fps": 24,
+  "background": [
+    14,
+    24,
+    33,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 42,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / AS2 PLATFORM BATCH",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        115,
+                        213,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 42,
+                      "y": 82,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "System, input and component events",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 42,
+                      "y": 125,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Rust capability policy and listener identities; browser facility adapters.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel",
+                    "name": "panel",
+                    "transform": {
+                      "x": 32,
+                      "y": 175,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 890,
+                      "height": 195,
+                      "fill": [
+                        25,
+                        42,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "result",
+                    "name": "result",
+                    "transform": {
+                      "x": 52,
+                      "y": 205,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Running the grouped AS2 package…",
+                      "font_family": "Arial",
+                      "font_size": 25,
+                      "color": [
+                        115,
+                        229,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pipeline",
+                    "name": "pipeline",
+                    "transform": {
+                      "x": 52,
+                      "y": 248,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Capabilities: awaiting browser profile",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "casing",
+                    "name": "casing",
+                    "transform": {
+                      "x": 52,
+                      "y": 286,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Press a key to inspect lock-key state",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "codec",
+                    "name": "codec",
+                    "transform": {
+                      "x": 52,
+                      "y": 324,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "IME composition text appears here",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rerun",
+                    "name": "rerun",
+                    "transform": {
+                      "x": 42,
+                      "y": 397,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "run-button",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.runPackage();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 285,
+                      "y": 417,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run again repeats the grouped AS2 scenario.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "counts",
+                    "name": "counts",
+                    "transform": {
+                      "x": 42,
+                      "y": 480,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Awaiting results",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 42,
+                      "y": 522,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Partial browser profile: no Flash plugin, OS IME controls or security bypass.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "run-button",
+      "name": "run-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "run-button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 56,
+                      "fill": [
+                        32,
+                        116,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 35,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RUN AGAIN",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": "",
+                "scripts": []
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "document_class": "app.PlatformMain",
+  "sources": [
+    {
+      "id": "as2-platform-main",
+      "path": "app/PlatformMain.as",
+      "language": "action_script2",
+      "source": "import mx.utils.Delegate;\nimport mx.events.EventDispatcher;\nclass app.PlatformMain extends MovieClip {\n  public var runs:Number = 0;\n  public var passed:Number = 0;\n  public var checks:Number = 0;\n  public var delegated:Number = 0;\n  public var imeText:String = \"\";\n  public var keyCaps:Boolean = false;\n  public function PlatformMain() {\n    super(); stop();\n    Key.addListener(this); System.IME.addListener(this);\n    runPackage();\n  }\n  public function check(name:String, value:Boolean):Void {\n    checks++; if(value) passed++;\n    trace(\"AS2_PLATFORM_CHECK \" + name + \" \" + value);\n  }\n  public function onDelegated(a:Number, b:Number):Number { delegated = a + b; return delegated; }\n  public function runPackage():Void {\n    runs++; passed = 0; checks = 0;\n    var c:Object = System.capabilities;\n    var booleanNames:Array = [\"avHardwareDisable\", \"hasAccessibility\", \"hasAudio\", \"hasAudioEncoder\", \"hasEmbeddedVideo\", \"hasIME\", \"hasMP3\", \"hasPrinting\", \"hasScreenBroadcast\", \"hasScreenPlayback\", \"hasStreamingAudio\", \"hasStreamingVideo\", \"hasVideoEncoder\", \"isDebugger\", \"localFileReadDisable\"];\n    var booleans:Boolean = true;\n    for(var i:Number = 0; i < booleanNames.length; i++) booleans = booleans && typeof c[booleanNames[i]] == \"boolean\";\n    check(\"capability flags\", booleans && !c.hasAudioEncoder && !c.hasVideoEncoder && c.localFileReadDisable);\n    check(\"capability metadata\", c.manufacturer == \"NeoFlash\" && c.playerType == \"NeoFlashHTML5\" && c.version.indexOf(\"NEO \") == 0 && c.language.length >= 2 && c.os.length > 0 && c.screenColor.length > 0 && c.screenDPI == 96 && c.pixelAspectRatio == 1 && c.screenResolutionX >= 0 && c.screenResolutionY >= 0 && c.serverString.indexOf(\"M=NeoFlash\") >= 0 && c.serverString.indexOf(\"PT=NeoFlashHTML5\") >= 0);\n    System.exactSettings = true; System.useCodepage = false;\n    var primitiveNumber:Number = -12.5; var primitiveBoolean:Boolean = true;\n    check(\"browser settings and global utilities\", System.exactSettings && !System.useCodepage && (System.security.sandboxType == \"remote\" || System.security.sandboxType == \"localWithNetwork\") && getVersion() == c.version && getTimer() >= 0 && primitiveNumber.valueOf() == -12.5 && primitiveBoolean.valueOf() == true);\n    var silentA:Sound = new Sound(); var silentB:Sound = new Sound();\n    silentA.setVolume(0); silentB.setVolume(0); silentA.stop(); stopAllSounds();\n    var callback:Function = Delegate.create(this, this.onDelegated);\n    check(\"delegate receiver and arguments\", callback(7, 9) == 16 && delegated == 16 && silentA.position == 0 && silentB.position == 0);\n    var source:Object = {};\n    EventDispatcher.initialize(source);\n    var receiver:Object = {hits:0, ping:function(event) { this.hits += event.amount; }};\n    source.addEventListener(\"ping\", receiver); source.addEventListener(\"ping\", receiver);\n    var event:Object = {type:\"ping\", amount:3}; source.dispatchEvent(event);\n    var first:Boolean = receiver.hits == 3 && event.target == source;\n    receiver.ping = function(event) { this.hits += event.amount * 2; };\n    source.dispatchEvent({type:\"ping\", amount:4}); source.removeEventListener(\"ping\", receiver);\n    source.dispatchEvent({type:\"ping\", amount:10});\n    check(\"component event lifecycle\", first && receiver.hits == 11);\n    source.addEventListener(\"ping\", callback); source.dispatchEvent({type:\"none\"});\n    source.removeEventListener(\"ping\", callback); EventDispatcher.initialize(source);\n    source.dispatchEvent({type:\"ping\", amount:10});\n    check(\"dispatcher reinitialization\", receiver.hits == 11);\n    var imeListener:Object = {onIMEComposition:function(text) { this.text = text; }};\n    System.IME.addListener(imeListener); System.IME.addListener(imeListener);\n    check(\"IME listener lifecycle\", System.IME.removeListener(imeListener) && !System.IME.removeListener(imeListener) && System.IME.UNKNOWN == \"UNKNOWN\" && System.IME.KOREAN == \"KOREAN\");\n    var listener:Object = {};\n    var before:Number = Key._listeners.length;\n    Key.addListener(listener); Key.addListener(listener);\n    var single:Boolean = Key._listeners.length == before + 1;\n    var removed:Boolean = Key.removeListener(listener);\n    Mouse.addListener(listener); var mouseRemoved:Boolean = Mouse.removeListener(listener);\n    Stage.addListener(listener); var stageRemoved:Boolean = Stage.removeListener(listener);\n    check(\"input singleton lifecycle\", single && removed && mouseRemoved && stageRemoved && Key._listeners.length == before && Key.isAccessible() && typeof Key.isToggled(Key.CAPSLOCK) == \"boolean\" && Key.BACKSPACE == 8 && Key.UP == 38 && Key.DELETEKEY == 46);\n    result.text = passed == checks ? \"PASS: AS2 platform package\" : \"FAIL: inspect the trace output\";\n    pipeline.text = c.manufacturer + \" / \" + c.os + \" / \" + c.language + \" / \" + c.screenResolutionX + \" x \" + c.screenResolutionY;\n    counts.text = passed + \" / \" + checks + \" grouped checks; run \" + runs;\n    updateAfterEvent();\n    trace(\"AS2_PLATFORM_RESULT \" + passed + \"/\" + checks);\n  }\n  public function onKeyDown():Void {\n    keyCaps = Key.isToggled(Key.CAPSLOCK);\n    casing.text = \"Key \" + Key.getCode() + \" / CapsLock \" + keyCaps;\n    trace(\"AS2_PLATFORM_KEY \" + Key.getCode() + \" \" + keyCaps);\n  }\n  public function onIMEComposition(text:String):Void {\n    imeText = text; codec.text = \"IME: \" + text;\n    trace(\"AS2_PLATFORM_IME \" + text);\n  }\n}\n"
+    }
+  ]
+}

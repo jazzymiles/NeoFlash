@@ -1,5 +1,7 @@
 # Roadmap
 
+The latest [AS2-only runtime delivery](AS2-RUNTIME-HOUR.md) adds 71 catalogue API paths and 13 language constructs with five ordinary HTML5 examples. Sparse MovieClip depths/duplication, System/input/component events, XML transport, legacy operators and source interfaces now have bounded working profiles. AS2 has 745 partial declarations; full AS2 is not complete. AS3 feature work, UI and FLA stay paused. The catalogue distinguishes new functionality from 77 corrections of already-existing support.
+
 The wider project remains paused. The bounded [AS2/AS3 runtime hour](AS-RUNTIME-HOUR.md) follows the [first Rust reuse experiment](AS-REUSE-EXPERIMENT.md): 192 new partial API paths, 117 migrations and five ordinary HTML5 scenarios. Further work requires another user instruction; this delivery does not resume editor, FLA or whole-project work. The approach remains coherent subsystem packages, licensed Rust adaptations and controlled shared verification.
 
 Independent 01f2261 acceptance (`POINTER-HTML5-20261027T1113Z`) confirms the observed AS3 donor-margin and AS2 −4-degree-parent drags, child/disabled targeting, bounded geometry/rectangle refusals, outside release and fresh Restart. AS3 is unrotated and both parents use unit scale; cursor effects and the first unresolved nested linked-target miss remain outside the accepted scope. See [the independent record](VERIFICATION.md#independent-pointer-verification-of-01f2261). ExternalInterface/page integration is already active and retains separate verification.

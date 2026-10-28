@@ -35,6 +35,7 @@ pub enum As2StringResult {
     String(Vec<u16>),
     Strings(Vec<Vec<u16>>),
     Number(String),
+    Boolean(bool),
     Undefined,
 }
 
@@ -103,6 +104,64 @@ pub(crate) fn rfind(haystack: &[u16], needle: &[u16]) -> Option<usize> {
     }
 }
 
+// Adapted from the pinned Ruffle AVM1 parse_int_internal; host coercions occur
+// before this kernel. Preserve NeoFlash's existing signed-octal profile.
+fn parse_integer(mut input: &[u16], radix: Option<i32>) -> f64 {
+    if radix.is_some_and(|base| !(2..=36).contains(&base)) {
+        return f64::NAN;
+    }
+    let mut base = radix.unwrap_or(10) as u32;
+    let has_sign = matches!(input.first(), Some(43 | 45));
+    let offset = usize::from(has_sign);
+    let hex = input.get(offset) == Some(&48) && matches!(input.get(offset + 1), Some(88 | 120));
+    let mut ignore_sign = false;
+    if hex && has_sign {
+        if radix.is_none() || base <= 33 {
+            return f64::NAN;
+        }
+        ignore_sign = true;
+    } else if hex {
+        input = &input[2..];
+        if radix.is_none() {
+            base = 16;
+        }
+    } else if radix.is_none()
+        && input.get(offset) == Some(&48)
+        && input[offset..].iter().all(|unit| (48..=55).contains(unit))
+    {
+        base = 8;
+    }
+    while matches!(input.first(), Some(9 | 10 | 13 | 32)) {
+        input = &input[1..];
+    }
+    let negative = !ignore_sign && input.first() == Some(&45);
+    if matches!(input.first(), Some(43 | 45)) {
+        input = &input[1..];
+    }
+    let mut result = 0.0;
+    let mut empty = true;
+    for unit in input {
+        let digit = match unit {
+            48..=57 => u32::from(*unit - 48),
+            65..=90 => u32::from(*unit - 55),
+            97..=122 => u32::from(*unit - 87),
+            _ => 36,
+        };
+        if digit >= base {
+            break;
+        }
+        result = result * f64::from(base) + f64::from(digit);
+        empty = false;
+    }
+    if empty {
+        f64::NAN
+    } else if negative {
+        -result
+    } else {
+        result
+    }
+}
+
 pub fn as2_string_execute(request: As2StringRequest) -> Result<As2StringResult, As2StringError> {
     let total = request
         .strings
@@ -124,6 +183,57 @@ pub fn as2_string_execute(request: As2StringRequest) -> Result<As2StringResult, 
     let length = receiver.len();
     let omitted_end = request.arg_count < 2 || request.undefined.contains(&1);
     let result = match request.operation.as_str() {
+        "operator.unequal" => {
+            As2StringResult::Boolean(numeric(&request, 0)? != numeric(&request, 1)?)
+        }
+        "operator.and" | "operator.or" | "operator.not" => {
+            let left = numeric(&request, 0)? != 0.0;
+            let right = numeric(&request, 1)? != 0.0;
+            As2StringResult::Boolean(match request.operation.as_str() {
+                "operator.and" => left && right,
+                "operator.or" => left || right,
+                _ => !left,
+            })
+        }
+        "operator.add" => {
+            let other = request
+                .strings
+                .first()
+                .ok_or_else(|| error("missing right operand"))?;
+            let mut value = receiver.clone();
+            value.extend(other);
+            units(&value)
+        }
+        "operator.eq" | "operator.ne" | "operator.lt" | "operator.le" | "operator.gt"
+        | "operator.ge" => {
+            let other = request
+                .strings
+                .first()
+                .ok_or_else(|| error("missing right operand"))?;
+            let order = receiver.cmp(other);
+            As2StringResult::Boolean(match request.operation.as_str() {
+                "operator.eq" => order.is_eq(),
+                "operator.ne" => !order.is_eq(),
+                "operator.lt" => order.is_lt(),
+                "operator.le" => !order.is_gt(),
+                "operator.gt" => order.is_gt(),
+                _ => !order.is_lt(),
+            })
+        }
+        "global.parseInt" => {
+            if request.arg_count == 0 {
+                As2StringResult::Undefined
+            } else {
+                number(parse_integer(
+                    receiver,
+                    if request.arg_count > 1 {
+                        Some(to_i32(numeric(&request, 0)?))
+                    } else {
+                        None
+                    },
+                ))
+            }
+        }
         "toString" | "valueOf" => units(receiver),
         "toLowerCase" => {
             As2StringResult::String(receiver.iter().copied().map(swf_to_lowercase).collect())
@@ -393,137 +503,33 @@ pub(crate) fn swf_to_uppercase(c: u16) -> u16 {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn call(
-        op: &str,
-        receiver: &[u16],
-        strings: &[&str],
-        numbers: &[&str],
-        arg_count: usize,
-        undefined: &[usize],
-    ) -> As2StringResult {
-        as2_string_execute(As2StringRequest {
-            operation: op.into(),
-            receiver: receiver.to_vec(),
-            strings: strings.iter().map(|s| s.encode_utf16().collect()).collect(),
-            numbers: numbers.iter().map(|s| s.to_string()).collect(),
-            arg_count,
-            undefined: undefined.to_vec(),
-        })
-        .unwrap()
-    }
-    fn s(text: &str) -> Vec<u16> {
-        text.encode_utf16().collect()
-    }
-    #[test]
-    fn reused_as2_string_family_scenario() {
-        let source = s("ababa");
-        assert_eq!(
-            call("charAt", &[0xd800, 65], &[], &["0"], 1, &[]),
-            units(&[0xd800])
-        );
-        assert_eq!(
-            call("charCodeAt", &source, &[], &["99"], 1, &[]),
-            number(f64::NAN)
-        );
-        assert_eq!(
-            call("concat", &s("ab"), &["cd", "ef"], &[], 2, &[]),
-            units(&s("abcdef"))
-        );
-        assert_eq!(
-            call("indexOf", &source, &["ba"], &["2"], 2, &[]),
-            number(3.0)
-        );
-        assert_eq!(
-            call("lastIndexOf", &source, &["ba"], &["1"], 2, &[]),
-            number(1.0)
-        );
-        assert_eq!(
-            call("slice", &source, &[], &["-3", "-1"], 2, &[]),
-            units(&s("ab"))
-        );
-        assert_eq!(
-            call("substr", &source, &[], &["1", "-1"], 2, &[]),
-            units(&[])
-        );
-        assert_eq!(
-            call("substring", &source, &[], &["4", "1"], 2, &[]),
-            units(&s("bab"))
-        );
-        assert_eq!(
-            call("split", &s("a,b,"), &[","], &["3"], 2, &[]),
-            As2StringResult::Strings(vec![s("a"), s("b"), vec![]])
-        );
-        assert_eq!(
-            call("split", &source, &[], &["0"], 2, &[0]),
-            As2StringResult::Strings(vec![source.clone()])
-        );
-        assert_eq!(
-            call("fromCharCode", &[], &[], &["65", "0", "66"], 3, &[]),
-            units(&s("A"))
-        );
-        assert_eq!(
-            call("toUpperCase", &s("straße"), &[], &[], 0, &[]),
-            units(&s("STRAßE"))
-        );
-        assert_eq!(
-            call("toLowerCase", &[0x130, 0xd800], &[], &[], 0, &[]),
-            units(&[0x69, 0xd800])
-        );
-        for op in ["toString", "valueOf"] {
-            assert_eq!(call(op, &[0xdfff], &[], &[], 0, &[]), units(&[0xdfff]));
-        }
-        assert_eq!(
-            call("escape", &s("A @é+"), &[], &[], 1, &[]),
-            units(&s("A%20%40%C3%A9%2B"))
-        );
-        assert_eq!(
-            call("unescape", &s("A+%40%C3%A9%2B"), &[], &[], 1, &[]),
-            units(&s("A @é+"))
-        );
-        assert_eq!(
-            call("unescape", &s("%u0041"), &[], &[], 1, &[]),
-            units(&s("0041"))
-        );
-        assert_eq!(
-            call("escape", &[], &[], &[], 0, &[]),
-            As2StringResult::Undefined
-        );
-        for op in ["global.chr", "global.mbchr"] {
-            assert_eq!(call(op, &[], &[], &["65"], 1, &[]), units(&s("A")));
-            assert_eq!(call(op, &[], &[], &["55296"], 1, &[]), units(&[0xfffd]));
-        }
-        for op in ["global.ord", "global.mbord"] {
-            assert_eq!(call(op, &s("é"), &[], &[], 1, &[]), number(233.0));
-            assert_eq!(call(op, &[0xd800], &[], &[], 1, &[]), number(65533.0));
-        }
-        for op in ["global.length", "global.mblength"] {
-            assert_eq!(call(op, &[0xd83d, 0xde00], &[], &[], 1, &[]), number(2.0));
-        }
-        for op in ["global.substring", "global.mbsubstring"] {
-            assert_eq!(
-                call(op, &s("abcdef"), &[], &["2", "3"], 3, &[]),
-                units(&s("bcd"))
-            );
-            assert_eq!(
-                call(op, &s("abcdef"), &[], &["3", "-1"], 3, &[]),
-                units(&s("cdef"))
-            );
-        }
-        assert!(
-            as2_string_execute(As2StringRequest {
-                operation: "escape".into(),
-                receiver: vec![0xd800],
-                strings: vec![],
-                numbers: vec![],
-                arg_count: 1,
-                undefined: vec![]
-            })
-            .is_err()
-        );
-    }
+/// AVM1 GetProperty/SetProperty index vocabulary. Values still live in the owned display graph.
+pub fn property_name(index: u32) -> Option<&'static str> {
+    const NAMES: [&str; 22] = [
+        "_x",
+        "_y",
+        "_xscale",
+        "_yscale",
+        "_currentframe",
+        "_totalframes",
+        "_alpha",
+        "_visible",
+        "_width",
+        "_height",
+        "_rotation",
+        "_target",
+        "_framesloaded",
+        "_name",
+        "_droptarget",
+        "_url",
+        "_highquality",
+        "_focusrect",
+        "_soundbuftime",
+        "_quality",
+        "_xmouse",
+        "_ymouse",
+    ];
+    NAMES.get(index as usize).copied()
 }
 
 // The two historical SWF tables below are copied unchanged from Ruffle
@@ -1981,3 +1987,169 @@ pub static LOWERCASE_TABLE: &[(u16, u16)] = &[
     (65337, 65369),
     (65338, 65370),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn call(
+        op: &str,
+        receiver: &[u16],
+        strings: &[&str],
+        numbers: &[&str],
+        arg_count: usize,
+        undefined: &[usize],
+    ) -> As2StringResult {
+        as2_string_execute(As2StringRequest {
+            operation: op.into(),
+            receiver: receiver.to_vec(),
+            strings: strings.iter().map(|s| s.encode_utf16().collect()).collect(),
+            numbers: numbers.iter().map(|s| s.to_string()).collect(),
+            arg_count,
+            undefined: undefined.to_vec(),
+        })
+        .unwrap()
+    }
+    fn s(text: &str) -> Vec<u16> {
+        text.encode_utf16().collect()
+    }
+    #[test]
+    fn reused_as2_string_family_scenario() {
+        let source = s("ababa");
+        assert_eq!(
+            call("operator.add", &s("2"), &["3"], &[], 1, &[]),
+            units(&s("23"))
+        );
+        for (op, expected) in [
+            ("eq", false),
+            ("ne", true),
+            ("lt", true),
+            ("le", true),
+            ("gt", false),
+            ("ge", false),
+        ] {
+            assert_eq!(
+                call(&format!("operator.{op}"), &s("10"), &["2"], &[], 1, &[]),
+                As2StringResult::Boolean(expected)
+            );
+        }
+        for (input, expected) in [
+            ("010", 8.0),
+            ("-010", -8.0),
+            ("0x  -10", -16.0),
+            ("12tail", 12.0),
+        ] {
+            assert_eq!(
+                call("global.parseInt", &s(input), &[], &[], 1, &[]),
+                number(expected)
+            );
+        }
+        assert_eq!(
+            call("global.parseInt", &s("0x100"), &[], &["10"], 2, &[]),
+            number(100.0)
+        );
+
+        assert_eq!(
+            call("charAt", &[0xd800, 65], &[], &["0"], 1, &[]),
+            units(&[0xd800])
+        );
+        assert_eq!(
+            call("charCodeAt", &source, &[], &["99"], 1, &[]),
+            number(f64::NAN)
+        );
+        assert_eq!(
+            call("concat", &s("ab"), &["cd", "ef"], &[], 2, &[]),
+            units(&s("abcdef"))
+        );
+        assert_eq!(
+            call("indexOf", &source, &["ba"], &["2"], 2, &[]),
+            number(3.0)
+        );
+        assert_eq!(
+            call("lastIndexOf", &source, &["ba"], &["1"], 2, &[]),
+            number(1.0)
+        );
+        assert_eq!(
+            call("slice", &source, &[], &["-3", "-1"], 2, &[]),
+            units(&s("ab"))
+        );
+        assert_eq!(
+            call("substr", &source, &[], &["1", "-1"], 2, &[]),
+            units(&[])
+        );
+        assert_eq!(
+            call("substring", &source, &[], &["4", "1"], 2, &[]),
+            units(&s("bab"))
+        );
+        assert_eq!(
+            call("split", &s("a,b,"), &[","], &["3"], 2, &[]),
+            As2StringResult::Strings(vec![s("a"), s("b"), vec![]])
+        );
+        assert_eq!(
+            call("split", &source, &[], &["0"], 2, &[0]),
+            As2StringResult::Strings(vec![source.clone()])
+        );
+        assert_eq!(
+            call("fromCharCode", &[], &[], &["65", "0", "66"], 3, &[]),
+            units(&s("A"))
+        );
+        assert_eq!(
+            call("toUpperCase", &s("straße"), &[], &[], 0, &[]),
+            units(&s("STRAßE"))
+        );
+        assert_eq!(
+            call("toLowerCase", &[0x130, 0xd800], &[], &[], 0, &[]),
+            units(&[0x69, 0xd800])
+        );
+        for op in ["toString", "valueOf"] {
+            assert_eq!(call(op, &[0xdfff], &[], &[], 0, &[]), units(&[0xdfff]));
+        }
+        assert_eq!(
+            call("escape", &s("A @é+"), &[], &[], 1, &[]),
+            units(&s("A%20%40%C3%A9%2B"))
+        );
+        assert_eq!(
+            call("unescape", &s("A+%40%C3%A9%2B"), &[], &[], 1, &[]),
+            units(&s("A @é+"))
+        );
+        assert_eq!(
+            call("unescape", &s("%u0041"), &[], &[], 1, &[]),
+            units(&s("0041"))
+        );
+        assert_eq!(
+            call("escape", &[], &[], &[], 0, &[]),
+            As2StringResult::Undefined
+        );
+        for op in ["global.chr", "global.mbchr"] {
+            assert_eq!(call(op, &[], &[], &["65"], 1, &[]), units(&s("A")));
+            assert_eq!(call(op, &[], &[], &["55296"], 1, &[]), units(&[0xfffd]));
+        }
+        for op in ["global.ord", "global.mbord"] {
+            assert_eq!(call(op, &s("é"), &[], &[], 1, &[]), number(233.0));
+            assert_eq!(call(op, &[0xd800], &[], &[], 1, &[]), number(65533.0));
+        }
+        for op in ["global.length", "global.mblength"] {
+            assert_eq!(call(op, &[0xd83d, 0xde00], &[], &[], 1, &[]), number(2.0));
+        }
+        for op in ["global.substring", "global.mbsubstring"] {
+            assert_eq!(
+                call(op, &s("abcdef"), &[], &["2", "3"], 3, &[]),
+                units(&s("bcd"))
+            );
+            assert_eq!(
+                call(op, &s("abcdef"), &[], &["3", "-1"], 3, &[]),
+                units(&s("cdef"))
+            );
+        }
+        assert!(
+            as2_string_execute(As2StringRequest {
+                operation: "escape".into(),
+                receiver: vec![0xd800],
+                strings: vec![],
+                numbers: vec![],
+                arg_count: 1,
+                undefined: vec![]
+            })
+            .is_err()
+        );
+    }
+}

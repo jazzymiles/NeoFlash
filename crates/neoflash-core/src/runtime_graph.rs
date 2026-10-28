@@ -4,6 +4,7 @@ use crate::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
+mod as2_display;
 mod bitmap;
 mod clipping;
 pub use clipping::{ClipComponent, RuntimeClip, ScrollRect};
@@ -241,6 +242,7 @@ pub(crate) struct RuntimeGraph {
     prefix: HashMap<ObjectRef, Vec<ObjectRef>>,
     suffix: HashMap<ObjectRef, Vec<ObjectRef>>,
     dynamic: BTreeMap<ObjectRef, DynamicObject>,
+    as2_depths: HashMap<ObjectRef, (ObjectRef, i32)>,
     events: Vec<DisplayEvent>,
     events_overflowed: bool,
     graphics_cost: usize,
@@ -276,6 +278,7 @@ impl RuntimeGraph {
         self.prefix.clear();
         self.suffix.clear();
         self.dynamic.clear();
+        self.as2_depths.clear();
         self.events.clear();
         self.events_overflowed = false;
         self.graphics_cost = 0;

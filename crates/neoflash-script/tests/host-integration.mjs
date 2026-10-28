@@ -24,6 +24,7 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   }));
   const globals = { NeoFlashDisplay:require(resolve(root,'web/display.js')), NeoFlashEvents:require(resolve(root,'web/events.js')),
     NeoFlashStage:require(resolve(root,'web/stage.js')), NeoFlashLegacyInput:require(resolve(root,'web/legacy-input.js')), NeoFlashAccessibility:require(resolve(root,'web/accessibility.js')) };
+  globals.NeoFlashAS2Platform=require(resolve(root,'web/as2-platform.js'));
   globals.NeoFlashAS2Strings=require(resolve(root,'web/as2-strings.js'));
   globals.NeoFlashAS3Strings=require(resolve(root,'web/as3-strings.js'));
   globals.NeoFlashDate=require(resolve(root,'web/date.js'));

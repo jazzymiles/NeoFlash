@@ -1,0 +1,364 @@
+{
+  "format_version": 3,
+  "name": "AS2 XML and data batch",
+  "width": 1040,
+  "height": 740,
+  "fps": 24,
+  "background": [
+    13,
+    21,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "AS2 XML data",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "heading",
+                    "name": "heading",
+                    "transform": {
+                      "x": 40,
+                      "y": 28,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "AS2 / XML documents and data exchange",
+                      "width": 960,
+                      "height": 50,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 30,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 40,
+                      "y": 90,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Rust metadata parsing, idMap, namespace lookup, DOM editing and LoadVars. Bundled loads work offline; postXML(url) demonstrates a real XML POST endpoint.",
+                      "width": 960,
+                      "height": 65,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 16,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "summary",
+                    "name": "summary",
+                    "transform": {
+                      "x": 40,
+                      "y": 170,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Running one data workflow\u2026",
+                      "width": 960,
+                      "height": 65,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 19,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "transport",
+                    "name": "transport",
+                    "transform": {
+                      "x": 40,
+                      "y": 240,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Waiting for bundled data\u2026",
+                      "width": 960,
+                      "height": 60,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 16,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "output",
+                    "name": "output",
+                    "transform": {
+                      "x": 40,
+                      "y": 315,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "",
+                      "width": 960,
+                      "height": 230,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 15,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "networkXML",
+                    "name": "networkXML",
+                    "transform": {
+                      "x": 40,
+                      "y": 560,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Optional local demo: the button sends a real XML POST to /__as2_xml_echo.",
+                      "width": 960,
+                      "height": 78,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 16,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "post-xml-button",
+                    "name": "post-xml-button",
+                    "transform": {
+                      "x": 40,
+                      "y": 650,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "advance-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.postXML(\"/__as2_xml_echo\");"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Send XML to local test endpoint",
+                      "description": "Optional local demo: POST XML to /__as2_xml_echo and parse the reply.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop();\nvar owner:Object = this;\nvar checks:Number = 0;\nvar failures:String = \"\";\nvar xmlReady:Boolean = false;\nvar formReady:Boolean = false;\nvar postReady:Boolean = false;\nvar postStatus:Number = 0;\nvar postDataSeen:Boolean = false;\nvar postReply:XML = null;\nfunction checkBatch(value:Boolean, label:String):Void {\n if(value) checks++; else failures += label + \"; \";\n}\nfunction refreshBatch():Void {\n summary.text = \"Checks: \" + checks + \" | failures: \" + (failures == \"\" ? \"none\" : failures);\n transport.text = \"Bundled XML: \" + xmlReady + \" | LoadVars: \" + formReady + \" | XML POST: \" + postReady + \" | HTTP: \" + postStatus;\n}\nvar doc:XML = new XML(\"<?xml version='1.0'?><!DOCTYPE catalog SYSTEM 'not-fetched.dtd'><catalog xmlns:p='urn:outer'><item id='same'>old</item><p:item id='same' xmlns:p='urn:inner'>last</p:item></catalog>\");\nvar originalRoot:XMLNode = doc.firstChild;\ncheckBatch(doc.status == 0 && doc.docTypeDecl.indexOf(\"not-fetched.dtd\") >= 0, \"DOCTYPE preserved\");\ncheckBatch(doc.xmlDecl.indexOf(\"1.0\") >= 0 && doc.toString().indexOf(\"<!DOCTYPE catalog\") >= 0, \"declaration output\");\ncheckBatch(doc.idMap.same == originalRoot.lastChild && doc.idMap.same.firstChild.nodeValue == \"last\", \"last duplicate id\");\ncheckBatch(doc.idMap.same.getNamespaceForPrefix(\"p\") == \"urn:inner\", \"nearest prefix\");\ncheckBatch(doc.idMap.same.getPrefixForNamespace(\"urn:outer\") == null && originalRoot.getPrefixForNamespace(\"urn:outer\") == \"p\", \"shadowed reverse namespace\");\ncheckBatch(doc.idMap.same.localName == \"item\" && doc.idMap.same.prefix == \"p\" && doc.idMap.same.namespaceURI == \"urn:inner\", \"namespace properties\");\nvar created:XMLNode = doc.createElement(\"added\");\ncreated.appendChild(doc.createTextNode(\"A & B\"));\noriginalRoot.insertBefore(created, originalRoot.lastChild);\ncheckBatch(created.hasChildNodes() && created.nextSibling == doc.idMap.same && created.previousSibling == originalRoot.firstChild, \"DOM insertion and siblings\");\nvar direct:XMLNode = new XMLNode(1,\"direct\");\ndirect.appendChild(new XMLNode(3,\"native constructor\"));\noriginalRoot.appendChild(direct);\ncheckBatch(originalRoot.lastChild == direct && direct.firstChild.nodeValue == \"native constructor\", \"XMLNode constructor\");\ndoc.xmlDecl = \"<?xml version='1.0' encoding='UTF-8'?>\";\ndoc.docTypeDecl = \"<!DOCTYPE catalog>\";\ncheckBatch(doc.toString().indexOf(\"UTF-8\") >= 0 && doc.docTypeDecl == \"<!DOCTYPE catalog>\", \"writable declarations\");\nvar reparsed:XML = new XML();\nreparsed.ignoreWhite = true;\nreparsed.parseXML(doc.toString());\ncheckBatch(reparsed.status == 0 && reparsed.idMap.same.firstChild.nodeValue == \"last\", \"parseXML rebuilds id map\");\nvar copied:XMLNode = direct.cloneNode(true);\noriginalRoot.appendChild(copied);copied.removeNode();\ncheckBatch(copied.parentNode == null && direct.parentNode == originalRoot, \"detached clone retains content\");\nvar source:LoadVars = new LoadVars();\nsource.decode(\"name=NeoFlash+AS2&tag=xml&tag=rust\");\nsource.contentType = \"application/x-www-form-urlencoded\";\ncheckBatch(source.toString().indexOf(\"NeoFlash+AS2\") >= 0 && source.contentType.indexOf(\"form-urlencoded\") >= 0, \"LoadVars encoding and contentType\");\nsource.onLoad = function(ok:Boolean):Void { owner.checkBatch(ok && this.answer == \"ready\", \"callable default onData\"); };\nsource.onData(\"answer=ready\");\nvar loaded:XML = new XML();\nloaded.ignoreWhite = true;\nloaded.onLoad = function(ok:Boolean):Void {\n owner.xmlReady = ok && this.idMap.loaded.firstChild.nodeValue == \"Bundled XML\";\n owner.checkBatch(owner.xmlReady && this.getBytesLoaded() > 0 && this.getBytesTotal() == this.getBytesLoaded(), \"bundled XML load and byte counters\");\n owner.refreshBatch();\n};\nloaded.load(\"data/as2-batch.xml\");\nvar variables:LoadVars = new LoadVars();\nvariables.onLoad = function(ok:Boolean):Void {\n owner.formReady = ok && this.answer == \"bundled form\";\n owner.checkBatch(owner.formReady && this.getBytesLoaded() > 0, \"bundled LoadVars load\");\n owner.refreshBatch();\n};\nvariables.load(\"data/as2-batch.txt\");\nfunction postXML(url:String):Void {\n var outgoing:XML = new XML(\"<request id='sent'><message>NeoFlash AS2 XML POST</message></request>\");\n outgoing.contentType = \"text/xml; charset=UTF-8\";\n outgoing.addRequestHeader(\"X-NeoFlash-Batch\", \"initial\");\n outgoing.addRequestHeader([\"X-NeoFlash-Batch\", \"xml-data\", \"X-NeoFlash-Language\", \"AS2\"]);\n postReply = new XML();\n var defaultData:Function = postReply.onData;\n postReply.onHTTPStatus = function(code:Number):Void { owner.postStatus = code; };\n postReply.onData = function(value:String):Void { owner.postDataSeen = value != undefined; defaultData.call(this,value); };\n postReply.onLoad = function(ok:Boolean):Void {\n  owner.postReady = ok && this.firstChild != null;\n  owner.checkBatch(owner.postReady && owner.postStatus == 200 && owner.postDataSeen, \"XML POST callbacks and parse\");\n  owner.networkXML.text = this.toString();owner.refreshBatch();\n };\n outgoing.sendAndLoad(url,postReply,\"POST\");\n}\nfunction sendXMLGet(url:String):Void { doc.send(url,\"_blank\",\"GET\"); }\nfunction sendForm(url:String):Void { source.send(url,\"_blank\",\"GET\"); }\nvar record:Object = new Object();\nrecord.label = \"plain data\";\nvar prototypeObject:Object = Object.prototype;\ncheckBatch(record.hasOwnProperty(\"label\") && record.valueOf() == record && prototypeObject.isPrototypeOf(record), \"existing Object record pipeline\");\nvar records:Array = [{name:\"beta\"},{name:\"Alpha\"}];\nrecords.sortOn(\"name\",Array.CASEINSENSITIVE);\ncheckBatch(records[0].name == \"Alpha\" && Array.CASEINSENSITIVE == 1, \"existing case-insensitive record sort\");\noutput.text = doc.toString();\nrefreshBatch();\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "advance-control",
+      "name": "Update both catalogs",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "advance-control-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Send XML to local test endpoint",
+                      "width": 200,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [],
+  "resources": [
+    {
+      "id": "batch-xml",
+      "path": "data/as2-batch.xml",
+      "media_type": "application/xml",
+      "data_base64": "PD94bWwgdmVyc2lvbj0iMS4wIj8+PCFET0NUWVBFIHJlY29yZHM+PHJlY29yZHM+PGl0ZW0gaWQ9ImxvYWRlZCI+QnVuZGxlZCBYTUw8L2l0ZW0+PC9yZWNvcmRzPg=="
+    },
+    {
+      "id": "batch-vars",
+      "path": "data/as2-batch.txt",
+      "media_type": "application/x-www-form-urlencoded",
+      "data_base64": "YW5zd2VyPWJ1bmRsZWQrZm9ybSZtb2RlPWFzMg=="
+    }
+  ]
+}

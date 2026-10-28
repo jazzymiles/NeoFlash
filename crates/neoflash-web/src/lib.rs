@@ -1,4 +1,6 @@
 //! Thin JavaScript bindings around the same Rust timeline runtime used by the editor.
+mod as2_display;
+mod as2_platform;
 mod as2_strings;
 mod as2d_geom;
 mod as3_geom;
@@ -28,6 +30,29 @@ pub fn parse_xml_json(source: &str) -> String {
         Ok(tree) => serde_json::json!({ "ok": tree }).to_string(),
         Err(error) => serde_json::json!({ "error": error }).to_string(),
     }
+}
+
+#[wasm_bindgen]
+pub fn parse_as2_xml_json(source: &str) -> String {
+    match neoflash_core::as2_xml::parse_as2_xml(source) {
+        Ok(tree) => serde_json::json!({"ok": tree}).to_string(),
+        Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+    }
+}
+#[wasm_bindgen]
+pub fn as2_xml_namespace_json(
+    ancestors_json: &str,
+    value: &str,
+    reverse: bool,
+) -> Result<String, JsValue> {
+    neoflash_core::as2_xml::namespace_lookup_json(ancestors_json, value, reverse)
+        .map_err(display_error)
+}
+#[wasm_bindgen]
+pub fn as2_property_name(index: u32) -> Result<String, JsValue> {
+    neoflash_core::as2_strings::property_name(index)
+        .map(str::to_owned)
+        .ok_or_else(|| JsValue::from_str("AS2 property index must be between 0 and 21."))
 }
 
 /// Pure AMF codecs; graph JSON is a transport IR, never the persisted encoding.

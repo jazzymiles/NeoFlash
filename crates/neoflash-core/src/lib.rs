@@ -1,6 +1,8 @@
 //! Document model and deterministic authoring/runtime evaluation shared by desktop and web.
 mod amf;
+pub mod as2_platform;
 pub mod as2_strings;
+pub mod as2_xml;
 pub mod as2d_geom;
 pub mod as3_geom;
 pub mod as3_strings;
