@@ -1,0 +1,362 @@
+{
+  "format_version": 3,
+  "name": "AS2 timeline variable loading",
+  "width": 960,
+  "height": 570,
+  "fps": 24,
+  "background": [
+    14,
+    24,
+    33,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 42,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / AS2 TIMELINE DATA",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        115,
+                        213,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 42,
+                      "y": 82,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Load real data into movie clips",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 42,
+                      "y": 125,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Owned Rust runtime with ordinary HTML5 export.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel",
+                    "name": "panel",
+                    "transform": {
+                      "x": 32,
+                      "y": 175,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 890,
+                      "height": 195,
+                      "fill": [
+                        25,
+                        42,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rerun",
+                    "name": "rerun",
+                    "transform": {
+                      "x": 42,
+                      "y": 397,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "run-button",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "load",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "on(release) { _root.runReuse(); }"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 285,
+                      "y": 417,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run the authored AS2 interaction.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "counts",
+                    "name": "counts",
+                    "transform": {
+                      "x": 42,
+                      "y": 480,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Grouped scenario results are shown above.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 42,
+                      "y": 522,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Useful partial profile. Restart resets publication state.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop(); passed=0; checks=0; failures=\"\"; posted=false;\nvar summary=_root.createTextField(\"summary\",70,42,165,870,55);var details=_root.createTextField(\"details\",71,42,235,870,180);\nvar format=new TextFormat(\"Arial\",26,16777215);summary.setNewTextFormat(format);summary.setTextFormat(format);\nvar body=new TextFormat(\"Arial\",18,13489378);details.setNewTextFormat(body);details.setTextFormat(body);details.multiline=true;\nfunction result(name,ok){checks++;if(ok)passed++;else failures+=name+\"; \";summary.text=\"Timeline variables: \"+passed+\" / \"+checks;summary.textColor=passed==checks?7520933:16734032;details.text=\"Bundled GET / target method / root level / real HTTP POST\\n\"+(failures==\"\"?\"Completed groups passed. Use the button for the local echo POST.\":failures);trace(\"AS2_VARIABLES_RESULT \"+passed+\"/\"+checks+\"; \"+failures);}\nvar destination=_root.createEmptyMovieClip(\"variables\",20);\ndestination.onData=function(){_root.result(\"global\",this.title==\"Loaded from Rust\"&&this.tag.length==2&&this.unicode==\"мир\");this.onData=function(){_root.result(\"method\",this.title==\"Second batch\"&&this.tag[1]==\"as2\");_root.onData=function(){_root.result(\"level\",_root.rootReply==\"level-zero\");};loadVariablesNum(\"data/root.txt\",0);};this.loadVariables(\"data/next.txt\");};\nloadVariables(\"data/variables.txt\",destination);\nfunction runReuse(){if(posted)return;posted=true;var sender=_root.createEmptyMovieClip(\"sender\",21);sender.title=\"A useful batch\";sender.tag=[\"rust\",\"as2\"];sender.onData=function(){_root.result(\"POST\",this.requestMethod==\"POST\"&&this.title==\"A useful batch\"&&this.tag[0]==\"rust\"&&this.tag[1]==\"as2\");};sender.loadVariables(\"/__as2_vars_echo\",\"POST\");}\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-button",
+      "name": "run-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "run-button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 56,
+                      "fill": [
+                        32,
+                        116,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 35,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Send HTTP POST",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [],
+  "resources": [
+    {
+      "id": "first-vars",
+      "path": "data/variables.txt",
+      "media_type": "text/plain",
+      "data_base64": "dGl0bGU9TG9hZGVkK2Zyb20rUnVzdCZ0YWc9d2ViJnRhZz1hczImdW5pY29kZT0lRDAlQkMlRDAlQjglRDElODA="
+    },
+    {
+      "id": "next-vars",
+      "path": "data/next.txt",
+      "media_type": "text/plain",
+      "data_base64": "dGl0bGU9U2Vjb25kK2JhdGNo"
+    },
+    {
+      "id": "root-vars",
+      "path": "data/root.txt",
+      "media_type": "text/plain",
+      "data_base64": "cm9vdFJlcGx5PWxldmVsLXplcm8="
+    }
+  ]
+}

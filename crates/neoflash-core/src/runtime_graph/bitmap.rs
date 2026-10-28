@@ -88,6 +88,34 @@ impl Player {
     pub fn bitmap_error(&self) -> Option<&BitmapError> {
         self.graph.bitmap_error.as_ref()
     }
+    pub fn as2_bitmap_command(
+        &mut self,
+        command: crate::pixels::As2BitmapCommand,
+    ) -> Result<serde_json::Value, BitmapError> {
+        self.graph.pixels.as2_command(command)
+    }
+    pub fn as2_bitmap_load(
+        &mut self,
+        project: &Project,
+        id: &str,
+    ) -> Result<Option<PixelRef>, BitmapError> {
+        if id.is_empty() || id.len() > 1024 {
+            return Err(BitmapError(
+                "loadBitmap requires a resource ID of 1 through 1024 bytes".into(),
+            ));
+        }
+        let Some(resource) = project.resources.iter().find(|resource| resource.id == id) else {
+            return Ok(None);
+        };
+        let (width, height) = resource
+            .image_dimensions()
+            .map_err(|e| BitmapError(e.to_string()))?;
+        self.graph.pixels.reserve_import(width, height)?;
+        let image = resource
+            .decode_image()
+            .map_err(|e| BitmapError(e.to_string()))?;
+        self.graph.pixels.import(&image).map(Some)
+    }
     pub fn bitmap_create(
         &mut self,
         w: u32,

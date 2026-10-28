@@ -1,0 +1,53 @@
+# AS2 dynamic objects and named access
+
+The two-hour AS2 batch adds `Object.watch`, `unwatch`, `addProperty`,
+`isPropertyEnumerable` and missing-property `__resolve`. Watchpoint identity,
+replacement/deletion lifetime, reentrant-write suppression and resolver recursion
+are owned by `neoflash-core::as2_object`. The browser retains actual authored
+object/function references and invokes getters/setters; no global prototype is
+modified and no complete foreign VM is included.
+
+The Rust compiler lowers AS2 member reads/writes through that publication service.
+Ordinary records and project instances support watchpoints; native objects,
+arrays and existing native/getter/setter properties remain outside this watch
+profile. A watch callback receives name/old/new/userData and its returned value is
+stored. Deleting a watched property preserves its watchpoint. Computed properties
+require a nonempty name, a getter and a function or null setter. Missing-property
+resolution does not run for an existing property whose value is undefined.
+Limits are 4,096 watchpoints/accessors, 4,096 UTF-16 units per name and 128 nested
+resolutions. Restart releases all callback references and owned state.
+
+AS2 `instanceof` supports statically resolved project/native types with an object
+operand; arbitrary constructor expressions and prototype mutation conformance
+remain unsupported. `on(press, release, releaseOutside, rollOver, rollOut,
+dragOver, dragOut)` and `onClipEvent(enterFrame, mouseDown, mouseMove, mouseUp,
+unload)` lower to the connected legacy event bridge. Multiple names share one
+authored handler. Blocks belong in top-level object scripts; keyPress filters,
+AVM action-tag ordering and clip-wide keyboard broadcasts remain unsupported.
+
+`eval(path)` performs named reference lookup, never JavaScript source evaluation.
+`set(path,value)` uses the same Rust dotted/slash/colon path parser and compiler
+supplied lexical references, including locals and project fields. Direct object
+arguments to eval preserve identity. Paths support `_root`, `_level0`, `_parent`,
+`this` and the publication `_global`; arbitrary computed expressions, indexed
+source syntax and eval/set function aliases diagnose or remain outside the path
+profile. No implicit browser globals are exposed through `_global`; it is an
+owned publication-wide user-property namespace, cleared on Restart. `newline`
+is the LF constant.
+
+## References and adaptation
+
+- [Adobe AS2 Object contract](https://open-flash.github.io/mirrors/as2-language-reference/Object.html)
+- [Adobe AS2 global functions](https://open-flash.github.io/mirrors/as2-language-reference/global_functions.html)
+- [Adobe AS2 statements](https://open-flash.github.io/mirrors/as2-language-reference/statements.html)
+- Ruffle, commit `89a7049965f3090e706265670df309a5128233ac`,
+  `core/src/avm1/globals/object.rs` and the AVM1 watchpoint model. MIT terms and
+  attribution retained in `THIRD_PARTY_NOTICES.txt`. The callback contracts were
+  adapted to owned bounded IDs/maps rather than Ruffle GC/Activation/Value types.
+  Compiler lowering and integration reuse NeoFlash's own frontend/class registry.
+
+One existing grouped Object state test covers the native policy. The ordinary
+`examples/as2-object-batch.nflash` combines object behavior, local/path lookup,
+project classes and an authored legacy event button. Final browser results and
+exact declaration counts are recorded in the two-hour delivery report. This is
+useful partial support, not AVM1 conformance or original-Flash differential proof.

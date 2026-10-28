@@ -51,7 +51,10 @@ export async function verifyAs2ProjectInput(root, cargo) {
     assert.equal(left.onPress, right.onPress);
     assert.equal(left.caption.text, 'LEFT / 0'); assert.equal(right.caption.text, 'RIGHT / 0');
     press(left);
-    assert.equal(scene.mouseEvents, 1); assert.equal(left.count, 1); assert.equal(right.count, 0);
+    // Main is both a MovieClip with onMouseDown and an explicit Mouse listener.
+    // Ruffle 89a7049 player.rs queues both clip events and NotifyListeners; these
+    // are independent routes, not duplicate singleton registrations.
+    assert.equal(scene.mouseEvents, 2); assert.equal(left.count, 1); assert.equal(right.count, 0);
     assert.equal(Base.total, 1); assert.equal(host.lastTrace(), 'AS2 component left 1 1');
     assert.equal(left._x, left.homeX + 8);
     down('ArrowRight', 'ArrowRight', 39);
@@ -106,7 +109,7 @@ export async function verifyAs2ProjectInput(root, cargo) {
     assert.equal(fresh.keyEvents, 1); assert.equal(fresh.keyUps, 1);
     assert.equal(fresh.right.count, 1); assert.equal(fresh.left.count, 0);
     assert.deepEqual(order, ['first', 'second', 'first', 'late'], 'Restart removed old singleton listener objects');
-    press(fresh.left); assert.equal(fresh.mouseEvents, 1); assert.equal(fresh.left.count, 1);
+    press(fresh.left); assert.equal(fresh.mouseEvents, 2); assert.equal(fresh.left.count, 1);
     assert.equal(host.lastTrace(), 'AS2 component left 1 2', 'Restart restored the declared prototype callback exactly once');
     host.disposeFamily();
     down('ArrowRight', 'ArrowRight', 39); assert.equal(fresh.keyEvents, 1);

@@ -1,0 +1,355 @@
+{
+  "format_version": 3,
+  "name": "AS2 dynamic objects and class tests",
+  "width": 960,
+  "height": 570,
+  "fps": 24,
+  "background": [
+    14,
+    24,
+    33,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 42,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / AS2 DYNAMIC OBJECTS",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        115,
+                        213,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 42,
+                      "y": 82,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Objects that react to your code",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 42,
+                      "y": 125,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Owned Rust runtime with ordinary HTML5 export.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel",
+                    "name": "panel",
+                    "transform": {
+                      "x": 32,
+                      "y": 175,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 890,
+                      "height": 195,
+                      "fill": [
+                        25,
+                        42,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rerun",
+                    "name": "rerun",
+                    "transform": {
+                      "x": 42,
+                      "y": 397,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "run-button",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "load",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "on(release) { _root.runReuse(); } onClipEvent(enterFrame) { if (!_root.objectEventSeen && _root.details) { _root.objectEventSeen=true; _root.details.text += \"\\nLegacy enterFrame block received.\"; } }"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 285,
+                      "y": 417,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run the authored AS2 interaction.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "counts",
+                    "name": "counts",
+                    "transform": {
+                      "x": 42,
+                      "y": 480,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Grouped scenario results are shown above.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 42,
+                      "y": 522,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Useful partial profile. Restart resets publication state.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop(); runs=0;\nfunction runReuse(){\n runs+=1;var passed=0;var checks=0;var failures=\"\";\n function check(name:String,ok:Boolean){checks++;if(ok)passed++;else failures+=name+\"; \";}\n var item={speed:2},seen=\"\",count=0;\n check(\"watch-install\",item.watch(\"speed\",function(name,old,value,data){count++;seen=name+\":\"+old+\":\"+value+\":\"+data;return value*2;},\"payload\"));\n item.speed=3;check(\"watch-transform\",item.speed==6&&seen==\"speed:2:3:payload\"&&count==1);\n item.speed+=1;check(\"watch-compound\",item.speed==14&&count==2);\n delete item.speed;check(\"watch-delete\",item.speed===undefined);\n item.speed=4;check(\"watch-recreate\",item.speed==8&&count==3);\n check(\"unwatch\",item.unwatch(\"speed\")&&!item.unwatch(\"speed\"));\n item.speed=5;check(\"unwatch-write\",item.speed==5&&count==3);\n var stored=10;check(\"addProperty\",item.addProperty(\"score\",function(){return stored;},function(value){stored=value;}));\n item.score=21;check(\"accessor\",item.score==21&&stored==21);\n check(\"accessor-enumerable\",item.isPropertyEnumerable(\"score\")&&!item.isPropertyEnumerable(\"toString\"));\n check(\"accessor-not-watchable\",!item.watch(\"score\",function(){return 99;}));\n check(\"getter-only\",item.addProperty(\"label\",function(){return \"score \"+this.score;},null)&&item.label==\"score 21\");\n var resolved=0;item.__resolve=function(name){resolved++;if(name==\"missing\")return 42;if(name==\"multiply\")return function(value){return value*this.speed;};return undefined;};\n check(\"resolve-property\",item.missing==42&&resolved==1);\n check(\"resolve-method\",item.multiply(3)==15&&resolved==2);\n item.existing=undefined;check(\"resolve-existing-undefined\",item.existing===undefined&&resolved==2);\n var recursive={};recursive.__resolve=function(name){return recursive[name];};check(\"resolve-recursion\",recursive.again===undefined);\n check(\"array-instanceof\",[1,2] instanceof Array);check(\"object-instanceof\",item instanceof Object);\n check(\"primitive-instanceof\",!(5 instanceof Number)&&!(\"x\" instanceof String)&&!(null instanceof Object));\n _global.shared=item;check(\"global-identity\",_global.shared===item);check(\"newline\",newline==\"\\n\");\n var typed=new models.Derived();check(\"project-instanceof\",typed instanceof models.Base&&typed instanceof models.Derived);typed.watch(\"number\",function(name,old,value){return value+1;});typed.number=8;check(\"project-watch\",typed.value()==9&&typed.double()==18);\n var localName=7;check(\"eval-local\",eval(\"localName\")==7);set(\"localName\",9);check(\"set-local\",localName==9);\n check(\"eval-path\",eval(\"item.speed\")==5);set(\"item.speed\",8);check(\"set-path\",item.speed==8);check(\"eval-object\",eval(item)===item);check(\"eval-global\",eval(\"_global.shared\")===item);\n set(\"_root.summary.html\",true);check(\"named-native\",eval(\"_root.summary.html\")===true&&_root.summary.html===true);\n var nested={n:0};var reentered=0;nested.watch(\"n\",function(name,old,value){reentered++;nested.n=value+1;return value+2;});nested.n=3;check(\"watch-reentrancy\",nested.n==5&&reentered==1);\n _root.summary.text=\"Dynamic objects: \"+passed+\" / \"+checks+\" checks\";\n _root.summary.textColor=passed==checks?7520933:16734032;\n _root.details.text=\"watch / unwatch / computed properties / lazy resolution\\ninstanceof / publication globals / restart ownership\\n\"+(failures==\"\"?\"All grouped checks passed.\":failures);\n trace(\"AS2 object batch \"+passed+\"/\"+checks+\"; runs=\"+runs+\"; \"+failures);\n}\nvar summary=_root.createTextField(\"summary\",70,42,165,870,55);var details=_root.createTextField(\"details\",71,42,235,870,180);\nvar format=new TextFormat(\"Arial\",26,16777215);summary.setNewTextFormat(format);summary.setTextFormat(format);\nvar body=new TextFormat(\"Arial\",18,13489378);details.setNewTextFormat(body);details.setTextFormat(body);details.multiline=true;\nrunReuse();\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-button",
+      "name": "run-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "run-button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 56,
+                      "fill": [
+                        32,
+                        116,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 35,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RUN AGAIN",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "object-class-base",
+      "path": "models/Base.as",
+      "language": "action_script2",
+      "source": "class models.Base { public var number:Number=4; public function value():Number { return number; } }"
+    },
+    {
+      "id": "object-class-derived",
+      "path": "models/Derived.as",
+      "language": "action_script2",
+      "source": "class models.Derived extends models.Base { public function double():Number { return number*2; } }"
+    }
+  ]
+}

@@ -1,0 +1,797 @@
+{
+  "format_version": 3,
+  "name": "AS2 file selection and transfer",
+  "width": 1100,
+  "height": 700,
+  "fps": 24,
+  "background": [
+    13,
+    21,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "AS2 file selection and transfer",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "heading",
+                    "name": "heading",
+                    "transform": {
+                      "x": 40,
+                      "y": 30,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "AS2 / FileReference + FileReferenceList",
+                      "width": 1020,
+                      "height": 48,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 29,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "description",
+                    "name": "description",
+                    "transform": {
+                      "x": 40,
+                      "y": 92,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Select a local file, inspect real metadata, then upload it to the optional local demo endpoint.",
+                      "width": 1020,
+                      "height": 60,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 18,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "fileDetails",
+                    "name": "fileDetails",
+                    "transform": {
+                      "x": 40,
+                      "y": 160,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "No file selected. Use the tiny authored fixture examples/as2-files-fixture.txt for verification.",
+                      "width": 1020,
+                      "height": 110,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 19,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "fileStatus",
+                    "name": "fileStatus",
+                    "transform": {
+                      "x": 40,
+                      "y": 290,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Waiting for a user file selection.",
+                      "width": 1020,
+                      "height": 110,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 18,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 40,
+                      "y": 640,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Upload endpoint: /__as2_file_echo. Download requires Chromium File System Access. No file path is exposed.",
+                      "width": 1020,
+                      "height": 40,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 15,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "file-control-0",
+                    "name": "file-control-0",
+                    "transform": {
+                      "x": 40,
+                      "y": 440,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "file-control-0-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.chooseFileBatch();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Choose one file",
+                      "description": "Choose one file",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "file-control-1",
+                    "name": "file-control-1",
+                    "transform": {
+                      "x": 390,
+                      "y": 440,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "file-control-1-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.chooseListBatch();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Choose multiple files",
+                      "description": "Choose multiple files",
+                      "role": "button",
+                      "tab_order": 1,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "file-control-2",
+                    "name": "file-control-2",
+                    "transform": {
+                      "x": 740,
+                      "y": 440,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "file-control-2-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.uploadFileBatch();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Upload selected file",
+                      "description": "Upload selected file",
+                      "role": "button",
+                      "tab_order": 2,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "file-control-3",
+                    "name": "file-control-3",
+                    "transform": {
+                      "x": 40,
+                      "y": 520,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "file-control-3-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.downloadFileBatch();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Download fixture",
+                      "description": "Download fixture",
+                      "role": "button",
+                      "tab_order": 3,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "file-control-4",
+                    "name": "file-control-4",
+                    "transform": {
+                      "x": 390,
+                      "y": 520,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "file-control-4-symbol",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.cancelFileBatch();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Cancel active transfer",
+                      "description": "Cancel active transfer",
+                      "role": "button",
+                      "tab_order": 4,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import flash.net.FileReference;\nimport flash.net.FileReferenceList;\nstop();\nvar selectedFile:FileReference = new FileReference();\nvar pickerList:FileReferenceList = new FileReferenceList();\nvar transferLog:String = \"\";\nvar selects:Number = 0;\nvar completions:Number = 0;\nvar uploadReply:String = \"\";\nvar fileListener:Object = new Object();\nfunction logFileBatch(message:String):Void {\n  transferLog = message + \"\\n\" + transferLog;\n  _root.fileStatus.text = transferLog.substr(0, 700);\n}\nfunction describeFileBatch(file:FileReference):Void {\n  selectedFile = file;\n  _root.fileDetails.text = \"Name: \" + file.name + \"\\nSize: \" + file.size + \" bytes; type: \" + file.type + \"\\nModified milliseconds: \" + (file.modificationDate == undefined ? \"not yet available\" : file.modificationDate.getTime());\n}\nfileListener.onSelect = function(file:FileReference):Void { selects++; describeFileBatch(file); logFileBatch(\"Selected \" + file.name + \"; selects=\" + selects); };\nfileListener.onCancel = function(file:FileReference):Void { logFileBatch(\"File dialog cancelled\"); };\nfileListener.onOpen = function(file:FileReference):Void { logFileBatch(\"Transfer opened: \" + file.name); };\nfileListener.onProgress = function(file:FileReference, loaded:Number, total:Number):Void { logFileBatch(\"Progress \" + loaded + \"/\" + total); };\nfileListener.onComplete = function(file:FileReference):Void { completions++; logFileBatch(\"Transfer complete \" + completions); };\nfileListener.onUploadCompleteData = function(file:FileReference, data:String):Void { uploadReply=data;logFileBatch(\"Server reply: \" + data);trace(\"AS2 file upload complete: \" + data); };\nfileListener.onHTTPError = function(file:FileReference, code:Number):Void { logFileBatch(\"HTTP error \" + code); };\nfileListener.onIOError = function(file:FileReference):Void { logFileBatch(\"File I/O error; inspect runtime diagnostic\"); };\nselectedFile.addListener(fileListener);\nvar listListener:Object = new Object();\nlistListener.onSelect = function(list:FileReferenceList):Void {\n  var files:Array = list.fileList;\n  if (files.length > 0) {\n    files[0].addListener(fileListener);\n    describeFileBatch(files[0]);\n    selects++;\n  }\n  logFileBatch(\"List selected \" + files.length + \" files; first file is ready for upload\");\n};\nlistListener.onCancel = function(list:FileReferenceList):Void { logFileBatch(\"Multiple-file dialog cancelled\"); };\npickerList.addListener(listListener);\nfunction chooseFileBatch():Void { selectedFile.browse([{description:\"Text files\", extension:\"*.txt;*.json\"}]); }\nfunction chooseListBatch():Void { pickerList.browse([{description:\"Text files\", extension:\"*.txt;*.json\"}]); }\nfunction uploadFileBatch():Void { selectedFile.postData=\"label=AS2+fixture&source=NeoFlash\";selectedFile.upload(\"/__as2_file_echo\"); }\nfunction downloadFileBatch():Void { var downloadFile:FileReference=new FileReference();downloadFile.addListener(fileListener);downloadFile.download(\"/__as2_file_fixture\", \"as2-downloaded-fixture.txt\"); }\nfunction cancelFileBatch():Void { selectedFile.cancel();logFileBatch(\"Active transfer cancelled\"); }"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "file-control-0-symbol",
+      "name": "Choose one file",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "file-control-0-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "file-control-0-0",
+                    "name": "file-control-0-0",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "file-control-0-1",
+                    "name": "file-control-0-1",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Choose one file",
+                      "width": 280,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "file-control-1-symbol",
+      "name": "Choose multiple files",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "file-control-1-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "file-control-1-0",
+                    "name": "file-control-1-0",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "file-control-1-1",
+                    "name": "file-control-1-1",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Choose multiple files",
+                      "width": 280,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "file-control-2-symbol",
+      "name": "Upload selected file",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "file-control-2-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "file-control-2-0",
+                    "name": "file-control-2-0",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "file-control-2-1",
+                    "name": "file-control-2-1",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Upload selected file",
+                      "width": 280,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "file-control-3-symbol",
+      "name": "Download fixture",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "file-control-3-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "file-control-3-0",
+                    "name": "file-control-3-0",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "file-control-3-1",
+                    "name": "file-control-3-1",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Download fixture",
+                      "width": 280,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "file-control-4-symbol",
+      "name": "Cancel active transfer",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "file-control-4-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "file-control-4-0",
+                    "name": "file-control-4-0",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 300,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "file-control-4-1",
+                    "name": "file-control-4-1",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Cancel active transfer",
+                      "width": 280,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [],
+  "resources": []
+}

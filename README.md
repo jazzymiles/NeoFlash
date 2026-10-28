@@ -4,9 +4,9 @@ Open-source authoring environment inspired by classic Macromedia/Adobe Flash, bu
 
 **Status: development preview, 0.1.0. This is a working foundation, not a complete Flash replacement.** Full AS2/AS3 compatibility, general FLA/SWF import, a complete vector toolset and DOM-based web layouts remain substantial work. See the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
 
-The wider project remains paused. The latest bounded [AS2-only runtime hour](docs/AS2-RUNTIME-HOUR.md) delivers **71 new catalogue method/global/property paths, 13 language constructs and five real HTML5 exports**. One additional method is outside the catalogue; new implementation, extensions and 77 corrections of existing coverage are counted separately. AS2 partial entries increase from **563 to 745**; AS3 declarations are unchanged. UI and FLA remain paused.
+The wider project remains paused. The bounded [AS2 two-hour batch](docs/AS2-TWO-HOUR.md) adds **216 new catalogue method/property/global paths**, with 12 extensions and 30 corrections of existing coverage counted separately. Eight ordinary HTML5 families have observed browser results across data/binding, text/display, bitmap, files, Locale, dynamic Object and audio/data loading. AS2 partial entries rise **745 → 1,054**; full compatibility remains unfinished. AS3 feature work, native editor UI and FLA remain paused.
 
-Earlier completed deliveries: [runtime hour 2](docs/AS-RUNTIME-HOUR-2.md), [runtime hour 1](docs/AS-RUNTIME-HOUR.md), [Rust reuse experiment](docs/AS-REUSE-EXPERIMENT.md).
+Earlier completed deliveries: [AS2 runtime hour](docs/AS2-RUNTIME-HOUR.md), [runtime hour 2](docs/AS-RUNTIME-HOUR-2.md), [runtime hour 1](docs/AS-RUNTIME-HOUR.md), [Rust reuse experiment](docs/AS-REUSE-EXPERIMENT.md).
 
 <!-- progress:start -->
 ## Where we are
@@ -17,7 +17,7 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 745 | 1,501 | 46 |
+| AS2 | 2,307 | 15 | 1,054 | 1,201 | 37 |
 | AS3 | 43,740 | 15 | 1,254 | 42,308 | 163 |
 
 Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).

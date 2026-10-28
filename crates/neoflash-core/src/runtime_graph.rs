@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 mod as2_display;
+mod as2_input;
+mod as2_snapshot;
 mod bitmap;
 mod clipping;
 pub use clipping::{ClipComponent, RuntimeClip, ScrollRect};
@@ -243,6 +245,10 @@ pub(crate) struct RuntimeGraph {
     suffix: HashMap<ObjectRef, Vec<ObjectRef>>,
     dynamic: BTreeMap<ObjectRef, DynamicObject>,
     as2_depths: HashMap<ObjectRef, (ObjectRef, i32)>,
+    as2_input_states: HashMap<ObjectRef, as2_input::As2Input>,
+    as2_snapshot_next: u64,
+    as2_snapshots: BTreeMap<String, as2_snapshot::TextSnapshot>,
+    as2_snapshot_selection: HashMap<ObjectRef, String>,
     events: Vec<DisplayEvent>,
     events_overflowed: bool,
     graphics_cost: usize,
@@ -279,6 +285,9 @@ impl RuntimeGraph {
         self.suffix.clear();
         self.dynamic.clear();
         self.as2_depths.clear();
+        self.as2_input_states.clear();
+        self.as2_snapshots.clear();
+        self.as2_snapshot_selection.clear();
         self.events.clear();
         self.events_overflowed = false;
         self.graphics_cost = 0;
@@ -804,6 +813,37 @@ impl Player {
                     });
                 }
                 if let Some(field) = &text {
+                    for (index, ([x, y, width, height], color)) in self
+                        .graph
+                        .as2_selection_rectangles(&reference, &field.revision)
+                        .into_iter()
+                        .enumerate()
+                    {
+                        let mut kind = ElementKind::Rectangle {
+                            width,
+                            height,
+                            fill: [0, 0, 0, 0],
+                            stroke: [(color >> 16) as u8, (color >> 8) as u8, color as u8, 255],
+                            stroke_width: 1.,
+                        };
+                        concatenated_color_transform.transform_kind(&mut kind);
+                        result.draws.push(RuntimeDrawItem {
+                            owner_ref: reference.clone(),
+                            clip_ids: vec![],
+                            filter_id: None,
+                            item: DrawItem {
+                                element_id: format!("as2-selection-{}-{index}", reference.id),
+                                name: display.name.clone(),
+                                instance_path: source_path.clone().unwrap_or_default(),
+                                layer_id: items
+                                    .get(&reference)
+                                    .map_or_else(String::new, |item| item.layer_id.clone()),
+                                transform: affine_multiply(display.world, [1., 0., 0., 1., x, y]),
+                                alpha: 1.,
+                                kind: RuntimeDrawKind::Element(kind),
+                            },
+                        });
+                    }
                     result.draws.push(RuntimeDrawItem {
                         owner_ref: reference.clone(),
                         clip_ids: vec![],

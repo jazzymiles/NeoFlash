@@ -8,17 +8,19 @@
  */
 (function(global){
   'use strict';
-  const formats=new WeakMap();
+  const formats=new WeakMap(),legacyFormats=new WeakSet();
   const fields=['font','size','color','bold','italic','underline','url','target','align','leftMargin','rightMargin','indent','leading'];
   const supported=new Set(['font','size','color','bold','italic','align','leading']);
-  function formatValue(name,value){
+  const legacySupported=new Set([...supported,'underline','leftMargin','rightMargin','indent','blockIndent']);
+  function formatValue(name,value,legacy=false){
     if(value===null||value===undefined)return null;
-    if(!supported.has(name))throw new TypeError(`TextFormat.${name} is not supported by the uniform text profile.`);
+    if(!(legacy?legacySupported:supported).has(name))throw new TypeError(`TextFormat.${name} is not supported by the uniform text profile.`);
     if(name==='font'){if(typeof value!=='string'||!value.length||new TextEncoder().encode(value).length>1024||/[\u0000-\u001f\u007f-\u009f]/.test(value))throw new TypeError('TextFormat.font requires a nonempty font-family string of at most 1024 UTF-8 bytes without controls.');}
     else if(name==='size'){if(typeof value!=='number'||!Number.isFinite(value)||value<=0||value>10000)throw new RangeError('TextFormat.size requires a finite number greater than zero through 10000.');}
     else if(name==='color'){if(!Number.isInteger(value)||value<0||value>0xffffff)throw new RangeError('TextFormat.color requires an RGB integer from zero through 0xffffff.');}
-    else if(name==='bold'||name==='italic'){if(typeof value!=='boolean')throw new TypeError(`TextFormat.${name} requires a Boolean or null.`);}
+    else if(name==='bold'||name==='italic'||name==='underline'){if(typeof value!=='boolean')throw new TypeError(`TextFormat.${name} requires a Boolean or null.`);}
     else if(name==='align'){if(!['left','center','right'].includes(value))throw new TypeError('TextFormat.align supports left, center and right; justified layout is pending.');}
+    else if(['leftMargin','rightMargin','indent','blockIndent'].includes(name)){if(typeof value!=='number'||!Number.isFinite(value)||Math.abs(value)>10000||(name!=='indent'&&value<0))throw new RangeError(`TextFormat.${name} requires a bounded paragraph length.`);}
     else if(name==='leading'){if(typeof value!=='number'||!Number.isFinite(value)||Math.abs(value)>10000)throw new RangeError('TextFormat.leading requires a finite number from -10000 through 10000.');}
     return value;
   }
@@ -29,7 +31,7 @@
       formats.set(this,values);Object.seal(this);
     }
   }
-  for(const name of fields)Object.defineProperty(TextFormat.prototype,name,{enumerable:true,get(){const value=formats.get(this);if(!value)throw new TypeError('Expected TextFormat.');return value[name];},set(value){const current=formats.get(this);if(!current)throw new TypeError('Expected TextFormat.');current[name]=formatValue(name,value);}});
+  for(const name of fields)Object.defineProperty(TextFormat.prototype,name,{enumerable:true,get(){const value=formats.get(this);if(!value)throw new TypeError('Expected TextFormat.');return value[name];},set(value){const current=formats.get(this);if(!current)throw new TypeError('Expected TextFormat.');current[name]=formatValue(name,value,legacyFormats.has(this));}});
   for(const name of ['blockIndent','bullet','kerning','letterSpacing','tabStops','display'])Object.defineProperty(TextFormat.prototype,name,{get(){throw new TypeError(`TextFormat.${name} is not supported by the uniform text profile.`);},set(){throw new TypeError(`TextFormat.${name} is not supported by the uniform text profile.`);}});
   TextFormat.__nfIs=value=>formats.has(value);
   TextFormat.__nfInitialize=()=>{throw new TypeError('Native TextFormat subclassing is not supported.');};
@@ -53,6 +55,21 @@
   const UNHANDLED=Symbol('unhandled text member');
   function create({player,measureText,onUpdate=()=>{}}={}){
     if(!player||typeof measureText!=='function')throw new TypeError('TextField requires the shared Player and font measurement service.');
+    let as2Execute=null;
+    class As2TextFormat extends TextFormat {
+      constructor(...args){
+        super();if(args.length>fields.length)throw new TypeError('AS2 TextFormat accepts at most thirteen arguments.');
+        legacyFormats.add(this);const values={};for(let i=0;i<fields.length;i++)values[fields[i]]=formatValue(fields[i],args[i],true);values.blockIndent=null;formats.set(this,values);
+      }
+      getTextExtent(value,width){
+        if(!as2Execute)throw new Error('AS2 text kernel is missing; re-export the project.');
+        if(typeof value!=='string'||(width!==undefined&&(!Number.isFinite(width)||width<0)))throw new TypeError('getTextExtent requires text and an optional finite nonnegative wrap width.');
+        const packet=as2Execute({op:'extent_field',text:value,format:formatPatch(this),width:width===undefined?null:width});
+        return as2Execute({op:'extent_result',layout:layout(packet.field),format:packet.field.format});
+      }
+    }
+    Object.defineProperty(As2TextFormat.prototype,'blockIndent',{get(){return formats.get(this).blockIndent;},set(value){formats.get(this).blockIndent=formatValue('blockIndent',value,true);}});
+    function legacyFormatCopy(value){const result=new As2TextFormat();for(const name of legacySupported)if(value[name]!==undefined)result[name]=value[name];return result;}
     let disposed=false,cacheBytes=0;const cache=new Map(),maxCacheBytes=8*1024*1024;
     const active=()=>{if(disposed)throw new Error('This text service has been disposed.');};
     function info(ref){active();return JSON.parse(player.object_text_info(ref));}
@@ -134,6 +151,7 @@
       getLineIndexOfChar:index=>{const field=info(ref);if(!Number.isInteger(index)||index<0||index>=field.text.length)throw new RangeError('TextField character index is outside the current UTF-16 text.');return layout(field).lines.findIndex(item=>index>=item.start&&index<item.end);},
     };}
     function bounds(field,ink=false){
+      if(ink&&field.alpha>0&&(field.as2_viewport?.background||field.as2_viewport?.border)){const surface=layout(field).surface;return {left:0,top:0,right:surface.width,bottom:surface.height};}
       if(!ink&&field.box)return {left:0,top:0,right:field.box.width,bottom:field.box.height};
       let box=null;
       for(const item of layout(field).lines){
@@ -148,16 +166,20 @@
     function draw(context,field){
       const result=layout(field);context.save();
       try{
+        const surface=result.surface;
+        if(surface?.background!==null&&surface?.background!==undefined){context.fillStyle=`rgba(${surface.background>>>16},${surface.background>>>8&255},${surface.background&255},${field.alpha/255})`;context.fillRect(0,0,surface.width,surface.height);}
+        if(surface?.border!==null&&surface?.border!==undefined&&surface.width>0&&surface.height>0){context.strokeStyle=`rgba(${surface.border>>>16},${surface.border>>>8&255},${surface.border&255},${field.alpha/255})`;context.lineWidth=1;context.strokeRect(0.5,0.5,Math.max(0,surface.width-1),Math.max(0,surface.height-1));}
         if(field.box){context.beginPath();context.rect(0,0,field.box.width,field.box.height);context.clip();}
         context.font=cssFont(field.format);context.textAlign='left';context.textBaseline='top';
         const rgb=field.format.color;context.fillStyle=`rgba(${rgb>>>16},${rgb>>>8&255},${rgb&255},${field.alpha/255})`;
         for(const item of result.lines)context.fillText(item.text,item.x,item.y);
+        for(const item of result.decorations||[])context.fillRect(item.x,item.y,item.width,item.height);
       }finally{context.restore();}
     }
     function hit(field,x,y){const box=bounds(field);return !!box&&box.right>box.left&&box.bottom>box.top&&field.alpha>0&&x>=box.left&&y>=box.top&&x<=box.right&&y<=box.bottom;}
     function reset(){active();cache.clear();cacheBytes=0;}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({TextFormat,TextFormatAlign,TextFieldType,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
+    return Object.freeze({measure:(strings,format)=>strings.map(value=>measureText(value,format)),TextFormat,As2TextFormat,legacyFormatCopy,bindAs2:execute=>{as2Execute=execute;},TextFormatAlign,TextFieldType,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
   }
   const api={create,TextFormat,TextFormatAlign,TextFieldType,formatPatch,formatCopy,cssFont};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashText=api;

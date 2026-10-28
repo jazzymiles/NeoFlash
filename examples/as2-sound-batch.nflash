@@ -1,0 +1,477 @@
+{
+  "format_version": 3,
+  "name": "AS2 sound resources, metadata and channel matrices",
+  "width": 1060,
+  "height": 610,
+  "fps": 24,
+  "background": [
+    13,
+    21,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "AS2 sound resources, metadata and channel matrices",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "heading",
+                    "name": "heading",
+                    "transform": {
+                      "x": 40,
+                      "y": 30,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "AS2 / Sound resources + ID3 + stereo matrix",
+                      "width": 970,
+                      "height": 48,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 29,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "description",
+                    "name": "description",
+                    "transform": {
+                      "x": 40,
+                      "y": 92,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "One bundled original MP3. Metadata and channel coefficients come from Rust; playback uses Web Audio.",
+                      "width": 970,
+                      "height": 55,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 18,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "metadata",
+                    "name": "metadata",
+                    "transform": {
+                      "x": 40,
+                      "y": 160,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Waiting for ID3 metadata...",
+                      "width": 970,
+                      "height": 115,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 20,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "status",
+                    "name": "status",
+                    "transform": {
+                      "x": 40,
+                      "y": 290,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Loading original audio resource...",
+                      "width": 970,
+                      "height": 65,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 20,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "matrixStatus",
+                    "name": "matrixStatus",
+                    "transform": {
+                      "x": 40,
+                      "y": 365,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Matrix: default stereo; output volume: 0%",
+                      "width": 970,
+                      "height": 60,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 19,
+                        "color": 15661055,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 40,
+                      "y": 555,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "No audible output. Use the authored Play button to verify completion and matrix changes.",
+                      "width": 970,
+                      "height": 35,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 15,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "play-sound",
+                    "name": "play-sound",
+                    "transform": {
+                      "x": 40,
+                      "y": 465,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "advance-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.playSoundBatch();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Play silently / change matrix",
+                      "description": "Play the original MP3 with volume zero and update its stereo matrix.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  },
+                  {
+                    "id": "reattach-sound",
+                    "name": "reattach-sound",
+                    "transform": {
+                      "x": 400,
+                      "y": 465,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "reattach-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.reattachSoundBatch();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Reattach resource",
+                      "description": "Reload the same bundled resource and receive both metadata events.",
+                      "role": "button",
+                      "tab_order": 1,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop();\nvar sample:Sound = new Sound();\nvar ready:Boolean = false;\nvar metadataEvents:Number = 0;\nvar loads:Number = 0;\nvar completed:Number = 0;\nvar plays:Number = 0;\nvar mode:Number = 0;\nsample.setVolume(0);\nfunction updateSoundBatch():Void {\n  var matrix:Object = sample.getTransform();\n  _root.matrixStatus.text = \"Matrix ll=\" + matrix.ll + \" lr=\" + matrix.lr + \" rl=\" + matrix.rl + \" rr=\" + matrix.rr + \"; volume=\" + sample.getVolume() + \"%\";\n  _root.status.text = \"Ready=\" + ready + \"; ID3 events=\" + metadataEvents + \"; loads=\" + loads + \"; plays=\" + plays + \"; completed=\" + completed;\n}\nsample.onID3 = function():Void {\n  metadataEvents++;\n  _root.metadata.text = \"Title: \" + sample.id3.songname + \"\\nArtist: \" + sample.id3.artist + \"\\nComment: \" + sample.id3.comment;\n};\nsample.onLoad = function(success:Boolean):Void {\n  ready = success;\n  if (success) {\n    loads++;\n    if (metadataEvents != 2 || sample.id3.songname != \"NeoFlash AS2 pulse\" || sample.getVolume() != 0 || sample.duration <= 0) { throw new Error(\"AS2 Sound batch metadata/load check failed\"); }\n    trace(\"AS2 Sound ready: 2 ID3 callbacks, title/artist/comment, decoded MP3, silent volume\");\n  }\n  updateSoundBatch();\n};\nsample.onSoundComplete = function():Void {\n  completed++;\n  updateSoundBatch();\n  trace(\"AS2 Sound matrix playback complete \" + completed);\n};\nfunction playSoundBatch():Void {\n  if (!ready) { return; }\n  sample.stop();\n  sample.setPan(0);\n  sample.start(0, 1);\n  mode = (mode + 1) % 2;\n  if (mode == 1) { sample.setTransform({ll:50, lr:50, rl:50, rr:50}); }\n  else { sample.setTransform({ll:100, lr:0, rl:0, rr:100}); }\n  var detached:Object = sample.getTransform();\n  detached.ll = 0;\n  if (sample.getTransform().ll == 0 || sample.getVolume() != 0) { throw new Error(\"Sound transform copy/volume check failed\"); }\n  plays++;\n  updateSoundBatch();\n}\nfunction reattachSoundBatch():Void {\n  ready = false;\n  metadataEvents = 0;\n  sample.attachSound(\"as2-tagged-pulse\");\n  updateSoundBatch();\n}\nreattachSoundBatch();\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "advance-control",
+      "name": "Play silently / change matrix",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "advance-control-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 320,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Play silently / change matrix",
+                      "width": 300,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "reattach-control",
+      "name": "Reattach resource",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "reattach-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "reattach-button-face",
+                    "name": "reattach-button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 320,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "reattach-button-label",
+                    "name": "reattach-button-label",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Reattach resource",
+                      "width": 300,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [],
+  "resources": [
+    {
+      "id": "as2-tagged-pulse",
+      "path": "audio/as2-tagged-pulse.mp3",
+      "media_type": "audio/mpeg",
+      "data_base64": "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"
+    }
+  ]
+}

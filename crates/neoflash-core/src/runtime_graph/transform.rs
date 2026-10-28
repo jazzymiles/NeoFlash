@@ -81,6 +81,18 @@ impl ColorTransform {
         result.format.color =
             u32::from(color[0]) << 16 | u32::from(color[1]) << 8 | u32::from(color[2]);
         result.alpha = color[3];
+        for value in [
+            &mut result.as2_viewport.background_color,
+            &mut result.as2_viewport.border_color,
+        ] {
+            let color = self.apply([
+                (*value >> 16) as u8,
+                (*value >> 8) as u8,
+                *value as u8,
+                field.alpha,
+            ]);
+            *value = (u32::from(color[0]) << 16) | (u32::from(color[1]) << 8) | u32::from(color[2]);
+        }
         result
     }
 }

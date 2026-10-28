@@ -1,0 +1,598 @@
+{
+  "format_version": 3,
+  "name": "AS2 bitmap operations and displacement",
+  "width": 1200,
+  "height": 800,
+  "fps": 24,
+  "background": [
+    13,
+    21,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "AS2 XML data",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "content",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "heading",
+                    "name": "heading",
+                    "transform": {
+                      "x": 40,
+                      "y": 25,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "AS2 / Rust pixels and procedural images",
+                      "width": 1120,
+                      "height": 45,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 30,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 40,
+                      "y": 82,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Channel edits, palettes, thresholds, compositing, deterministic noise, alpha masks and displacement. All image algorithms run in the shared Rust arena.",
+                      "width": 1120,
+                      "height": 54,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 16,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "summary",
+                    "name": "summary",
+                    "transform": {
+                      "x": 40,
+                      "y": 142,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Loading family\u2026",
+                      "width": 1120,
+                      "height": 40,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 17,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 40,
+                      "y": 638,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Displacement currently applies to BitmapData. Source and map use integer pixels; historical Flash raster identity is not claimed. The button cycles edge handling on the warped image.",
+                      "width": 1120,
+                      "height": 58,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 15,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "caption-0",
+                    "name": "caption-0",
+                    "transform": {
+                      "x": 40,
+                      "y": 185,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Original",
+                      "width": 210,
+                      "height": 24,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "caption-1",
+                    "name": "caption-1",
+                    "transform": {
+                      "x": 270,
+                      "y": 185,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Copy red \u2192 blue",
+                      "width": 210,
+                      "height": 24,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "caption-2",
+                    "name": "caption-2",
+                    "transform": {
+                      "x": 500,
+                      "y": 185,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Palette map",
+                      "width": 210,
+                      "height": 24,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "caption-3",
+                    "name": "caption-3",
+                    "transform": {
+                      "x": 730,
+                      "y": 185,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Threshold",
+                      "width": 210,
+                      "height": 24,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "caption-4",
+                    "name": "caption-4",
+                    "transform": {
+                      "x": 960,
+                      "y": 185,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Weighted merge",
+                      "width": 210,
+                      "height": 24,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "caption-5",
+                    "name": "caption-5",
+                    "transform": {
+                      "x": 40,
+                      "y": 430,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Seeded noise",
+                      "width": 210,
+                      "height": 24,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "caption-6",
+                    "name": "caption-6",
+                    "transform": {
+                      "x": 270,
+                      "y": 430,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Stitched perlinNoise",
+                      "width": 210,
+                      "height": 24,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "caption-7",
+                    "name": "caption-7",
+                    "transform": {
+                      "x": 500,
+                      "y": 430,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Connected flood fill",
+                      "width": 210,
+                      "height": 24,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "caption-8",
+                    "name": "caption-8",
+                    "transform": {
+                      "x": 730,
+                      "y": 430,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Alpha mask / hitTest",
+                      "width": 210,
+                      "height": 24,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "caption-9",
+                    "name": "caption-9",
+                    "transform": {
+                      "x": 960,
+                      "y": 430,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Displacement map",
+                      "width": 210,
+                      "height": 24,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 10733525,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "cycle-bitmap",
+                    "name": "cycle-bitmap",
+                    "transform": {
+                      "x": 40,
+                      "y": 715,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "advance-control",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.advanceBitmapBatch();"
+                        }
+                      }
+                    ],
+                    "accessibility": {
+                      "name": "Cycle displacement mode",
+                      "description": "Switch wrap, clamp, ignore and color displacement edge handling.",
+                      "role": "button",
+                      "tab_order": 0,
+                      "disabled": false
+                    }
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import flash.display.BitmapData;\nimport flash.geom.Rectangle;\nimport flash.geom.Point;\nimport flash.geom.ColorTransform;\nimport flash.filters.BlurFilter;\nimport flash.filters.DisplacementMapFilter;\nstop();\nvar checks:Number=0;var failures:String=\"\";var phase:Number=0;\nfunction checkBitmap(ok:Boolean,name:String):Void {if(ok)checks++;else failures+=name+\"; \";}\nvar zero:Point=new Point(0,0);var area:Rectangle=new Rectangle(0,0,64,64);\nfunction showBitmap(bitmap:BitmapData,name:String,x:Number,y:Number):Void {\n var clip:MovieClip=createEmptyMovieClip(name,getNextHighestDepth());clip._x=x;clip._y=y;clip._xscale=250;clip._yscale=250;\n clip.attachBitmap(bitmap,clip.getNextHighestDepth(),\"auto\",false);\n}\nvar original:BitmapData=new BitmapData(64,64,true,0xff26405c);\nfor(var y:Number=0;y<64;y++){original.fillRect(new Rectangle(0,y,64,1),0xff000000+((y*3+32)<<16)+((64-y)*3<<8)+96);}\noriginal.fillRect(new Rectangle(20,20,24,24),0xffffd464);\nvar channelImage:BitmapData=original.clone();channelImage.copyChannel(original,area,zero,1,4);\ncheckBitmap((channelImage.getPixel(10,10)&255)==((original.getPixel(10,10)>>16)&255),\"copyChannel\");\nvar palette:BitmapData=original.clone();var red:Array=[];\nfor(var i:Number=0;i<256;i++)red.push((255-i)<<16);\npalette.paletteMap(original,area,zero,red,null,null,null);\ncheckBitmap(((palette.getPixel(10,10)>>16)&255)==255-((original.getPixel(10,10)>>16)&255),\"paletteMap\");\nvar thresholded:BitmapData=new BitmapData(64,64,true,0xff223344);\nvar matches:Number=thresholded.threshold(original,area,zero,\">\",0x00800000,0xffff6842,0x00ff0000,false);\nvar bounds:Rectangle=thresholded.getColorBoundsRect(0xffffffff,0xffff6842,true);\ncheckBitmap(matches>0&&matches<4096&&bounds.width==64,\"threshold and color bounds\");\nvar merged:BitmapData=new BitmapData(64,64,true,0xff3548ff);merged.merge(original,area,zero,128,192,64,256);\ncheckBitmap(merged.compare(original)!=0,\"merge and compare\");\nvar noiseImage:BitmapData=new BitmapData(64,64,true,0);noiseImage.noise(47,0,255,7,false);\nvar sameNoise:BitmapData=noiseImage.clone();sameNoise.noise(47,0,255,7,false);\ncheckBitmap(noiseImage.compare(sameNoise)==0,\"deterministic noise\");sameNoise.dispose();\nvar cloud:BitmapData=new BitmapData(64,64,true,0);cloud.perlinNoise(20,20,4,31,true,true,7,true,[new Point(0.5,0.25)]);\nvar anotherCloud:BitmapData=cloud.clone();anotherCloud.perlinNoise(20,20,4,31,true,true,7,true,[new Point(0.5,0.25)]);\nvar cloudVariety:Rectangle=cloud.getColorBoundsRect(0x00ffffff,cloud.getPixel(0,0),false);\ncheckBitmap(cloud.compare(anotherCloud)==0&&cloudVariety.width>0&&cloudVariety.height>0,\"perlinNoise field\");anotherCloud.dispose();\nvar flood:BitmapData=new BitmapData(64,64,true,0xff142033);flood.fillRect(new Rectangle(10,10,44,44),0xff335577);flood.fillRect(new Rectangle(20,20,24,24),0xff142033);flood.floodFill(12,12,0xff58c5a6);\ncheckBitmap(flood.getPixel(12,12)==0x58c5a6&&flood.getPixel(30,30)==0x142033,\"connected flood fill\");\nvar alphaMask:BitmapData=new BitmapData(64,64,true,0);alphaMask.fillRect(new Rectangle(8,8,48,48),0x80000000);\nvar alphaImage:BitmapData=new BitmapData(64,64,true,0);alphaImage.copyPixels(original,area,zero,alphaMask,zero,false);\ncheckBitmap((alphaImage.getPixel32(20,20)>>>24)==128&&alphaImage.getPixel32(0,0)==0,\"alpha-mask copyPixels\");\ncheckBitmap(alphaImage.hitTest(zero,1,new Point(20,20))&&!alphaImage.hitTest(zero,1,new Point(0,0))&&alphaImage.hitTest(zero,1,original,zero,255),\"pixel-level hitTest\");\nvar dissolved:BitmapData=original.clone();var dissolveSeed:Number=dissolved.pixelDissolve(dissolved,area,zero,0,512,0xff142033);\ncheckBitmap(dissolveSeed>0&&dissolved.getPixel(0,0)==0x142033,\"seeded pixelDissolve\");\nvar displacement:DisplacementMapFilter=new DisplacementMapFilter(cloud,zero,1,2,36,28,\"wrap\",0x142033,1);\nvar filterCopy:DisplacementMapFilter=displacement.clone();filterCopy.mode=\"color\";\ncheckBitmap(displacement.mode==\"wrap\"&&filterCopy.mapBitmap==cloud&&filterCopy.scaleX==36&&filterCopy.componentY==2&&filterCopy.color==0x142033&&filterCopy.alpha==1,\"displacement values and clone\");\nvar warped:BitmapData=original.clone();var applied:Number=warped.applyFilter(original,area,zero,displacement);\ncheckBitmap(applied==0&&warped.generateFilterRect(area,displacement).width==64,\"Rust displacement filter\");\nvar oldMethods:BitmapData=original.clone();oldMethods.colorTransform(area,new ColorTransform(1,1,1,1,8,0,0,0));oldMethods.scroll(2,0);oldMethods.setPixel(0,0,0x123456);\ncheckBitmap(oldMethods.getPixel(0,0)==0x123456&&oldMethods.generateFilterRect(area,new BlurFilter(2,2,1)).width>64,\"existing pixel APIs\");oldMethods.dispose();\nvar libraryA:BitmapData=BitmapData.loadBitmap(\"original-pixel-creature\");var libraryB:BitmapData=BitmapData.loadBitmap(\"original-pixel-creature\");\nvar saved:Number=libraryB.getPixel32(0,0);libraryA.setPixel32(0,0,0xff987654);\ncheckBitmap(libraryA.width==16&&libraryA!=libraryB&&libraryB.getPixel32(0,0)==saved&&BitmapData.loadBitmap(\"missing-image\")==null,\"independent library pixels\");libraryA.dispose();libraryB.dispose();\nshowBitmap(original,\"originalView\",40,210);showBitmap(channelImage,\"channelView\",270,210);showBitmap(palette,\"paletteView\",500,210);showBitmap(thresholded,\"thresholdView\",730,210);showBitmap(merged,\"mergeView\",960,210);\nshowBitmap(noiseImage,\"noiseView\",40,455);showBitmap(cloud,\"cloudView\",270,455);showBitmap(flood,\"floodView\",500,455);showBitmap(alphaImage,\"alphaView\",730,455);showBitmap(warped,\"warpView\",960,455);\nfunction updateBitmapSummary():Void {summary.text=\"Working family checks: \"+checks+\" | failures: \"+(failures==\"\"?\"none\":failures)+\" | mode: \"+displacement.mode;}\nfunction advanceBitmapBatch():Void {\n phase++;var modes:Array=[\"wrap\",\"clamp\",\"ignore\",\"color\"];displacement.mode=modes[phase%4];displacement.scaleX=36+phase*4;warped.applyFilter(original,area,zero,displacement);\n dissolveSeed=dissolved.pixelDissolve(dissolved,area,zero,dissolveSeed,256,0xff142033);updateBitmapSummary();\n}\nupdateBitmapSummary();\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "advance-control",
+      "name": "Update both catalogs",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "advance-control-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 42,
+                      "fill": [
+                        86,
+                        197,
+                        165,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 12,
+                      "y": 10,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text_box",
+                      "text": "Cycle displacement mode",
+                      "width": 200,
+                      "height": 25,
+                      "word_wrap": true,
+                      "multiline": true,
+                      "format": {
+                        "font": "Arial",
+                        "size": 14,
+                        "color": 861732,
+                        "align": "left",
+                        "bold": false,
+                        "italic": false,
+                        "leading": 3
+                      }
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [],
+  "resources": [
+    {
+      "id": "original-pixel-creature",
+      "path": "images/pixel-creature.png",
+      "media_type": "image/png",
+      "data_base64": "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAU0lEQVR42mNgoAXQurL0Pwjj4hPU/H9nDIYB6GJ4bSaE8Wr+8O0/GKNrQhfHaYCQkjEYoxuALk6ys3F6B1eIE/I/9Qwg1ytEJSCS5AmaTqSakQgAFg4YHqymbxwAAAAASUVORK5CYII="
+    }
+  ]
+}

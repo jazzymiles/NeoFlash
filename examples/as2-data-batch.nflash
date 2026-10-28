@@ -1,0 +1,443 @@
+{
+  "format_version": 2,
+  "name": "AS2 nonvisual data and local changes",
+  "width": 960,
+  "height": 570,
+  "fps": 24,
+  "background": [
+    14,
+    24,
+    33,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 42,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / AS2 DATA MODELS",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        115,
+                        213,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 42,
+                      "y": 82,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Collections, views and local transactions",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 42,
+                      "y": 125,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Rust identity, ordering, filtering, cursors and change logs. Shared object references.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel",
+                    "name": "panel",
+                    "transform": {
+                      "x": 32,
+                      "y": 175,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 890,
+                      "height": 195,
+                      "fill": [
+                        25,
+                        42,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "result",
+                    "name": "result",
+                    "transform": {
+                      "x": 52,
+                      "y": 205,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Running the data package…",
+                      "font_family": "Arial",
+                      "font_size": 25,
+                      "color": [
+                        115,
+                        229,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pipeline",
+                    "name": "pipeline",
+                    "transform": {
+                      "x": 52,
+                      "y": 248,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Model data will appear here",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "casing",
+                    "name": "casing",
+                    "transform": {
+                      "x": 52,
+                      "y": 286,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Independent cursor and filtered view",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "codec",
+                    "name": "codec",
+                    "transform": {
+                      "x": 52,
+                      "y": 324,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Local delta packet",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rerun",
+                    "name": "rerun",
+                    "transform": {
+                      "x": 42,
+                      "y": 397,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "run-button",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.runData();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 285,
+                      "y": 417,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run again repeats the complete data package.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "counts",
+                    "name": "counts",
+                    "transform": {
+                      "x": 42,
+                      "y": 480,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Awaiting results",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 42,
+                      "y": 522,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Nonvisual profile: explicit data methods; no UI controls, schema binding or remote resolver.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "run-button",
+      "name": "run-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "run-button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 56,
+                      "fill": [
+                        32,
+                        116,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 35,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RUN AGAIN",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": "",
+                "scripts": []
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "document_class": "app.DataMain",
+  "sources": [
+    {
+      "id": "as2-data-main",
+      "path": "app/DataMain.as",
+      "language": "action_script2",
+      "source": "import mx.data.binding.Binding;\nimport mx.data.binding.EndPoint;\nimport mx.data.binding.ComponentMixins;\nimport mx.data.binding.TypedValue;\nimport mx.data.binding.DataType;\nimport mx.utils.CollectionImpl;\nimport mx.utils.Collection;\nimport mx.utils.Iterator;\nimport mx.controls.listclasses.DataProvider;\nimport mx.data.components.DataSet;\nimport mx.data.components.datasetclasses.DataSetIterator;\nimport mx.data.components.datasetclasses.DeltaPacket;\nimport mx.data.components.datasetclasses.Delta;\nimport mx.data.components.datasetclasses.DeltaPacketConsts;\nclass app.DataMain extends MovieClip {\n  public var runs:Number = 0;\n  public var checks:Number = 0;\n  public var passed:Number = 0;\n  public var lastDataSet:Object;\n  public function DataMain() { super(); stop(); runData(); }\n  public function check(name:String, ok:Boolean):Void { checks++; if(ok)passed++; trace(\"AS2_DATA_CHECK \" + name + \" \" + ok); }\n  public function runData():Void {\n    runs++; checks=0; passed=0;\n    var one:Object={name:\"one\"}; var two:Object={name:\"two\"};\n    var collection:Collection=new CollectionImpl();\n    var inserted:Boolean=collection.addItem(one)&&collection.addItem(two);\n    var iterator:Iterator=collection.getIterator();\n    var first:Object=iterator.next(); var second:Object=iterator.next();\n    check(\"collection identity and iteration\", inserted&&first==one&&second==two&&!iterator.hasNext()&&collection.contains(one)&&!collection.contains({name:\"one\"})&&collection.getItemAt(4)==null&&collection.getLength()==2);\n    var removed:Boolean=collection.removeItem(one);collection.clear();\n    check(\"collection removal\", removed&&collection.isEmpty()&&collection.getLength()==0&&!collection.removeItem(one));\n    var array:Array=[{label:\"B\",price:20},{label:\"A\",price:10}];DataProvider.initialize(array);\n    var events:Object={count:0,modelChanged:function(event){this.count++;}};\n    array.addEventListener(\"modelChanged\",events);\n    var stableID:Number=array.getItemID(0);var original:Object=array.getItemAt(0);\n    array.editField(0,\"price\",25);array.addItemAt(1,{label:\"C\",price:15});array.addItem({label:\"D\",price:30});array.replaceItemAt(3,{label:\"E\",price:35});array.removeItemAt(3);\n    check(\"data provider edits and events\", array.length==3&&array.getEditingData(0,\"price\")==25&&array.getItemAt(0)==original&&events.count==5);\n    array.sortItemsBy(\"price\",Array.NUMERIC);\n    var orderOk:Boolean=array.getItemAt(0).label==\"A\"&&array.getItemAt(2)==original&&array.getItemID(2)==stableID;\n    var labels:Array=[\"c\",\"a\",\"b\"];DataProvider.initialize(labels);labels.sortItems();\n    check(\"Rust provider sorting\", orderOk&&labels.getItemAt(0)==\"a\"&&labels.getItemAt(2)==\"c\");\n    var ds:DataSet=new DataSet();var status:Object={loaded:0,scrolled:0,changed:0,afterLoaded:function(event){this.loaded++;},iteratorScrolled:function(event){this.scrolled++;},modelChanged:function(event){this.changed++;}};\n    ds.addEventListener(\"afterLoaded\",status);ds.addEventListener(\"iteratorScrolled\",status);ds.addEventListener(\"modelChanged\",status);\n    var alpha:Object={name:\"Alpha\",rank:1};var beta:Object={name:\"Beta\",rank:2};var gamma:Object={name:\"Gamma\",rank:3};\n    ds.items=[gamma,alpha,beta];ds.first();ds.next();var moved:Boolean=ds.currentItem==alpha;ds.last();ds.previous();ds.skip(-100);\n    check(\"dataset records and cursor\", status.loaded==1&&status.scrolled>=3&&moved&&ds.currentItem==gamma&&ds.hasNext()&&!ds.hasPrevious()&&ds.getLength()==3&&ds.length==3);\n    ds.addSort(\"rank\",[\"rank\"]);var located:Boolean=ds.find([2])&&ds.currentItem==beta;var betaID:String=ds.getItemId();ds.last();located=located&&ds.locateById(betaID)&&ds.currentItem==beta;\n    var searched:Boolean=ds.findFirst([1])&&ds.findLast([3]);ds.addSort(\"name\",[\"name\"],DataSetIterator.Descending);ds.useSort(\"rank\");ds.removeSort(\"name\");\n    check(\"named sort and search\", located&&searched&&ds.hasSort(\"rank\")&&!ds.hasSort(\"name\"));\n    ds.first();var cursor:Object=ds.getIterator();cursor.next();var independent:Boolean=cursor.currentItem==beta&&ds.currentItem==alpha;ds.setIterator(cursor);\n    ds.filterFunc=function(item){return item.rank>=2;};ds.filtered=true;ds.setRange([2],[3]);\n    check(\"independent filtered views\", independent&&ds.currentItem==beta&&ds.length==2&&ds.getLength()==3&&ds.filtered);\n    ds.clear();ds.filtered=false;ds.removeRange();\n    check(\"clear only visible records\", ds.length==1&&ds.getLength()==1&&ds.currentItem==alpha&&ds.items[0]==alpha);\n    var edits:DataSet=new DataSet();edits.items=[{name:\"First\",rank:1},{name:\"Second\",rank:2}];lastDataSet=edits;edits.logChanges=true;\n    var observer:Object={packets:0,changes:0,deltaPacketChanged:function(event){this.packets++;},modelChanged:function(event){this.changes++;},addItem:function(event){if(event.item.name==\"Blocked\")event.result=false;},removeItem:function(event){if(event.item.name==\"First\")event.result=false;}};\n    edits.addEventListener(\"deltaPacketChanged\",observer);edits.addEventListener(\"modelChanged\",observer);edits.addEventListener(\"addItem\",observer);edits.addEventListener(\"removeItem\",observer);\n    var veto:Boolean=!edits.addItem({name:\"Blocked\",rank:0})&&!edits.removeItemAt(0);\n    edits.disableEvents();edits.disableEvents();var transient:Object={name:\"Transient\",rank:4};edits.addItem(transient);edits.removeItem(transient);edits.dataProvider.editField(0,\"rank\",7);edits.dataProvider.editField(0,\"rank\",9);edits.applyUpdates();\n    var quiet:Boolean=observer.changes==0&&edits.deltaPacket==null;edits.enableEvents();quiet=quiet&&observer.changes==0;edits.enableEvents();\n    check(\"cancelable edits and event batching\", veto&&quiet&&observer.changes==1&&edits.changesPending()&&edits.logChanges);\n    edits.readOnly=true;var locked:Boolean=edits.readOnly;edits.readOnly=false;edits.applyUpdates();\n    var packet:DeltaPacket=edits.deltaPacket;var changes:Iterator=packet.getIterator();var delta:Delta=changes.next();var change:Object=delta.getItemByName(\"rank\");\n    var packetOk:Boolean=locked&&!edits.readOnly&&!edits.changesPending()&&observer.packets==1&&packet.getSource()==edits&&packet.getTimestamp().getTime()>0&&packet.getTransactionId().length>0&&!packet.logChanges()&&!packet.getConfigInfo().remoteResolver;\n    check(\"coalesced local delta transaction\", packetOk&&!changes.hasNext()&&delta.getOperation()==DeltaPacketConsts.Modified&&delta.getSource()==edits.items[0]&&delta.getDeltaPacket()==packet&&delta.getChangeList().length==1&&change.oldValue==1&&change.newValue==9&&change.name==\"rank\"&&change.delta==delta&&delta.getMessage()==\"\");\n    var source:Object={data:{person:{name:\"Ada\"}},amount:\"12\"};var destination:Object={name:\"\",count:0};\n    ComponentMixins.initComponent(source);ComponentMixins.initComponent(destination);\n    var src:EndPoint=new EndPoint();src.component=source;src.property=\"data\";src.location=[\"person\",\"name\"];src.event=[\"change\",\"commit\"];\n    var dest:EndPoint=new EndPoint();dest.component=destination;dest.property=\"name\";dest.event=\"change\";\n    var binding:Binding=new Binding(src,dest,null,true);\n    var initial:Boolean=destination.name==\"Ada\";source.data.person.name=\"Grace\";source.dispatchEvent({type:\"commit\"});\n    var forward:Boolean=destination.name==\"Grace\";destination.name=\"Linus\";destination.dispatchEvent({type:\"change\"});\n    check(\"nested event binding both directions\", initial&&forward&&source.data.person.name==\"Linus\"&&src.component==source&&src.property==\"data\"&&src.location.length==2&&src.event.length==2);\n    var amountBinding:Binding=new Binding({component:source,property:\"amount\"},{component:destination,property:\"count\"});\n    source.amount=\"35\";source.refreshDestinations();var refreshed:Boolean=destination.count==35;source.amount=\"48\";destination.refreshFromSources();\n    var constant:EndPoint=new EndPoint();constant.constant=\"73\";var constantBinding:Binding=new Binding(constant,{component:destination,property:\"count\"});\n    check(\"manual refresh and constant conversion\", refreshed&&destination.count==73&&constant.constant==\"73\"&&constantBinding.execute()==null&&amountBinding.execute()==null&&destination.count==48);\n    var countField:DataType=destination.getField(\"count\");var rawTyped:TypedValue=countField.getTypedValue(\"String\");\n    var supplied:TypedValue=new TypedValue(\"91\",\"String\",null);var wrote:Array=countField.setAnyTypedValue(supplied);\n    var readTypes:Boolean=countField.getAsNumber()==91&&countField.getAsString()==\"91\"&&countField.getAsBoolean()&&rawTyped.value==\"48\"&&rawTyped.typeName==\"String\"&&rawTyped.type==null;\n    countField.setAsBoolean(false);var convertedFalse:Boolean=destination.count==0;countField.setAsString(\"27\");countField.setAsNumber(31);\n    check(\"Rust primitive typed fields\", wrote==null&&readTypes&&convertedFalse&&destination.count==31&&supplied.value==\"91\"&&supplied.typeName==\"String\");\n    var rejected:Array=countField.setTypedValue(new TypedValue(\"invalid\",\"String\"));var badConversion:Array=countField.setAnyTypedValue(new TypedValue(\"invalid\",\"String\"));\n    var oldCount:Number=destination.count;destination.count=\"bad\";var invalid:Array=destination.validateProperty(\"count\");destination.count=oldCount;\n    check(\"typed validation preserves destination\", rejected.length>0&&badConversion.length>0&&invalid.length>0&&destination.count==31&&destination.validateProperty(\"count\")==null&&countField.getTypedValue(\"Array\")==null);\n    result.text=passed==checks?\"PASS: AS2 data package\":\"FAIL: inspect trace output\";\n    pipeline.text=\"Sorted provider: \"+array.getItemAt(0).label+\", \"+array.getItemAt(1).label+\", \"+array.getItemAt(2).label;\n    casing.text=\"Filtered clear preserved \"+ds.currentItem.name+\" / identity retained\";\n    codec.text=\"Local change: rank \"+change.oldValue+\" -> \"+change.newValue+\" / \"+packet.getTransactionId();\n    counts.text=passed+\" / \"+checks+\" grouped checks; run \"+runs;\n    array.removeAll();labels.removeAll();ds.removeAll();\n    trace(\"AS2_DATA_RESULT \"+passed+\"/\"+checks);\n  }\n}\n"
+    }
+  ]
+}

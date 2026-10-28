@@ -58,16 +58,17 @@
     throw new Error('AS2 goto requires a frame label or integer frame; other argument coercions are not supported.');
   }
   function createAs2Methods() {
-    const variants = new WeakMap();
+    const variants = new WeakMap();let resolve=(receiver,name)=>receiver[name];
     function aliasError() {
       return new TypeError('AS2 goto method aliases need receiver semantics not supported yet. Call gotoAndPlay/gotoAndStop directly on the target timeline.');
     }
     return {
       register(method, receiver, name, implementation) { variants.set(method, { receiver, name, implementation }); },
+      setResolver(resolver) { resolve=resolver; },
       method(receiver, name) {
         // Resolve the getter before arguments, then check callability after
         // argument evaluation, preserving ordinary call evaluation order.
-        const method = receiver[name];
+        const method = resolve(receiver,name);
         return (...args) => {
           if (typeof method !== 'function') {
             throw new TypeError(`AS2 timeline function '${name}' is missing or is not callable. Define it on this timeline before calling it.`);
@@ -276,7 +277,7 @@
     const graphMode=typeof player.runtime_snapshot_json==='function';
     const references = new WeakMap();
     const attachedClasses = new Map();
-    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, externalHost = null, program = null, as2PlatformHost = null;
+    let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, externalHost = null, program = null, as2PlatformHost = null, as2ObjectHost = null, as2TextHost = null, as2DataHost = null, as2BindingHost = null, as2NetworkHost = null, as2FilesHost = null, as2LocaleHost = null;
     let geometryHost = null, geometry3dHost = null, easingHost = null, broadcasterHost = null;
     let eventFamilies = {};
     let timerRenderGeneration=0, capturePainter=null,inputPaths=null;
@@ -358,9 +359,10 @@
           snapshot=videoHost?videoHost.prepareSnapshot(snapshot):snapshot;
           bitmapHost.cache.beginFrame();try{capturePainter.draw(target,snapshot,{semantic:false});}finally{bitmapHost.cache.endFrame();}
         }});
-      if(global.NeoFlashFilters&&typeof player.filter_rgba==='function')filterHost=global.NeoFlashFilters.create({player});
+      if(global.NeoFlashFilters&&typeof player.filter_rgba==='function')filterHost=global.NeoFlashFilters.create({player,getBitmap:()=>bitmapHost,geometry:geometryHost});
       if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,onUpdate:ref=>textInputHost?.sync(ref),measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.font=global.NeoFlashText.cssFont(format);return context.measureText(text).width;}});
-      display=global.NeoFlashDisplay.create({player,geometry:geometryHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,as2,
+      if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent});
+      display=global.NeoFlashDisplay.create({player,geometry:geometryHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,as2,
         shapeContains:(kind,x,y)=>{if(typeof context==='undefined'||typeof context.isPointInPath!=='function')throw new Error('Shape hit testing requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(context,kind,x,y,inputPaths.get(kind.commands));},
         clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[]),x,y,inputPaths);},
         beforeFilters:(target,specs)=>{if(specs.length)assertUnfilteredEditing(stageHost?.stage.focus,target);},referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
@@ -390,6 +392,7 @@
           legacyGlobals=Object.freeze({Key:legacyHost.Key,Mouse:legacyHost.Mouse,Stage:legacyHost.Stage});
         }
       }
+      legacyGlobals=Object.freeze({...legacyGlobals,_global:Object.create(null),newline:"\n"});
       if(as2PlatformHost)legacyGlobals=Object.freeze({...legacyGlobals,System:as2PlatformHost.System,getVersion:as2PlatformHost.getVersion,updateAfterEvent:as2PlatformHost.updateAfterEvent});
       function legacyProperty(target, index) {
         if(!Number.isInteger(Number(index))||Number(index)<0||Number(index)>21)throw new RangeError('AS2 property index must be between 0 and 21.');
@@ -407,10 +410,10 @@
         getProperty:(target,index)=>{const {receiver,name}=legacyProperty(target,index);return receiver[name];},
         setProperty:(target,index,value)=>{const {receiver,name}=legacyProperty(target,index);receiver[name]=value;}});
       if(global.NeoFlashTextInput&&textHost&&stageHost&&typeof player.object_text_input==='function'){
-        textInputHost=global.NeoFlashTextInput.create({player,text:textHost,display,events:global.NeoFlashEvents,hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,
+        textInputHost=global.NeoFlashTextInput.create({player,text:textHost,display,events:global.NeoFlashEvents,hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,onLegacyTab:event=>display.as2Tab?.(event)||false,onLegacyTextEvent:(target,name,args)=>as2TextHost?.textEvent(references.get(target).key,name,args),
           canvas:typeof canvas==='undefined'?null:canvas,surface:typeof document==='undefined'?null:document.getElementById('stage-surface'),document:typeof document==='undefined'?null:document,project:typeof project==='undefined'?null:project,
           onError:inputFailure,afterInput:afterTimerEvent,onClick:(target,event)=>{target=display.resolveInput(target);if(!target)return;stageHost.handlePointer('click',event,target);if(display.alive(target)){player.object_click(references.get(target).key);dispatchScripts(target);if(typeof context!=='undefined')render();}}});
-        legacyGlobals=Object.freeze({...legacyGlobals,Selection:textInputHost.Selection});
+        legacyGlobals=Object.freeze({...legacyGlobals,Selection:Object.freeze({...textInputHost.Selection,setFocus:value=>{const target=typeof value==='string'?(value?display.resolveTarget(value,proxyFor([])):null):value;if(!display.as2CanFocus?.(target))return false;return textInputHost.Selection.setFocus(target);}})});
       }
       if(global.NeoFlashTimers&&global.NeoFlashEvents)timerHost=global.NeoFlashTimers.create({wasm,events:global.NeoFlashEvents,
         onError:timerFailure,afterEvent:afterTimerEvent,requestRender:requestTimerRender});
@@ -434,12 +437,18 @@
         netHost=global.NeoFlashNet.create({events:{...global.NeoFlashEvents,...eventFamilies},binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],onError:netFailure,onAfterDispatch:afterTimerEvent,navigate:prepared=>{if(!externalHost)throw new Error('Browser navigation adapter is unavailable. Re-export this publication.');externalHost.navigate(prepared);},legacyVariables:legacyNavigationVariables});
         legacyGlobals=Object.freeze({...legacyGlobals,LoadVars:netHost.LoadVars,getURL:function(url,target,method){return netHost.getURL(this,url,target,method);}});
       }
+      if(global.NeoFlashAS2Network&&netHost){
+        as2NetworkHost=global.NeoFlashAS2Network.create({wasm,getNet:()=>netHost,resolveTarget:(target,source)=>{const receiver=display.resolveTarget(target,references.has(source)?source:proxyFor([]));if(display.descriptor(receiver).owner!=='movie_clip')throw new TypeError('AS2 loadVariables target must be a live MovieClip.');return receiver;},fieldsOf:legacyNavigationVariables,alive:value=>display.alive(value),afterCallback:afterTimerEvent});
+        legacyGlobals=Object.freeze({...legacyGlobals,loadVariables:function(url,target,method){return as2NetworkHost.load(this,url,target,method);},loadVariablesNum:function(url,level,method){if(level!==0)throw new RangeError('HTML5 loadVariablesNum supports level 0 only; additional SWF levels are unavailable.');return as2NetworkHost.load(this,url,proxyFor([]),method);}});
+      }
+      if(global.NeoFlashAS2Files&&netHost&&binaryHost&&broadcasterHost)as2FilesHost=global.NeoFlashAS2Files.create({wasm,net:netHost,binary:binaryHost,AsBroadcaster:broadcasterHost.AsBroadcaster,afterEvent:afterTimerEvent,onError:netFailure});
+      if(global.NeoFlashAS2Locale&&netHost)as2LocaleHost=global.NeoFlashAS2Locale.create(wasm,{URLLoader:netHost.URLLoader,URLRequest:netHost.URLRequest,language:()=>as2PlatformHost.System.capabilities.language});
       if(global.NeoFlashLoader&&netHost&&binaryHost&&global.NeoFlashEvents){
         loaderHost=global.NeoFlashLoader.create({player,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,display,proxyForRef,referenceOf:target=>references.get(target),onMutation:deliverDisplayEvents,onError:netFailure,afterEvent:afterTimerEvent});
         legacyGlobals=Object.freeze({...legacyGlobals,MovieClipLoader:loaderHost.MovieClipLoader});
       }
       if(global.NeoFlashAudio&&netHost&&binaryHost&&global.NeoFlashEvents){
-        audioHost=global.NeoFlashAudio.create({events:global.NeoFlashEvents,net:netHost,binary:binaryHost,onError:audioFailure,afterEvent:afterTimerEvent,onState:updateAudioStatus});
+        audioHost=global.NeoFlashAudio.create({player,wasm,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,onError:audioFailure,afterEvent:afterTimerEvent,onState:updateAudioStatus});
         legacyGlobals=Object.freeze({...legacyGlobals,Sound:audioHost.LegacySound,stopAllSounds:audioHost.stopAllLegacySounds});
       }
       if(global.NeoFlashVideo&&netHost&&global.NeoFlashEvents&&typeof player.object_video_info==='function'){
@@ -450,7 +459,20 @@
         xmlHost=global.NeoFlashXML.create({parseLegacy:source=>wasm.parse_as2_xml_json(source),namespaceLookup:(ancestors,value,reverse)=>JSON.parse(wasm.as2_xml_namespace_json(JSON.stringify(ancestors),value,reverse)),parse:source=>{const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;if(typeof wasm?.parse_xml_json!=='function')throw new Error('XML parser is missing. Re-export this project.');return wasm.parse_xml_json(source);},net:netHost,onError:netFailure});
         legacyGlobals=Object.freeze({...legacyGlobals,XML:xmlHost.LegacyXML,XMLNode:xmlHost.XMLNode});
       }
-      if(textHost)legacyGlobals=Object.freeze({...legacyGlobals,TextFormat:textHost.TextFormat});
+      if(textHost)legacyGlobals=Object.freeze({...legacyGlobals,TextFormat:textHost.As2TextFormat||textHost.TextFormat});
+      if(as2TextHost){
+        const LegacyTextField=function(){throw new TypeError('Create an AS2 TextField with MovieClip.createTextField.');};
+        LegacyTextField.StyleSheet=as2TextHost.StyleSheet;
+        legacyGlobals=Object.freeze({...legacyGlobals,TextField:LegacyTextField,nativeRef:(receiver,name)=>{
+          const ref=references.get(receiver);if(!ref)return null;const input=display.as2Ref?.(receiver,name);if(input)return input;
+          if(name==='loadVariables'&&as2NetworkHost&&display.descriptor(receiver).owner==='movie_clip')return {get:()=>((url,method)=>as2NetworkHost.load(receiver,url,receiver,method)),has:()=>true,delete:()=>false,set:()=>{throw new TypeError('MovieClip.loadVariables is read-only.');}};if(display.descriptor(receiver).owner!=='text')return null;
+          return as2TextHost.as2Ref(ref.key,name);
+        }});
+      }
+      if(global.NeoFlashAS2Object){as2ObjectHost=global.NeoFlashAS2Object.create(wasm,{nativeRef:(receiver,name)=>legacyGlobals.nativeRef?.(receiver,name),globals:()=>({_root:proxyFor([]),_level0:proxyFor([]),_global:legacyGlobals._global}),isNative:value=>references.has(value),isProject:value=>program?.enumerationKeys?.(value)!==null&&program?.enumerationKeys?.(value)!==undefined});legacyGlobals=Object.freeze({...legacyGlobals,objects:as2ObjectHost});}
+      if(global.NeoFlashAS2Binding)as2BindingHost=global.NeoFlashAS2Binding.create(wasm,{EventDispatcher:as2PlatformHost.EventDispatcher});
+      if(global.NeoFlashAS2Data)as2DataHost=global.NeoFlashAS2Data.create(wasm,{EventDispatcher:as2PlatformHost.EventDispatcher});
+      as2.setResolver((receiver,name)=>{const ref=legacyGlobals.nativeRef?.(receiver,name);return ref?ref.get():as2ObjectHost?as2ObjectHost.get(receiver,name):receiver[name];});
       if(global.NeoFlashAS2Strings){
         const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
         legacyGlobals=Object.freeze({...legacyGlobals,strings:global.NeoFlashAS2Strings.create({execute:request=>wasm.as2_string_json(request)})});
@@ -465,6 +487,12 @@
       if(!display)return;
       const builtins={...display.builtins};
       builtins.__nfTrace=trace;
+      if(as2DataHost)Object.assign(builtins,as2DataHost.builtins);
+      if(as2BindingHost)Object.assign(builtins,as2BindingHost.builtins);
+      if(as2LocaleHost)Object.assign(builtins,as2LocaleHost.builtins);
+      if(as2FilesHost){builtins['flash.net.FileReference']=as2FilesHost.FileReference;builtins['flash.net.FileReferenceList']=as2FilesHost.FileReferenceList;}
+      if(as2TextHost){builtins['TextField.StyleSheet']=as2TextHost.StyleSheet;builtins.TextSnapshot=as2TextHost.TextSnapshot;}
+      if(filterHost?.DisplacementMapFilter)builtins['flash.filters.DisplacementMapFilter']=filterHost.DisplacementMapFilter;
       if(as2PlatformHost){builtins['mx.utils.Delegate']=as2PlatformHost.Delegate;builtins['mx.events.EventDispatcher']=as2PlatformHost.EventDispatcher;}
       builtins.__nfAs2Method=as2.method;builtins.__nfAs2Value=as2.value;
       builtins.__nfDisplay=display;builtins.__nfLegacy=legacyGlobals;
@@ -518,8 +546,9 @@
       pointerOverContent=false;legacyCursorVisible=true;updateCursor();
       capturePainter?.clear();capturePainter=null;
       filterHost?.renderer.clear();
+      as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();
       externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
-      proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();lastTrace = '';
+      proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';
       player.reset();
       initializeProgram();
       dispatchScripts();
@@ -528,6 +557,7 @@
       pointerOverContent=false;legacyCursorVisible=true;updateCursor();
       capturePainter?.clear();capturePainter=null;
       filterHost?.renderer.clear();
+      as2FilesHost?.dispose();as2NetworkHost?.dispose();as2LocaleHost?.dispose();as2TextHost?.dispose();as2BindingHost?.dispose();as2DataHost?.dispose();as2ObjectHost?.dispose();
       externalHost?.dispose();textInputHost?.dispose();storageHost?.dispose();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
       as2PlatformHost?.dispose();legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
@@ -561,7 +591,7 @@
         if(node.class_name){
           if(!program?.attach)throw new Error(`Linked class ${node.class_name} has no compiled project program.`);
           program.attach(node.class_name,receiver);
-          if(program.dialect?.(node.class_name)==='as2')display.refreshLegacyCallbacks(receiver);
+          if(program.dialect?.(node.class_name)==='as2')display.refreshLegacyCallbacks(receiver,true);
         }
       }
       if(scope)return;
@@ -582,6 +612,7 @@
         if(item.route.some(ref=>JSON.stringify(ref)===rootKey)&&stageHost)route.push(stageHost.stage);
         const type=types[item.kind];if(!type)throw new Error(`Unsupported display lifecycle event ${item.kind}.`);
         eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,type==='added'||type==='removed'),route);
+        display?.lifecycle?.(item.kind,target);
       }
     }
     function drainDisplayEvents() {
@@ -892,7 +923,7 @@
     panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
     global.addEventListener('pagehide', event => { storageHost?.flushAll();if(!event.persisted){gradients.clear();clippings.clear();disposeFamily();} });
     new ResizeObserver(() => { resize(); render(); }).observe(viewport);
-    stopAsyncOnFailure=()=>{gradients.clear();clippings.clear();filterHost?.renderer.clear();externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
+    stopAsyncOnFailure=()=>{as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();gradients.clear();clippings.clear();filterHost?.renderer.clear();externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
     initializeFamily();
     canvas.tabIndex=-1;
     stageHost?.attach();

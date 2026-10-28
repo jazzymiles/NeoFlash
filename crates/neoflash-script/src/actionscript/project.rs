@@ -4,7 +4,58 @@ use super::*;
 use neoflash_core::Project;
 use std::collections::{BTreeMap, BTreeSet};
 
+const AS2_BUILTINS: &[&str] = &[
+    "mx.utils.Delegate",
+    "mx.events.EventDispatcher",
+    "mx.data.binding.EndPoint",
+    "mx.data.binding.Binding",
+    "mx.data.binding.ComponentMixins",
+    "mx.data.binding.DataType",
+    "mx.data.binding.TypedValue",
+    "flash.net.FileReference",
+    "flash.net.FileReferenceList",
+    "mx.lang.Locale",
+    "TextSnapshot",
+    "TextField.StyleSheet",
+    "flash.filters.DisplacementMapFilter",
+    "mx.utils.Collection",
+    "mx.utils.CollectionImpl",
+    "mx.utils.Iterator",
+    "mx.utils.IteratorImpl",
+    "mx.controls.listclasses.DataProvider",
+    "mx.data.components.DataSet",
+    "mx.data.components.datasetclasses.DataSetIterator",
+    "mx.data.components.datasetclasses.DeltaPacket",
+    "mx.data.components.datasetclasses.Delta",
+    "mx.data.components.datasetclasses.DeltaItem",
+    "mx.data.components.datasetclasses.DeltaPacketConsts",
+    "mx.data.to.ValueListIterator",
+];
+
 const BUILTINS: &[&str] = &[
+    "mx.data.binding.EndPoint",
+    "mx.data.binding.Binding",
+    "mx.data.binding.ComponentMixins",
+    "mx.data.binding.DataType",
+    "mx.data.binding.TypedValue",
+    "flash.net.FileReference",
+    "flash.net.FileReferenceList",
+    "mx.lang.Locale",
+    "TextSnapshot",
+    "TextField.StyleSheet",
+    "flash.filters.DisplacementMapFilter",
+    "mx.utils.Collection",
+    "mx.utils.CollectionImpl",
+    "mx.utils.Iterator",
+    "mx.utils.IteratorImpl",
+    "mx.controls.listclasses.DataProvider",
+    "mx.data.components.DataSet",
+    "mx.data.components.datasetclasses.DataSetIterator",
+    "mx.data.components.datasetclasses.DeltaPacket",
+    "mx.data.components.datasetclasses.Delta",
+    "mx.data.components.datasetclasses.DeltaItem",
+    "mx.data.components.datasetclasses.DeltaPacketConsts",
+    "mx.data.to.ValueListIterator",
     "mx.utils.Delegate",
     "mx.events.EventDispatcher",
     "Object",
@@ -418,20 +469,16 @@ fn visible_names(
                 || {
                     (language == ScriptLanguage::ActionScript3
                         && !name.starts_with("mx.transitions.")
-                        && !matches!(
-                            name.as_str(),
-                            "mx.utils.Delegate" | "mx.events.EventDispatcher"
-                        ))
+                        && !AS2_BUILTINS.contains(&name.as_str()))
                         || matches!(name.as_str(), "Object" | "Array")
                         || (language == ScriptLanguage::ActionScript2
                             && (name.starts_with("mx.transitions.")
-                                || matches!(
-                                    name.as_str(),
-                                    "mx.utils.Delegate" | "mx.events.EventDispatcher"
-                                )))
+                                || AS2_BUILTINS.contains(&name.as_str())))
                         || name.starts_with("flash.geom.")
                         || (name.starts_with("flash.filters.")
-                            && name.as_str() != "flash.filters.BitmapFilterQuality")
+                            && name.as_str() != "flash.filters.BitmapFilterQuality"
+                            && (language == ScriptLanguage::ActionScript2
+                                || !AS2_BUILTINS.contains(&name.as_str())))
                         || *name == "flash.display.BitmapData"
                         || *name == "flash.external.ExternalInterface"
                 },

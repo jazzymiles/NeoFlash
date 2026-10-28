@@ -1,6 +1,8 @@
 # Roadmap
 
-The latest [AS2-only runtime delivery](AS2-RUNTIME-HOUR.md) adds 71 catalogue API paths and 13 language constructs with five ordinary HTML5 examples. Sparse MovieClip depths/duplication, System/input/component events, XML transport, legacy operators and source interfaces now have bounded working profiles. AS2 has 745 partial declarations; full AS2 is not complete. AS3 feature work, UI and FLA stay paused. The catalogue distinguishes new functionality from 77 corrections of already-existing support.
+The completed [AS2 two-hour subsystem batch](AS2-TWO-HOUR.md) adds 216 catalogue API paths across collections/DataSet/binding, text/display, bitmap operations, browser files, Locale, Object and audio/data loading. Twelve existing declarations are extended and 30 stale coverage decisions are reviewed separately. Eight ordinary HTML5 families have observed browser results. The exact AS2 audit is now 15 implemented subset, 1,054 partial, 1,201 missing and 37 needs review; full AS2 is not complete. AS3 feature work, native editor UI, FLA and the wider project remain paused.
+
+After the bounded delivery, the next authorized AS2 cycle should prioritize remaining coherent runtime families and explicit compatibility gaps. UI component widgets, remote data resolvers/schema services, full dynamic/prototype semantics, rich text and historical AVM1 differences remain backlog items. They do not restart automatically when the current batch finishes.
 
 The wider project remains paused. The bounded [AS2/AS3 runtime hour](AS-RUNTIME-HOUR.md) follows the [first Rust reuse experiment](AS-REUSE-EXPERIMENT.md): 192 new partial API paths, 117 migrations and five ordinary HTML5 scenarios. Further work requires another user instruction; this delivery does not resume editor, FLA or whole-project work. The approach remains coherent subsystem packages, licensed Rust adaptations and controlled shared verification.
 

@@ -31,6 +31,14 @@ pub struct TextFormat {
     pub italic: bool,
     pub leading: f64,
     pub align: TextAlign,
+    #[serde(rename = "leftMargin")]
+    pub left_margin: f64,
+    #[serde(rename = "rightMargin")]
+    pub right_margin: f64,
+    pub indent: f64,
+    #[serde(rename = "blockIndent")]
+    pub block_indent: f64,
+    pub underline: bool,
 }
 impl Default for TextFormat {
     fn default() -> Self {
@@ -42,6 +50,11 @@ impl Default for TextFormat {
             italic: false,
             leading: 0.,
             align: TextAlign::Left,
+            left_margin: 0.,
+            right_margin: 0.,
+            indent: 0.,
+            block_indent: 0.,
+            underline: false,
         }
     }
 }
@@ -64,6 +77,16 @@ impl TextFormat {
                 "size must be in (0,10000], leading in [-10000,10000], and line advance positive",
             ));
         }
+        if ![self.left_margin, self.right_margin, self.block_indent]
+            .iter()
+            .all(|value| value.is_finite() && (0. ..=10000.).contains(value))
+            || !self.indent.is_finite()
+            || self.indent.abs() > 10000.
+        {
+            return Err(error(
+                "paragraph margins/blockIndent require 0..=10000; indent requires -10000..=10000",
+            ));
+        }
         if self.color > 0xffffff {
             return Err(error("color must be a 24-bit RGB integer"));
         }
@@ -80,9 +103,17 @@ pub struct TextFormatPatch {
     pub italic: Option<bool>,
     pub leading: Option<f64>,
     pub align: Option<TextAlign>,
+    #[serde(rename = "leftMargin")]
+    pub left_margin: Option<f64>,
+    #[serde(rename = "rightMargin")]
+    pub right_margin: Option<f64>,
+    pub indent: Option<f64>,
+    #[serde(rename = "blockIndent")]
+    pub block_indent: Option<f64>,
+    pub underline: Option<bool>,
 }
 impl TextFormatPatch {
-    fn apply(&self, format: &mut TextFormat) {
+    pub(crate) fn apply(&self, format: &mut TextFormat) {
         if let Some(value) = &self.font {
             format.font = value.clone()
         }
@@ -103,6 +134,21 @@ impl TextFormatPatch {
         }
         if let Some(value) = self.align {
             format.align = value
+        }
+        if let Some(value) = self.left_margin {
+            format.left_margin = value
+        }
+        if let Some(value) = self.right_margin {
+            format.right_margin = value
+        }
+        if let Some(value) = self.indent {
+            format.indent = value
+        }
+        if let Some(value) = self.block_indent {
+            format.block_indent = value
+        }
+        if let Some(value) = self.underline {
+            format.underline = value
         }
     }
 }
@@ -153,9 +199,37 @@ pub struct TextInputEdit {
     pub text: String,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct As2TextViewport {
+    pub active: bool,
+    pub background: bool,
+    #[serde(rename = "backgroundColor")]
+    pub background_color: u32,
+    pub border: bool,
+    #[serde(rename = "borderColor")]
+    pub border_color: u32,
+    pub scroll: u32,
+    pub hscroll: u32,
+}
+impl Default for As2TextViewport {
+    fn default() -> Self {
+        Self {
+            active: false,
+            background: false,
+            background_color: 0xffffff,
+            border: false,
+            border_color: 0,
+            scroll: 1,
+            hscroll: 0,
+        }
+    }
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TextFieldState {
     pub text: String,
+    #[serde(default)]
+    pub as2_viewport: As2TextViewport,
     #[serde(rename = "box")]
     pub box_size: Option<TextBoxSize>,
     pub format: TextFormat,
@@ -185,6 +259,7 @@ impl Default for TextFieldState {
     fn default() -> Self {
         Self {
             text: String::new(),
+            as2_viewport: As2TextViewport::default(),
             box_size: Some(TextBoxSize {
                 width: 100.,
                 height: 100.,
@@ -266,6 +341,16 @@ impl TextFieldState {
         self.text.len() + self.restrict.as_ref().map_or(0, String::len)
     }
     pub fn validate(&self) -> Result<(), TextError> {
+        if self.as2_viewport.background_color > 0xffffff
+            || self.as2_viewport.border_color > 0xffffff
+            || self.as2_viewport.scroll == 0
+            || self.as2_viewport.scroll > 1_000_000
+            || self.as2_viewport.hscroll > 1_000_000
+        {
+            return Err(error(
+                "AS2 viewport colors require RGB; scroll requires 1..=1000000; hscroll requires 0..=1000000",
+            ));
+        }
         if self.text.len() > MAX_TEXT_BYTES {
             return Err(error("text exceeds 1048576 UTF-8 bytes"));
         }
@@ -309,6 +394,9 @@ impl TextFieldState {
             text: text.clone(),
         });
         let mut next = self.clone();
+        if let Some(viewport) = &patch.as2_viewport {
+            next.as2_viewport = viewport.clone();
+        }
         if let Some(value) = patch.field_type {
             next.field_type = value;
         }
@@ -496,6 +584,7 @@ impl TextFieldState {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TextPatch {
+    pub as2_viewport: Option<As2TextViewport>,
     pub text: Option<String>,
     pub append: Option<String>,
     pub replace: Option<TextReplacement>,
@@ -658,11 +747,38 @@ pub struct TextLine {
     pub height: f64,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TextDecoration {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TextViewportMetrics {
+    pub offset_x: f64,
+    pub offset_y: f64,
+    pub scroll: u32,
+    pub hscroll: u32,
+    pub maxscroll: u32,
+    pub maxhscroll: u32,
+    pub bottom_scroll: u32,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TextSurface {
+    pub width: f64,
+    pub height: f64,
+    pub background: Option<u32>,
+    pub border: Option<u32>,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextLayout {
     pub lines: Vec<TextLine>,
     pub text_width: f64,
     pub text_height: f64,
     pub line_height: f64,
+    pub decorations: Vec<TextDecoration>,
+    pub viewport: TextViewportMetrics,
+    pub surface: TextSurface,
 }
 struct Part {
     text: String,
@@ -768,12 +884,36 @@ where
     let strings: Vec<_> = parts.iter().map(|p| p.text.clone()).collect();
     let widths = measured(&strings, &field.format, &mut measure)?;
     let padding = if field.box_size.is_some() { 2. } else { 0. };
-    let available = field.box_size.map(|b| (b.width - 2. * padding).max(0.));
+    let origin_x = padding + field.format.left_margin + field.format.block_indent;
+    let available = field.box_size.map(|b| {
+        (b.width
+            - 2. * padding
+            - field.format.left_margin
+            - field.format.right_margin
+            - field.format.block_indent)
+            .max(0.)
+    });
+    let mut paragraph_starts = BTreeSet::from([0u32]);
+    let mut offset = 0;
+    for ch in field.text.chars() {
+        offset += ch.len_utf16() as u32;
+        if ch == '\n' {
+            paragraph_starts.insert(offset);
+        }
+    }
+    let line_indent = |start: u32| {
+        if paragraph_starts.contains(&start) {
+            field.format.indent
+        } else {
+            0.
+        }
+    };
+    let available_at = |start: u32| (available.unwrap_or(f64::MAX) - line_indent(start)).max(0.);
     let wrap = field.multiline && field.word_wrap && available.is_some();
     let mut glyphs = BTreeSet::new();
     if wrap {
         for (part, width) in parts.iter().zip(&widths) {
-            if *width > available.unwrap() {
+            if *width > (available.unwrap() - field.format.indent.max(0.)).max(0.) {
                 glyphs.extend(part.text.chars());
                 if glyphs.len() > MAX_GLYPHS {
                     return Err(error("layout exceeds 65536 fallback glyphs"));
@@ -820,11 +960,11 @@ where
             flush(&mut lines, &mut current)?;
             continue;
         }
-        if wrap && *width > available.unwrap() {
+        if wrap && *width > available_at(current.start) {
             let mut offset = part.start;
             for ch in part.text.chars() {
                 let width = glyph_widths[&ch];
-                if !current.text.is_empty() && current.width + width > available.unwrap() {
+                if !current.text.is_empty() && current.width + width > available_at(current.start) {
                     flush(&mut lines, &mut current)?
                 }
                 current.text.push(ch);
@@ -833,7 +973,10 @@ where
                 current.end = offset;
             }
         } else {
-            if wrap && !current.text.is_empty() && current.width + width > available.unwrap() {
+            if wrap
+                && !current.text.is_empty()
+                && current.width + width > available_at(current.start)
+            {
                 flush(&mut lines, &mut current)?
             }
             current.text.push_str(&part.text);
@@ -848,20 +991,88 @@ where
     let mut text_width = 0_f64;
     for (index, (line, width)) in lines.iter_mut().zip(widths).enumerate() {
         line.width = width;
-        line.x = padding
-            + available.map_or(0., |available| match field.format.align {
+        line.x = origin_x
+            + line_indent(line.start)
+            + available.map_or(0., |_| match field.format.align {
                 TextAlign::Left => 0.,
-                TextAlign::Center => (available - width) / 2.,
-                TextAlign::Right => available - width,
+                TextAlign::Center => (available_at(line.start) - width) / 2.,
+                TextAlign::Right => available_at(line.start) - width,
             });
         line.y = padding + index as f64 * advance;
         text_width = text_width.max(width);
     }
     let text_height = field.format.size * 1.2 + (lines.len().saturating_sub(1)) as f64 * advance;
+    let visible_height = field
+        .box_size
+        .map_or(text_height, |size| (size.height - 2. * padding).max(0.));
+    let visible_lines = (visible_height / advance).floor().max(1.) as u32;
+    let line_count = lines.len() as u32;
+    let maxscroll = if field.box_size.is_some() {
+        line_count
+            .saturating_sub(visible_lines)
+            .saturating_add(1)
+            .max(1)
+    } else {
+        1
+    };
+    let maxhscroll = if field.box_size.is_some() && !field.word_wrap {
+        (text_width - available.unwrap_or(text_width))
+            .max(0.)
+            .ceil()
+            .min(1_000_000.) as u32
+    } else {
+        0
+    };
+    let scroll = field.as2_viewport.scroll.min(maxscroll);
+    let hscroll = field.as2_viewport.hscroll.min(maxhscroll);
+    let bottom_scroll =
+        (scroll + (visible_height / advance).ceil().max(1.) as u32 - 1).min(line_count);
+    for line in &mut lines {
+        line.x -= f64::from(hscroll);
+        line.y -= f64::from(scroll - 1) * advance;
+    }
+    let viewport = TextViewportMetrics {
+        offset_x: f64::from(hscroll),
+        offset_y: f64::from(scroll - 1) * advance,
+        scroll,
+        hscroll,
+        maxscroll,
+        maxhscroll,
+        bottom_scroll,
+    };
+    let surface = TextSurface {
+        width: field.box_size.map_or(text_width, |size| size.width),
+        height: field.box_size.map_or(text_height, |size| size.height),
+        background: field
+            .as2_viewport
+            .background
+            .then_some(field.as2_viewport.background_color),
+        border: field
+            .as2_viewport
+            .border
+            .then_some(field.as2_viewport.border_color),
+    };
+    let decorations = if field.format.underline {
+        lines
+            .iter()
+            .filter(|line| !line.text.is_empty())
+            .map(|line| TextDecoration {
+                x: line.x,
+                y: line.y + field.format.size * 1.05,
+                width: line.width,
+                height: (field.format.size / 16.).max(1.),
+            })
+            .collect()
+    } else {
+        vec![]
+    };
     Ok(TextLayout {
         lines,
         text_width,
         text_height,
         line_height: advance,
+        decorations,
+        viewport,
+        surface,
     })
 }

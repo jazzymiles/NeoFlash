@@ -1,7 +1,15 @@
 //! Thin JavaScript bindings around the same Rust timeline runtime used by the editor.
+mod as2_binding;
+mod as2_data;
 mod as2_display;
+mod as2_files;
+mod as2_locale;
+mod as2_object;
 mod as2_platform;
+mod as2_sound;
 mod as2_strings;
+mod as2_text;
+mod as2_variables;
 mod as2d_geom;
 mod as3_geom;
 mod as3_strings;
@@ -163,6 +171,30 @@ pub fn text_layout_json(field_json: &str, measure: &js_sys::Function) -> Result<
 
 #[wasm_bindgen]
 impl WebPlayer {
+    #[wasm_bindgen]
+    pub fn as2_bitmap_load(&mut self, id: &str) -> Result<String, JsValue> {
+        let result = self
+            .player
+            .as2_bitmap_load(&self.project, id)
+            .map_err(display_error)?;
+        serde_json::to_string(&result).map_err(display_error)
+    }
+    #[wasm_bindgen]
+    pub fn as2_bitmap_command(&mut self, input: &str) -> Result<String, JsValue> {
+        if input.len() > 65536 {
+            return Err(JsValue::from_str("AS2 bitmap command exceeds 64 KiB"));
+        }
+        let command: neoflash_core::As2BitmapCommand =
+            serde_json::from_str(input).map_err(display_error)?;
+        serde_json::to_string(
+            &self
+                .player
+                .as2_bitmap_command(command)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+
     #[wasm_bindgen(constructor)]
     pub fn new(json: &str) -> Result<WebPlayer, JsValue> {
         let project =

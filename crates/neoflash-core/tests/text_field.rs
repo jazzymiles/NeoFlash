@@ -131,6 +131,7 @@ fn uniform_fields_share_layout_but_keep_runtime_formats_and_placement_lifetimes_
         italic: Some(true),
         leading: Some(2.),
         align: Some(TextAlign::Center),
+        ..TextFormatPatch::default()
     };
     player
         .object_text_update(
@@ -163,7 +164,11 @@ fn uniform_fields_share_layout_but_keep_runtime_formats_and_placement_lifetimes_
         .unwrap();
     let state = player.object_text_info(&project, &dynamic).unwrap();
     assert!(state.format.bold && state.format.italic);
-    assert_eq!(layout_text(&state, measure).unwrap(), layout);
+    // Both boxes have identical glyph layout, but their declared surface heights
+    // differ (80 for this runtime field, 100 for the authored field).
+    let mut expected_layout = layout.clone();
+    expected_layout.surface.height = 80.;
+    assert_eq!(layout_text(&state, measure).unwrap(), expected_layout);
     assert!(
         player
             .runtime_snapshot(&project)

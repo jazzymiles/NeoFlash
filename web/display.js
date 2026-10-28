@@ -54,7 +54,7 @@
   const unsupportedText=new Set(['htmlText','styleSheet','type','selectable','autoSize','embedFonts','displayAsPassword','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','background','backgroundColor','border','borderColor','antiAliasType','gridFitType','sharpness','thickness','condenseWhite','getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineMetrics','getParagraphLength','getFirstCharInParagraph','setSelection','replaceSelectedText']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,geometry,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{}}) {
+  function create({player,geometry,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAS2Text=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{}}) {
     if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
     const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
@@ -332,6 +332,7 @@
         lineGradientStyle:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>drawing.lineGradientStyle(type,colors,graphicsNumbers(alphas,'AS2 alphas',15).map(alpha=>alpha/100),ratios,matrix,spread,interpolation==='RGB'?'rgb':interpolation,focal),
         endFill:drawing.endFill,lineStyle:(width,color=0,alpha=100,...options)=>drawing.lineStyle(width,color,alpha/100,...options),
         moveTo:drawing.moveTo,lineTo:drawing.lineTo,curveTo:drawing.curveTo,clear:drawing.clear,
+        getTextSnapshot:()=>{const host=getAS2Text();if(!host)throw new Error('AS2 text snapshot service is missing; re-export the project.');descriptor(target);return host.snapshotFor(referenceOf(target).key);},
         getNextHighestDepth:()=>{requireContainer(target);return player.as2_next_depth(referenceOf(target).key);},
         getInstanceAtDepth:depth=>{
           requireContainer(target);if(!Number.isInteger(depth)||depth< -16384||depth>1048575)throw new RangeError('AS2 lookup depth requires an integer from -16384 through 1048575.');
@@ -387,7 +388,33 @@
     // of rendered ColorTransform alpha. Filters never add hit geometry.
     const inputNames={mouseEnabled:'mouse_enabled',mouseChildren:'mouse_children',buttonMode:'button_mode',useHandCursor:'use_hand_cursor',hitArea:'hit_area'};
     const dragOwners=new Set(['sprite','movie_clip','graphic']);
-    const callbackNames=new Set(['onEnterFrame','onPress','onRelease','onReleaseOutside','onRollOver','onRollOut']);
+    const existingCallbackNames=new Set(['onEnterFrame','onPress','onRelease','onReleaseOutside','onRollOver','onRollOut']);
+    const buttonCallbacks=new Set(['onPress','onRelease','onReleaseOutside','onRollOver','onRollOut','onDragOver','onDragOut']);
+    const callbackNames=new Set([...existingCallbackNames,'onMouseDown','onMouseMove','onMouseUp','onKeyDown','onKeyUp','onSetFocus','onKillFocus','onDragOver','onDragOut','onUnload']);
+    const as2InputNames={enabled:'enabled',focusEnabled:'focus_enabled',tabEnabled:'tab_enabled',tabIndex:'tab_index',tabChildren:'tab_children'};
+    let as2TabActive=false,pressedInside=false;
+    function as2Input(target,request={op:'get'}){descriptor(target);return JSON.parse(player.as2_input_command(referenceOf(target).key,JSON.stringify(request)));}
+    function buttonLike(target){const ref=referenceOf(target),record=ref&&legacy.get(ref.key+'\u0000'+ref.lifetime);return [...buttonCallbacks].some(name=>callback(record,name));}
+    function as2CanFocus(target){if(target===null)return true;return as2Input(target,{op:'focusable',has_button_handler:buttonLike(target)});}
+    function as2Ref(target,name){
+      if(!Object.hasOwn(as2InputNames,name)&&!callbackNames.has(name))return null;
+      const owner=descriptor(target).owner;if(!['movie_clip','button','text'].includes(owner))return null;
+      if(callbackNames.has(name)){
+        if(owner==='text')return null;
+        return {has:()=>true,delete:()=>{setLegacyCallback(target,name,null);return true;},get:()=>target[name],set:value=>{setLegacyCallback(target,name,value);return value;}};
+      }
+      if((owner==='text'&&['enabled','focusEnabled','tabChildren'].includes(name))||(name==='focusEnabled'&&owner!=='movie_clip'))return null;
+      return {has:()=>true,delete:()=>{as2Input(target,{op:'set',name,value:null});return true;},get:()=>{const value=as2Input(target)[as2InputNames[name]];return value===null?undefined:value;},set:value=>{as2Input(target,{op:'set',name,value:value===undefined?null:value});as2TabActive=true;return value;}};
+    }
+    function as2Tab(event={}){
+      if(!as2TabActive||event.defaultPrevented)return false;
+      const button_targets=[];for(const record of legacy.values())if(alive(record.target)&&buttonLike(record.target))button_targets.push(record.ref.objectRef);
+      const refs=as2Input(proxyFor([]),{op:'tab_order',button_targets});if(!refs.length)return false;
+      const stage=getStage(),current=stage.focus,position=current?refs.findIndex(ref=>refKey(ref)===referenceOf(current)?.key):-1;
+      const next=position<0?(event.shiftKey?refs.length-1:0):(position+(event.shiftKey?-1:1)+refs.length)%refs.length;
+      event.preventDefault?.();stage.focus=proxyForRef(refs[next]);return true;
+    }
+
     let dragging=null,pressed=null,hovered=null;
     const drops=new WeakMap();
     function inputOf(node){if(Object.hasOwn(node,'input'))return node.input;return ['movie_clip','sprite','graphic','button','text','loader'].includes(node.owner)?{mouse_enabled:true,mouse_children:true,button_mode:node.owner==='button',use_hand_cursor:true,hit_area:null}:null;}
@@ -455,16 +482,26 @@
     function updateDrag(){if(!dragging)return;const d=dragging;if(!alive(d.target)){dragging=null;return;}const node=descriptor(d.target);if(node.on_stage===false||node.effective_visible===false||refKey(node.parent_ref)!==d.parent){dragging=null;return;}const p=dragPoint(d.target);let x=p.x+d.offsetX,y=p.y+d.offsetY;if(d.box){x=Math.max(d.box.x,Math.min(d.box.x+d.box.width,x));y=Math.max(d.box.y,Math.min(d.box.y+d.box.height,y));}if(!Number.isFinite(x)||!Number.isFinite(y)||Math.abs(x)>1e12||Math.abs(y)>1e12)throw new RangeError('Drag coordinates exceed the finite display range.');if(!invoke(d.target,'set_property','x',x)||!invoke(d.target,'set_property','y',y))throw new Error('The runtime rejected movement of this drag target.');drops.set(d.target,pick(getStage().mouseX,getStage().mouseY,d.target));}
     function stopDrag(target){if(dragging){updateDrag();dragging=null;}}
     function legacyPath(target){if(!target||!alive(target))return '';const names=[];for(let current=target;current&&current!==getStage();current=parentSpace(current)){const node=descriptor(current);if(!node.parent_ref)break;if(!node.name||/[/.]/.test(node.name))throw new TypeError('AS2 _droptarget paths require named placements without slash or dot; use dropTarget for stable object identity.');names.push(node.name);}return '/'+names.reverse().join('/');}
-    function callbackOwner(target,names){while(target&&target!==getStage()&&alive(target)){const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(names.some(name=>callback(record,name)))return target;target=parentSpace(target);}return null;}
-    function callLegacy(target,name){if(!target||!alive(target))return;const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime),fn=callback(record,name);if(fn&&alive(target))Reflect.apply(fn,target,[]);}
+    function callbackOwner(target,names){while(target&&target!==getStage()&&alive(target)){const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(as2Input(target).enabled&&names.some(name=>callback(record,name)))return target;target=parentSpace(target);}return null;}
+    function callLegacy(target,name,args=[]){if(!target||!alive(target))return;if(buttonCallbacks.has(name)&&!as2Input(target).enabled)return;const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime),fn=callback(record,name);if(fn&&alive(target))Reflect.apply(fn,target,args);}
     function pointer(type,target,event={}){
       prune();
-      if(type==='mouseMove'||type==='mouseDown'){const next=callbackOwner(target,['onRollOver','onRollOut','onPress','onRelease','onReleaseOutside']);if(next!==hovered){const old=hovered;hovered=next;callLegacy(old,'onRollOut');if(hovered===next)callLegacy(next,'onRollOver');}}
-      if(type==='mouseDown'&&(event.button===undefined||event.button===0)){pressed=callbackOwner(target,['onPress','onRelease','onReleaseOutside']);callLegacy(pressed,'onPress');}
-      if(type==='mouseUp'&&(event.button===undefined||event.button===0)){const old=pressed;pressed=null;if(old&&alive(old)){const inside=target&&target!==getStage()&&alive(target)&&descendant(descriptor(target),descriptor(old),nodes());callLegacy(old,inside?'onRelease':'onReleaseOutside');}}
+      if(type==='keyDown'||type==='keyUp'){
+        if(target&&target!==getStage())callLegacy(target,type==='keyDown'?'onKeyDown':'onKeyUp');
+        if(type==='keyDown'&&(event.key==='Tab'||event.keyCode===9))as2Tab(event);return;
+      }
+      const broadcast={mouseDown:'onMouseDown',mouseMove:'onMouseMove',mouseUp:'onMouseUp'}[type];
+      if(broadcast)for(const record of [...legacy.values()])if(alive(record.target)&&descriptor(record.target).on_stage)callLegacy(record.target,broadcast);
+      if(type==='mouseMove'&&pressed&&alive(pressed)){
+        const inside=Boolean(target&&target!==getStage()&&alive(target)&&descendant(descriptor(target),descriptor(pressed),nodes()));
+        if(inside!==pressedInside){pressedInside=inside;callLegacy(pressed,inside?'onDragOver':'onDragOut');}
+      }
+      if(type==='mouseMove'||type==='mouseDown'){const next=callbackOwner(target,[...buttonCallbacks]);if(next!==hovered){const old=hovered;hovered=next;callLegacy(old,'onRollOut');if(hovered===next)callLegacy(next,'onRollOver');}}
+      if(type==='mouseDown'&&(event.button===undefined||event.button===0)){pressed=callbackOwner(target,[...buttonCallbacks]);pressedInside=Boolean(pressed);callLegacy(pressed,'onPress');}
+      if(type==='mouseUp'&&(event.button===undefined||event.button===0)){const old=pressed;pressed=null;pressedInside=false;if(old&&alive(old)){const inside=target&&target!==getStage()&&alive(target)&&descendant(descriptor(target),descriptor(old),nodes());callLegacy(old,inside?'onRelease':'onReleaseOutside');}}
     }
-    function cancelPointer(){dragging=null;pressed=null;hovered=null;}
-    function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&(node.input.button_mode||['onPress','onRelease','onReleaseOutside'].some(name=>callback(record,name))))return true;}return false;}
+    function cancelPointer(){dragging=null;pressed=null;hovered=null;pressedInside=false;}
+    function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&as2Input(current).enabled&&(node.input.button_mode||[...buttonCallbacks].some(name=>callback(record,name))))return true;}return false;}
     function methods(target) {
       const result={
         getDepth:()=>{descriptor(target);return player.as2_get_depth(referenceOf(target).key);},
@@ -646,6 +683,7 @@
     function setLegacyCallback(target,name,value) {
       if(!referenceOf(target)){target[name]=value;return value;}
       const node=descriptor(target);
+      if(node.owner==='text'&&['onSetFocus','onKillFocus','onChanged'].includes(name)){target[name]=value;return value;}
       if(!['movie_clip','button'].includes(node.owner))throw new TypeError('AS2 callbacks require a MovieClip or Button instance.');
       if(!callbackNames.has(name))throw new TypeError(`AS2 callback ${name} is not supported yet.`);
       if(value!==null&&value!==undefined&&typeof value!=='function')throw new TypeError(`${name} requires a function or null.`);
@@ -656,14 +694,15 @@
       if(!record.handlers.size&&!record.dynamic)legacy.delete(id);
       return value;
     }
-    function refreshLegacyCallbacks(target) {
+    function refreshLegacyCallbacks(target,as2Class=false) {
       if(!['movie_clip','button'].includes(descriptor(target).owner))return;
       const ref=referenceOf(target),id=ref.key+'\u0000'+ref.lifetime;
       let record=legacy.get(id);
       if(!record){record={target,ref,handlers:new Map(),dynamic:true};legacy.set(id,record);}
-      record.dynamic=true;
+      record.dynamic=true;record.as2Class=record.as2Class||as2Class;
     }
     function callback(record,name) {
+      if(!existingCallbackNames.has(name)&&!record?.as2Class&&!record?.handlers.has(name))return null;
       const handler=record?.dynamic?record.target[name]:record?.handlers.get(name);
       return typeof handler==='function'?handler:null;
     }
@@ -695,7 +734,7 @@
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});
       builtins[(name==='TextField'?'flash.text.':'flash.display.')+name]=NativeDisplay;
     }
-    return {methods,get,set,builtins,targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();cancelPointer();},UNHANDLED};
+    return {methods,get,set,builtins,as2Ref,as2CanFocus,as2Tab,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();as2TabActive=false;cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

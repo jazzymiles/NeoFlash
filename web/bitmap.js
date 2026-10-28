@@ -3,8 +3,8 @@
  * https://airsdk.dev/reference/actionscript/3.0/flash/display/Bitmap.html
  * Pixel mutation, premultiplication, clipping, overlapping copies and disposal
  * belong to Rust. JS retains only revision-stamped render copies, never a second
- * editable pixel model. Integer coordinates and uint colors are required; alpha
- * masks, non-normal draw blending and native BitmapData subclassing are pending.
+ * editable pixel model. Integer coordinates and uint colors are required; AS2 alpha masks use Rust.
+ * AS3 alpha masks, non-normal draw blending and native BitmapData subclassing remain pending.
  * AS2 rectangle aliases rect; invalid/disposed access uses the shared diagnostic
  * profile, not historical AS2 sentinel return values. Pixel snapping is measured
  * in Canvas drawing-buffer pixels, with no Retina/Flash rasterization parity claim.
@@ -57,13 +57,74 @@
       active();const id=key(ref);if(facades.has(id))return facades.get(id);
       const facade=Object.create(BitmapData.prototype);references.set(facade,{ref,generation});
       if(as2){
-        const method=BitmapData.prototype.applyFilter.bind(facade);Object.defineProperty(facade,'applyFilter',{value:method});as2.register(method,facade,'applyFilter',(...args)=>{method(...args);return 0;});
+        for(const name of ['copyChannel','floodFill','getColorBoundsRect','compare','merge','paletteMap','threshold','hitTest','noise','pixelDissolve','perlinNoise']){
+          const method=BitmapData.prototype[name].bind(facade);Object.defineProperty(facade,name,{value:method});
+          as2.register(method,facade,name,(...args)=>legacyPixels(facade,name,args));
+        }
+        {const method=BitmapData.prototype.copyPixels.bind(facade);Object.defineProperty(facade,'copyPixels',{value:method});
+          as2.register(method,facade,'copyPixels',(source,sourceRect,destPoint,alphaBitmap=null,alphaPoint=null,mergeAlpha=false)=>{
+            if(alphaBitmap===null)return method(source,sourceRect,destPoint,alphaBitmap,alphaPoint,mergeAlpha);
+            if(typeof mergeAlpha!=='boolean')throw new TypeError('copyPixels mergeAlpha requires a Boolean.');
+            const [x,y,width,height]=rectangle(sourceRect);
+            native('as2_bitmap_command',JSON.stringify({op:'copy_alpha',dst:refOf(facade),src:refOf(source),rect:{x,y,width,height},point:point(destPoint),mask:refOf(alphaBitmap),alpha_point:alphaPoint===null?[0,0]:point(alphaPoint),merge:mergeAlpha}));
+          });}
+        for(const name of ['applyFilter','generateFilterRect']){
+          const method=BitmapData.prototype[name].bind(facade);Object.defineProperty(facade,name,{value:method});
+          as2.register(method,facade,name,(...args)=>{
+            const settings=getFilters?.().as2Displacement?.(args[name==='applyFilter'?3:1]);
+            if(settings){
+              const value=name==='applyFilter'?args[1]:args[0],[x,y,width,height]=rectangle(value),rect={x,y,width,height};
+              const command=name==='applyFilter'?{op:'displacement',dst:refOf(facade),src:refOf(args[0]),rect,point:point(args[2]),settings}:{op:'filter_bounds',src:refOf(facade),rect};
+              const result=JSON.parse(native('as2_bitmap_command',JSON.stringify(command)));
+              return name==='applyFilter'?0:new geometry.Rectangle(result.x,result.y,result.width,result.height);
+            }
+            const result=method(...args);return name==='applyFilter'?0:result;
+          });
+        }
         for(const name of ['getPixels','setPixels','copyPixelsToByteArray','encode']){
           const method=BitmapData.prototype[name].bind(facade);Object.defineProperty(facade,name,{value:method});
           as2.register(method,facade,name,()=>{throw new TypeError(`BitmapData.${name} requires AS3; this API is not part of the AS2 BitmapData profile.`);});
         }
       }
       Object.seal(facade);facades.set(id,facade);return facade;
+    }
+    // AS2 adapter only: coordinates, references and copied palette values cross
+    // one bounded Rust command; no pixel computation is performed in JavaScript.
+    function legacyPixels(receiver,name,args){
+      const dst=refOf(receiver),rect=value=>{const [x,y,width,height]=rectangle(value);return {x,y,width,height};};
+      const byte=(value,label)=>{integer(value,label);if(value<0||value>255)throw new RangeError(label+' requires 0..255.');return value;};
+      const bool=(value,label)=>{if(typeof value!=='boolean')throw new TypeError(label+' requires a Boolean.');return value;};
+      const region=()=>({dst,src:refOf(args[0]),rect:rect(args[1]),point:point(args[2])});
+      let command;
+      switch(name){
+        case 'copyChannel':command={op:'copy_channel',...region(),source_channel:byte(args[3],'sourceChannel'),dest_channel:byte(args[4],'destChannel')};break;
+        case 'floodFill':command={op:'flood_fill',dst,x:integer(args[0],'Pixel x'),y:integer(args[1],'Pixel y'),color:color(args[2])};break;
+        case 'getColorBoundsRect':command={op:'color_bounds',src:dst,mask:color(args[0]),color:color(args[1]),find_color:bool(args[2]===undefined?true:args[2],'findColor')};break;
+        case 'compare':command={op:'compare',dst,src:refOf(args[0])};break;
+        case 'merge':command={op:'merge',...region(),multipliers:args.slice(3,7).map(value=>integer(value,'Channel multiplier'))};break;
+        case 'paletteMap':command={op:'palette_map',...region(),tables:[3,4,5,6].map(index=>args[index]==null?null:Array.isArray(args[index])?args[index].map(color):(()=>{throw new TypeError('paletteMap tables require Arrays or null.');})())};break;
+        case 'threshold':command={op:'threshold',...region(),operation:args[3],threshold:color(args[4]),color:color(args[5]===undefined?0:args[5]),mask:color(args[6]===undefined?0xffffffff:args[6]),copy_source:bool(args[7]===undefined?false:args[7],'copySource')};break;
+        case 'noise':command={op:'noise',dst,seed:integer(args[0],'randomSeed'),low:byte(args[1]===undefined?0:args[1],'low'),high:byte(args[2]===undefined?255:args[2],'high'),channels:byte(args[3]===undefined?7:args[3],'channelOptions'),grayscale:bool(args[4]===undefined?false:args[4],'grayScale')};break;
+        case 'perlinNoise':{
+          const offsets=args[8]===undefined?[]:args[8];if(!Array.isArray(offsets))throw new TypeError('perlinNoise offsets require an Array of Points.');
+          command={op:'perlin_noise',dst,settings:{base:[args[0],args[1]],octaves:byte(args[2],'numOctaves'),seed:integer(args[3],'randomSeed'),stitch:bool(args[4],'stitch'),fractal:bool(args[5],'fractalNoise'),channels:byte(args[6]===undefined?7:args[6],'channelOptions'),grayscale:bool(args[7]===undefined?false:args[7],'grayScale'),offsets:offsets.map(value=>components(value,['x','y']))}};break;
+        }
+        case 'pixelDissolve':command={op:'pixel_dissolve',...region(),seed:integer(args[3]===undefined?0:args[3],'randomSeed'),num_pixels:integer(args[4]===undefined?0:args[4],'numPixels'),fill_color:color(args[5]===undefined?0:args[5])};break;
+        case 'hitTest':{
+          const second=args[2];let other;
+          if(references.has(second))other={kind:'bitmap',pixel_ref:refOf(second),point:args[3]==null?[0,0]:point(args[3]),threshold:byte(args[4]===undefined?1:args[4],'secondAlphaThreshold')};
+          else if(second&&typeof second.width==='number'&&typeof second.height==='number')other={kind:'rectangle',rect:rect(second)};
+          else other={kind:'point',point:point(second)};
+          command={op:'hit_test',src:dst,point:point(args[0]),threshold:byte(args[1],'firstAlphaThreshold'),other};break;
+        }
+        default:unsupported(name);
+      }
+      const result=JSON.parse(native('as2_bitmap_command',JSON.stringify(command)));
+      if(name==='getColorBoundsRect')return new geometry.Rectangle(result.x,result.y,result.width,result.height);
+      // Rust JSON maps may sort fields. Rebuild the existing typed PixelRef order
+      // before entering the shared identity/cache path.
+      if(name==='compare'&&result&&typeof result==='object')return fromRef({id:result.id,generation:result.generation});
+      return result===null?undefined:result;
     }
     class BitmapData {
       constructor(width,height,transparent=true,fillColor=0xffffffff){
@@ -138,6 +199,7 @@
     }
     Object.defineProperties(BitmapData,{__nfIs:{value:value=>references.has(value)},__nfInitialize:{value:()=>unsupported('native subclassing')},loadBitmap:{value:()=>unsupported('loadBitmap library linkage')}});
     Object.defineProperty(BitmapData,Symbol.hasInstance,{value:BitmapData.__nfIs});
+    if(as2)as2.register(BitmapData.loadBitmap,BitmapData,'loadBitmap',id=>{if(typeof id!=='string')throw new TypeError('BitmapData.loadBitmap requires an exact bundled image resource ID.');const reference=JSON.parse(native('as2_bitmap_load',id));return reference===null?null:fromRef({id:reference.id,generation:reference.generation});});
     for(const name of ['drawWithQuality','compare','copyChannel','floodFill','getColorBoundsRect','getVector','hitTest','histogram','lock','unlock','merge','noise','paletteMap','perlinNoise','pixelDissolve','setVector','threshold'])Object.defineProperty(BitmapData.prototype,name,{value(){unsupported(name);}});
     function release(record){record.canvas.width=0;record.canvas.height=0;}
     function drop(id){const record=uploads.get(id);if(!record)return;release(record);cacheBytes-=record.cost;uploads.delete(id);}

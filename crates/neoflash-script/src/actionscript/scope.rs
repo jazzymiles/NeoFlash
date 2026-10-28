@@ -433,6 +433,14 @@ impl<'a> Analysis<'a> {
             }
             self.scopes.get_mut(&function).unwrap().uses_arguments = true;
         }
+        if self.script.language == ScriptLanguage::ActionScript2
+            && matches!(expr,Expr::Name(name)if matches!(name.as_str(),"eval"|"set")&&self.resolve(scope,name).is_none())
+        {
+            let function = self.scopes[&scope].function;
+            if function != 0 {
+                self.scopes.get_mut(&function).unwrap().uses_arguments = true;
+            }
+        }
         if self.script.language == ScriptLanguage::ActionScript2 && !direct_callee {
             let timeline_alias = match expr {
                 Expr::Name(name) => {
@@ -461,6 +469,7 @@ impl<'a> Analysis<'a> {
             return Err(self.error(self.scopes[&scope].offset,format!("AS2 private member '{owner}.{name}' is unavailable from this lexical class. AS2 access checking is compile-time only; indexed/untyped runtime access retains the legacy profile.")));
         }
         match expr {
+            Expr::Name(name) if !direct_callee && self.script.language==ScriptLanguage::ActionScript2 && matches!(name.as_str(),"eval"|"set") && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"AS2 eval/set preserve lexical bindings through direct calls; dynamic aliases are outside this profile.")),
             Expr::Name(name) if !direct_callee && self.script.language==ScriptLanguage::ActionScript2 && name=="random" && self.context.utility_function(name,false) && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"AS2 random is supported through direct random(maximum) calls; legacy opcode function values are outside this profile.")),
             Expr::Name(name) if !direct_callee && self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3) && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"Native int/uint values are currently supported through direct conversion calls; class values and constructor aliases are outside this profile.")),
             Expr::Delete(target,offset) if !matches!(target.as_ref(),Expr::Member(_,_)|Expr::Index(_,_)|Expr::XmlSelect{descendant:false,..}) => return Err(self.error(*offset,"delete requires a property or indexed element.")),
@@ -549,9 +558,11 @@ impl<'a> Analysis<'a> {
                     Expr::Member(_, _) => true,
                     _ => false,
                 };
-                let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"initialize"|"broadcastMessage"|"getRGB"|"setRGB"|"getTransform"|"setTransform"|"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"|"loadClip"|"unloadClip"|"getProgress"|"getLocal"|"getSize"|"flush"|"clear"|"setFocus"|"getFocus"|"getBeginIndex"|"getEndIndex"|"getCaretIndex"|"setSelection"|"connect"|"attachVideo"|"play"|"pause"|"seek"|"close"));
+                let legacy_named=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Name(name) if matches!(name.as_str(),"eval"|"set"));
+                if legacy_named && binding.is_none() {let expected=if matches!(callee.as_ref(),Expr::Name(name)if name=="set"){2}else{1};if args.len()!=expected{return Err(self.error(*offset,"AS2 eval takes one path/object argument; set takes a path and value."));}}
+                let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"loadVariables"|"watch"|"unwatch"|"addProperty"|"isPropertyEnumerable"|"initialize"|"broadcastMessage"|"getRGB"|"setRGB"|"getTransform"|"setTransform"|"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"|"loadClip"|"unloadClip"|"getProgress"|"getLocal"|"getSize"|"flush"|"clear"|"setFocus"|"getFocus"|"getBeginIndex"|"getEndIndex"|"getCaretIndex"|"setSelection"|"connect"|"attachVideo"|"play"|"pause"|"seek"|"close"));
                 let legacy_get_url=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Name(name) if name=="getURL" && !self.context.types.contains_key(name));
-                let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_api||legacy_get_url||matches!(callee.as_ref(),Expr::Name(name)if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)||self.context.utility_function(name,self.script.language==ScriptLanguage::ActionScript3)));
+                let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_named||legacy_api||legacy_get_url||matches!(callee.as_ref(),Expr::Name(name)if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)||self.context.utility_function(name,self.script.language==ScriptLanguage::ActionScript3)));
                 // AS2 permits a later frame or a parent script to install a
                 // function on this timeline. The host checks the actual value
                 // when the call executes; arbitrary member APIs stay blocked.

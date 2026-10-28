@@ -1,0 +1,463 @@
+{
+  "format_version": 3,
+  "name": "AS2 Locale: Rust tables and XLIFF loading",
+  "width": 960,
+  "height": 570,
+  "fps": 24,
+  "background": [
+    14,
+    24,
+    33,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "scene",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "scene-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 42,
+                      "y": 38,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH / AS2 DATA MODELS",
+                      "font_family": "Arial",
+                      "font_size": 13,
+                      "color": [
+                        115,
+                        213,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "title",
+                    "name": "title",
+                    "transform": {
+                      "x": 42,
+                      "y": 82,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Collections, views and local transactions",
+                      "font_family": "Arial",
+                      "font_size": 32,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "intro",
+                    "name": "intro",
+                    "transform": {
+                      "x": 42,
+                      "y": 125,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Rust identity, ordering, filtering, cursors and change logs. Shared object references.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "panel",
+                    "name": "panel",
+                    "transform": {
+                      "x": 32,
+                      "y": 175,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 890,
+                      "height": 195,
+                      "fill": [
+                        25,
+                        42,
+                        53,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "result",
+                    "name": "result",
+                    "transform": {
+                      "x": 52,
+                      "y": 205,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Running the data package…",
+                      "font_family": "Arial",
+                      "font_size": 25,
+                      "color": [
+                        115,
+                        229,
+                        187,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pipeline",
+                    "name": "pipeline",
+                    "transform": {
+                      "x": 52,
+                      "y": 248,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Model data will appear here",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "casing",
+                    "name": "casing",
+                    "transform": {
+                      "x": 52,
+                      "y": 286,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Independent cursor and filtered view",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "codec",
+                    "name": "codec",
+                    "transform": {
+                      "x": 52,
+                      "y": 324,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Local delta packet",
+                      "font_family": "Arial",
+                      "font_size": 16,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "rerun",
+                    "name": "rerun",
+                    "transform": {
+                      "x": 42,
+                      "y": 397,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "run-button",
+                      "playback": {
+                        "single_frame": 0
+                      }
+                    },
+                    "scripts": [
+                      {
+                        "event": "click",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "_root.runData();"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "hint",
+                    "name": "hint",
+                    "transform": {
+                      "x": 285,
+                      "y": 417,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Run again repeats the complete data package.",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "counts",
+                    "name": "counts",
+                    "transform": {
+                      "x": 42,
+                      "y": 480,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Awaiting results",
+                      "font_family": "Arial",
+                      "font_size": 17,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "footer",
+                    "name": "footer",
+                    "transform": {
+                      "x": 42,
+                      "y": 522,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Nonvisual profile: explicit data methods; no UI controls, schema binding or remote resolver.",
+                      "font_family": "Arial",
+                      "font_size": 14,
+                      "color": [
+                        172,
+                        195,
+                        209,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "run-button",
+      "name": "run-button",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "run-button-layer",
+            "name": "Content",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "button-face",
+                    "name": "button-face",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 220,
+                      "height": 56,
+                      "fill": [
+                        32,
+                        116,
+                        98,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "button-label",
+                    "name": "button-label",
+                    "transform": {
+                      "x": 22,
+                      "y": 35,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "RUN AGAIN",
+                      "font_family": "Arial",
+                      "font_size": 18,
+                      "color": [
+                        226,
+                        238,
+                        244,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": "",
+                "scripts": []
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "document_class": "app.LocaleMain",
+  "sources": [
+    {
+      "id": "as2-locale-main",
+      "path": "app/LocaleMain.as",
+      "language": "action_script2",
+      "source": "import mx.lang.Locale;\nclass app.LocaleMain extends MovieClip {\n  public var runs:Number = 0;\n  public var checks:Number = 0;\n  public var passed:Number = 0;\n  public var callbackCount:Number = 0;\n  public function LocaleMain() { super(); stop(); runLocale(); }\n  public function check(name:String,ok:Boolean):Void { checks++;if(ok)passed++;trace(\"AS2_LOCALE_CHECK \"+name+\" \"+ok); }\n  public function runLocale():Void {\n    runs++;checks=0;passed=0;callbackCount=0;\n    Locale.setDefaultLang(\"en\");\n    Locale.setString(\"GREETING\",\"en\",\"Hello\");Locale.setString(\"GREETING\",\"fr\",\"Salut\");\n    Locale.setString(\"EMPTY\",\"en\",\"\");Locale.setString(\"EMPTY\",\"fr\",\"\");\n    var table:Boolean=Locale.loadString(\"GREETING\")==\"Hello\"&&Locale.loadStringEx(\"GREETING\",\"fr\")==\"Salut\"&&Locale.loadStringEx(\"EMPTY\",\"fr\")==\"\"&&Locale.loadStringEx(\"ABSENT\",\"en\")==undefined;\n    Locale.setDefaultLang(\"fr\");\n    check(\"translation tables and defaults\",table&&Locale.getDefaultLang()==\"fr\");\n    Locale.setDefaultLang(\"en\");\n    Locale.addXMLPath(\"en\",\"locale/en.xml\");Locale.addXMLPath(\"fr\",\"locale/fr.xml\");Locale.addXMLPath(\"broken\",\"locale/broken.xml\");\n    var codes:Array=Locale.languageCodeArray;var ids:Array=Locale.stringIDArray;var before:Number=codes.length;codes.push(\"not-a-real-language\");ids.push(\"not-a-real-id\");\n    check(\"language and ID lists are snapshots\",Locale.languageCodeArray.length==before&&Locale.stringIDArray.length==2&&before==3);\n    Locale.setLoadCallback(function(success:Boolean):Void {_root.callbackCount++;});\n    Locale.loadLanguageXML(\"fr\",function(success:Boolean):Void {_root.frenchLoaded(success);});\n    result.text=\"Loading embedded language resources...\";\n  }\n  public function frenchLoaded(success:Boolean):Void {\n    check(\"asynchronous XLIFF and custom callback\",success&&Locale.checkXMLStatus()&&Locale.loadString(\"GREETING\")==\"Bonjour & bienvenue!\"&&Locale.loadStringEx(\"RUSSIAN\",\"fr\")==\"Привет\"&&Locale.loadString(\"EMPTY\")==\"\"&&Locale.loadString(\"MARKUP\")==\"<b>literal</b>\"&&callbackCount==0);\n    Locale.setLoadCallback(function(ok:Boolean):Void {_root.brokenLoaded(ok);});\n    Locale.loadLanguageXML(\"broken\");\n  }\n  public function brokenLoaded(success:Boolean):Void {\n    check(\"malformed language preserves existing table\",!success&&!Locale.checkXMLStatus()&&Locale.loadString(\"GREETING\")==\"Bonjour & bienvenue!\"&&Locale.loadStringEx(\"GREETING\",\"en\")==\"Hello\");\n    Locale.setLoadCallback(function(ok:Boolean):Void {_root.initialized(ok);});\n    Locale.initialize();\n  }\n  public function initialized(success:Boolean):Void {\n    var greeting:String=Locale.loadString(\"GREETING\");\n    check(\"environment language with default fallback\",success&&Locale.checkXMLStatus()&&(greeting==\"Hello from XLIFF\"||greeting==\"Bonjour & bienvenue!\"));\n    Locale.loadLanguageXML(\"unconfigured\",function(ok:Boolean):Void {_root.missingLoaded(ok);});\n  }\n  public function missingLoaded(success:Boolean):Void {\n    check(\"unconfigured language callback\",!success&&!Locale.checkXMLStatus()&&Locale.loadStringEx(\"RUSSIAN\",\"fr\")==\"Привет\");\n    result.text=passed==checks?\"PASS: AS2 Locale package\":\"FAIL: inspect trace output\";\n    pipeline.text=\"French: \"+Locale.loadStringEx(\"GREETING\",\"fr\");\n    casing.text=\"Unicode: \"+Locale.loadStringEx(\"RUSSIAN\",\"fr\");\n    codec.text=\"XML parsing and translation state execute in Rust\";\n    counts.text=passed+\" / \"+checks+\" grouped checks; run \"+runs;\n    trace(\"AS2_LOCALE_RESULT \"+passed+\"/\"+checks);\n  }\n}\n"
+    }
+  ],
+  "resources": [
+    {
+      "id": "locale-en",
+      "path": "locale/en.xml",
+      "media_type": "application/xml",
+      "data_base64": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz48IURPQ1RZUEUgeGxpZmYgUFVCTElDICItLy9YTElGRi8vRFREIFhMSUZGLy9FTiIgImh0dHA6Ly93d3cub2FzaXMtb3Blbi5vcmcvY29tbWl0dGVlcy94bGlmZi9kb2N1bWVudHMveGxpZmYuZHRkIj48eGxpZmYgdmVyc2lvbj0iMS4wIiB4bWw6bGFuZz0iZW4iPjxmaWxlIGRhdGF0eXBlPSJwbGFpbnRleHQiIG9yaWdpbmFsPSJsb2NhbGUtZXhhbXBsZSIgc291cmNlLWxhbmd1YWdlPSJlbiI+PGJvZHk+PHRyYW5zLXVuaXQgaWQ9IjAwMSIgcmVzbmFtZT0iR1JFRVRJTkciPjxzb3VyY2U+SGVsbG8gZnJvbSBYTElGRjwvc291cmNlPjwvdHJhbnMtdW5pdD48dHJhbnMtdW5pdCBpZD0iMDAyIiByZXNuYW1lPSJFTVBUWSI+PHNvdXJjZS8+PC90cmFucy11bml0PjwvYm9keT48L2ZpbGU+PC94bGlmZj4="
+    },
+    {
+      "id": "locale-fr",
+      "path": "locale/fr.xml",
+      "media_type": "application/xml",
+      "data_base64": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz48eGxpZmYgdmVyc2lvbj0iMS4wIiB4bWw6bGFuZz0iZnIiPjxmaWxlIGRhdGF0eXBlPSJwbGFpbnRleHQiIG9yaWdpbmFsPSJsb2NhbGUtZXhhbXBsZSIgc291cmNlLWxhbmd1YWdlPSJlbiI+PGJvZHk+PHRyYW5zLXVuaXQgaWQ9IjAwMSIgcmVzbmFtZT0iR1JFRVRJTkciPjxzb3VyY2U+Qm9uam91ciAmYW1wOyBiaWVudmVudWUhPC9zb3VyY2U+PC90cmFucy11bml0Pjx0cmFucy11bml0IGlkPSIwMDIiIHJlc25hbWU9IlJVU1NJQU4iPjxzb3VyY2U+0J/RgNC40LLQtdGCPC9zb3VyY2U+PC90cmFucy11bml0Pjx0cmFucy11bml0IGlkPSIwMDMiIHJlc25hbWU9IkVNUFRZIj48c291cmNlLz48L3RyYW5zLXVuaXQ+PHRyYW5zLXVuaXQgaWQ9IjAwNCIgcmVzbmFtZT0iTUFSS1VQIj48c291cmNlPjwhW0NEQVRBWzxiPmxpdGVyYWw8L2I+XV0+PC9zb3VyY2U+PC90cmFucy11bml0PjwvYm9keT48L2ZpbGU+PC94bGlmZj4="
+    },
+    {
+      "id": "locale-broken",
+      "path": "locale/broken.xml",
+      "media_type": "application/xml",
+      "data_base64": "PHhsaWZmPjxmaWxlPjxib2R5Pjx0cmFucy11bml0IHJlc25hbWU9IkdSRUVUSU5HIj48c291cmNlPm11c3Qgbm90IHJlcGxhY2UgZGF0YTwvc291cmNlPjwvYm9keT48L3hsaWZmPg=="
+    }
+  ]
+}

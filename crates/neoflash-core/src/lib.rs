@@ -1,7 +1,15 @@
 //! Document model and deterministic authoring/runtime evaluation shared by desktop and web.
 mod amf;
+pub mod as2_binding;
+pub mod as2_data;
+pub mod as2_files;
+pub mod as2_locale;
+pub mod as2_object;
 pub mod as2_platform;
+pub mod as2_sound;
 pub mod as2_strings;
+pub mod as2_text;
+pub mod as2_variables;
 pub mod as2_xml;
 pub mod as2d_geom;
 pub mod as3_geom;
@@ -46,8 +54,8 @@ pub use geometry::{
 pub use history::History;
 pub use model::*;
 pub use pixels::{
-    BitmapError, BitmapRect, MAX_BITMAP_BYTES, MAX_BITMAP_DIMENSION, PixelDescriptor, PixelRef,
-    PixelSnapping, PixelWrite,
+    As2BitmapCommand, BitmapError, BitmapRect, MAX_BITMAP_BYTES, MAX_BITMAP_DIMENSION,
+    PixelDescriptor, PixelRef, PixelSnapping, PixelWrite,
 };
 pub use resource_image::DecodedImage;
 pub use resources::{

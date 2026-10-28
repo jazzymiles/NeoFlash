@@ -15,28 +15,31 @@ function __nfContainerRef(receiver,key,as3,caller){
     if(__nfDictionaryIs(receiver)){if(!as3)throw new __nfTypeError('Dictionary access requires AS3.');return __nfDictionaryRef(receiver,key);}
     if(typeof __nfVectorIs==='function'&&__nfVectorIs(receiver)){if(!as3)throw new __nfTypeError('Vector access requires AS3.');return __nfVectorRef(receiver,key);}
     const object=Object(receiver),program=__nfContainerProgram();
+    const legacy=!as3&&typeof __nfLegacy!=='undefined'?__nfLegacy:null;
+    const scopedRef=name=>legacy?.nativeRef?.(receiver,name)??program?.ref?.(receiver,name,caller);
     // Capture the key expression once, but retain its value: ordinary property
     // conversion belongs to each read/write operation, after the assignment RHS
     // has run. Compound updates can therefore convert an object key twice.
     return {
         get(){
-            const name=__nfContainerKey(key),scoped=program?.ref?.(receiver,name,caller),value=scoped?scoped.get():receiver[name];
+            const name=__nfContainerKey(key),scoped=scopedRef(name),read=()=>scoped?scoped.get():receiver[name];
+            const value=legacy?.objects?legacy.objects.get(receiver,name,read,()=>scoped?scoped.has():Reflect.has(object,name)):read();
             // AVM1 exposes an absent native scrollRect as undefined; AS3 and
             // the public JS facade use null. Never rewrite ordinary user fields.
             return !as3&&name==='scrollRect'&&value===null&&typeof __nfDisplay!=='undefined'&&__nfDisplay?.alive(receiver)?undefined:value;
         },
         set(value){
             const name=__nfContainerKey(key);
-            const scoped=program?.ref?.(receiver,name,caller);if(scoped)return scoped.set(value);
+            const scoped=scopedRef(name);
             if(__nfArrayIsArray(receiver)){
                 if(name==='length')__nfArrayBound(value);
                 else if(/^(?:0|[1-9]\d*)$/.test(name)&&Number(name)<4294967295&&Number(name)>=__nfArrayLimit)throw new __nfTypeError('Array index exceeds the 1000000-element profile.');
             }
-            if((typeof receiver!=='object'&&typeof receiver!=='function')||!Reflect.set(object,name,value,receiver))throw new __nfTypeError('Cannot write this property.');
-            return value;
+            const write=next=>{if(scoped)return scoped.set(next);if((typeof receiver!=='object'&&typeof receiver!=='function')||!Reflect.set(object,name,next,receiver))throw new __nfTypeError('Cannot write this property.');return next;};
+            return legacy?.objects?legacy.objects.set(receiver,name,value,()=>scoped?scoped.get():receiver[name],write):write(value);
         },
-        delete(){const name=__nfContainerKey(key),scoped=program?.ref?.(receiver,name,caller);return scoped?scoped.delete():Reflect.deleteProperty(object,name);},
-        has(){const name=__nfContainerKey(key),scoped=program?.ref?.(receiver,name,caller);return scoped?scoped.has():Reflect.has(object,name);},
+        delete(){const name=__nfContainerKey(key),scoped=scopedRef(name),removed=scoped?scoped.delete():Reflect.deleteProperty(object,name);if(removed)legacy?.objects?.deleted(receiver,name);return removed;},
+        has(){const name=__nfContainerKey(key),scoped=scopedRef(name);return scoped?scoped.has():Reflect.has(object,name);},
     };
 }
 function __nfContainerMethod(receiver,key,as3,caller){

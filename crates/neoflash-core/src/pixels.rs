@@ -4,7 +4,10 @@
 //! Copy/scroll snapshots at most one 64 MiB clipped rectangle for overlap safety;
 //! this temporary memory is additional to the 128 MiB resident arena budget.
 use serde::{Deserialize, Serialize};
+mod as2;
+mod as2_perlin;
 mod pipeline;
+pub use as2::As2BitmapCommand;
 pub use pipeline::{BitmapRect, PixelWrite};
 use std::{
     collections::HashMap,

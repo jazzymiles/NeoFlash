@@ -581,6 +581,83 @@ impl<'a> Frontend<'a> {
         Ok(statement)
     }
     fn statement_inner(&mut self) -> Result<Stmt, Diagnostic> {
+        if self.is("on") || self.is("onClipEvent") {
+            if self.script.language != ScriptLanguage::ActionScript2
+                || self.function_depth != 0
+                || self.context.class_name.is_some()
+            {
+                return Err(self.error(
+                    "Legacy on/onClipEvent blocks belong at the top level of an AS2 object script.",
+                ));
+            }
+            let clip_event = self.eat("onClipEvent");
+            if !clip_event {
+                self.expect("on")?;
+            }
+            let offset = self.token().offset;
+            self.expect("(")?;
+            let mut handlers = Vec::new();
+            loop {
+                let name = self.ident()?;
+                let callback = match (clip_event, name.as_str()) {
+                    (false, "press") => "onPress",
+                    (false, "release") => "onRelease",
+                    (false, "releaseOutside") => "onReleaseOutside",
+                    (false, "rollOver") => "onRollOver",
+                    (false, "rollOut") => "onRollOut",
+                    (false, "dragOver") => "onDragOver",
+                    (false, "dragOut") => "onDragOut",
+                    (true, "mouseDown") => "onMouseDown",
+                    (true, "mouseMove") => "onMouseMove",
+                    (true, "mouseUp") => "onMouseUp",
+                    (true, "unload") => "onUnload",
+                    (true, "enterFrame") => "onEnterFrame",
+                    _ => return Err(self.error(format!(
+                        "Legacy event '{name}' is not connected to the browser event bridge yet."
+                    ))),
+                };
+                if !handlers.contains(&callback) {
+                    handlers.push(callback);
+                }
+                if !self.eat(",") {
+                    break;
+                }
+            }
+            self.expect(")")?;
+            self.expect("{")?;
+            let id = self.next_function;
+            self.next_function += 1;
+            let outer_controls = std::mem::take(&mut self.controls);
+            let outer_no_in = self.no_in;
+            self.no_in = false;
+            self.function_depth += 1;
+            let body = self.statements(true)?;
+            self.function_depth -= 1;
+            self.controls = outer_controls;
+            self.no_in = outer_no_in;
+            let mut expression = Expr::Function(Box::new(Function {
+                id,
+                offset,
+                name: None,
+                params: Vec::new(),
+                defaults: Vec::new(),
+                rest: None,
+                returns: None,
+                body,
+                declaration: false,
+            }));
+            for handler in handlers.into_iter().rev() {
+                expression = Expr::Assign(
+                    "=".into(),
+                    Box::new(Expr::Member(
+                        Box::new(Expr::Name("this".into())),
+                        handler.into(),
+                    )),
+                    Box::new(expression),
+                );
+            }
+            return Ok(Stmt::Expr(expression));
+        }
         if matches!(self.token().kind, Kind::Ident(_))
             && self
                 .peek(self.pos + 1)
@@ -912,6 +989,7 @@ impl<'a> Frontend<'a> {
         }
         if let Kind::Ident(word) = &self.token().kind
             && is_unsupported_keyword(word)
+            && !(word == "set" && self.script.language == ScriptLanguage::ActionScript2)
             && !matches!(word.as_str(), "new" | "delete" | "void")
             && !(self.context.project && word == "super" && self.context.class_name.is_some())
         {
@@ -1459,6 +1537,22 @@ impl<'a> Frontend<'a> {
                 lhs = Expr::TypeTest(operator, Box::new(lhs), name, offset);
                 continue;
             }
+            if operator == "instanceof" && self.script.language == ScriptLanguage::ActionScript2 {
+                if min_bp > 15 {
+                    break;
+                }
+                let offset = self.token().offset;
+                self.pos += 1;
+                let name = self.type_name()?;
+                if !self.context.core_type(&name)
+                    && !self.context.intrinsic_type(&name, false)
+                    && !self.context.types.contains_key(&name)
+                {
+                    return Err(self.error("AS2 instanceof requires a resolved class or supported native constructor; dynamic constructor expressions are outside this profile."));
+                }
+                lhs = Expr::TypeTest(operator, Box::new(lhs), name, offset);
+                continue;
+            }
             if operator == "in" && self.no_in {
                 break;
             }
@@ -1595,7 +1689,7 @@ impl<'a> Frontend<'a> {
         match token.kind {
             Kind::Number(value) | Kind::String(value) => { self.pos += 1; Ok(Expr::Literal(value)) }
             Kind::Ident(name) => {
-                if (is_unsupported_keyword(&name) && !(name == "super" && self.context.class_name.is_some())) || matches!(name.as_str(), "if" | "else" | "while" | "for" | "var" | "break" | "continue" | "return") {
+                if (is_unsupported_keyword(&name) && !(name == "super" && self.context.class_name.is_some()) && !(name == "set" && self.script.language == ScriptLanguage::ActionScript2)) || matches!(name.as_str(), "if" | "else" | "while" | "for" | "var" | "break" | "continue" | "return") {
                     return Err(self.error(format!("ActionScript construct '{name}' is not supported in this expression.")));
                 }
                 self.pos += 1;
@@ -2150,6 +2244,9 @@ impl Emitter<'_> {
                     | "Stage"
                     | "LoadVars"
                     | "TextFormat"
+                    | "TextField"
+                    | "_global"
+                    | "newline"
                     | "Sound"
                     | "System"
                     | "targetPath"
@@ -2309,6 +2406,27 @@ impl Emitter<'_> {
         } else {
             None
         }
+    }
+    fn as2_lexical_reference(&self) -> String {
+        let mut names = std::collections::BTreeSet::new();
+        let mut scope = Some(self.scope);
+        while let Some(id) = scope {
+            names.extend(self.analysis.scopes[&id].bindings.keys().cloned());
+            scope = self.analysis.scopes[&id].parent;
+        }
+        let cases = names
+            .into_iter()
+            .map(|name| {
+                let expression = Expr::Name(name.clone());
+                let value = self.name(&name);
+                let reference = self.reference(&expression).unwrap_or_else(|| {
+                    format!("{{get:()=>{value},set:__nfAssigned=>({value}=__nfAssigned)}}")
+                });
+                format!("case {name:?}: return {reference};")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("(__nfName)=>{{switch(__nfName){{{cases}}}return null;}}")
     }
     fn default_value(&self, ty: Option<&str>) -> &'static str {
         if !self.as3 {
@@ -2726,10 +2844,10 @@ impl Emitter<'_> {
                 } else if vector_element(ty).is_some() {
                     format!("{}.__nfIs(__nfValue)", self.vector_type(ty))
                 } else if matches!(ty.as_str(), "XML" | "XMLList" | "Namespace" | "QName")
-                    && self.analysis.context.intrinsic_type(ty, true)
+                    && self.analysis.context.intrinsic_type(ty, self.as3)
                 {
-                    format!("__nfXMLClass({ty:?}, true).__nfIs(__nfValue)")
-                } else if self.analysis.context.intrinsic_type(ty, true) {
+                    format!("__nfXMLClass({ty:?}, {}).__nfIs(__nfValue)", self.as3)
+                } else if self.analysis.context.intrinsic_type(ty, self.as3) {
                     format!("__nf{ty}Is(__nfValue)")
                 } else {
                     format!(
@@ -2739,7 +2857,11 @@ impl Emitter<'_> {
                 };
                 format!(
                     "((__nfValue) => {} )({})",
-                    if op == "is" {
+                    if op == "instanceof" {
+                        format!(
+                            "(__nfValue !== null && (typeof __nfValue === 'object' || typeof __nfValue === 'function') && ({predicate}))"
+                        )
+                    } else if op == "is" {
                         predicate
                     } else {
                         format!("{predicate} ? __nfValue : null")
@@ -2765,6 +2887,14 @@ impl Emitter<'_> {
                                     | "onReleaseOutside"
                                     | "onRollOver"
                                     | "onRollOut"
+                                    | "onMouseDown"
+                                    | "onMouseMove"
+                                    | "onMouseUp"
+                                    | "onKeyDown"
+                                    | "onKeyUp"
+                                    | "onDragOver"
+                                    | "onDragOut"
+                                    | "onUnload"
                             ) && self.analysis.resolve(self.scope, name).is_none() =>
                         {
                             Some(("__nfFrame".into(), name))
@@ -2778,6 +2908,14 @@ impl Emitter<'_> {
                                     | "onReleaseOutside"
                                     | "onRollOver"
                                     | "onRollOut"
+                                    | "onMouseDown"
+                                    | "onMouseMove"
+                                    | "onMouseUp"
+                                    | "onKeyDown"
+                                    | "onKeyUp"
+                                    | "onDragOver"
+                                    | "onDragOut"
+                                    | "onUnload"
                             ) =>
                         {
                             Some((self.expression(base), name))
@@ -2912,6 +3050,38 @@ impl Emitter<'_> {
                 self.expression(no)
             ),
             Expr::Call(callee, args, _) => {
+                if !self.as3
+                    && let Expr::Name(name) = callee.as_ref()
+                    && matches!(name.as_str(), "loadVariables" | "loadVariablesNum")
+                    && self.analysis.resolve(self.scope, name).is_none()
+                {
+                    return format!(
+                        "__nfLegacy.{name}.call(__nfFrame, {})",
+                        args.iter()
+                            .map(|arg| self.expression(arg))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
+
+                if !self.as3
+                    && let Expr::Name(name) = callee.as_ref()
+                    && matches!(name.as_str(), "eval" | "set")
+                    && self.analysis.resolve(self.scope, name).is_none()
+                {
+                    return format!(
+                        "__nfLegacy.objects.resolve(__nfFrame, {}, {}, {}{})",
+                        self.expression(&args[0]),
+                        self.as2_lexical_reference(),
+                        name == "set",
+                        if name == "set" {
+                            format!(", {}", self.expression(&args[1]))
+                        } else {
+                            String::new()
+                        }
+                    );
+                }
+
                 if !self.as3
                     && matches!(callee.as_ref(),Expr::Name(name) if name=="getURL" && self.analysis.resolve(self.scope,name).is_none() && !self.analysis.context.types.contains_key(name))
                 {
@@ -3585,6 +3755,9 @@ mod tests {
         .unwrap();
         assert!(output.contains("this.n = 2"));
         assert!(!output.contains("Number(2)"));
+        let events = compile(&Script {language:ScriptLanguage::ActionScript2,source:"on(press,release) { trace(this); } onClipEvent(enterFrame) { this.tick=1; } var a=[]; trace(a instanceof Array);".into()}).unwrap();
+        assert!(events.contains("setLegacyCallback"));
+        assert!(events.contains("__nfArrayIsArray(__nfValue)"));
     }
     #[test]
     fn loops_and_math_compile() {

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-28 — AS2 two-hour subsystem batch
+
+- Add 216 catalogue API paths: 142 methods, 71 properties and three global functions across data/binding, text/display, bitmap, file, Locale, Object, Sound and variable-loading families.
+- Keep 278 new declarations, 12 extensions and 30 corrections of existing support separate. Two catalogue entries mislabeled as constants are reported as instance fields. The exact AS2 partial count rises 745 → 1,054 (+309); AS3 is unchanged.
+- Keep the existing 27 compiler tests and 90 execution fixtures passing without count growth; add 12 grouped Rust tests. The shared workflow run passed 23/24, and the affected input family passed its focused rerun. Eight ordinary HTML5 families have observed browser results; remote publication/CI remain pending.
+- Preserve Rust algorithm ownership, individual licensed adaptations and explicit partial limits. No editor UI, FLA or whole-project restart is included.
+- See [exact counts, browser evidence, boundaries and comparison](docs/AS2-TWO-HOUR.md). Native file-save download and audible audio balance remain unverified.
+
 ## 2026-10-28 — bounded AS2 runtime batch
 
 - Add 71 catalogue method/global/property paths, 13 source constructs, eight constants, one event and six static namespaces; keep AS3 declarations unchanged.
