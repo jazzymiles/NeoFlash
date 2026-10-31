@@ -1573,6 +1573,8 @@ fn native_member(base: &str, name: &str) -> bool {
                     | "gotoAndStop"
                     | "nextFrame"
                     | "prevFrame"
+                    | "nextScene"
+                    | "prevScene"
                     | "trace"
                     | "toString"
                     | "toJSON"

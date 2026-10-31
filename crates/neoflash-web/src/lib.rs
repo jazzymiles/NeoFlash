@@ -35,8 +35,9 @@ mod as_timers;
 pub use as2_strings::{as2_string_json, legacy_case_name_json};
 
 use neoflash_core::{
-    ColorTransform, DisplayMutation, DynamicKind, GraphicsOp, ObjectRef, PixelRef, PixelSnapping,
-    PlaybackCommand, Player, Project, RuntimeScriptDispatch, ScriptDispatch, ScrollRect,
+    ColorTransform, DisplayMutation, DynamicKind, GotoRequest, GraphicsOp, ObjectRef, PixelRef,
+    PixelSnapping, PlaybackCommand, Player, Project, RuntimeScriptDispatch, SceneRange,
+    ScriptDispatch, ScrollRect,
 };
 use neoflash_core::{TextError, TextFieldState, TextInputEdit, TextPatch, layout_text};
 use wasm_bindgen::prelude::*;
@@ -141,6 +142,18 @@ fn single_filter(value: &str) -> Result<neoflash_core::FilterSpec, JsValue> {
     }
     serde_json::from_str(value).map_err(display_error)
 }
+fn goto_request(value: &str) -> Result<GotoRequest, JsValue> {
+    if value.len() > 65536 {
+        return Err(JsValue::from_str("Goto arguments exceed 64 KiB"));
+    }
+    serde_json::from_str(value)
+        .map_err(|_| JsValue::from_str("Frame must be a frame number or a frame label."))
+}
+fn goto_result(result: Result<Option<u32>, String>) -> Result<i32, JsValue> {
+    result
+        .map(|frame| frame.map_or(-1, |frame| frame as i32))
+        .map_err(|error| JsValue::from_str(&error))
+}
 fn command(name: &str, frame: u32) -> Result<PlaybackCommand, JsValue> {
     match name {
         "play" => Ok(PlaybackCommand::Play),
@@ -211,14 +224,29 @@ impl WebPlayer {
         .map_err(display_error)
     }
 
+    /// Multi-scene documents are flattened into one main timeline here, so
+    /// editor previews and published bundles share one runtime path. A
+    /// published bundle that is already flattened passes its scene ranges.
     #[wasm_bindgen(constructor)]
-    pub fn new(json: &str) -> Result<WebPlayer, JsValue> {
-        let project =
+    pub fn new(json: &str, scenes: Option<String>) -> Result<WebPlayer, JsValue> {
+        let authored =
             Project::from_json(json).map_err(|error| JsValue::from_str(&error.to_string()))?;
-        let player = Player::new(&project);
+        let (project, mut ranges) = neoflash_core::flatten_scenes_with_ranges(&authored);
+        if ranges.is_empty()
+            && let Some(scenes) = scenes
+        {
+            if scenes.len() > 1024 * 1024 {
+                return Err(JsValue::from_str("Scene metadata exceeds 1 MiB"));
+            }
+            ranges = serde_json::from_str::<Vec<SceneRange>>(&scenes).map_err(display_error)?;
+        }
+        let mut player = Player::new(&project);
         if let Some(error) = player.bitmap_error() {
             return Err(display_error(error));
         }
+        player
+            .set_scenes(&project, ranges)
+            .map_err(|error| JsValue::from_str(&error))?;
         Ok(Self { project, player })
     }
 
@@ -389,6 +417,32 @@ impl WebPlayer {
         Ok(self
             .player
             .resolve_frame_as2(&self.project, &path(target)?, label)
+            .map_or(-1, |frame| frame as i32))
+    }
+
+    /// Scenes of a live timeline; only a multi-scene main timeline has more than one.
+    pub fn scene_count(&self, target: &str) -> Result<u32, JsValue> {
+        Ok(self
+            .player
+            .clip_scene_count(&self.project, &path(target)?)
+            .unwrap_or(0))
+    }
+
+    /// `{"frame": number|label, "scene": name|null, "as2": bool}` to a
+    /// zero-based frame; -1 is an AS2 label that does not exist (no jump).
+    pub fn resolve_goto(&self, target: &str, request: &str) -> Result<i32, JsValue> {
+        goto_result(self.player.resolve_goto(
+            &self.project,
+            &path(target)?,
+            &goto_request(request)?,
+        ))
+    }
+
+    /// First frame of the adjacent scene, or -1 past the first/last scene.
+    pub fn scene_step(&self, target: &str, step: i32) -> Result<i32, JsValue> {
+        Ok(self
+            .player
+            .resolve_scene_step(&self.project, &path(target)?, step)
             .map_or(-1, |frame| frame as i32))
     }
 
@@ -1179,6 +1233,25 @@ impl WebPlayer {
         Ok(self
             .player
             .object_resolve_frame(&self.project, &object_ref(target)?, label, true)
+            .map_or(-1, |frame| frame as i32))
+    }
+    pub fn object_scene_count(&self, target: &str) -> Result<u32, JsValue> {
+        Ok(self
+            .player
+            .object_scene_count(&self.project, &object_ref(target)?)
+            .unwrap_or(0))
+    }
+    pub fn object_resolve_goto(&self, target: &str, request: &str) -> Result<i32, JsValue> {
+        goto_result(self.player.object_resolve_goto(
+            &self.project,
+            &object_ref(target)?,
+            &goto_request(request)?,
+        ))
+    }
+    pub fn object_scene_step(&self, target: &str, step: i32) -> Result<i32, JsValue> {
+        Ok(self
+            .player
+            .object_scene_step(&self.project, &object_ref(target)?, step)
             .map_or(-1, |frame| frame as i32))
     }
 }

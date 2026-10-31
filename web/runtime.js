@@ -237,7 +237,8 @@
     const bytes = Uint8Array.from(atob(bundle.wasm), character => character.charCodeAt(0));
     await NeoFlashWasm({ module_or_path: bytes });
     const project = bundle.project;
-    const player = new NeoFlashWasm.WebPlayer(JSON.stringify(project));
+    // Published bundles carry a flattened main timeline plus its scene ranges.
+    const player = new NeoFlashWasm.WebPlayer(JSON.stringify(project), bundle.scenes ? JSON.stringify(bundle.scenes) : undefined);
     const canvas = document.getElementById('stage');
     const context = canvas.getContext('2d');
     if (!context) throw new Error('This browser does not provide Canvas 2D.');
@@ -559,7 +560,7 @@
         }
         Scene.__nfIs=value=>sceneValues.has(value);
         Scene.__nfInitialize=()=>{throw new TypeError('Scene is final and cannot initialize a subclass.');};
-        sceneValueFactory=value=>new Scene(sceneToken,{name:value.scene_name,numFrames:value.total_frames,labels:value.labels.map(label=>new frameLabelType(label.name,label.frame))});
+        sceneValueFactory=value=>new Scene(sceneToken,{name:value.name,numFrames:value.num_frames,labels:value.labels.map(label=>new frameLabelType(label.name,label.frame))});
         builtins['flash.display.Scene']=Scene;
       }
       builtins.__nfTrace=trace;
@@ -790,7 +791,7 @@
         let value;try{value=JSON.parse(call('clip_metadata'));}catch(error){throw new TypeError(String(error?.message??error));}
         if(name==='currentScene'||name==='scenes'){
           if(!sceneValueFactory)throw new Error('Scene values are unavailable; rebuild and re-export this project.');
-          const scene=sceneValueFactory(value);return name==='scenes'?[scene]:scene;
+          return name==='scenes'?value.scenes.map(sceneValueFactory):sceneValueFactory({name:value.scene_name,num_frames:value.total_frames,labels:value.labels});
         }
         const field=value[timelineMetadataProperties[name]];
         if(name!=='currentLabels')return field;
@@ -834,22 +835,49 @@
       const methods = {
         play: () => control('play'),
         stop: () => control('stop'),
-        gotoAndPlay: value => goto('goto_and_play', value),
-        gotoAndStop: value => goto('goto_and_stop', value),
-        nextFrame: () => goto('goto_and_stop', Math.min(call('clip_frame') + 2, call('clip_frame_count'))),
-        prevFrame: () => goto('goto_and_stop', Math.max(call('clip_frame'), 1)),
+        gotoAndPlay: (value, scene) => goto('goto_and_play', value, false, scene),
+        gotoAndStop: (value, scene) => goto('goto_and_stop', value, false, scene),
+        nextFrame: () => seek('goto_and_stop', call('clip_frame') + 1),
+        prevFrame: () => seek('goto_and_stop', call('clip_frame') - 1),
+        nextScene: () => sceneStep(1, 'goto_and_play'),
+        prevScene: () => sceneStep(-1, 'goto_and_play'),
         trace: (...values) => trace(...values),
       };
       function control(command) {assertAlive();if(!call('control',command,0))throw new Error(`Cannot control timeline at ${key}.`);}
-      function goto(command, value, legacy = false) {
+      // Only a multi-scene main timeline reports more than one scene.
+      function sceneCount(){return typeof player[objectRef?'object_scene_count':'scene_count']==='function'?call('scene_count'):1;}
+      function goto(command, value, legacy = false, scene = null) {
         assertAlive();
         const total = call('clip_frame_count');
         if (!total) throw new Error('Timeline controls apply to symbols and the root scene.');
-        const frame = legacy
-          ? as2Frame(value, total, label => call('resolve_frame_as2',label))
-          : oneBasedFrame(value, total, label => call('resolve_frame',label));
-        if (frame === null) return; // An unknown AS2 label changes neither frame nor play state.
+        let frame;
+        if (scene != null || sceneCount() > 1) {
+          // Rust resolves scene names, scene-relative numbers and labels.
+          if (typeof value !== 'number' && typeof value !== 'string') {
+            throw new Error(legacy ? 'AS2 goto requires a frame label or integer frame; other argument coercions are not supported.' : 'Frame must be a frame number or a frame label.');
+          }
+          const request = JSON.stringify({frame: typeof value === 'number' && !Number.isFinite(value) ? String(value) : value, scene: scene == null ? null : String(scene), as2: legacy});
+          try { frame = call('resolve_goto', request); } catch (error) { throw new Error(String(error?.message ?? error)); }
+        } else {
+          frame = legacy
+            ? as2Frame(value, total, label => call('resolve_frame_as2',label))
+            : oneBasedFrame(value, total, label => call('resolve_frame',label));
+        }
+        if (frame === null || frame < 0) return; // An unknown AS2 label changes neither frame nor play state.
         if (!call('control',command,frame)) throw new Error(`Cannot control timeline at ${key}.`);
+      }
+      // Zero-based seek used by nextFrame/prevFrame, which cross scene boundaries.
+      function seek(command, frame) {
+        assertAlive();
+        const total = call('clip_frame_count');
+        if (!total) throw new Error('Timeline controls apply to symbols and the root scene.');
+        if (!call('control',command,Math.max(0, Math.min(frame, total - 1)))) throw new Error(`Cannot control timeline at ${key}.`);
+      }
+      function sceneStep(step, command) {
+        assertAlive();
+        if (sceneCount() <= 1) return; // No adjacent scene: the playhead stays.
+        const frame = call('scene_step', step);
+        if (frame >= 0) seek(command, frame);
       }
       function nativeHas(name){
         if(typeof name!=='string')return name===Symbol.toStringTag;
@@ -871,6 +899,7 @@
           if (typeof name !== 'string') return undefined;
           if (name === '_root' || name === 'root') {assertAlive();return name==='root'&&objectRef&&!display.descriptor(proxy).on_stage?null:proxyFor([]);}
           if (name === '_parent' || name === 'parent') {assertAlive();const parent=display?display.parentSpace(proxy):path.length?proxyFor(path.slice(0,-1)):stageHost?.stage||null;return name==='_parent'&&parent===stageHost?.stage?null:parent;}
+          if (name === 'currentFrame' && sceneCount() > 1) {assertAlive();return JSON.parse(call('clip_metadata')).scene_frame;} // AS3 frames are scene-relative.
           if (name === '_currentframe' || name === 'currentFrame') return call('clip_frame') + 1;
           if (name === '_totalframes' || name === 'totalFrames') return call('clip_frame_count');
           if (ownsTimelineMetadata(name)) return timelineMetadata(name);
@@ -913,8 +942,13 @@
       references.set(proxy,{path:path?[...path]:null,objectRef,key,lifetime,nativeHas,as2TimelineRef,nativeKeys:()=>[...Object.keys(methods),...Object.keys(propertyMap),'onEnterFrame','onPress','onRelease','onReleaseOutside','onRollOver','onRollOut','onDragOver','onDragOut','_root','_parent','_visible','_currentframe','_totalframes'],customKeys:()=>Object.keys(custom)});
       if(display)Object.assign(methods,display.methods(proxy));
       if(eventHub)Object.assign(methods,eventHub.methods(proxy));
-      as2.register(methods.gotoAndPlay, proxy, 'gotoAndPlay', value => goto('goto_and_play', value, true));
-      as2.register(methods.gotoAndStop, proxy, 'gotoAndStop', value => goto('goto_and_stop', value, true));
+      // AS2 gotoAndPlay("Scene 2", frame) names the scene first.
+      const as2Goto = command => (...args) => args.length >= 2 ? goto(command, args[1], true, args[0]) : goto(command, args[0], true);
+      as2.register(methods.gotoAndPlay, proxy, 'gotoAndPlay', as2Goto('goto_and_play'));
+      as2.register(methods.gotoAndStop, proxy, 'gotoAndStop', as2Goto('goto_and_stop'));
+      // AS2 nextScene/prevScene compile to a frame jump that stops the playhead.
+      as2.register(methods.nextScene, proxy, 'nextScene', () => sceneStep(1, 'goto_and_stop'));
+      as2.register(methods.prevScene, proxy, 'prevScene', () => sceneStep(-1, 'goto_and_stop'));
       proxies.set(key, { lifetime, proxy });
       return proxy;
     }

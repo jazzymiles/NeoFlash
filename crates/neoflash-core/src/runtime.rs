@@ -70,9 +70,13 @@ impl FrameLabel {
     }
 }
 
-/// Read-only metadata for a locally materialized MovieClip timeline. The
-/// no-scenes profile exposes one unnamed scene; authored multiple scenes and
-/// streamed SWF loading are outside this runtime's timeline model.
+/// Read-only metadata for a locally materialized MovieClip timeline. Ordinary
+/// clips and documents without scenes expose one unnamed scene. A flattened
+/// multi-scene main timeline reports the scene containing the current frame:
+/// `labels`, `current_label`, `total_frames` (the scene's numFrames) and
+/// `scene_frame` are scoped to that scene with scene-relative one-based
+/// frames, while `frames_loaded` covers the whole main timeline. Streamed SWF
+/// loading is outside this runtime's timeline model.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimelineMetadata {
     pub current_label: Option<String>,
@@ -81,6 +85,10 @@ pub struct TimelineMetadata {
     pub frames_loaded: u32,
     pub total_frames: u32,
     pub scene_name: String,
+    /// One-based frame inside the current scene (AS3 `currentFrame`).
+    pub scene_frame: u32,
+    /// All scenes in play order (AS3 `MovieClip.scenes`).
+    pub scenes: Vec<SceneMetadata>,
     pub is_playing: bool,
 }
 
@@ -111,6 +119,9 @@ pub struct Player {
     playing: bool,
     pub(crate) budget: usize,
     pub(crate) overflowed: bool,
+    /// Scene ranges of a flattened multi-scene main timeline; empty is one
+    /// unnamed scene. Only the root of a non-nested player uses them.
+    scenes: Vec<SceneRange>,
 }
 
 impl Player {
@@ -133,6 +144,7 @@ impl Player {
             playing: true,
             budget: SCRIPT_BUDGET,
             overflowed: false,
+            scenes: vec![],
         };
         player.reset(project);
         player
@@ -895,20 +907,24 @@ impl Player {
             return None;
         }
         let clock = self.clocks.get(path)?;
-        let mut labels: Vec<_> = symbol
-            .timeline
-            .layers
+        let ranges = self.timeline_scenes(project, path, symbol);
+        let labels = crate::scenes::timeline_labels(&symbol.timeline);
+        let scenes = crate::scenes::scene_metadata(&ranges, &labels);
+        let index = ranges
             .iter()
-            .flat_map(|layer| &layer.keyframes)
-            .filter(|key| !key.label.is_empty())
-            .map(|key| FrameLabel::new(key.label.clone(), (key.frame + 1) as i32))
-            .collect();
+            .position(|scene| scene.contains(node.frame))
+            .unwrap_or(0);
+        let start = ranges.get(index).map_or(0, |scene| scene.start);
+        let scene = scenes.get(index).cloned().unwrap_or_else(|| SceneMetadata {
+            name: String::new(),
+            num_frames: symbol.timeline.frame_count,
+            labels: vec![],
+        });
         // Stable ordering preserves all authored labels. When multiple layers
         // label one frame, the first authored layer supplies the current label.
-        labels.sort_by_key(|label| label.frame);
-        let frame = (node.frame + 1) as i32;
+        let frame = (node.frame - start + 1) as i32;
         let mut current: Option<&FrameLabel> = None;
-        for label in &labels {
+        for label in &scene.labels {
             if label.frame > frame {
                 break;
             }
@@ -925,14 +941,91 @@ impl Player {
             current_frame_label: current
                 .filter(|label| label.frame == frame)
                 .map(|label| label.name.clone()),
-            labels,
+            labels: scene.labels.clone(),
             frames_loaded: symbol.timeline.frame_count,
-            total_frames: symbol.timeline.frame_count,
+            total_frames: scene.num_frames,
             // Pinned Ruffle MovieClip get_current_scene/get_scenes use an
             // empty name when the movie has no authored scene metadata.
-            scene_name: String::new(),
+            scene_name: scene.name,
+            scene_frame: frame as u32,
+            scenes,
             is_playing: clock.playing && clock.programmatically_played,
         })
+    }
+
+    /// Scene ranges of a flattened multi-scene main timeline (see
+    /// [`flatten_scenes_with_ranges`]). The ranges must cover the root
+    /// timeline exactly; an empty list restores the single unnamed scene.
+    pub fn set_scenes(&mut self, project: &Project, scenes: Vec<SceneRange>) -> Result<(), String> {
+        if self.source_root.is_some() && !scenes.is_empty() {
+            return Err("Only the main timeline can have scenes.".into());
+        }
+        let frames = project
+            .symbol(self.root_id(project))
+            .map_or(0, |symbol| symbol.timeline.frame_count);
+        crate::scenes::validate_ranges(&scenes, frames)?;
+        self.scenes = scenes;
+        Ok(())
+    }
+
+    pub fn scenes(&self) -> &[SceneRange] {
+        &self.scenes
+    }
+
+    /// Scenes of the timeline at `path`: the main timeline's authored scenes,
+    /// otherwise one unnamed scene covering the whole timeline.
+    fn timeline_scenes(&self, project: &Project, path: &[Id], symbol: &Symbol) -> Vec<SceneRange> {
+        if path.is_empty()
+            && self.source_root.is_none()
+            && symbol.id == project.root
+            && !self.scenes.is_empty()
+        {
+            return self.scenes.clone();
+        }
+        vec![SceneRange {
+            name: String::new(),
+            start: 0,
+            frames: symbol.timeline.frame_count,
+        }]
+    }
+
+    fn live_timeline<'a>(&self, project: &'a Project, path: &[Id]) -> Option<(&'a Symbol, u32)> {
+        let node = self.previous.get(path)?;
+        Some((project.symbol(node.symbol_id.as_ref()?)?, node.frame))
+    }
+
+    /// Number of scenes of the live timeline at `path` (one for ordinary clips).
+    pub fn clip_scene_count(&self, project: &Project, path: &[Id]) -> Option<u32> {
+        let (symbol, _) = self.live_timeline(project, path)?;
+        Some(self.timeline_scenes(project, path, symbol).len() as u32)
+    }
+
+    /// Resolve `gotoAndPlay`/`gotoAndStop` arguments, including a scene name,
+    /// to a zero-based frame of the live timeline at `path`. See
+    /// [`resolve_goto`] for the language rules.
+    pub fn resolve_goto(
+        &self,
+        project: &Project,
+        path: &[Id],
+        request: &GotoRequest,
+    ) -> Result<Option<u32>, String> {
+        let (symbol, frame) = self
+            .live_timeline(project, path)
+            .ok_or("Timeline controls apply to symbols and the root scene.")?;
+        let mut scenes = self.timeline_scenes(project, path, symbol);
+        // A main timeline without scene metadata is the document's only
+        // scene; Flash publishes it under the root timeline's name.
+        if path.is_empty() && self.source_root.is_none() && self.scenes.is_empty() {
+            scenes[0].name = symbol.name.clone();
+        }
+        let labels = crate::scenes::timeline_labels(&symbol.timeline);
+        crate::scenes::resolve_goto(&scenes, &labels, frame, request)
+    }
+
+    /// First frame of the next (`step` = 1) or previous (-1) scene.
+    pub fn resolve_scene_step(&self, project: &Project, path: &[Id], step: i32) -> Option<u32> {
+        let (symbol, frame) = self.live_timeline(project, path)?;
+        crate::scenes::scene_step(&self.timeline_scenes(project, path, symbol), frame, step)
     }
 
     pub fn resolve_frame(&self, project: &Project, path: &[Id], label: &str) -> Option<u32> {

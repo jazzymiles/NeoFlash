@@ -574,7 +574,12 @@ impl<'a> Analysis<'a> {
                 // when the call executes; arbitrary member APIs stay blocked.
                 let dynamic_timeline = self.script.language == ScriptLanguage::ActionScript2
                     && binding.is_none() && matches!(callee.as_ref(), Expr::Name(name) if !is_global(name));
-                if !builtin && !project_call && !user_binding && !dynamic_timeline && !matches!(callee.as_ref(),Expr::Function(_) | Expr::TypeValue(_, _)) && !self.known_member(scope,callee) {
+                // AS3 MovieClip scene navigation resolves on the receiver at run
+                // time; AS2 keeps reaching these names through its dynamic lookup.
+                let as3_scene_step = self.script.language == ScriptLanguage::ActionScript3
+                    && binding.is_none()
+                    && matches!(callee.as_ref(), Expr::Name(name) | Expr::Member(_, name) if matches!(name.as_str(), "nextScene" | "prevScene"));
+                if !builtin && !project_call && !user_binding && !dynamic_timeline && !as3_scene_step && !matches!(callee.as_ref(),Expr::Function(_) | Expr::TypeValue(_, _)) && !self.known_member(scope,callee) {
                     return Err(self.error(*offset,"This ActionScript call is not a supported API or a declared user function/value. Unknown member APIs and dynamic computed calls remain unsupported; source is not discarded."));
                 }
             }

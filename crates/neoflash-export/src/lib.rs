@@ -1,7 +1,7 @@
 //! Self-contained HTML5 publication. Authored evaluation remains in the Rust WASM runtime.
 
 use base64::{Engine, engine::general_purpose::STANDARD};
-use neoflash_core::{ElementKind, Project, Script, ScriptLanguage};
+use neoflash_core::{ElementKind, Project, SceneRange, Script, ScriptLanguage};
 use serde::Serialize;
 use std::{
     collections::BTreeSet,
@@ -90,7 +90,11 @@ struct CompiledScript {
 
 #[derive(Serialize)]
 struct Bundle<'a> {
+    /// Single main timeline: authored scenes are concatenated before publishing.
     project: &'a Project,
+    /// Scene names and frame ranges inside the flattened main timeline.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    scenes: Vec<SceneRange>,
     scripts: Vec<CompiledScript>,
     program: ProgramBundle<'a>,
     wasm: String,
@@ -219,7 +223,10 @@ pub fn export_project(
                 .join("\n"),
         )
     })?;
+    // Scripts compile from the authored scenes so diagnostics name the scene
+    // and its own frame; flattening keeps every script source unchanged.
     let scripts = compile_scripts(project, &program)?;
+    let (published, scenes) = neoflash_core::flatten_scenes_with_ranges(project);
     let bindings_path = runtime_dir.join("neoflash_web.js");
     let wasm_path = runtime_dir.join("neoflash_web_bg.wasm");
     let bindings = fs::read_to_string(&bindings_path)
@@ -238,7 +245,8 @@ pub fn export_project(
     }
     let warnings = export_warnings(project);
     let bundle = Bundle {
-        project,
+        project: &published,
+        scenes,
         scripts,
         program: ProgramBundle {
             code: &program.code,
@@ -547,6 +555,58 @@ mod tests {
             fs::read_to_string(output.join("path.js"))
                 .unwrap()
                 .contains("isPointInStroke")
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn multiple_scenes_publish_one_main_timeline_with_scene_ranges() {
+        let dir = temp();
+        let rt = dir.join("runtime");
+        runtime(&rt);
+        let mut project = Project::blank();
+        project.format_version = 6;
+        let mut second = project.symbols[0].clone();
+        second.id = "scene-two".into();
+        second.name = "Scene 2".into();
+        second.timeline.frame_count = 4;
+        second.timeline.layers[0].id = "scene-two-layer".into();
+        second.timeline.scripts.push(neoflash_core::FrameScript {
+            frame: 1,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: "gotoAndStop(1, \"Scene 1\");".into(),
+            },
+        });
+        project.scenes = vec![project.root.clone(), second.id.clone()];
+        project.symbols.push(second);
+        let output = dir.join("output");
+        export_project(&project, &output, &rt).unwrap();
+        let bundle = fs::read_to_string(output.join("bundle.js")).unwrap();
+        let json = bundle
+            .strip_prefix("globalThis.NeoFlashBundle = ")
+            .and_then(|rest| rest.strip_suffix(";\n"))
+            .unwrap();
+        let bundle: serde_json::Value = serde_json::from_str(json).unwrap();
+        let published: Project = serde_json::from_value(bundle["project"].clone()).unwrap();
+        published.validate().unwrap();
+        assert!(published.scenes.is_empty());
+        assert_eq!(published.symbols.len(), 1);
+        let root = published.symbol(&published.root).unwrap();
+        assert_eq!(root.timeline.frame_count, 124);
+        assert_eq!(root.timeline.scripts[0].frame, 121);
+        assert_eq!(
+            bundle["scenes"],
+            serde_json::json!([
+                {"name": "Scene 1", "start": 0, "frames": 120},
+                {"name": "Scene 2", "start": 120, "frames": 4},
+            ])
+        );
+        assert!(
+            bundle["scripts"][0]["location"]
+                .as_str()
+                .unwrap()
+                .starts_with("Scene 2 / frame 2"),
+            "diagnostics keep the authored scene frame"
         );
         fs::remove_dir_all(dir).unwrap();
     }

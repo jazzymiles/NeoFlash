@@ -1784,6 +1784,12 @@ impl Player {
                 frames_loaded: 1,
                 total_frames: 1,
                 scene_name: String::new(),
+                scene_frame: 1,
+                scenes: vec![SceneMetadata {
+                    name: String::new(),
+                    num_frames: 1,
+                    labels: vec![],
+                }],
                 // Empty MovieClip instances have one frame; explicit play
                 // cannot put them into the AS3 isPlaying state.
                 is_playing: false,
@@ -1851,5 +1857,74 @@ impl Player {
         } else {
             self.resolve_frame(project, path, label)
         }
+    }
+    /// Scene count of a live timeline object; dynamic and loaded AS2 clips have one.
+    pub fn object_scene_count(&self, project: &Project, reference: &ObjectRef) -> Option<u32> {
+        if let Some(address) = self.graph.source_address(reference) {
+            return self
+                .graph
+                .namespaces
+                .get(&address.namespace)?
+                .player
+                .clip_scene_count(project, &address.path);
+        }
+        if let Some(path) = self.graph.paths.get(reference) {
+            return self.clip_scene_count(project, path);
+        }
+        self.object_frame(reference).map(|_| 1)
+    }
+    /// Scene-aware goto resolution for a live timeline object.
+    pub fn object_resolve_goto(
+        &self,
+        project: &Project,
+        reference: &ObjectRef,
+        request: &GotoRequest,
+    ) -> Result<Option<u32>, String> {
+        if !self.graph.loaded_as2(reference)
+            && let Some(address) = self.graph.source_address(reference)
+        {
+            return self
+                .graph
+                .namespaces
+                .get(&address.namespace)
+                .ok_or("Display object is no longer active.")?
+                .player
+                .resolve_goto(project, &address.path, request);
+        }
+        if !self.graph.loaded_as2(reference)
+            && let Some(path) = self.graph.paths.get(reference)
+        {
+            return self.resolve_goto(project, path, request);
+        }
+        if self.object_frame(reference).is_none() {
+            return Err("Timeline controls apply to symbols and the root scene.".into());
+        }
+        // Empty runtime MovieClips and loaded AS2 content expose one frame.
+        let single = [crate::SceneRange {
+            name: String::new(),
+            start: 0,
+            frames: 1,
+        }];
+        crate::resolve_goto(&single, &[], 0, request)
+    }
+    pub fn object_scene_step(
+        &self,
+        project: &Project,
+        reference: &ObjectRef,
+        step: i32,
+    ) -> Option<u32> {
+        if self.graph.loaded_as2(reference) {
+            return None;
+        }
+        if let Some(address) = self.graph.source_address(reference) {
+            return self
+                .graph
+                .namespaces
+                .get(&address.namespace)?
+                .player
+                .resolve_scene_step(project, &address.path, step);
+        }
+        let path = self.graph.paths.get(reference)?;
+        self.resolve_scene_step(project, path, step)
     }
 }

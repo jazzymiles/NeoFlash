@@ -47,6 +47,7 @@ mod resources;
 mod runtime;
 mod runtime_graph;
 mod runtime_graphics;
+mod scenes;
 mod shape_tween;
 mod text;
 mod timeline_edit;
@@ -98,6 +99,10 @@ pub use runtime_graph::{
 pub use runtime_graphics::{
     GradientKind, GradientPaint, GradientSpec, GradientStop, GraphicsOp, MAX_GRAPHICS_COMMANDS,
     MAX_GRAPHICS_OPS,
+};
+pub use scenes::{
+    GotoFrame, GotoRequest, SceneMetadata, SceneRange, flatten_scenes, flatten_scenes_with_ranges,
+    resolve_goto, scene_ranges, scene_step,
 };
 pub use shape_tween::{MAX_SHAPE_TWEEN_SEGMENTS, shape_tween_elements};
 pub use text::{

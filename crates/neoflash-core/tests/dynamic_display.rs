@@ -100,6 +100,12 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
             frames_loaded: 1,
             total_frames: 1,
             scene_name: String::new(),
+            scene_frame: 1,
+            scenes: vec![neoflash_core::SceneMetadata {
+                name: String::new(),
+                num_frames: 1,
+                labels: vec![],
+            }],
             is_playing: false,
         })
     );
