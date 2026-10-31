@@ -51,6 +51,7 @@ fn key(frame: u32, elements: Vec<Element>, tween: Option<Easing>, label: &str) -
         elements,
         tween,
         label: label.into(),
+        ..Default::default()
     }
 }
 fn symbol(id: &str, kind: SymbolKind, keys: Vec<Keyframe>) -> Symbol {

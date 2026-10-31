@@ -277,6 +277,7 @@ impl Editor {
                 elements: vec![],
                 tween: None,
                 label: String::new(),
+                ..Default::default()
             }
         } else {
             layer.key_at(frame).cloned().unwrap_or(Keyframe {
@@ -284,6 +285,7 @@ impl Editor {
                 elements: vec![],
                 tween: None,
                 label: String::new(),
+                ..Default::default()
             })
         };
         if !blank {

@@ -161,6 +161,7 @@ fn keyboard_copy_and_cut_emit_one_valid_snapshot_and_cut_is_one_undo() {
             elements: vec![endpoint],
             tween: None,
             label: String::new(),
+            ..Default::default()
         });
     editor.frame = 5;
     editor.saved_project = Some(editor.project.clone());

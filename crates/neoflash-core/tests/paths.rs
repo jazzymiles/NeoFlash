@@ -348,12 +348,14 @@ fn compatible_path_topology_morphs_and_incompatible_topology_holds() {
             elements: vec![from.clone()],
             tween: Some(Easing::Linear),
             label: String::new(),
+            ..Default::default()
         },
         Keyframe {
             frame: 10,
             elements: vec![to.clone()],
             tween: None,
             label: String::new(),
+            ..Default::default()
         },
     ];
     project.validate().unwrap();

@@ -40,6 +40,7 @@ fn subtree_filters_copy_state_and_process_rgba_with_bounded_lifetimes() {
             elements: vec![],
             tween: None,
             label: String::new(),
+            ..Default::default()
         });
     let original = project.to_json().unwrap();
     let mut player = Player::new(&project);

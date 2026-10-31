@@ -29,6 +29,7 @@ fn blank_layer(name: String, role: LayerRole, parent: Option<Id>) -> Layer {
                 elements: vec![],
                 tween: None,
                 label: String::new(),
+                ..Default::default()
             }]
         },
     }
@@ -844,6 +845,7 @@ impl Editor {
                                 .filter(|k| k.frame == frame)
                                 .map(|k| k.label.clone())
                                 .unwrap_or_default(),
+                            ..Default::default()
                         }
                     })
                     .collect();

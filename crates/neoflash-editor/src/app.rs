@@ -289,6 +289,7 @@ impl Editor {
                     elements: vec![],
                     tween: None,
                     label: String::new(),
+                    ..Default::default()
                 }],
             });
         }

@@ -109,6 +109,7 @@ fn blank(frame: u32) -> Keyframe {
         elements: vec![],
         tween: None,
         label: String::new(),
+        ..Default::default()
     }
 }
 fn sampled_key(layer: &Layer, frame: u32) -> Keyframe {

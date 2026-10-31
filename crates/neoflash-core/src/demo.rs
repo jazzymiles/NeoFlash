@@ -9,6 +9,7 @@ impl Project {
             sources: vec![],
             resources: vec![],
             document_class: None,
+            scenes: vec![],
             name: "Untitled".into(),
             width: 960,
             height: 600,
@@ -35,6 +36,7 @@ impl Project {
                             elements: vec![],
                             tween: None,
                             label: String::new(),
+                            ..Default::default()
                         }],
                     }],
                     scripts: vec![],
@@ -273,6 +275,7 @@ fn key(frame: u32, elements: Vec<Element>, tween: Option<Easing>) -> Keyframe {
         elements,
         tween,
         label: String::new(),
+        ..Default::default()
     }
 }
 fn rect(name: &str, x: f64, y: f64, width: f64, height: f64, fill: Color) -> Element {

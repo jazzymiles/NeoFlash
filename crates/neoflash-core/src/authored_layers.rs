@@ -437,6 +437,34 @@ pub(crate) fn validate_layers(project: &Project, symbol: &Symbol) -> Vec<String>
                 layer.name
             ));
         }
+        if let Some(id) = &layer.properties.motion_guide
+            && (id == &layer.id
+                || !layers
+                    .iter()
+                    .any(|l| &l.id == id && l.properties.role == LayerRole::Guide)
+                || layer.properties.role != LayerRole::Normal)
+        {
+            errors.push(format!(
+                "Layer '{}' must reference another guide layer as its motion guide from a normal layer",
+                layer.name
+            ));
+        }
+        let mut keys: Vec<_> = layer.keyframes.iter().collect();
+        keys.sort_by_key(|k| k.frame);
+        let mut in_motion = false;
+        for key in keys {
+            if key.keyed_properties.is_some() {
+                if !in_motion {
+                    errors.push(format!(
+                        "Layer '{}' has a property keyframe at frame {} outside a motion tween",
+                        layer.name,
+                        key.frame + 1
+                    ));
+                }
+            } else {
+                in_motion = key.tween.is_some() && key.tween_kind == TweenKind::Motion;
+            }
+        }
         if let Some(id) = &layer.properties.parent {
             let mut seen = HashSet::from([layer.id.clone()]);
             let mut next = Some(id);

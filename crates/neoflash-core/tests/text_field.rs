@@ -47,18 +47,21 @@ fn uniform_fields_share_layout_but_keep_runtime_formats_and_placement_lifetimes_
             elements: vec![legacy.clone(), boxed.clone()],
             tween: None,
             label: String::new(),
+            ..Default::default()
         },
         Keyframe {
             frame: 1,
             elements: vec![],
             tween: None,
             label: String::new(),
+            ..Default::default()
         },
         Keyframe {
             frame: 2,
             elements: vec![legacy, boxed.clone()],
             tween: None,
             label: String::new(),
+            ..Default::default()
         },
     ];
     let original = project.to_json().unwrap();

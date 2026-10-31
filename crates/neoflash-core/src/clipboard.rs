@@ -447,6 +447,7 @@ impl ClipboardPayload {
                 elements,
                 tween,
                 label: String::new(),
+                ..Default::default()
             });
             layer.keyframes.sort_by_key(|k| k.frame);
         }
@@ -517,6 +518,7 @@ impl ClipboardPayload {
                         elements: self.elements.clone(),
                         tween: None,
                         label: String::new(),
+                        ..Default::default()
                     }],
                 }],
             },
@@ -534,6 +536,7 @@ impl ClipboardPayload {
                 sources: self.sources.clone(),
                 resources: self.resources.clone(),
                 document_class: None,
+                scenes: vec![],
                 format_version: self.document_version(),
                 name: "Clipboard validation".into(),
                 width: 1,

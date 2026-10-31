@@ -25,6 +25,7 @@ fn key(frame: u32, elements: Vec<Element>, tween: Option<Easing>) -> Keyframe {
         elements,
         tween,
         label: String::new(),
+        ..Default::default()
     }
 }
 fn near(a: f64, b: f64) {

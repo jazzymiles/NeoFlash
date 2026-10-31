@@ -271,6 +271,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         sources: vec![],
         resources,
         document_class: None,
+        scenes: vec![],
     };
     project
         .validate()
@@ -474,6 +475,7 @@ impl Context<'_> {
                     elements,
                     tween,
                     label: optional_text(&s.original_bytes, f.label.as_ref())?,
+                    ..Default::default()
                 });
                 let duration = u32::from(f.duration.ok_or("Frame duration absent")?);
                 if duration == 0 {
@@ -516,6 +518,7 @@ impl Context<'_> {
                     elements: vec![],
                     tween: None,
                     label: String::new(),
+                    ..Default::default()
                 });
             }
         }
@@ -741,6 +744,7 @@ fn group_symbol(id: &str, name: String, elements: Vec<Element>) -> Symbol {
                     elements,
                     tween: None,
                     label: String::new(),
+                    ..Default::default()
                 }],
                 properties: Default::default(),
             }],

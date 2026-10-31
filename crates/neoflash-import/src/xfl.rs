@@ -786,6 +786,7 @@ impl Parser<'_> {
                         elements: vec![],
                         tween: None,
                         label: frame_node.attribute("name").unwrap_or("").into(),
+                        ..Default::default()
                     };
                     if let Some(container) = child(frame_node, "elements") {
                         self.audit(
@@ -882,6 +883,7 @@ impl Parser<'_> {
                         elements: vec![],
                         tween: None,
                         label: String::new(),
+                        ..Default::default()
                     });
                 }
             }

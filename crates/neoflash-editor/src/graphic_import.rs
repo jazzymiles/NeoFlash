@@ -289,6 +289,7 @@ impl Editor {
                             elements: graphic.elements,
                             tween: None,
                             label: String::new(),
+                            ..Default::default()
                         }],
                     }],
                     scripts: vec![],
@@ -424,6 +425,7 @@ impl Editor {
                 elements: vec![],
                 tween: None,
                 label: String::new(),
+                ..Default::default()
             });
             key.elements = sample_layer(layer, self.frame);
             key.frame = self.frame;

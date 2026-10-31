@@ -60,14 +60,58 @@ impl Project {
 pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if !matches!(project.format_version, 1..=5) {
+    if !matches!(project.format_version, 1..=6) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported versions are 1, 2, 3, 4 and 5",
+                "unsupported version {}; supported versions are 1, 2, 3, 4, 5 and 6",
                 project.format_version
             ),
         );
+    }
+    if project.uses_format_6() && project.format_version < 6 {
+        add(
+            "format_version".into(),
+            "scenes, shape/motion tweens and motion guides require document version 6".into(),
+        );
+    }
+    let mut scene_ids = HashSet::new();
+    for (index, id) in project.scenes.iter().enumerate() {
+        let path = format!("scenes[{index}]");
+        if index == 0 && id != &project.root {
+            add(
+                path.clone(),
+                "the first scene must be the root timeline".into(),
+            );
+        }
+        if !scene_ids.insert(id) {
+            add(path.clone(), "a scene is listed twice".into());
+        }
+        match project.symbol(id) {
+            Some(symbol) if symbol.kind == SymbolKind::MovieClip => {}
+            Some(_) => add(path, "a scene timeline must be a MovieClip symbol".into()),
+            None => add(path, "scene symbol does not exist".into()),
+        }
+    }
+    if !scene_ids.is_empty() {
+        for symbol in &project.symbols {
+            for element in symbol
+                .timeline
+                .layers
+                .iter()
+                .flat_map(|l| &l.keyframes)
+                .flat_map(|k| &k.elements)
+            {
+                if let ElementKind::Instance { symbol_id, .. } = &element.kind
+                    && scene_ids.contains(symbol_id)
+                {
+                    add(
+                        format!("symbols.{}", symbol.id),
+                        format!("scene '{symbol_id}' cannot be placed as an instance"),
+                    );
+                }
+            }
+        }
     }
     if project.has_program() && project.format_version < 2 {
         add(

@@ -47,12 +47,14 @@ fn tween_project(easing: Easing) -> (Project, Id) {
             elements: vec![start],
             tween: Some(easing),
             label: "start".into(),
+            ..Default::default()
         },
         Keyframe {
             frame: 10,
             elements: vec![end],
             tween: None,
             label: "finish".into(),
+            ..Default::default()
         },
     ];
     project.validate().unwrap();
@@ -1304,6 +1306,7 @@ fn preview_transport_keeps_nested_clocks_through_pause_and_resets_after_edits_or
         }],
         tween: None,
         label: String::new(),
+        ..Default::default()
     }];
     // Layer and element identities are unique across the edited document.
     project.symbol_mut(&root).unwrap().timeline.layers[0].id = "preview-root-layer".into();

@@ -164,12 +164,14 @@ fn removed_then_recreated_button_rejects_a_stale_dom_lifetime() {
             elements: vec![],
             tween: None,
             label: String::new(),
+            ..Default::default()
         },
         Keyframe {
             frame: 2,
             elements: first,
             tween: None,
             label: String::new(),
+            ..Default::default()
         },
     ]);
     let mut player = Player::new(&p);

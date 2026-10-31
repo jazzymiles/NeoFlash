@@ -105,6 +105,11 @@ pub struct Project {
     pub resources: Vec<crate::ResourceUnit>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document_class: Option<String>,
+    /// Ordered scene timelines (MovieClip symbol IDs) played one after another as
+    /// the main timeline. Empty means one scene, `root`; otherwise the first scene
+    /// is `root`. Scene symbols are not library items and are never instantiated.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scenes: Vec<Id>,
 }
 
 /// A logical project file. Compilation resolves paths within this snapshot and
@@ -195,6 +200,10 @@ pub struct LayerProperties {
     /// display object or changing the authored stacking order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub groups: Vec<AuthoringGroup>,
+    /// Guide layer (same timeline) whose first stroke is the motion path for
+    /// classic tweens on this layer. The guide itself is never published artwork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion_guide: Option<Id>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -224,19 +233,111 @@ impl Project {
         }
     }
 }
+impl Project {
+    /// Document features introduced with format 6.
+    pub fn uses_format_6(&self) -> bool {
+        !self.scenes.is_empty()
+            || self
+                .symbols
+                .iter()
+                .flat_map(|s| &s.timeline.layers)
+                .any(|layer| {
+                    layer.properties.motion_guide.is_some()
+                        || layer
+                            .keyframes
+                            .iter()
+                            .any(|k| !k.tween_kind.is_classic() || k.keyed_properties.is_some())
+                })
+    }
+
+    /// Raise the format version after an edit that uses a format 6 feature.
+    pub fn upgrade_format_for_features(&mut self) {
+        if self.uses_format_6() {
+            self.format_version = self.format_version.max(6);
+        }
+    }
+
+    /// Scene timelines in play order; a document without scenes has one, `root`.
+    pub fn scene_ids(&self) -> Vec<Id> {
+        if self.scenes.is_empty() {
+            vec![self.root.clone()]
+        } else {
+            self.scenes.clone()
+        }
+    }
+
+    pub fn is_scene(&self, id: &str) -> bool {
+        id == self.root || self.scenes.iter().any(|scene| scene == id)
+    }
+}
+
 impl LayerProperties {
     pub fn is_default(&self) -> bool {
         self == &Self::default()
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Keyframe {
     /// Internal frame index is zero-based. The editor and goto API display one-based frames.
     pub frame: u32,
     pub elements: Vec<Element>,
     pub tween: Option<Easing>,
     pub label: String,
+    /// How the span starting here interpolates when `tween` is set.
+    #[serde(default, skip_serializing_if = "TweenKind::is_classic")]
+    pub tween_kind: TweenKind,
+    /// Property keyframe (◆) inside a motion tween span: the properties keyed at
+    /// this frame. `None` is an ordinary keyframe that starts a new span.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyed_properties: Option<Vec<TweenProperty>>,
+}
+
+/// Interpolation used by a tweened span.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TweenKind {
+    /// Pose interpolation between two keyframes, matching objects by identity.
+    #[default]
+    Classic,
+    /// Morph the layer's shapes between two keyframes, pairing shapes by order.
+    Shape,
+    /// Object tween with independent property tracks keyed by ◆ property keyframes.
+    Motion,
+}
+
+impl TweenKind {
+    pub fn is_classic(&self) -> bool {
+        *self == Self::Classic
+    }
+}
+
+/// One independently keyed track of a motion tween.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TweenProperty {
+    X,
+    Y,
+    ScaleX,
+    ScaleY,
+    Rotation,
+    Skew,
+    Alpha,
+    /// Color transform multipliers and offsets as one track.
+    Color,
+}
+
+impl TweenProperty {
+    pub const ALL: [Self; 8] = [
+        Self::X,
+        Self::Y,
+        Self::ScaleX,
+        Self::ScaleY,
+        Self::Rotation,
+        Self::Skew,
+        Self::Alpha,
+        Self::Color,
+    ];
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]

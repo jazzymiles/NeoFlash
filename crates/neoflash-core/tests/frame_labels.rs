@@ -17,6 +17,7 @@ fn layer(id: &str, labels: &[(u32, &str)]) -> Layer {
                 label: label.into(),
                 elements: vec![],
                 tween: None,
+                ..Default::default()
             })
             .collect(),
     }

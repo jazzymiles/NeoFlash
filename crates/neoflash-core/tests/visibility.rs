@@ -50,6 +50,7 @@ fn key(frame: u32, elements: Vec<Element>) -> Keyframe {
         elements,
         tween: None,
         label: String::new(),
+        ..Default::default()
     }
 }
 fn fixture() -> Project {

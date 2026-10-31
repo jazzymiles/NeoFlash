@@ -507,6 +507,7 @@ fn symbol_from_draft(
                     elements,
                     tween: None,
                     label: String::new(),
+                    ..Default::default()
                 }],
             }],
             scripts: vec![],

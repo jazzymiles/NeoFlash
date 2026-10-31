@@ -33,6 +33,7 @@ fn layer(id: &str, elements: Vec<Element>, tween: bool) -> Layer {
         elements: elements.clone(),
         tween: tween.then_some(Easing::EaseIn),
         label: String::new(),
+        ..Default::default()
     }];
     if tween {
         let end = elements
@@ -48,6 +49,7 @@ fn layer(id: &str, elements: Vec<Element>, tween: bool) -> Layer {
             elements: end,
             tween: None,
             label: String::new(),
+            ..Default::default()
         });
     }
     Layer {

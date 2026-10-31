@@ -34,6 +34,7 @@ fn key(frame: u32, elements: Vec<Element>, tween: Option<Easing>) -> Keyframe {
         elements,
         tween,
         label: String::new(),
+        ..Default::default()
     }
 }
 fn symbol(id: &str, frames: u32, keys: Vec<Keyframe>) -> Symbol {
@@ -64,6 +65,7 @@ fn project(symbols: Vec<Symbol>) -> Project {
         sources: vec![],
         resources: vec![],
         document_class: None,
+        scenes: vec![],
         format_version: 1,
         name: "Test".into(),
         width: 640,

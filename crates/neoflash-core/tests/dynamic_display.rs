@@ -56,18 +56,21 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
             elements: vec![placement.clone()],
             tween: None,
             label: String::new(),
+            ..Default::default()
         },
         Keyframe {
             frame: 1,
             elements: vec![],
             tween: None,
             label: String::new(),
+            ..Default::default()
         },
         Keyframe {
             frame: 2,
             elements: vec![placement],
             tween: None,
             label: String::new(),
+            ..Default::default()
         },
     ];
     assert!(validate(&project).is_empty());
@@ -645,6 +648,7 @@ fn movieclip_button_labels_follow_mouse_input(mut project: Project) {
             elements: vec![],
             tween: None,
             label: label.into(),
+            ..Default::default()
         })
         .collect();
     component.timeline.scripts = vec![FrameScript {
@@ -919,6 +923,7 @@ fn video_viewports_share_display_state_and_lifetimes() {
         elements: vec![],
         tween: None,
         label: String::new(),
+        ..Default::default()
     });
     assert!(validate(&project).is_empty());
     let original = project.to_json().unwrap();
@@ -1846,6 +1851,7 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
         elements: vec![leaf.clone()],
         tween: None,
         label: "PulseLater".into(),
+        ..Default::default()
     });
     pulse.timeline.scripts = vec![FrameScript {
         frame: 1,
@@ -1861,18 +1867,21 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
             elements: vec![nested.clone(), text.clone()],
             tween: None,
             label: "Start".into(),
+            ..Default::default()
         },
         Keyframe {
             frame: 1,
             elements: vec![nested, text],
             tween: None,
             label: "Turn".into(),
+            ..Default::default()
         },
         Keyframe {
             frame: 2,
             elements: vec![],
             tween: None,
             label: "Empty".into(),
+            ..Default::default()
         },
     ];
     component.timeline.scripts = vec![
@@ -1893,12 +1902,14 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
             elements: vec![],
             tween: None,
             label: "TurnAlias".into(),
+            ..Default::default()
         },
         Keyframe {
             frame: 2,
             elements: vec![],
             tween: None,
             label: "Start".into(),
+            ..Default::default()
         },
     ];
     component.timeline.layers.push(label_layer);
