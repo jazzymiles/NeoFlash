@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — Progress counting v3
+
+- Count ActionScript 2 and 3 in the same eight Flash Player areas, with Working % and Working-or-partial % per area. AIR, Flex and component libraries are shown once, outside every percentage.
+- Count product progress by user-visible functions inside each capability group (207 of 329 working). A group is closed only when all its functions work.
+- Declaration statuses change through test-backed reviews that can promote to Working or demote. History recounts every day's catalogue with the same area rules.
+
 ## Unreleased — NF2 design system
 
 - Actions gains the NF2 sidebar: a toolbox of the ActionScript 2.0/3.0 APIs NeoFlash runs (packages, classes, members with types; search; double-click inserts, adding the AS3 `import`) and a Script navigator that lists and opens every frame, object and project-file script. Project classes appear in the toolbox and in hints as soon as they are written.

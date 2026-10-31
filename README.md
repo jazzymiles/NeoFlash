@@ -11,43 +11,60 @@ The editor supports nested timelines, keyframes and tweens, frame/object scripts
 
 The editor foundation works: nested timelines, vector tools, scripting and standalone HTML5. Full AS2/AS3, FLA/SWF import, portable media and DOM applications remain in development.
 
-### ActionScript reference coverage
+### ActionScript: Flash Player areas
 
-| Language | Documented entries | Implemented subset | Partial | Missing | Needs review |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| AS2 | 2,307 | 15 | 1,518 | 737 | 37 |
-| AS3 | 43,740 | 15 | 1,294 | 42,281 | 150 |
+**Working**: the main behavior from the Adobe reference runs and a linked test proves it. **Partial**: it runs, with the missing behavior named. **Missing**: no runtime path yet. **Needs review**: not yet classified. Statuses change only through test-backed reviews; this is not a Flash compatibility score. Last status review: 2026-10-28.
 
-Counts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md).
+#### ActionScript 3 — Flash Player
 
-### AS3 adaptation priorities
+| Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1. Mathematics and 2D geometry | 155 | 0 | 141 | 3 | 11 | 0.0% | 91.0% |
+| 2. Objects, language and collections | 582 | 14 | 311 | 121 | 136 | 2.4% | 55.8% |
+| 3. MovieClip and timeline | 37 | 0 | 27 | 10 | 0 | 0.0% | 73.0% |
+| 4. Display, events and basic input | 678 | 1 | 109 | 568 | 0 | 0.1% | 16.2% |
+| 5. Graphics, bitmaps and filters | 313 | 0 | 114 | 199 | 0 | 0.0% | 36.4% |
+| 6. Text and fonts | 174 | 0 | 42 | 132 | 0 | 0.0% | 24.1% |
+| 7. File audio and video playback | 91 | 0 | 35 | 54 | 2 | 0.0% | 38.5% |
+| 8. Services and advanced Player APIs | 2,134 | 0 | 358 | 1,776 | 0 | 0.0% | 16.8% |
+| **Now: areas 1–6** | 1,939 | 15 | 744 | 1,033 | 147 | 0.8% | 39.1% |
+| **All Flash Player areas** | 4,164 | 15 | 1,137 | 2,863 | 149 | 0.4% | 27.7% |
 
-| AS3 scope | Entries | Implemented subset | Partial | Audit missing | Needs review |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Important now: classic foundation | 1,939 | 15 | 744 | 1,033 | 147 |
-| Next: file audio and video | 91 | 0 | 35 | 54 | 2 |
-| Later: services and advanced Player APIs | 2,134 | 0 | 358 | 1,776 | 0 |
-| Far future: AIR extensions | 1,448 | 0 | 32 | 1,416 | 0 |
-| Far future: libraries and platform extensions | 37,990 | 0 | 124 | 37,866 | 0 |
-| Platform not resolved | 138 | 0 | 1 | 136 | 1 |
+Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
-The important foundation comes first: mathematics and types, objects, MovieClips, display and text. Media and then cameras, networking and other platform facilities follow. AIR and libraries are separate. **Audit missing** is a dated audit status, not a fresh source check. See the [stage purposes, order and classification limits](docs/progress/ACTIONSCRIPT.md#as3-adaptation-priorities).
+#### ActionScript 2 — Flash Player
 
-### Product capabilities
+| Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1. Mathematics and 2D geometry | 128 | 0 | 128 | 0 | 0 | 0.0% | 100.0% |
+| 2. Objects, language and collections | 281 | 14 | 255 | 3 | 9 | 5.0% | 95.7% |
+| 3. MovieClip and timeline | 123 | 1 | 109 | 7 | 6 | 0.8% | 89.4% |
+| 4. Display, events and basic input | 130 | 0 | 122 | 6 | 2 | 0.0% | 93.8% |
+| 5. Graphics, bitmaps and filters | 145 | 0 | 141 | 0 | 4 | 0.0% | 97.2% |
+| 6. Text and fonts | 118 | 0 | 103 | 13 | 2 | 0.0% | 87.3% |
+| 7. File audio and video playback | 83 | 0 | 66 | 16 | 1 | 0.0% | 79.5% |
+| 8. Services and advanced Player APIs | 230 | 0 | 163 | 54 | 13 | 0.0% | 70.9% |
+| **Now: areas 1–6** | 925 | 15 | 858 | 29 | 23 | 1.6% | 94.4% |
+| **All Flash Player areas** | 1,238 | 15 | 1,087 | 99 | 37 | 1.2% | 89.0% |
 
-| Area | Closed | Partial | Planned | Closed capability groups |
+Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
+
+### Product functions
+
+| Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 5/12 | 7 | 0 | 41.7% |
-| Timelines and animation | 5/10 | 4 | 1 | 50.0% |
-| HTML5 and interactivity | 6/12 | 4 | 2 | 50.0% |
-| Import and file compatibility | 1/10 | 7 | 2 | 10.0% |
-| Platform and quality | 4/10 | 5 | 1 | 40.0% |
+| Editor and graphics | 63 of 93 | 7 | 23 | 4 / 8 / 0 |
+| Timelines and animation | 38 of 56 | 2 | 16 | 5 / 4 / 1 |
+| HTML5 and interactivity | 46 of 73 | 4 | 23 | 5 / 5 / 2 |
+| Import and file compatibility | 32 of 61 | 2 | 27 | 1 / 7 / 2 |
+| Platform and quality | 28 of 46 | 0 | 18 | 4 / 5 / 1 |
+| **All areas** | 207 of 329 | 15 | 107 | 19 / 29 / 6 |
 
-Closed means the group's stated scope is implemented. Partial groups already contain working features; improvements within partial or already closed groups do not change the percentage. Closed capability groups = closed / tracked groups. This is **not overall product completion, Flash compatibility or test line coverage**. See the detailed registry for working subsets and remaining limits.
+Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
-[Current coverage](https://jazzymiles.github.io/NeoFlash/progress.html) · [Daily history](https://jazzymiles.github.io/NeoFlash/history.html) · [Detailed registry](docs/progress/DETAILS.md) · [Counting rules](docs/progress/README.md)
+[Current coverage](https://jazzymiles.github.io/NeoFlash/progress.html) · [Daily history](https://jazzymiles.github.io/NeoFlash/history.html) · [Detailed registry](docs/progress/DETAILS.md) · [ActionScript details](docs/progress/ACTIONSCRIPT.md) · [Counting rules](docs/progress/README.md)
 
-This summary is generated from `docs/progress/*.json`; GitHub Pages rebuilds on every push to `main`.
+Generated from `docs/progress/`; GitHub Pages rebuilds on every push to `main`.
 <!-- progress:end -->
 
 ## Run

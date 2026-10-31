@@ -48,7 +48,7 @@ def write_original_fixture(source):
         identifier = f"{language}:fixture:{index}"
         originals[file].append({
             "id": identifier, "language": language, "scope": scope,
-            "owner": "Fixture", "name": f"declaration{index}", "kind": "method",
+            "owner": "Math" if language == "AS2" else "Fixture", "name": f"declaration{index}", "kind": "method",
             "source_url": f"https://example.invalid/reference#{index}",
         })
         decisions.append({
@@ -277,6 +277,50 @@ class CatalogTests(unittest.TestCase):
             progress_catalog.apply_review(review_path, self.root)
         self.assertEqual(catalog_path.read_bytes(), updated_catalog)
         self.assertEqual(audit_path.read_bytes(), updated_audit)
+
+    def test_status_review_promotes_and_demotes_with_tests_and_notes(self):
+        original = self.import_catalog()
+        catalog_path = self.root / progress_catalog.CATALOG_PATH
+        (self.root / "tests").mkdir()
+        (self.root / "tests/as3.mjs").write_text("// fixture test\n")
+        rows = {row["status"]: row["catalog_id"] for row in original["entries"] if row["language"] == "AS3"}
+        review_path = self.root / "docs/progress/reviews/2026-11-01-as3-core.json"
+        document = {"schemaVersion": 2, "baseCatalogSha256": fingerprint(catalog_path), "reviews": [{
+            "id": "AS3-CORE-20261101", "date": "2026-11-01", "commit": "d" * 40,
+            "title": "Core promotion", "summary": "Core behavior now passes the shared suite.", "tests": ["tests/as3.mjs"],
+            "entries": [{"catalogId": rows["partial"], "status": "working"},
+                        {"catalogId": rows["implemented_subset"], "status": "partial", "note": "Edge cases regressed."},
+                        {"catalogId": rows["missing"], "status": "partial", "note": "Only the default branch runs."}],
+        }]}
+        invalid_cases = {
+            "already working": lambda d: d["reviews"][0]["entries"][0].update(catalogId=rows["implemented_subset"], status="working"),
+            "note needed": lambda d: d["reviews"][0]["entries"][1].pop("note"),
+            "unknown test": lambda d: d["reviews"][0].update(tests=["tests/absent.mjs"]),
+            "wrong language": lambda d: d["reviews"][0].update(id="AS2-CORE-20261101"),
+            "long summary": lambda d: d["reviews"][0].update(summary="x" * 401),
+            "legacy status name": lambda d: d["reviews"][0]["entries"][0].update(status="implemented_subset"),
+        }
+        for label, mutate in invalid_cases.items():
+            with self.subTest(label=label):
+                invalid = json.loads(json.dumps(document))
+                mutate(invalid)
+                write_json(review_path, invalid)
+                with self.assertRaises(ValueError):
+                    progress_catalog.apply_review(review_path, self.root)
+        diary = self.root / "docs/progress/reviews/2026-11-01-as3-hour-2.json"
+        write_json(diary, document)
+        with self.assertRaisesRegex(ValueError, "one per delivery"):
+            progress_catalog.apply_review(diary, self.root)
+        write_json(review_path, document)
+        result = progress_catalog.apply_review(review_path, self.root)
+        self.assertEqual(result["summary"]["byLanguage"]["AS3"], {"implemented_subset": 1, "partial": 2, "missing": 0, "needs_review": 1, "total": 4})
+        review = result["metadata"]["statusReviews"][-1]
+        self.assertEqual(review["changes"], {"partial": 2, "working": 1})
+        rule = next(rule for rule in result["rules"] if rule["id"] == "AS3-CORE-20261101")
+        self.assertEqual([item["status"] for item in rule["previousEntries"]], ["partial", "implemented_subset", "missing"])
+        self.assertEqual(rule["evidence"][0]["path"], "tests/as3.mjs")
+        with self.assertRaisesRegex(ValueError, "already-used review ID|baseCatalogSha256"):
+            progress_catalog.apply_review(review_path, self.root)
 
     def test_source_references_cannot_escape_the_repository(self):
         path = self.source / "implementation-evidence.json"

@@ -22,9 +22,29 @@
 - Maintain README, roadmap, compatibility matrix, changelog and decisions as implementation changes.
 - Verify model/runtime behavior with meaningful tests; verify UI by running it and inspect HTML5 output in a browser. Do not claim unperformed checks.
 - Do not publish a repository, deployment or release unless requested. Local development, builds and tests are authorized.
-- With implementation changes, update affected capability IDs/status/evidence in `docs/progress/*.json`, run `python3 scripts/progress.py --write-reports`, and keep the README summary and detailed ledger consistent. Percentages describe that registry, never complete Flash compatibility.
-- Keep the progress dashboard, its capability registry and generated repository reports in English.
-- AS2/AS3 coverage must use the complete declaration catalogue and per-entry audit in `docs/progress/actionscript-*.json`. Never use the supplementary 35/36 capability groups as the language coverage denominator. Preserve separate subset/partial/missing/needs-review counts and audit provenance.
+- Keep the progress dashboard, its registry and generated reports in English. Progress counting follows "Progress counting (Codex)" below.
+
+## Progress counting (Codex)
+
+Full rules: `docs/progress/README.md` (methodology v3). There are two measures only; do not invent others.
+
+**ActionScript = declarations in eight Flash Player areas.** Every AS2/AS3 declaration in `docs/progress/actionscript-catalog.json` is Working, Partial, Missing or Needs review. Areas 1–6 (math, objects/language, MovieClip, display/events, graphics, text) are "Now". AIR, Flex, components and libraries are outside the target and never in a percentage.
+
+- Every delivery that changes AS behaviour ends with **one** review file `docs/progress/reviews/YYYY-MM-DD-<area>.json` (schema 2, one language per review), applied with `python3 scripts/progress_catalog.py --review <file>`.
+- **Working** = the main behaviour described in the Adobe reference runs, proven by a test in the shared suite. Only environment limits (sandbox, profile, browser) may remain.
+- **Partial** = a useful runtime path exists; the note names what is missing. **Missing** = no runtime path or a compiler "unsupported" diagnostic.
+- Promote Partial → Working as soon as the named gaps are closed. Promote Missing → Partial as soon as a tested path exists. Demote immediately when a regression or a wrong earlier decision is found. Never leave finished work at Partial "to be safe"; that is what made v2 meaningless.
+- Do not change a status because code parses, a JavaScript counterpart exists, or a class is merely registered. Every status change lists the tests that prove it.
+- Review records are short: title ≤ 100 characters, summary ≤ 400 characters. Do not include chronology, timings, command logs or agent comparisons. Do not create `*-HOUR*`/`*-BATCH*` diaries in `docs/`; raw observations stay under `target/`.
+- Unknown AS2 classes fail the check. Route them in `scripts/progress_targets.py`; route AS3 via `as3-priorities.json`.
+
+**Product = user-visible functions inside capability groups.** Each group in `docs/progress/product.json` has `items` (`working`/`partial`/`planned`).
+
+- When a function lands or changes, add or update its item in the same commit. Write titles as a user would name the function.
+- The group status is derived and checked: all items working = `implemented`, all planned = `planned`, otherwise `partial`.
+- Keep `scope`/`limitations` consistent with the items. Adding a missing function the product needs is correct even if the share drops.
+
+**Every delivery:** run `python3 scripts/progress.py --write-reports`, `python3 scripts/progress.py --check` and `python3 -m unittest discover -s scripts/tests -p 'test_progress*.py'`. Commit code, review file, regenerated catalogue and reports together, and record user-visible changes in CHANGELOG. Never edit generated `README.md` progress blocks, `DETAILS.md` or `ACTIONSCRIPT.md` by hand.
 
 ## Design system (NF2) — locked
 

@@ -1,75 +1,105 @@
-# Progress and implementation coverage
+# How progress is counted (methodology v3)
 
-The [coverage page](https://jazzymiles.github.io/NeoFlash/progress.html), [daily history](https://jazzymiles.github.io/NeoFlash/history.html) and repository README provide a compact answer to “where are we?”. All public copy and generated reports use English.
+The [coverage page](https://jazzymiles.github.io/NeoFlash/progress.html), its [daily history](https://jazzymiles.github.io/NeoFlash/history.html) and the README summary answer one question: **what works today, by function**. All three are generated from this directory by `scripts/progress.py`. Nothing here is a Flash compatibility score.
 
-## ActionScript: complete declaration catalogue
+There are exactly two measures:
 
-AS2/AS3 counts come from **46,047 documented declarations**, joined by exact catalogue ID to the existing independent implementation audit. AS2 has 2,307 entries across the language reference and two component inventories. AS3 has 43,740 entries across the selected Adobe Flash Platform reference, including AIR, Flex and components. These are methods, properties, syntax, classes, packages and other declaration kinds—not 46,047 functions or equal-sized engineering tasks.
+1. **ActionScript**: documented declarations in eight Flash Player areas.
+2. **Product**: user-visible functions listed inside each capability group.
 
-- **Implemented subset:** the exact linked rule's bounded behavior is implemented; this is not full API or language conformance.
-- **Partial:** an executable path exists with incomplete behavior or known differences.
-- **Missing:** required implementation is absent. Most entries use architectural absence inference, not an individual negative execution test.
-- **Needs review:** evidence is insufficient for an individual decision. This is neither missing nor implemented, and remains in the total.
+## ActionScript: eight Flash Player areas
 
-No overall AS compatibility percentage is displayed. Core + language + runtime subtotals (AS2: 1,238; AS3: 5,750) are separate from full-reference totals; even this narrower AS3 view includes some AIR declarations. All original catalogue entries are retained in [actionscript-catalog.json](actionscript-catalog.json), with safe rules, source hashes, input hashes and reference limitations in [actionscript-audit.json](actionscript-audit.json). See the generated [audit report](ACTIONSCRIPT.md) for scope breakdowns and evidence.
+Every AS2 and AS3 declaration from the Adobe reference is in [actionscript-catalog.json](actionscript-catalog.json) (46,047 entries) with one status:
 
-The importer verifies all four original catalogue hashes and the audit evidence hash, exact one-to-one ID coverage and status totals. Normalization preserves every declaration's ID, name, owner, kind, scope, documentation URL, decision and evidence rule. It excludes raw local artifact paths and logs. It does not rediscover implementations or run conformance tests.
+| Status | Meaning | Required evidence |
+| --- | --- | --- |
+| **Working** | The main behavior described in the Adobe reference runs. Only environment limits (sandbox, profile, browser) remain. | A test in the shared suite that exercises it. |
+| **Partial** | A runtime path exists and is useful; named behavior is still missing. | A test for the working part and a note naming what is missing. |
+| **Missing** | No runtime path, or the compiler reports it as unsupported. | — |
+| **Needs review** | Not yet classified. | A note on what is unclear. |
+
+The stored key for Working is `implemented_subset`. Review files use `working`.
+
+The **target** is what NeoFlash adapts. It is split into the same eight areas for both languages:
+
+1. Mathematics and 2D geometry
+2. Objects, language and collections
+3. MovieClip and timeline
+4. Display, events and basic input
+5. Graphics, bitmaps and filters
+6. Text and fonts
+7. File audio and video playback
+8. Services and advanced Player APIs
+
+Areas 1–6 are the current priority ("Now"). AS3 routing comes from [as3-priorities.json](as3-priorities.json), which reads Player availability per declaration. AS2 routing (language, core and runtime scopes) is in `scripts/progress_targets.py`. An unknown AS2 class fails the check rather than falling into a default.
+
+For each area the summary shows entry counts per status, then **Working %** and **Working or partial %**. **Outside the target** covers AIR-only APIs, Flex, components, TLF, other libraries and platform-unresolved entries. It is reported as one line of totals and never enters a percentage. The full-reference tables in [ACTIONSCRIPT.md](ACTIONSCRIPT.md) are kept for provenance, not as progress.
+
+### Changing a status
+
+Statuses change only through a **test-backed review**, applied with:
 
 ```sh
-python3 scripts/progress_catalog.py --summary
-python3 scripts/progress_catalog.py --language AS3 --scope runtime --query MovieClip
+python3 scripts/progress_catalog.py --review docs/progress/reviews/2026-11-01-as3-movieclip.json
+python3 scripts/progress.py --write-reports
 ```
 
-Independent follow-up runs can override explicitly reviewed declaration IDs while preserving their own source manifest, recorded HEAD, browser boundary and per-entry scope. The normalized rules retain these identities; raw local fixtures and browser logs stay in the research evidence. Product/import acceptance without AS declarations does not increase AS counts. The generated report lists these runs separately from the original baseline.
+```json
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "<sha256 of actionscript-catalog.json before the review>",
+  "reviews": [{
+    "id": "AS3-MOVIECLIP-20261101",
+    "date": "2026-11-01",
+    "commit": "<full SHA the tests ran on>",
+    "title": "MovieClip frame navigation and labels",
+    "summary": "One to three sentences: what now works and how it is proven. At most 400 characters.",
+    "tests": ["crates/neoflash-script/tests/project-execute.mjs"],
+    "entries": [
+      {"catalogId": "AS3:method:flash/display/MovieClip.html#gotoAndPlay()", "status": "working"},
+      {"catalogId": "AS3:method:flash/display/MovieClip.html#nextScene()", "status": "partial", "note": "Single-scene projects only; multi-scene navigation is missing."}
+    ]
+  }]
+}
+```
 
-The report is a dated audit, not a fresh test run. The page compares its published implementation with the baseline source fingerprints, showing when that implementation has changed. Documentation-only differences are separate. Original Flash differential testing was not performed. Later unshipped working-tree reviews in the original audit are not counted as shipped behavior or assigned baseline test passes.
+The importer enforces:
 
-## AS3 adaptation priorities
+- File name `YYYY-MM-DD-<area>.json`, one per delivery.
+- One language per review.
+- Existing test files.
+- A note for every non-working status.
+- Only changed entries.
+- No reused review IDs.
 
-The existing [declaration report](ACTIONSCRIPT.md#as3-adaptation-priorities), README summary and coverage page separate the AS3 catalogue into Flash Player foundations, subsequent local media, deferred Player services/advanced features, AIR-only APIs, external libraries and unresolved availability. The [roadmap](../ROADMAP.md#as3-flash-player-foundations-first) defines the remaining work: mathematics, objects/language, MovieClip, display/events, graphics and text, before media, cameras and networking.
+Promotions and demotions are both allowed. The previous decision is kept in the rule for audit. Reviews applied before v3 (schema 1, partial-only) remain in the history unchanged.
 
-[as3-priorities.json](as3-priorities.json) preserves the classification and its reference provenance independently of implementation decisions. Player availability is read at declaration level, including AIR-only members of mixed classes. A `flash.*` name or the old `runtime` scope alone does not establish Player availability. Conversely, a library's Flash runtime label does not make its classes built in: Flash components, Flex, TLF and other libraries stay separate. Flash Builder is an IDE; JSFL is authoring automation outside this AS3 catalogue. Unresolved metadata stays visible rather than being silently assigned to Player or AIR. Player support can have version, sandbox, debug/standalone or operation-specific restrictions.
+## Product: functions inside capability groups
 
-Every AS3 declaration belongs to exactly one priority group; Player declarations additionally belong to one ordered stage. Both partitions preserve the four audited statuses and reconcile to the unchanged complete AS3 total. **Audit missing** is the dated implementation decision, **partial** means remaining behavior on an existing path, and **needs review** is an evidence gap. None is a count of equal-sized engineering tasks. Existing implementations are not scheduled again solely because an older audit says missing. Priority classification does not promote statuses, certify the current source or change the language coverage denominator.
+[product.json](product.json) has capability groups in five areas: editor, animation, HTML5, imports and platform. Each group lists its user-visible functions in `items`, each `working`, `partial` or `planned`.
 
-The classifier and report checks validate exact ID coverage, metadata provenance and balanced counts. Public builds read the classification at the same Git revision as the audit and page; revisions predating this classification retain their original reporting. Raw reference downloads are not required for a normal report build. To revise the priority assignment, update its manifest, preserve provenance and regenerate the existing reports; semantic implementation decisions still use the separate review workflow below.
+The group status is derived from its items and checked:
 
-## Product capability groups
+- **Closed** (`implemented`): all items are working.
+- **Planned**: all items are planned.
+- **Partial**: everything else.
 
-`product.json` tracks 54 bounded capability groups in editor, animation, HTML5, imports and platform. The main presentation is **Closed / Partial / Planned**. **Closed** is the display label for the existing `implemented` status: the group's stated scope is implemented. **Partial** means a working subset exists with explicit remaining limits; **planned** means the group remains future work.
+The summary counts functions per area ("31 of 58 functions work") and shows the group split beside it. A new or finished function changes the counts the day it lands. Adding a function the product needs is honest even when it lowers the share. `scope` and `limitations` remain the prose description, and every item must be backed by that text and its evidence.
 
-The secondary **Closed capability groups** percentage remains implemented / total × 100, displayed to one decimal place. Partial groups contribute zero to this numerator. Adding working tools inside a partial group, or improving a group that is already closed, can leave the percentage unchanged. Groups differ in size; this is not a percentage of working features, effort, overall product completion or test line coverage. No weights or extra groups are introduced to make the number rise.
+## History
 
-The existing coverage page shows working partial scopes and remaining limits, with links to the full registry. Keep those descriptions current and record user-visible improvements in the existing changelog. Keep each group's completion boundary stable; promote its status only when its defined scope and validation support that decision. Presentation labels do not rewrite stored statuses, denominators or historical counts.
+The builder takes the last first-parent commit per UTC day on `main` and reads that revision's data. No earlier zeroes are invented.
 
-`as2.json` and `as3.json` remain supplementary implementation notes. Their 35/36 groups are **not** the AS coverage denominator. The [detailed notes](DETAILS.md) explain scopes and limitations without substituting those groups for the complete declaration catalogue.
+- **ActionScript lines** are recounted from each day's committed catalogue with the current area rules, so they are continuous.
+- **Product lines** count whole groups before methodology v3 and functions from v3 on. The line breaks where the unit changes.
 
-The product notes and supplementary AS descriptions include the workspace and real-FLA increments reviewed in `d6a41a1` and `ac19fb7`. Those descriptive updates do not automatically change the frozen declaration audit; its source freshness remains separate.
+Supplementary AS family notes (`as2.json`/`as3.json`, removed in v3) were never part of either measure.
 
-## Maintaining the data
-
-With implementation changes, review affected declaration IDs, evidence rules and source fingerprints, plus affected product capability IDs. Do not promote an AS entry because parsing succeeds or a JavaScript counterpart exists. An inspection API is not editable import. Keep scopes stable and preserve review gaps. Update the frozen source audit through its review workflow, then re-import it using:
+## Checks and publishing
 
 ```sh
-python3 scripts/progress_catalog.py --source /path/to/docs/actionscript-reference
-python3 scripts/progress.py --write-reports
 python3 scripts/progress.py --check
 python3 -m unittest discover -s scripts/tests -p 'test_progress*.py'
 ```
 
-Use the existing catalogue's real directory for `--source`; never copy a different implementation into a nested version tree. Re-importing validates the audit inputs and deterministically regenerates normalized data. The exact catalogue/audit IDs and hashes preserve provenance. Run relevant model/runtime tests and browser checks before claiming behavior. Commit the implementation, reviewed data and generated reports together. CI validates structural integrity and report consistency; it cannot replace semantic review.
-
-## History and publishing
-
-Methodology **v2** corrects the earlier AS2/AS3 denominator. The original 35/36 family percentages did not answer declaration coverage; they are excluded from AS declaration history rather than relabelled. Product history remains available. A change in counting methodology breaks chart lines.
-
-`python3 scripts/progress.py` builds committed HEAD into ignored `dist/progress/`; `--revision <commit>` selects an immutable source revision. Full Git history is required. The builder chooses the last first-parent commit per UTC committer date and reads that revision's data. There is one point per day with commits, beginning when the respective metric exists; no earlier zeroes are invented. The current day's point is replaced by later commits. Git history rewrites may change the series.
-
-Public `progress.json` contains the compact product data, AS aggregates and audit freshness; `history.json` contains daily counts. The 46,047-row list stays in the repository for detailed local work. The `Progress Pages` workflow validates on pull requests and builds/publishes on pushes to `main`. GitHub Pages uses the **GitHub Actions** source setting.
-
-The presentation is inspired by [AnyPS5 coverage](https://boykopovar.github.io/AnyPS5/progress.html) and [history](https://boykopovar.github.io/AnyPS5/history.html). NeoFlash preserves distinctions between declaration status, product capability groups and full Flash conformance.
-
-
-### Scoped reviews against the normalized catalogue
-
-Completed runtime batches can append explicit per-entry decisions without re-importing an unrelated or newer local research snapshot. Author a reviewed record with the exact current catalogue SHA-256, source fingerprints, bounded scope and browser evidence, then run `python3 scripts/progress_catalog.py --review docs/progress/reviews/2026-10-28-runtime-batches.json`. Apply each record once; unknown IDs, mismatched input hashes and replayed review IDs are rejected. The importer preserves previous decisions and superseded evidence. Coordinator reviews are labelled separately from independent acceptance. Regenerate reports with `python3 scripts/progress.py --write-reports`; counts remain complete-catalogue counts, not full Flash compatibility.
+`--check` fails on stale generated reports, on group statuses that contradict their items, and on unknown evidence paths. The `Progress Pages` workflow runs the same checks on pull requests and publishes `dist/progress/` from `main` through GitHub Actions. The public `progress.json` contains the target views and product registry. The per-declaration list stays in the repository.

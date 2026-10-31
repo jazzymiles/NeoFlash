@@ -35,6 +35,58 @@
       "status": "partial",
       "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output, Align, Transform and Color with Light/Dark themes. All ten panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs and native floating windows. Header drag supports docking, tab merging/reordering, splits and undocking. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties separates selection and tool contexts with collapsible sections and paired fields; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts.",
       "limitations": "Main-window side groups remain stacked rows/columns; arbitrary recursive main-window splits, named workspace presets and multiple open documents remain unfinished. VoiceOver/IME and mixed-DPI monitors need broader platform acceptance.",
+      "items": [
+        {
+          "id": "docked-panels",
+          "title": "Dockable panels with resizable areas and ordered tabs",
+          "status": "working"
+        },
+        {
+          "id": "drag-docking",
+          "title": "Drag panels and tab groups to dock, merge, split or undock",
+          "status": "working"
+        },
+        {
+          "id": "floating-windows",
+          "title": "Floating panel windows with their own tabs and splits",
+          "status": "working"
+        },
+        {
+          "id": "themes",
+          "title": "Light and Dark themes",
+          "status": "working"
+        },
+        {
+          "id": "saved-layout",
+          "title": "Saved workspace layout kept separate from documents",
+          "status": "working"
+        },
+        {
+          "id": "numeric-scrub",
+          "title": "Numeric fields with click-to-type and drag scrubbing",
+          "status": "working"
+        },
+        {
+          "id": "properties-contexts",
+          "title": "Properties panel with selection and tool contexts",
+          "status": "working"
+        },
+        {
+          "id": "main-window-splits",
+          "title": "Arbitrary nested splits in the main window",
+          "status": "planned"
+        },
+        {
+          "id": "workspace-presets",
+          "title": "Named workspace presets",
+          "status": "planned"
+        },
+        {
+          "id": "multiple-documents",
+          "title": "Multiple open documents",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-editor/src/panels/timeline.rs",
         "crates/neoflash-editor/src/detached.rs",
@@ -70,6 +122,33 @@
       "status": "implemented",
       "scope": "Gesture-based rectangle and oval creation, independent solid fill/stroke RGBA and stroke width defaults, and geometry transforms. Properties preserve RGB while editing alpha and group continuous edits into one Undo.",
       "limitations": "Rounded corners and arbitrary shape parameters are outside this item.",
+      "items": [
+        {
+          "id": "rectangle-oval",
+          "title": "Draw rectangles and ovals by dragging",
+          "status": "working"
+        },
+        {
+          "id": "fill-stroke-colors",
+          "title": "Independent fill and stroke colors with alpha",
+          "status": "working"
+        },
+        {
+          "id": "stroke-width",
+          "title": "Stroke width setting",
+          "status": "working"
+        },
+        {
+          "id": "geometry-transforms",
+          "title": "Transform rectangle and oval geometry",
+          "status": "working"
+        },
+        {
+          "id": "alpha-edit-undo",
+          "title": "Edit alpha without losing RGB, with one Undo per edit",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-editor/src/stage_primitives.rs",
         "crates/neoflash-editor/src/tests.rs",
@@ -83,6 +162,28 @@
       "status": "implemented",
       "scope": "Open and closed paths; line, quadratic and cubic segments; moving anchors and control handles.",
       "limitations": "Point insertion/deletion, tangent constraints and merging operations are tracked under advanced tools.",
+      "items": [
+        {
+          "id": "open-closed-paths",
+          "title": "Draw open and closed paths",
+          "status": "working"
+        },
+        {
+          "id": "segment-types",
+          "title": "Line, quadratic and cubic segments",
+          "status": "working"
+        },
+        {
+          "id": "move-anchors",
+          "title": "Move anchor points",
+          "status": "working"
+        },
+        {
+          "id": "move-handles",
+          "title": "Move curve control handles",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-editor/src/vector.rs",
         "crates/neoflash-editor/src/vector_gesture_tests.rs",
@@ -96,6 +197,23 @@
       "status": "implemented",
       "scope": "Solid fills for compound paths using nonzero/evenodd rules; bounds and hit testing account for curves.",
       "limitations": "Gradients, bitmap fills and masks are tracked separately.",
+      "items": [
+        {
+          "id": "compound-fill",
+          "title": "Solid fills for compound paths",
+          "status": "working"
+        },
+        {
+          "id": "fill-rules",
+          "title": "Holes with nonzero and even-odd fill rules",
+          "status": "working"
+        },
+        {
+          "id": "curve-hit-testing",
+          "title": "Accurate bounds and hit testing on curves",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-core/src/geometry.rs",
         "crates/neoflash-core/tests/paths.rs",
@@ -109,6 +227,33 @@
       "status": "implemented",
       "scope": "Shift-click, marquee, Select All and selection-wide operations across visible, unlocked layers.",
       "limitations": "This is a defined, testable set of operations; complete Flash workflow parity is not claimed.",
+      "items": [
+        {
+          "id": "shift-click",
+          "title": "Add to selection with Shift-click",
+          "status": "working"
+        },
+        {
+          "id": "marquee",
+          "title": "Marquee selection",
+          "status": "working"
+        },
+        {
+          "id": "select-all",
+          "title": "Select All",
+          "status": "working"
+        },
+        {
+          "id": "selection-operations",
+          "title": "Apply operations to the whole selection",
+          "status": "working"
+        },
+        {
+          "id": "visible-unlocked-only",
+          "title": "Selection limited to visible, unlocked layers",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-editor/src/selection.rs",
         "crates/neoflash-editor/src/selection_tests.rs"
@@ -121,6 +266,53 @@
       "status": "partial",
       "scope": "Move, scale and rotate individual objects; uniformly scale and rotate a group through stage gestures. Transform panel adds exact position/dimensions, optional linked proportions and nonuniform W/H scaling of the selection, plus single-object rotation/skew, flips and reset. Skew-aware handle resizing preserves its fixed anchor and authored reflection.",
       "limitations": "Custom pivots and direct group-skew editing remain unfinished. Numeric selection sizing and stage transform gestures have separate supported operations.",
+      "items": [
+        {
+          "id": "stage-move-scale-rotate",
+          "title": "Move, scale and rotate objects on Stage",
+          "status": "working"
+        },
+        {
+          "id": "group-scale-rotate",
+          "title": "Scale and rotate groups on Stage",
+          "status": "working"
+        },
+        {
+          "id": "numeric-position-size",
+          "title": "Exact position and size in the Transform panel",
+          "status": "working"
+        },
+        {
+          "id": "linked-proportions",
+          "title": "Linked proportions and nonuniform width/height scaling",
+          "status": "working"
+        },
+        {
+          "id": "numeric-rotate-skew",
+          "title": "Numeric rotation and skew of a single object",
+          "status": "working"
+        },
+        {
+          "id": "flip-reset",
+          "title": "Flip and reset transform",
+          "status": "working"
+        },
+        {
+          "id": "skew-aware-handles",
+          "title": "Skew-aware handle resizing",
+          "status": "working"
+        },
+        {
+          "id": "custom-pivot",
+          "title": "Custom transform pivot",
+          "status": "planned"
+        },
+        {
+          "id": "group-skew",
+          "title": "Direct skew editing of groups",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-editor/src/stage_selection.rs",
         "crates/neoflash-editor/src/transform_gesture_tests.rs",
@@ -135,6 +327,43 @@
       "status": "partial",
       "scope": "Copy/Cut/Paste and Paste in Place transfer objects, dependent symbols, timelines and scripts; linked symbols include their project-source snapshot and reject conflicting sources before mutation. Text editors retain ordinary text paste. Complete resource snapshots transfer with remapped identities, exact content reuse and atomic path-conflict rejection.",
       "limitations": "Native acceptance of the new linked-source/resource transfer remains pending. The 8 MiB clipboard cap rejects oversized snapshots explicitly. Frame clipboard and native image clipboard are separate work. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified.",
+      "items": [
+        {
+          "id": "copy-cut-paste",
+          "title": "Copy, cut and paste objects",
+          "status": "working"
+        },
+        {
+          "id": "paste-in-place",
+          "title": "Paste in Place",
+          "status": "working"
+        },
+        {
+          "id": "dependent-symbols",
+          "title": "Paste with dependent symbols, timelines and scripts",
+          "status": "working"
+        },
+        {
+          "id": "linked-source-transfer",
+          "title": "Transfer linked symbols with their project sources",
+          "status": "working"
+        },
+        {
+          "id": "resource-transfer",
+          "title": "Transfer resources with remapped identities",
+          "status": "working"
+        },
+        {
+          "id": "text-paste",
+          "title": "Ordinary text paste in text editors",
+          "status": "working"
+        },
+        {
+          "id": "native-image-clipboard",
+          "title": "Paste images from the system clipboard",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-core/src/clipboard.rs",
         "crates/neoflash-editor/src/clipboard_tests.rs",
@@ -152,9 +381,61 @@
       "id": "editor-symbols",
       "category": "editor",
       "title": "Library and nested editing",
-      "status": "implemented",
+      "status": "partial",
       "scope": "Reusable instances and nested editing preserve authored identity and scripts. Convert to Symbol offers aligned name/type/folder, nine-point registration and export identifier/existing-class fields. The Library shows a real first-frame preview, persistent folders, inline organization, search by name/path/linkage/class, Name/Type/Linkage sorting and visible linkage. Folder paths survive symbol clipboard transfers; conflicts reject before mutation. Empty symbol creation opens nested editing. Buttons expose Up/Over/Down/Hit, instance actions and authored/export-linked SimpleButton typing. Library Properties changes kind across references while preserving keys/scripts and refusing incompatible class linkage.",
       "limitations": "Arbitrary runtime state-object assignment, empty SimpleButton construction, 9-slice guides and legacy shared libraries remain unsupported. Multi-object conversion requires a contiguous stack on one layer. Preview is the first frame; folder organization uses controls, not drag-and-drop. Resource files remain outside the symbol-folder tree.",
+      "items": [
+        {
+          "id": "convert-to-symbol",
+          "title": "Convert to Symbol with name, type, folder and registration",
+          "status": "working"
+        },
+        {
+          "id": "nested-editing",
+          "title": "Create and edit symbols in nested editing mode",
+          "status": "working"
+        },
+        {
+          "id": "library-preview",
+          "title": "Library first-frame preview",
+          "status": "working"
+        },
+        {
+          "id": "library-organization",
+          "title": "Library folders, search and sorting",
+          "status": "working"
+        },
+        {
+          "id": "linkage",
+          "title": "Export identifiers and class linkage",
+          "status": "working"
+        },
+        {
+          "id": "button-states",
+          "title": "Button Up/Over/Down/Hit states",
+          "status": "working"
+        },
+        {
+          "id": "change-symbol-kind",
+          "title": "Change symbol type in Library Properties",
+          "status": "working"
+        },
+        {
+          "id": "nine-slice",
+          "title": "9-slice scaling guides",
+          "status": "planned"
+        },
+        {
+          "id": "shared-libraries",
+          "title": "Legacy shared libraries",
+          "status": "planned"
+        },
+        {
+          "id": "library-drag-drop",
+          "title": "Drag-and-drop organization of Library folders",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-editor/src/app.rs",
         "crates/neoflash-editor/src/tests.rs",
@@ -177,6 +458,58 @@
       "status": "partial",
       "scope": "Editable authored TextBox with logical dimensions, multiline/wrapping, installed regular/bold/italic fonts, size/color/leading and left/center/right alignment. Old unboxed Text retains its appearance until explicit conversion. AS3 TextField/TextFormat and AS2 createTextField share Rust state and line layout, with separate current/insertion formats and bounded whole-field/string editing. Scripted HTML5 input adds native browser editing, Rust revision-checked user transactions, UTF-16 selection/replacement, user-only restrict/maxChars and password masking. AS3 TextFieldType/TextEvent/FocusEvent and AS2 Selection/onChanged/focus callbacks share Stage focus and publication lifetime.",
       "limitations": "Mixed character runs, HTML/CSS, auto-size, advanced paragraphs and full shaping/Flash metrics remain pending. Host font measurements may produce different line breaks and pixels; portable fonts are separate work. Native headless layout/clipping/Undo and in-app-browser reflow/alignment, independent fields and Restart passed. Native interactive editing remains pending; VERIFICATION.md preserves the exact scope separately from earlier plain-text evidence. Independent fba17ae evidence (TEXT-LAYOUT-HTML5-20261027T0409Z) covers only the actual uniform layout/format/refusal/Restart workflow in VERIFICATION.md. Native live editing, other fonts/engines, mixed runs and input/IME do not inherit the browser pass. The separate text-form delivery records current scripted input evidence; earlier layout evidence is unchanged. The active DOM field follows affine/vector clipping but is above foreground Canvas artwork. Native input-field authoring, full IME/locale/grapheme/original-player behavior, rich text and cross-engine metrics remain pending; AS2 general string target resolution is unsupported.",
+      "items": [
+        {
+          "id": "text-box",
+          "title": "Editable text boxes with fixed size and wrapping",
+          "status": "working"
+        },
+        {
+          "id": "installed-fonts",
+          "title": "Installed fonts with regular, bold and italic styles",
+          "status": "working"
+        },
+        {
+          "id": "text-formatting",
+          "title": "Font size, color, leading and alignment",
+          "status": "working"
+        },
+        {
+          "id": "scripted-textfield",
+          "title": "Scripted text fields (AS3 TextField, AS2 createTextField)",
+          "status": "partial"
+        },
+        {
+          "id": "html5-input",
+          "title": "Editable input text fields in HTML5 output",
+          "status": "partial"
+        },
+        {
+          "id": "input-restrictions",
+          "title": "Password masking, restrict and max characters",
+          "status": "working"
+        },
+        {
+          "id": "text-events",
+          "title": "Text focus and change events",
+          "status": "working"
+        },
+        {
+          "id": "rich-text",
+          "title": "Mixed character formatting and HTML/CSS text",
+          "status": "planned"
+        },
+        {
+          "id": "auto-size",
+          "title": "Auto-size text fields",
+          "status": "planned"
+        },
+        {
+          "id": "native-input-authoring",
+          "title": "Author input text fields in the editor",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-core/src/model.rs",
         "crates/neoflash-editor/src/fonts.rs",
@@ -213,6 +546,58 @@
       "status": "partial",
       "scope": "Line, round vector brush, closed-vector bucket, ink bottle, eyedropper, object/fill/stroke eraser, contact/enclosed whole-object lasso, hand/temporary Space pan, zoom and existing fill gradient transform. Authoring groups preserve runtime identities; Modify provides arrange, safe static Break Apart, transforms and group-aware alignment/distribution with exact gaps.",
       "limitations": "Pressure, geometric eraser cuts, gap closing, gradient focal handles, point insertion/deletion, general shape splitting/merging, snapping and nested group editing remain unfinished.",
+      "items": [
+        {
+          "id": "line-brush",
+          "title": "Line tool and round vector brush",
+          "status": "working"
+        },
+        {
+          "id": "brush-pressure",
+          "title": "Pressure-sensitive brush",
+          "status": "planned"
+        },
+        {
+          "id": "paint-bucket",
+          "title": "Paint bucket for closed shapes",
+          "status": "partial"
+        },
+        {
+          "id": "ink-eyedropper",
+          "title": "Ink bottle and eyedropper",
+          "status": "working"
+        },
+        {
+          "id": "eraser",
+          "title": "Object, fill and stroke eraser",
+          "status": "partial"
+        },
+        {
+          "id": "lasso",
+          "title": "Lasso selection",
+          "status": "working"
+        },
+        {
+          "id": "hand-zoom",
+          "title": "Hand, temporary Space pan and zoom",
+          "status": "working"
+        },
+        {
+          "id": "groups-modify",
+          "title": "Groups, arrange, Break Apart, align and distribute",
+          "status": "partial"
+        },
+        {
+          "id": "point-and-shape-editing",
+          "title": "Point insertion/deletion and shape splitting/merging",
+          "status": "planned"
+        },
+        {
+          "id": "snapping",
+          "title": "Snapping",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "docs/BACKLOG.md",
         "docs/ROADMAP.md",
@@ -230,6 +615,58 @@
       "status": "partial",
       "scope": "Authored vector masks and bounded gradient editing. Gradient Transform moves, scales and rotates an existing gradient fill; it does not create a new gradient or edit its stops. Scripted HTML5 filters add copied Blur/Glow/DropShadow/ColorMatrix values, shared bounded Rust RGBA kernels and ordered whole-subtree groups, including nested effects and deferred owner mask/scroll clipping. Runtime BitmapData image processing adds color/filter operations and current subtree capture through the shared scene painter; AS3 adds bulk ByteArray transfer and PNG encoding with Loader round-trip. Authored vector mask layers now clip native stage meshes and HTML5 draws using shared Rust geometry; vector-only nested symbols are supported as mask sources. Show Masking exposes the editable source, and clipping is applied to stage picking.",
       "limitations": "Scripted HTML5 Graphics now supports bounded linear/radial gradients and vector display masks. Native gradient creation/stop editing, radial focal handles, filter authoring, bitmap fills and alpha masks remain pending; runtime support does not complete these authoring operations. This runtime-only filter profile has its own gallery evidence; native filter authoring, remaining classes, exact Flash kernels/coercions and high-density raster fidelity remain pending. Active native DOM editing under a filtered ancestor is an explicit composition boundary. Original geometry supplies input and semantics; effect halos do not extend them. Independent 5395375 evidence (FILTERS-HTML5-20261027T0844Z) confirms only the scripted filter-gallery publication and common browser regression. Runtime pixels and input do not complete native effect authoring, exact Flash kernels or filtered-input composition. The image pipeline remains bounded: normal draw blending, integer regions, no external mask dependencies, no display filters during draw, partial setPixels underrun, and separate native authoring/exact raster acceptance. Authored text/bitmap mask sources and masks nested inside mask sources diagnose; native mask preview has a bounded complexity limit.",
+      "items": [
+        {
+          "id": "vector-masks",
+          "title": "Vector mask layers with Show Masking",
+          "status": "working"
+        },
+        {
+          "id": "gradient-transform",
+          "title": "Move, scale and rotate existing gradient fills",
+          "status": "working"
+        },
+        {
+          "id": "gradient-creation",
+          "title": "Create gradients and edit color stops",
+          "status": "planned"
+        },
+        {
+          "id": "focal-handles",
+          "title": "Radial gradient focal handles",
+          "status": "planned"
+        },
+        {
+          "id": "scripted-gradients-masks",
+          "title": "Scripted linear/radial gradients and vector masks",
+          "status": "working"
+        },
+        {
+          "id": "scripted-filters",
+          "title": "Blur, Glow, DropShadow and ColorMatrix filters from scripts",
+          "status": "partial"
+        },
+        {
+          "id": "bitmapdata-processing",
+          "title": "Scripted BitmapData color/filter operations and capture",
+          "status": "partial"
+        },
+        {
+          "id": "filter-authoring",
+          "title": "Apply filters in the editor",
+          "status": "planned"
+        },
+        {
+          "id": "bitmap-fills",
+          "title": "Bitmap fills",
+          "status": "planned"
+        },
+        {
+          "id": "alpha-masks",
+          "title": "Alpha masks",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "docs/BACKLOG.md",
         "docs/ROADMAP.md",
@@ -267,6 +704,58 @@
       "status": "partial",
       "scope": "Compact left-aligned layer names with row dividers and inline rename. Layer context menus provide visibility/locks, insert/delete, document-local copy/cut/paste/duplicate, merge and layer/group-to-symbol conversion. Folders support child grouping, collapse, inherited visibility/locks and editable properties. Guides remain authoring-only; mask relationships use stable layer IDs. Per-layer colored squares toggle authoring outlines; an RGB dialog edits the saved outline color with one Undo. Outlined folders include descendants within the edited symbol; nested symbol outline preferences do not leak into parent artwork. Native transport and publication retain original fills and strokes. Layer-column width is draggable and saved as a workspace preference. Name dragging reorders a layer or its dependent folder/mask group with insertion feedback, cancellation and one Undo. Upper sibling rows represent foreground layers; drag reordering and frame paste follow the visible order without reversing the serialized painter order.",
       "limitations": "Motion-path guides, arbitrary multi-row selection and drag-to-reparent remain unfinished. Reordering preserves existing parent/mask IDs. Layer clipboard stays within the current document. Merging tweened layers samples frames into keys.",
+      "items": [
+        {
+          "id": "layer-commands",
+          "title": "Insert, delete, rename, copy, paste and duplicate layers",
+          "status": "working"
+        },
+        {
+          "id": "visibility-lock",
+          "title": "Show/hide and lock layers",
+          "status": "working"
+        },
+        {
+          "id": "merge-convert",
+          "title": "Merge layers and convert layers to symbols",
+          "status": "working"
+        },
+        {
+          "id": "folders",
+          "title": "Layer folders with collapse and inherited visibility/locks",
+          "status": "working"
+        },
+        {
+          "id": "guide-layers",
+          "title": "Authoring-only guide layers",
+          "status": "working"
+        },
+        {
+          "id": "outline-colors",
+          "title": "Per-layer outline view with editable color",
+          "status": "working"
+        },
+        {
+          "id": "drag-reorder",
+          "title": "Drag layers to reorder",
+          "status": "working"
+        },
+        {
+          "id": "motion-guides",
+          "title": "Motion-path guides",
+          "status": "planned"
+        },
+        {
+          "id": "multi-row-selection",
+          "title": "Select multiple layer rows",
+          "status": "planned"
+        },
+        {
+          "id": "drag-reparent",
+          "title": "Drag layers into folders",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-editor/src/panels/timeline.rs",
         "docs/BACKLOG.md",
@@ -283,6 +772,33 @@
       "status": "implemented",
       "scope": "F5/F6/F7 and moving/copying individual keyframes; insertion uses the visible interpolated pose. Held content and blank spans are drawn to the next chronological key or symbol end. Frame rows are separated from scrollbars; key dragging uses the original pressed frame, a destination preview and edge scrolling. Frame zoom and Fit change cell width with adaptive ruler labels and selected-frame recentering, without changing authored timing. Compact FPS and total-duration fields preserve frame count and set the nearest integer FPS when duration changes.",
       "limitations": "The last key holds content to the explicit layer end or symbol end. Blank keys stop visible content earlier. Range operations and their tween-baking boundaries are tracked separately.",
+      "items": [
+        {
+          "id": "insert-frames-keys",
+          "title": "Insert frames, keyframes and blank keyframes (F5/F6/F7)",
+          "status": "working"
+        },
+        {
+          "id": "move-copy-keys",
+          "title": "Move and copy keyframes by dragging",
+          "status": "working"
+        },
+        {
+          "id": "held-spans",
+          "title": "Held content and blank spans shown on the timeline",
+          "status": "working"
+        },
+        {
+          "id": "frame-zoom",
+          "title": "Timeline frame zoom and Fit",
+          "status": "working"
+        },
+        {
+          "id": "fps-duration",
+          "title": "Edit FPS and total duration",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-editor/src/app.rs",
         "crates/neoflash-editor/src/tests.rs",
@@ -299,6 +815,33 @@
       "status": "implemented",
       "scope": "MovieClip instances have independent clocks; stopping a parent does not stop its live descendants. Native authoring Play uses the same independent clocks, including one-frame parents, without executing scripts. Pause/resume retains nested poses; edits, scrubbing and navigation reset transient playback. Mask-aware picking follows the displayed pose.",
       "limitations": "This describes the current runtime contract; full Flash construction and reentrancy semantics are not independently established.",
+      "items": [
+        {
+          "id": "independent-clocks",
+          "title": "Independent MovieClip timelines",
+          "status": "working"
+        },
+        {
+          "id": "parent-stop",
+          "title": "Child clips keep playing when the parent stops",
+          "status": "working"
+        },
+        {
+          "id": "authoring-play",
+          "title": "Play nested animation in the editor without scripts",
+          "status": "working"
+        },
+        {
+          "id": "pause-resume",
+          "title": "Pause and resume keeping nested poses",
+          "status": "working"
+        },
+        {
+          "id": "pose-picking",
+          "title": "Picking follows the displayed animated pose",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-core/src/runtime.rs",
         "crates/neoflash-core/tests/core.rs",
@@ -316,6 +859,28 @@
       "status": "implemented",
       "scope": "Graphic supports loop, play-once and single-frame modes relative to the authored timeline. Loop and Play once accept a placement-specific First frame; Single frame retains its direct frame selector.",
       "limitations": "Exact compatibility with every mode in source Flash projects requires separate fixtures.",
+      "items": [
+        {
+          "id": "loop",
+          "title": "Loop mode for Graphic instances",
+          "status": "working"
+        },
+        {
+          "id": "play-once",
+          "title": "Play once mode",
+          "status": "working"
+        },
+        {
+          "id": "single-frame",
+          "title": "Single frame mode",
+          "status": "working"
+        },
+        {
+          "id": "first-frame",
+          "title": "Placement-specific first frame",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-core/src/model.rs",
         "crates/neoflash-core/src/evaluate.rs",
@@ -329,6 +894,33 @@
       "status": "implemented",
       "scope": "Tweens match stable object identities and interpolate position, scale, rotation, alpha and supported geometry/color properties. Format 5 also interpolates affine skew and color transforms, with classic Flash acceleration and single global cubic easing.",
       "limitations": "Independent property-level motion curves and complete Flash motion tween support are missing.",
+      "items": [
+        {
+          "id": "identity-matching",
+          "title": "Tweens match objects by stable identity",
+          "status": "working"
+        },
+        {
+          "id": "trs-alpha",
+          "title": "Interpolate position, scale, rotation and alpha",
+          "status": "working"
+        },
+        {
+          "id": "geometry-color",
+          "title": "Interpolate supported geometry and color properties",
+          "status": "working"
+        },
+        {
+          "id": "skew-color-transform",
+          "title": "Interpolate skew and color transforms",
+          "status": "working"
+        },
+        {
+          "id": "classic-easing",
+          "title": "Classic Flash acceleration and global cubic easing",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-core/src/evaluate.rs",
         "crates/neoflash-core/tests/core.rs"
@@ -341,6 +933,48 @@
       "status": "partial",
       "scope": "Keyframe Properties selects Linear, EaseIn/Out/InOut or a custom cubic Bézier curve with four numeric control coordinates. The shared model also preserves classic Flash acceleration from imported timelines. Scripted HTML5 easing/Tween uses a separate Rust family for built-in curves and bounded frame-based or seconds-based animation.",
       "limitations": "A graphical curve editor, independent property curves and authored overshoot remain unfinished. Numeric cubic controls are bounded to 0–1; imported Flash acceleration is displayed but has no dedicated numeric editor. Scripted Back/Elastic overshoot does not supply an authoring control. Runtime Tween retains built-in easing identities and finite positive durations; complete Flash timing and curve conformance are not claimed.",
+      "items": [
+        {
+          "id": "preset-eases",
+          "title": "Linear and ease in/out presets",
+          "status": "working"
+        },
+        {
+          "id": "numeric-cubic",
+          "title": "Custom cubic Bézier easing with numeric controls",
+          "status": "working"
+        },
+        {
+          "id": "imported-acceleration",
+          "title": "Keep classic Flash acceleration from imports",
+          "status": "working"
+        },
+        {
+          "id": "scripted-tween",
+          "title": "Scripted easing and Tween in HTML5",
+          "status": "working"
+        },
+        {
+          "id": "curve-editor",
+          "title": "Graphical easing curve editor",
+          "status": "planned"
+        },
+        {
+          "id": "property-curves",
+          "title": "Independent easing curves per property",
+          "status": "planned"
+        },
+        {
+          "id": "overshoot",
+          "title": "Authored overshoot easing",
+          "status": "planned"
+        },
+        {
+          "id": "acceleration-editor",
+          "title": "Numeric editor for imported Flash acceleration",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-core/src/evaluate.rs",
         "crates/neoflash-core/tests/core.rs",
@@ -362,6 +996,33 @@
       "status": "implemented",
       "scope": "Authored evaluation without script execution; onion skin with before/after range, anchoring, outlines and opacity. The stage header identifies active onion skin so neighbouring-frame ghosts are distinguishable from the current frame.",
       "limitations": "Editing multiple frames is outside onion preview.",
+      "items": [
+        {
+          "id": "onion-skin",
+          "title": "Onion skin with before/after range",
+          "status": "working"
+        },
+        {
+          "id": "onion-anchor",
+          "title": "Anchored onion skin range",
+          "status": "working"
+        },
+        {
+          "id": "onion-outlines-opacity",
+          "title": "Onion skin outlines and opacity",
+          "status": "working"
+        },
+        {
+          "id": "scrubbing",
+          "title": "Scrub the timeline without running scripts",
+          "status": "working"
+        },
+        {
+          "id": "onion-indicator",
+          "title": "Stage header indicator for active onion skin",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-editor/src/panels/timeline.rs",
         "crates/neoflash-editor/src/stage.rs",
@@ -376,6 +1037,28 @@
       "status": "partial",
       "scope": "Paths interpolate when their command topology matches.",
       "limitations": "General shape tweening with different-contour matching, shape hints and topology changes is missing.",
+      "items": [
+        {
+          "id": "matching-topology",
+          "title": "Morph paths with matching structure",
+          "status": "working"
+        },
+        {
+          "id": "different-contours",
+          "title": "Morph shapes with different contours",
+          "status": "planned"
+        },
+        {
+          "id": "shape-hints",
+          "title": "Shape hints",
+          "status": "planned"
+        },
+        {
+          "id": "topology-changes",
+          "title": "Morph across topology changes",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-core/src/evaluate.rs",
         "crates/neoflash-core/tests/paths.rs",
@@ -389,6 +1072,58 @@
       "status": "partial",
       "scope": "Rectangular multi-layer selection; copy, cut, paste, move, clear, insert and remove time as atomic Undo operations. Explicit Include frame scripts transfers symbol-level code once and rejects destination collisions; object scripts travel with placements. Independent layer ends can be set numerically or dragged and stop exposure in native and HTML5 evaluation. macOS range clipboard and visible layer-order paste are supported.",
       "limitations": "Reverse, simultaneous artwork editing across frames and creation of destination layer structure remain unfinished. Frame clips are session-local and require existing destination rows. Trimming deletes later keys with Undo recovery. Edits intersecting tweens bake the touched segment to integer-frame poses instead of retaining editable sliced easing curves.",
+      "items": [
+        {
+          "id": "range-selection",
+          "title": "Select frame ranges across layers",
+          "status": "working"
+        },
+        {
+          "id": "copy-cut-paste",
+          "title": "Copy, cut and paste frame ranges",
+          "status": "working"
+        },
+        {
+          "id": "move-clear",
+          "title": "Move and clear frame ranges",
+          "status": "working"
+        },
+        {
+          "id": "insert-remove-time",
+          "title": "Insert and remove time",
+          "status": "working"
+        },
+        {
+          "id": "frame-scripts",
+          "title": "Include frame scripts when transferring ranges",
+          "status": "working"
+        },
+        {
+          "id": "layer-ends",
+          "title": "Set layer ends numerically or by dragging",
+          "status": "working"
+        },
+        {
+          "id": "edits-in-tweens",
+          "title": "Range edits inside tweens",
+          "status": "partial"
+        },
+        {
+          "id": "reverse",
+          "title": "Reverse frames",
+          "status": "planned"
+        },
+        {
+          "id": "multi-frame-editing",
+          "title": "Edit artwork across several frames at once",
+          "status": "planned"
+        },
+        {
+          "id": "create-destination-layers",
+          "title": "Create destination layers when pasting",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-core/src/timeline_edit.rs",
         "crates/neoflash-core/src/model.rs",
@@ -405,6 +1140,38 @@
       "status": "partial",
       "scope": "Removing and recreating an instance starts a new lifetime; stale dispatches are rejected and goto has protection against an unbounded queue. Same-path symbol replacement resets subtree overrides, custom fields and clocks, invalidates old proxies and preserves siblings; accepted in Chrome/in-app HTML5.",
       "limitations": "Construction/re-entry order, complex nested goto, scenes and complete Flash Player semantics still need conformance work.",
+      "items": [
+        {
+          "id": "instance-lifetimes",
+          "title": "New lifetime when an instance is removed and recreated",
+          "status": "working"
+        },
+        {
+          "id": "goto-protection",
+          "title": "Protection against unbounded goto queues",
+          "status": "working"
+        },
+        {
+          "id": "symbol-replacement",
+          "title": "Same-path symbol replacement resets state",
+          "status": "working"
+        },
+        {
+          "id": "nested-goto",
+          "title": "Complex nested goto",
+          "status": "partial"
+        },
+        {
+          "id": "construction-order",
+          "title": "Flash construction and re-entry order",
+          "status": "planned"
+        },
+        {
+          "id": "scenes",
+          "title": "Scenes",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-core/tests/core.rs",
         "web/tests/wasm.test.cjs",
@@ -421,6 +1188,28 @@
       "status": "planned",
       "scope": "Timeline sound/video, synchronization modes, and coordinated playback stops and seeks.",
       "limitations": "Native timeline audio/video tracks and synchronization remain unimplemented. Portable resources and separately scripted Sound playback have bounded profiles; they do not establish timeline media synchronization.",
+      "items": [
+        {
+          "id": "timeline-audio",
+          "title": "Timeline sound tracks",
+          "status": "planned"
+        },
+        {
+          "id": "timeline-video",
+          "title": "Timeline video tracks",
+          "status": "planned"
+        },
+        {
+          "id": "sync-modes",
+          "title": "Media synchronization modes",
+          "status": "planned"
+        },
+        {
+          "id": "coordinated-stop-seek",
+          "title": "Coordinated media stops and seeks",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "docs/ROADMAP.md",
         "docs/BACKLOG.md"
@@ -433,6 +1222,28 @@
       "status": "implemented",
       "scope": "Project export includes local JavaScript, a Canvas host and embedded WASM bytes, without Flash Player or a CDN.",
       "limitations": "This guarantee applies to the currently supported model; missing capabilities are listed separately.",
+      "items": [
+        {
+          "id": "self-contained",
+          "title": "Self-contained HTML5 project export",
+          "status": "working"
+        },
+        {
+          "id": "canvas-host",
+          "title": "Canvas player host",
+          "status": "working"
+        },
+        {
+          "id": "embedded-wasm",
+          "title": "Embedded WASM runtime",
+          "status": "working"
+        },
+        {
+          "id": "no-player-cdn",
+          "title": "No Flash Player or CDN required",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-export/src/lib.rs",
         "scripts/build-web.sh",
@@ -443,9 +1254,61 @@
       "id": "web-shared-runtime",
       "category": "web",
       "title": "Shared Rust/WASM core",
-      "status": "implemented",
+      "status": "partial",
       "scope": "The browser uses the same timeline runtime; tests call the actual compiled WASM. Runtime-created object identity, hierarchy, solid drawing, transformed bounds/hits and captured lifecycle routes use the shared Rust/WASM scene while authored documents remain immutable. Explicit linked MovieClip namespaces reuse the shared timeline evaluator with independent frame scripts, nested clocks and ref-based semantic targets, including detached playback. Bounded AMF0/AMF3 values are encoded/decoded in Rust and used by ByteArray object records and local AS2/AS3 SharedObject persistence. The second bounded runtime batch adds Rust date/number formatting, four rendered filter families and manual AS3 event payload classes.",
       "limitations": "A shared implementation does not prove compatibility with Flash behavior. The combined dynamic-display browser workflow and Restart passed; authored/dynamic reordering and full Flash construction order remain bounded. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. This persistence/codec delivery has separate evidence. Typed aliases/class reconstruction, externalizable/XML/Vector/Dictionary values, native .sol files and remote synchronization remain pending. Browser quota/access and HTTP(S) origin rules apply; Restart discards unflushed edits. AMF payload size excludes the storage envelope and historical filesystem overhead.",
+      "items": [
+        {
+          "id": "shared-timeline",
+          "title": "Same Rust timeline runtime in the browser",
+          "status": "working"
+        },
+        {
+          "id": "dynamic-display",
+          "title": "Runtime-created display objects with drawing and hit testing",
+          "status": "working"
+        },
+        {
+          "id": "linked-movieclips",
+          "title": "Linked MovieClip timelines with own scripts and clocks",
+          "status": "working"
+        },
+        {
+          "id": "shared-object",
+          "title": "Local SharedObject persistence (AS2/AS3)",
+          "status": "working"
+        },
+        {
+          "id": "amf-bytearray",
+          "title": "AMF0/AMF3 values in ByteArray",
+          "status": "working"
+        },
+        {
+          "id": "date-number-format",
+          "title": "Date and number formatting",
+          "status": "working"
+        },
+        {
+          "id": "runtime-filters",
+          "title": "Rendered runtime filters",
+          "status": "working"
+        },
+        {
+          "id": "event-payloads",
+          "title": "Manual AS3 event payload classes",
+          "status": "working"
+        },
+        {
+          "id": "typed-amf",
+          "title": "Typed AMF aliases and class reconstruction",
+          "status": "planned"
+        },
+        {
+          "id": "sol-remote-sync",
+          "title": "Native .sol files and remote SharedObject sync",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-web/src/lib.rs",
         "web/tests/wasm.test.cjs",
@@ -476,6 +1339,28 @@
       "status": "implemented",
       "scope": "Oxc parses synchronous frame/object function bodies, which the HTML5 host executes with the specified owner. The web-container family connects AS2/AS3 ExternalInterface callbacks and named page calls to this same browser publication, with ordinary authored JavaScript for HTML controls.",
       "limitations": "Project modules/imports and top-level await are outside this item. Code has the privileges of its containing browser page.",
+      "items": [
+        {
+          "id": "js-frame-scripts",
+          "title": "JavaScript frame scripts",
+          "status": "working"
+        },
+        {
+          "id": "js-object-handlers",
+          "title": "JavaScript object handlers",
+          "status": "working"
+        },
+        {
+          "id": "external-interface",
+          "title": "ExternalInterface calls between ActionScript and the page",
+          "status": "working"
+        },
+        {
+          "id": "html-controls",
+          "title": "Authored JavaScript for HTML controls",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-script/src/lib.rs",
         "web/runtime.js",
@@ -493,6 +1378,28 @@
       "status": "partial",
       "scope": "Oxc removes annotations and transforms supported runtime constructs in handlers.",
       "limitations": "TypeScript type checking is absent; imports/modules, JSX/TSX and external transform helpers are unsupported.",
+      "items": [
+        {
+          "id": "ts-handlers",
+          "title": "TypeScript frame and object handlers",
+          "status": "working"
+        },
+        {
+          "id": "type-checking",
+          "title": "TypeScript type checking",
+          "status": "planned"
+        },
+        {
+          "id": "ts-modules",
+          "title": "TypeScript imports and modules",
+          "status": "planned"
+        },
+        {
+          "id": "tsx",
+          "title": "JSX/TSX",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-script/src/lib.rs",
         "docs/COMPATIBILITY.md"
@@ -505,6 +1412,58 @@
       "status": "partial",
       "scope": "Authored frame/Load/Click/EnterFrame handlers plus shared display/Stage EventDispatcher subscriptions, propagation/cancellation, bounded keyboard/pointer input and AS2 onEnterFrame/onPress callbacks. Captured AS2 Key/Mouse/Stage listener objects, keyboard state and hook-based cursor visibility share the same input hub and reset lifecycle. Publication-owned AS3 timers drive the same script/render lifecycle, with completion, elapsed-time queries and Restart cleanup; the geometry-timer example combines this with typed affine geometry and live text. Pointer capture and outside release share the drag lifecycle; AS2 gains onRelease/onReleaseOutside/onRollOver/onRollOut, and mouse target flags/cursor preferences are resolved against the current Rust display graph. Rust-owned callback timer IDs add AS2/AS3 interval/timeout functions; the scripted Tween family shares the existing event/scheduler service. Bounded AS2 AsBroadcaster adds ordered listener identity, dispatch and publication reset cleanup. The second bounded runtime batch adds Rust date/number formatting, four rendered filter families and manual AS3 event payload classes.",
       "limitations": "Full Flash construction/event order, remaining native callbacks, fullscreen/IME/touch and complete owner-specific API guards remain unfinished. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent frozen-01f1381 browser verification found trusted mouse click events with isPrimary=false dropped by the shared Stage guard; semantic Enter and keyboard paths passed. The corrected input route passed coordinate clicks and Restart in the original class/Stage examples; an unlocated aggregate observer exception remains open. The new AS2 combined scenario has executable host/WASM evidence; representative coordinate clicks, keyboard and Restart also passed in the in-app browser. The combined geometry/Timer browser workflow and Restart passed; historical Flash timing and cross-engine conformance remain unverified. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified. This family has separate grouped input/drag verification; exact historical event ordering, all native-text/semantic combinations, multi-touch and other browser engines remain unverified. The drag delivery separately passed real AS2/AS3 browser drags, invisible donor margin, child/disabled targeting, outside release and fresh Restart callbacks; existing linked-card Canvas and keyboard activation also passed. Native capture-at-Restart and cursor values retain controlled-helper evidence. Full declaration promotion remains a separate audit. Independent 01f2261 evidence (POINTER-HTML5-20261027T1113Z) is restricted to the real drag/drop, child/disabled targeting, outside-release and Restart observations in VERIFICATION.md. The actual AS3 parent is unrotated and AS2 parent is −4 degrees, both scale 1. Cursor effects, active-capture Restart, lockCenter, active bounds mutation, arbitrary donor/transform/cancellation cases and every nested hit path were not independently accepted. The linked regression has successful body/key controls plus one unresolved first coordinate miss; it is not complete nested-target coverage. The shared linked body/semantic controls preserve authored behavior in the tested routes, while the first possible nested-badge miss remains unresolved. Native cursor/accessibility conformance is not inferred. Callback timer/Tween/broadcaster behavior is partial, and the newly added broadcaster browser scenario is pending. Historical event order, arbitrary coercion and direct listener-array mutation are not claimed. This hour's batch remains partial; acceptance and any observed failures are recorded separately in docs/AS-RUNTIME-HOUR.md. Earlier browser evidence does not certify the new entries or full historical conformance.",
+      "items": [
+        {
+          "id": "authored-handlers",
+          "title": "Frame, Load, Click and EnterFrame handlers",
+          "status": "working"
+        },
+        {
+          "id": "event-dispatcher",
+          "title": "EventDispatcher with propagation and cancellation",
+          "status": "working"
+        },
+        {
+          "id": "keyboard-pointer",
+          "title": "Keyboard and pointer input",
+          "status": "working"
+        },
+        {
+          "id": "as2-callbacks",
+          "title": "AS2 onEnterFrame, press, release and rollover callbacks",
+          "status": "working"
+        },
+        {
+          "id": "drag",
+          "title": "Dragging with pointer capture and outside release",
+          "status": "working"
+        },
+        {
+          "id": "timers",
+          "title": "Timers, intervals and timeouts",
+          "status": "partial"
+        },
+        {
+          "id": "broadcaster",
+          "title": "AS2 AsBroadcaster listeners",
+          "status": "partial"
+        },
+        {
+          "id": "fullscreen",
+          "title": "Fullscreen mode",
+          "status": "planned"
+        },
+        {
+          "id": "touch",
+          "title": "Touch and multi-touch input",
+          "status": "planned"
+        },
+        {
+          "id": "ime",
+          "title": "IME input events",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-core/src/runtime.rs",
         "web/runtime.js",
@@ -552,6 +1511,28 @@
       "status": "implemented",
       "scope": "Authors set names, descriptions, roles and order; Tab and Enter/Space activate Buttons through the shared Click path.",
       "limitations": "This is a limited semantic overlay. VoiceOver, Safari and overall product accessibility remain unverified.",
+      "items": [
+        {
+          "id": "names-descriptions",
+          "title": "Accessible names and descriptions",
+          "status": "working"
+        },
+        {
+          "id": "roles",
+          "title": "Accessible roles",
+          "status": "working"
+        },
+        {
+          "id": "tab-order",
+          "title": "Custom tab order",
+          "status": "working"
+        },
+        {
+          "id": "keyboard-activation",
+          "title": "Activate Buttons with Enter or Space",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "web/accessibility.js",
         "web/tests/accessibility.test.cjs",
@@ -566,6 +1547,28 @@
       "status": "implemented",
       "scope": "Fit, 100%, fixed zoom levels, scrolling and panning preserve authored geometry and access to transport controls.",
       "limitations": "Zoom is not responsive layout. Touch devices and Safari need additional checks.",
+      "items": [
+        {
+          "id": "fit-100",
+          "title": "Fit and 100% zoom",
+          "status": "working"
+        },
+        {
+          "id": "zoom-levels",
+          "title": "Fixed zoom levels",
+          "status": "working"
+        },
+        {
+          "id": "scroll-pan",
+          "title": "Scroll and pan the preview",
+          "status": "working"
+        },
+        {
+          "id": "transport-access",
+          "title": "Transport controls stay reachable while zoomed",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "web/preview.js",
         "web/tests/accessibility.test.cjs",
@@ -579,6 +1582,28 @@
       "status": "planned",
       "scope": "Semantic DOM text, forms and inputs, web components, responsive layout and breakpoints.",
       "limitations": "Current publishing uses a fixed Canvas stage; the Button/Image overlay does not provide DOM authoring.",
+      "items": [
+        {
+          "id": "dom-text",
+          "title": "Semantic DOM text",
+          "status": "planned"
+        },
+        {
+          "id": "forms-inputs",
+          "title": "DOM forms and inputs",
+          "status": "planned"
+        },
+        {
+          "id": "web-components",
+          "title": "Web components",
+          "status": "planned"
+        },
+        {
+          "id": "responsive-layout",
+          "title": "Responsive layout and breakpoints",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "docs/PRODUCT.md",
         "docs/ROADMAP.md",
@@ -592,6 +1617,58 @@
       "status": "partial",
       "scope": "Embedded AS2/AS3 source units use distinct bounded class profiles with exact imports, shared publication programs, authored symbol linkage and source-path diagnostics. AS2 root document linkage is a NeoFlash extension. Sources can be edited in Actions. Actions offers a toolbox and code hints generated from the declarations NeoFlash implements or partially implements, plus project classes scanned from source, a Script navigator, auto-indent formatting, comment commands and a silent live check. AS3 projects can import bounded ByteArray/Endian buffers; unsupported native inheritance and constructor forms produce source diagnostics. Explicit exported MovieClip classes instantiate shared library timelines through AS3 construction or AS2 attachMovie, with independent namespace refs, nested clocks and script targets. Public AS3 get/set accessors and project interface contracts share the existing source compiler. Portable project resources feed the AS3 URLRequest/URLLoader/URLVariables and AS2 LoadVars families; requests share publication lifecycle and binary/event services. AS3 lexical class access, final/dynamic declarations and package wildcards connect encapsulated models to public data/display APIs; AS2 retains distinct compile-time private rules. The bounded AS2/AS3 hour adds and migrates large runtime families through the existing compiler and HTML5 exporter: Math (19 migrated paths), geometry/Color (74 migrated and 46 new entries), strings/codecs (19 migrated and 8 new), easing/Tween/CustomEase/timers (121 new), ByteArray codecs (5 migrated and 12 new), and AsBroadcaster (5 new). Individual licensed algorithms are adapted into the shared Rust core; browser adapters bind object identity, callbacks and browser facilities. Shared aliases and reused kernels are counted separately from algorithms; no editor, FLA or full-VM completion is implied.",
       "limitations": "JS/TS modules, SWC dependencies, complete type checking, compiler-backed completion (current hints are lexical), warnings/quick fixes, debugger/source maps and full class semantics remain pending. Representative linked-class behavior and Restart passed in the shared in-app-browser batch; native Sources acceptance remains pending. The AS2 combined export/WASM/input scenario passes; representative coordinate clicks, keyboard and Restart also passed in the in-app browser. Bounded binary-buffer workflow has independent browser evidence on 2b5deff; binary memory support does not imply loaders, external IO or resource-document support. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Linked MovieClip and accessor/interface workflows passed the shared in-app-browser batch; native Export identifier editing remains pending. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified. These are delivery-batch entry counts, not a complete declaration audit or language-compatibility percentage. Broader product work remains paused; the hour report records executed export/browser evidence and unresolved failures. This hour's batch remains partial; acceptance and any observed failures are recorded separately in docs/AS-RUNTIME-HOUR.md. Earlier browser evidence does not certify the new entries or full historical conformance.",
+      "items": [
+        {
+          "id": "source-units",
+          "title": "AS2/AS3 class source files in the project",
+          "status": "working"
+        },
+        {
+          "id": "actions-editing",
+          "title": "Edit sources in Actions with navigator and formatting",
+          "status": "working"
+        },
+        {
+          "id": "code-hints",
+          "title": "Toolbox and code hints",
+          "status": "partial"
+        },
+        {
+          "id": "live-check",
+          "title": "Live check with source diagnostics",
+          "status": "working"
+        },
+        {
+          "id": "exported-classes",
+          "title": "Exported MovieClip classes (AS3 new, AS2 attachMovie)",
+          "status": "working"
+        },
+        {
+          "id": "accessors-interfaces",
+          "title": "AS3 get/set accessors and interfaces",
+          "status": "working"
+        },
+        {
+          "id": "url-loading",
+          "title": "URLLoader and LoadVars data loading",
+          "status": "working"
+        },
+        {
+          "id": "js-ts-modules",
+          "title": "JS/TS modules",
+          "status": "planned"
+        },
+        {
+          "id": "type-checking-quick-fixes",
+          "title": "Complete type checking, warnings and quick fixes",
+          "status": "planned"
+        },
+        {
+          "id": "debugger",
+          "title": "Debugger and source maps",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "docs/BACKLOG.md",
         "docs/COMPATIBILITY.md",
@@ -671,6 +1748,33 @@
       "status": "planned",
       "scope": "Font embedding/subsetting/outline export, font policies and predictable layout on a clean computer.",
       "limitations": "Export references fonts by name and emits a warning; fallback can change text appearance and wrapping. Shared Rust line calculation consumes each host font engine’s measurements, so it does not establish portable font metrics. Embedding/subsetting/outlines remain planned.",
+      "items": [
+        {
+          "id": "font-embedding",
+          "title": "Font embedding",
+          "status": "planned"
+        },
+        {
+          "id": "font-subsetting",
+          "title": "Font subsetting",
+          "status": "planned"
+        },
+        {
+          "id": "outline-export",
+          "title": "Export text as outlines",
+          "status": "planned"
+        },
+        {
+          "id": "font-policies",
+          "title": "Font policies",
+          "status": "planned"
+        },
+        {
+          "id": "portable-layout",
+          "title": "Predictable text layout on a clean computer",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-export/src/lib.rs",
         "docs/ROADMAP.md",
@@ -684,6 +1788,58 @@
       "status": "partial",
       "scope": "Library imports and stores portable resource files, including image/audio/video bytes, with metadata editing, Undo and self-contained HTML5 packaging. The shared data service loads embedded text, bytes and form variables and supports bounded HTTP(S) requests. PNG/JPEG resources can be placed on Stage with transforms and smoothing. Shared Rust BitmapData buffers support bounded pixel edits, fill/copy/clone/scroll and disposal; AS3 Bitmap and AS2 attachBitmap use the same display graph and publication lifetime. AS3 Sound/SoundChannel/SoundTransform and AS2 Sound add complete-file MP3/WAV resource/HTTP loading, gesture-enabled playback, stop/repeats, volume/pan and completion callbacks. AS3 Loader/LoaderInfo and AS2 MovieClipLoader now connect encoded PNG/JPEG resource/HTTP bytes to managed display content and the Rust pixel arena. Runtime BitmapData image processing adds color/filter operations and current subtree capture through the shared scene painter; AS3 adds bulk ByteArray transfer and PNG encoding with Loader round-trip. Authored/dynamic Video display leaves, native placeholder insertion and browser NetStream file playback use the shared scene graph and portable resources; HTTP media uses native browser CORS transport. SVG/PNG/JPEG Stage import shares a menu/file-drop path, creates library symbols, reuses identical resources and commits multi-file batches as one Undo. Solid SVG paths stay editable; richer paint renders through Rust resvg with original SVG retention. Native file-drop coordinates, page fitting and visible-layer fallback keep imported graphics on Stage. Library symbols and supported stored image resources can also be dragged or placed through the same transaction.",
       "limitations": "Additional image formats, bitmap fills, remaining filter/draw/encoding operations, sound streaming and timeline audio, native video decoding/synchronization and font embedding remain planned. Audio uses a bounded browser playback service; its own verification is recorded separately. Native resource/image panel acceptance and direct-file browser opening remain pending. The bitmap workflow passed combined export/WASM and in-app-browser observation of shared edits, independent source/clone, AS2 attachment and Restart. Full bitmap conformance is not established; exact evidence is in VERIFICATION.md. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass. The separate Sound delivery verifies ordinary AS2/AS3 MP3 loading, silent Play/Stop/Restart and actual browser MP3/offline PCM/native lifecycle; WAV native decoding, other engines and audible quality remain unverified. Independent d8f580a evidence (AUDIO-HTML5-20261027T0429Z) covers only the embedded-AS3/HTTP-AS2 original-MP3 workflow, silent native completion with bounded repeats, transform copy/refusal, active Stop and publication Restart in VERIFICATION.md. It does not inherit the separate main-delivery offline PCM probe or establish audible quality, native WAV decoding, nonzero offsets/gain, full mixer semantics or pending-decode races. Image loading excludes SWF/GIF, application/security domains, native Loader subclasses and general legacy target addressing. Retained AS3 content survives unload; explicit disposal/Restart and shared arena limits apply while full garbage collection remains pending. The loader-gallery delivery has separate evidence; previous resource/bitmap audits do not promote new loader declarations. The image pipeline remains bounded: normal draw blending, integer regions, no external mask dependencies, no display filters during draw, partial setPixels underrun, and separate native authoring/exact raster acceptance. Native Video insertion/Properties has separate UI acceptance from compile/model checks. Full media timeline synchronization, capture/publishing and legacy video codecs remain open. The Video delivery separately passed one actual-browser AS2/AS3 MP4 workflow: metadata, changing pixels, paused-frame retention, seek/resume/completion, Close retention, local HTTP playback and Restart. The tiny silent fixture does not establish progressive-before-download completion, audible quality, other codecs/engines or native authoring UI. Independent f42ad94 evidence (VIDEO-HTML5-20261027T1042Z) covers the observed embedded AS3/AS2 four-second MP4, native metadata/status/pixels, pause/seek/resume/natural completion, post-completion Close retention, AS3-only clear and active AS2 HTTP Restart/fresh playback in VERIFICATION.md. The negative AS3 seek preserves time; the unsupported-pan diagnostic does not implement panning. Configured volume zero and silent AAC are not audible-effect evidence. Active/pending close, arbitrary rebinding/reentry, smoothing comparisons, other codecs, large progressive/range/CORS transport, exact synchronization and native Video authoring do not inherit this pass. SVG scripts, animation, external file references and embedded HTML reject. Complex SVG paint is an image after import; original source remains available.",
+      "items": [
+        {
+          "id": "resource-import",
+          "title": "Import image, audio and video files into the Library",
+          "status": "working"
+        },
+        {
+          "id": "image-placement",
+          "title": "Place PNG/JPEG images on Stage",
+          "status": "working"
+        },
+        {
+          "id": "svg-import",
+          "title": "SVG import with editable solid paths",
+          "status": "working"
+        },
+        {
+          "id": "bitmapdata",
+          "title": "Scripted BitmapData pixel editing",
+          "status": "partial"
+        },
+        {
+          "id": "image-loading",
+          "title": "Load PNG/JPEG images at runtime",
+          "status": "working"
+        },
+        {
+          "id": "sound-playback",
+          "title": "Scripted MP3/WAV sound playback",
+          "status": "working"
+        },
+        {
+          "id": "video-playback",
+          "title": "Video objects with scripted file playback",
+          "status": "working"
+        },
+        {
+          "id": "more-image-formats",
+          "title": "Additional image formats",
+          "status": "planned"
+        },
+        {
+          "id": "sound-streaming",
+          "title": "Sound streaming",
+          "status": "planned"
+        },
+        {
+          "id": "native-video-decoding",
+          "title": "Native video decoding and synchronization",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "docs/ROADMAP.md",
         "docs/BACKLOG.md",
@@ -734,6 +1890,28 @@
       "status": "implemented",
       "scope": "Invalid projects, compilation errors and missing runtime files block export; uncaught runtime failures are shown to the user.",
       "limitations": "Diagnostics for accepted ActionScript constructs do not establish semantic compatibility for every host interaction.",
+      "items": [
+        {
+          "id": "block-invalid",
+          "title": "Block export of invalid projects",
+          "status": "working"
+        },
+        {
+          "id": "compile-errors",
+          "title": "Block export on compilation errors",
+          "status": "working"
+        },
+        {
+          "id": "missing-runtime",
+          "title": "Block export when runtime files are missing",
+          "status": "working"
+        },
+        {
+          "id": "runtime-errors",
+          "title": "Show uncaught runtime errors to the user",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-export/src/lib.rs",
         "web/tests/script-failures.test.cjs",
@@ -747,6 +1925,58 @@
       "status": "partial",
       "scope": "One scene, library, held keys, labels, nested instances, TRS/alpha, primitives, simple static text and a bounded subset of convex straight DOMShape geometry with solid fills and round strokes. Selected-profile InvisibleLayer policy and blank-gap placement IDs are preserved; ambiguous adjacent continuity and unsupported excluded-layer behavior produce diagnostics.",
       "limitations": "One unchanged real CS6 FLA has browser acceptance. General DOMShape, masks, media, rich text and skew are incomplete. Adjacent same-symbol continuity and excluded scripts/labels/extended duration are explicitly refused.",
+      "items": [
+        {
+          "id": "xfl-zip-fla",
+          "title": "Import XFL and ZIP-based FLA files",
+          "status": "working"
+        },
+        {
+          "id": "scene-library",
+          "title": "Scene, library and nested instances",
+          "status": "working"
+        },
+        {
+          "id": "keys-labels",
+          "title": "Held keyframes and frame labels",
+          "status": "working"
+        },
+        {
+          "id": "trs-alpha",
+          "title": "Position, scale, rotation and alpha",
+          "status": "working"
+        },
+        {
+          "id": "static-text",
+          "title": "Simple static text",
+          "status": "working"
+        },
+        {
+          "id": "shapes",
+          "title": "Shapes with solid fills and round strokes",
+          "status": "partial"
+        },
+        {
+          "id": "masks",
+          "title": "Masks",
+          "status": "planned"
+        },
+        {
+          "id": "media",
+          "title": "Media",
+          "status": "planned"
+        },
+        {
+          "id": "rich-text",
+          "title": "Rich text",
+          "status": "planned"
+        },
+        {
+          "id": "skew",
+          "title": "Skew",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-import/src/xfl.rs",
         "crates/neoflash-import/src/xfl/shape.rs",
@@ -764,6 +1994,28 @@
       "status": "partial",
       "scope": "Supported XFL and binary FLA retain source language and exact frame/object source. The existing CS6 AS2 trace remains verified; Clock retains AS1 with bounded case-insensitive dynamic timeline/property lookup, and the CS4 banner retains AS2 frame and release handlers.",
       "limitations": "Retention is distinct from runtime coverage. AS1 is a bounded dynamic AVM1 profile, not full lexical/class conformance; unsupported compiled/historical actions reject. External variables such as banner link1 remain host inputs.",
+      "items": [
+        {
+          "id": "source-retention",
+          "title": "Preserve frame and object scripts from XFL and binary FLA",
+          "status": "working"
+        },
+        {
+          "id": "source-language",
+          "title": "Preserve the original script language",
+          "status": "working"
+        },
+        {
+          "id": "as1-runtime",
+          "title": "Run imported AS1 code with dynamic timeline lookup",
+          "status": "partial"
+        },
+        {
+          "id": "historical-actions",
+          "title": "Import compiled historical actions",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-import/src/xfl.rs",
         "crates/neoflash-import/tests/xfl_semantic_guards.rs",
@@ -780,6 +2032,28 @@
       "status": "implemented",
       "scope": "Format detection, bounded ZIP/CFB readers, path/size/integrity checks and explicit refusal without overwriting the source. A narrow in-memory CFB timestamp/color compatibility view is strictly revalidated and compared against every original logical stream; original source bytes remain unchanged.",
       "limitations": "Respecting container boundaries does not establish support for its contents.",
+      "items": [
+        {
+          "id": "format-detection",
+          "title": "Detect import file formats",
+          "status": "working"
+        },
+        {
+          "id": "bounded-readers",
+          "title": "Bounded ZIP and CFB reading",
+          "status": "working"
+        },
+        {
+          "id": "integrity-checks",
+          "title": "Path, size and integrity checks with explicit refusal",
+          "status": "working"
+        },
+        {
+          "id": "source-untouched",
+          "title": "Never overwrite the source file",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-import/src/source.rs",
         "crates/neoflash-import/src/legacy.rs",
@@ -795,6 +2069,48 @@
       "status": "partial",
       "scope": "Bounded CFB/MFC reading preserves Contents publishing/folders/linkage, shared layer identities, instances, static-text runs, source actions and global custom-ease curves. MX/CS4 sample Contents and all timelines reach exact EOF; unsupported layouts retain explicit stop boundaries.",
       "limitations": "Unknown classes/revisions, historical action bytecode and several media/component records remain unsupported. Recognition of a complete structure does not alone establish editable semantics.",
+      "items": [
+        {
+          "id": "contents",
+          "title": "Read publishing settings, folders and linkage",
+          "status": "working"
+        },
+        {
+          "id": "layers-instances",
+          "title": "Read layer identities and instances",
+          "status": "working"
+        },
+        {
+          "id": "static-text-runs",
+          "title": "Read static text runs",
+          "status": "working"
+        },
+        {
+          "id": "source-actions",
+          "title": "Read source actions",
+          "status": "working"
+        },
+        {
+          "id": "custom-ease",
+          "title": "Read global custom ease curves",
+          "status": "working"
+        },
+        {
+          "id": "unknown-records",
+          "title": "Unknown classes and revisions",
+          "status": "planned"
+        },
+        {
+          "id": "historical-bytecode",
+          "title": "Historical action bytecode",
+          "status": "planned"
+        },
+        {
+          "id": "media-component-records",
+          "title": "Media and component records",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-import/src/legacy/contents.rs",
         "crates/neoflash-import/src/legacy/timeline.rs",
@@ -812,6 +2128,53 @@
       "status": "partial",
       "scope": "Preserves binary shapes/styles/edges verbatim. Native MX/CS4 conversion assembles directed fill contours, quadratic curves, solid/gradient paints and ordinary strokes with full affine placement. The independent bounded Flash 3 solid adapter remains available.",
       "limitations": "Procedural strokes, bitmap fills, spread/interpolation extensions and unresolved paint encodings reject. Auxiliary editing handles remain in embedded source; stroke-cap and text-metric differences have diagnostics.",
+      "items": [
+        {
+          "id": "shape-preservation",
+          "title": "Preserve original binary shapes, styles and edges",
+          "status": "working"
+        },
+        {
+          "id": "fill-contours",
+          "title": "Convert filled contours with quadratic curves",
+          "status": "working"
+        },
+        {
+          "id": "solid-gradient-paints",
+          "title": "Solid and gradient paints",
+          "status": "working"
+        },
+        {
+          "id": "ordinary-strokes",
+          "title": "Ordinary strokes",
+          "status": "working"
+        },
+        {
+          "id": "affine-placement",
+          "title": "Full affine placement",
+          "status": "working"
+        },
+        {
+          "id": "flash3-solids",
+          "title": "Flash 3 solid shapes",
+          "status": "working"
+        },
+        {
+          "id": "procedural-strokes",
+          "title": "Procedural strokes",
+          "status": "planned"
+        },
+        {
+          "id": "bitmap-fills",
+          "title": "Bitmap fills",
+          "status": "planned"
+        },
+        {
+          "id": "gradient-extensions",
+          "title": "Gradient spread and interpolation modes",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-import/src/legacy/geometry.rs",
         "crates/neoflash-import/src/legacy/contours.rs",
@@ -827,6 +2190,58 @@
       "status": "partial",
       "scope": "Native MX/CS4 conversion preserves one scene, library folders and symbols, ordered layers and masks, held keys, nested instances, classic motion and global cubic easing, static text, PNG bitmap resources and original AS1/AS2 source. Original FLA bytes and source-to-model provenance are embedded. Clock and 300x600 local-source integration and actual-WASM workflows pass. Native editor observations cover independent nested playback, filled logo/wipe artwork and mask/color transitions in the 300x400 and 300x600 banners.",
       "limitations": "A bounded profile, not general legacy FLA compatibility. Groups become editable one-frame graphics. Nonuniform text runs, motion paths/IK, shape tweens, 3D/effects, historical bytecode, audio/video and ambiguous publishing profiles reject. Font metrics may differ; missing fonts are nonblocking. Native observations are sample-specific and do not establish pixel-identical Flash rendering; scripted Clock behavior uses Test Movie.",
+      "items": [
+        {
+          "id": "scene-library",
+          "title": "Scene, library folders and symbols",
+          "status": "working"
+        },
+        {
+          "id": "layers-instances",
+          "title": "Layers, masks, held keys and nested instances",
+          "status": "working"
+        },
+        {
+          "id": "motion-tweens",
+          "title": "Classic motion tweens and cubic easing",
+          "status": "working"
+        },
+        {
+          "id": "static-text",
+          "title": "Static text",
+          "status": "working"
+        },
+        {
+          "id": "png-bitmaps",
+          "title": "PNG bitmap resources",
+          "status": "working"
+        },
+        {
+          "id": "mixed-text-runs",
+          "title": "Nonuniform text runs",
+          "status": "planned"
+        },
+        {
+          "id": "shape-tweens",
+          "title": "Shape tweens",
+          "status": "planned"
+        },
+        {
+          "id": "motion-paths-ik",
+          "title": "Motion paths and IK",
+          "status": "planned"
+        },
+        {
+          "id": "three-d-effects",
+          "title": "3D and effects",
+          "status": "planned"
+        },
+        {
+          "id": "audio-video",
+          "title": "Audio and video",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "docs/IMPORTS.md",
         "docs/BACKLOG.md",
@@ -846,6 +2261,38 @@
       "status": "partial",
       "scope": "Recognizes FWS/CWS/ZWS signatures and header/version fields.",
       "limitations": "Decompression, tag parsing, AVM1/AVM2 execution and source reconstruction are absent.",
+      "items": [
+        {
+          "id": "signatures",
+          "title": "Recognize SWF signatures",
+          "status": "working"
+        },
+        {
+          "id": "header",
+          "title": "Read SWF header and version",
+          "status": "working"
+        },
+        {
+          "id": "decompression",
+          "title": "Decompress SWF files",
+          "status": "planned"
+        },
+        {
+          "id": "tag-parsing",
+          "title": "Parse SWF tags",
+          "status": "planned"
+        },
+        {
+          "id": "avm-execution",
+          "title": "Run AVM1/AVM2 bytecode",
+          "status": "planned"
+        },
+        {
+          "id": "source-reconstruction",
+          "title": "Reconstruct source from SWF",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-import/src/lib.rs",
         "crates/neoflash-import/tests/import.rs",
@@ -859,6 +2306,23 @@
       "status": "planned",
       "scope": "A separate architecture for legacy playback and structured import; evaluation of Ruffle integration.",
       "limitations": "Ruffle is not integrated; SWF playback alone does not recover layers, source scripts or tween intent.",
+      "items": [
+        {
+          "id": "legacy-playback",
+          "title": "Play legacy SWF files",
+          "status": "planned"
+        },
+        {
+          "id": "structured-import",
+          "title": "Structured SWF import into a project",
+          "status": "planned"
+        },
+        {
+          "id": "recover-intent",
+          "title": "Recover layers, scripts and tween intent from SWF",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "docs/IMPORTS.md",
         "docs/ROADMAP.md"
@@ -871,6 +2335,23 @@
       "status": "planned",
       "scope": "Dependency models, linkage, versions and the source/bytecode boundary for external libraries.",
       "limitations": "SWC import and a working linker are absent.",
+      "items": [
+        {
+          "id": "swc-import",
+          "title": "Import SWC libraries",
+          "status": "planned"
+        },
+        {
+          "id": "linker",
+          "title": "Link external ActionScript libraries",
+          "status": "planned"
+        },
+        {
+          "id": "dependency-versions",
+          "title": "Library dependency and version management",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "docs/IMPORTS.md",
         "docs/COMPATIBILITY.md"
@@ -883,6 +2364,28 @@
       "status": "partial",
       "scope": "Synthetic fixtures and local historical samples are supplemented by 15 unchanged licensed FLA files: one XFL source has an exact browser reference trace, two MX sources have native semantic regressions, and 12 external files retain explicit refusals. All 21 input forms pass the corpus checker with nine imports and 12 refusals.",
       "limitations": "Complete per-file visual/behavioral comparison across Flash generations remains unfinished. Source retention and native regression evidence do not imply original-player parity; private Clock/banner artwork stays outside public fixtures.",
+      "items": [
+        {
+          "id": "licensed-corpus",
+          "title": "Licensed FLA corpus with checked imports and refusals",
+          "status": "working"
+        },
+        {
+          "id": "xfl-reference-trace",
+          "title": "Browser reference trace for an XFL source",
+          "status": "working"
+        },
+        {
+          "id": "mx-regressions",
+          "title": "Native semantic regressions for MX sources",
+          "status": "working"
+        },
+        {
+          "id": "per-file-comparison",
+          "title": "Per-file visual and behavioral comparison with Flash",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "examples/fla-corpus/manifest.json",
         "examples/fla-corpus/VERIFICATION.md",
@@ -898,6 +2401,43 @@
       "status": "implemented",
       "scope": "Versioned JSON stores stable symbols/placements/frames/scripts; version 2 adds logical project source units and document/symbol linkage with path, size and reference validation. Existing version-1 projects remain supported. Version 3 adds portable resource bytes, normalized logical paths/types, strict base64/size validation and shared immutable storage across native snapshots; versions 1 and 2 remain readable. Authored Bitmap elements reference portable PNG/JPEG resource IDs with validated intrinsic dimensions; mutable runtime pixels stay outside the document. TextBox stores explicit layout dimensions and uniform formatting; legacy Text remains readable without conversion, and runtime insertion defaults stay outside authored state. Format 4 adds authored layer roles/relationships and logical library folders with backward-compatible defaults. Format 5 adds affine skew, inherited color transforms, authored gradient paths, Flash easing and an explicit AS1 script identity.",
       "limitations": "Additional media consumers, embedded font layout and broader asset dependency authoring remain separate work. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass.",
+      "items": [
+        {
+          "id": "versioned-json",
+          "title": "Versioned JSON project format",
+          "status": "working"
+        },
+        {
+          "id": "backward-compat",
+          "title": "Older project versions stay readable",
+          "status": "working"
+        },
+        {
+          "id": "source-units-linkage",
+          "title": "Project source units and symbol linkage",
+          "status": "working"
+        },
+        {
+          "id": "portable-resources",
+          "title": "Embedded portable resources",
+          "status": "working"
+        },
+        {
+          "id": "bitmap-elements",
+          "title": "Bitmap elements referencing PNG/JPEG resources",
+          "status": "working"
+        },
+        {
+          "id": "layer-roles-folders",
+          "title": "Layer roles and library folders",
+          "status": "working"
+        },
+        {
+          "id": "format5-properties",
+          "title": "Skew, color transforms, gradients and Flash easing",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-core/src/model.rs",
         "crates/neoflash-core/src/validation.rs",
@@ -925,6 +2465,23 @@
       "status": "implemented",
       "scope": "The editor saves and opens .nflash through serialization and validation, without tying the document to absolute paths.",
       "limitations": "Autosave, recovery and multiple documents are tracked separately.",
+      "items": [
+        {
+          "id": "save",
+          "title": "Save .nflash projects",
+          "status": "working"
+        },
+        {
+          "id": "open",
+          "title": "Open .nflash projects with validation",
+          "status": "working"
+        },
+        {
+          "id": "path-independent",
+          "title": "Projects independent of absolute paths",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-editor/src/app.rs",
         "crates/neoflash-core/src/lib.rs",
@@ -938,6 +2495,23 @@
       "status": "implemented",
       "scope": "Change history with one Undo for a completed gesture; a new edit invalidates the redo branch.",
       "limitations": "Resource-aware history for large projects remains to be implemented.",
+      "items": [
+        {
+          "id": "undo-redo",
+          "title": "Undo and Redo",
+          "status": "working"
+        },
+        {
+          "id": "gesture-undo",
+          "title": "One Undo step per completed gesture",
+          "status": "working"
+        },
+        {
+          "id": "redo-branch",
+          "title": "New edits clear the redo branch",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "crates/neoflash-core/src/history.rs",
         "crates/neoflash-core/tests/core.rs",
@@ -951,6 +2525,28 @@
       "status": "partial",
       "scope": "Unsaved projects offer Save/Discard/Cancel before New/Open/Import/Close.",
       "limitations": "Autosave/crash recovery, file-change detection and multiple documents are not implemented yet.",
+      "items": [
+        {
+          "id": "unsaved-prompt",
+          "title": "Save/Discard/Cancel prompt for unsaved changes",
+          "status": "working"
+        },
+        {
+          "id": "autosave",
+          "title": "Autosave",
+          "status": "planned"
+        },
+        {
+          "id": "crash-recovery",
+          "title": "Crash recovery",
+          "status": "planned"
+        },
+        {
+          "id": "file-change-detection",
+          "title": "Detect external file changes",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-editor/src/app.rs",
         "docs/BACKLOG.md",
@@ -964,6 +2560,38 @@
       "status": "partial",
       "scope": "Rust/egui application, core shortcuts, system fonts and a local .app for macOS 15+.",
       "limitations": "Native menus/document integration, IME, the accessibility tree and trackpad conventions need further work.",
+      "items": [
+        {
+          "id": "macos-app",
+          "title": "Local macOS 15+ app",
+          "status": "working"
+        },
+        {
+          "id": "core-shortcuts",
+          "title": "Core keyboard shortcuts",
+          "status": "working"
+        },
+        {
+          "id": "system-fonts",
+          "title": "System fonts",
+          "status": "working"
+        },
+        {
+          "id": "native-menus",
+          "title": "Native menus and document integration",
+          "status": "planned"
+        },
+        {
+          "id": "ime",
+          "title": "IME input",
+          "status": "planned"
+        },
+        {
+          "id": "trackpad",
+          "title": "Trackpad conventions",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-editor/src/main.rs",
         "crates/neoflash-editor/src/fonts.rs",
@@ -978,6 +2606,28 @@
       "status": "implemented",
       "scope": "Shared check.sh covers lint, Rust tests, actual WASM and representative script/family scenarios. The no-build batch tool exports selected projects independently and prepares one dashboard with separate export, observed runtime and manual behavior states.",
       "limitations": "Harness availability and export success do not establish browser behavior or Flash conformance. The current batch has shared automated evidence, eight successful exports and representative in-app-browser behavior; native Sources and other browser engines remain pending.",
+      "items": [
+        {
+          "id": "check-suite",
+          "title": "Shared check suite with lint and Rust tests",
+          "status": "working"
+        },
+        {
+          "id": "wasm-tests",
+          "title": "Tests against the compiled WASM",
+          "status": "working"
+        },
+        {
+          "id": "family-scenarios",
+          "title": "Representative script family scenarios",
+          "status": "working"
+        },
+        {
+          "id": "batch-export-dashboard",
+          "title": "Batch export with a behavior dashboard",
+          "status": "working"
+        }
+      ],
       "evidence": [
         "scripts/check.sh",
         ".github/workflows/check.yml",
@@ -995,6 +2645,33 @@
       "status": "partial",
       "scope": "Validation/work budgets, expansion limits and cached browser path geometry exist.",
       "limitations": "Complete timeline virtualization, resource-aware undo and published performance budgets are missing.",
+      "items": [
+        {
+          "id": "work-budgets",
+          "title": "Validation budgets and expansion limits",
+          "status": "working"
+        },
+        {
+          "id": "path-cache",
+          "title": "Cached browser path geometry",
+          "status": "working"
+        },
+        {
+          "id": "timeline-virtualization",
+          "title": "Timeline virtualization",
+          "status": "planned"
+        },
+        {
+          "id": "resource-undo",
+          "title": "Resource-aware Undo",
+          "status": "planned"
+        },
+        {
+          "id": "performance-budgets",
+          "title": "Published performance budgets",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-core/src/validation.rs",
         "web/tests/path-cache.test.cjs",
@@ -1008,6 +2685,43 @@
       "status": "partial",
       "scope": "Local .app packaging with ad-hoc signing; Apple Silicon is documented as locally tested.",
       "limitations": "A notarized distribution release, verified Intel build, complete browser matrix and updater policy are absent.",
+      "items": [
+        {
+          "id": "local-app",
+          "title": "Local .app packaging",
+          "status": "working"
+        },
+        {
+          "id": "adhoc-signing",
+          "title": "Ad-hoc code signing",
+          "status": "working"
+        },
+        {
+          "id": "apple-silicon",
+          "title": "Apple Silicon build",
+          "status": "working"
+        },
+        {
+          "id": "notarized-release",
+          "title": "Notarized distribution release",
+          "status": "planned"
+        },
+        {
+          "id": "intel-build",
+          "title": "Verified Intel build",
+          "status": "planned"
+        },
+        {
+          "id": "browser-matrix",
+          "title": "Complete browser matrix",
+          "status": "planned"
+        },
+        {
+          "id": "updater",
+          "title": "Updater policy",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "scripts/package-macos.sh",
         "README.md",
@@ -1021,6 +2735,23 @@
       "status": "planned",
       "scope": "Public extension API, interface localization and stable product extension contracts.",
       "limitations": "The API and extension policy have not been defined yet.",
+      "items": [
+        {
+          "id": "extension-api",
+          "title": "Public extension API",
+          "status": "planned"
+        },
+        {
+          "id": "localization",
+          "title": "Interface localization",
+          "status": "planned"
+        },
+        {
+          "id": "extension-contracts",
+          "title": "Stable extension contracts",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "docs/PRODUCT.md",
         "docs/BACKLOG.md"
@@ -1033,6 +2764,28 @@
       "status": "partial",
       "scope": "Authored Button/Image metadata and individual browser keyboard/focus checks exist.",
       "limitations": "The native accessibility tree, VoiceOver and end-to-end accessibility verification for authors and visitors are still needed.",
+      "items": [
+        {
+          "id": "authored-metadata",
+          "title": "Accessibility metadata for Buttons and Images",
+          "status": "working"
+        },
+        {
+          "id": "browser-keyboard-focus",
+          "title": "Browser keyboard and focus support",
+          "status": "working"
+        },
+        {
+          "id": "native-a11y-tree",
+          "title": "Native accessibility tree",
+          "status": "planned"
+        },
+        {
+          "id": "voiceover",
+          "title": "VoiceOver support",
+          "status": "planned"
+        }
+      ],
       "evidence": [
         "crates/neoflash-editor/src/panels/accessibility.rs",
         "docs/WEB.md",

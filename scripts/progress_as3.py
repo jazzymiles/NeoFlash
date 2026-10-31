@@ -217,8 +217,8 @@ def classify_entries(manifest, catalog):
     return classified
 
 
-def load_priorities(root, catalog, revision=None):
-    """Read current or immutable historical classification; absent means unknown."""
+def classified_rows(root, catalog, revision=None):
+    """Return (manifest, raw bytes, routed AS3 rows); None when no manifest exists."""
     root = Path(root)
     if revision is None:
         if not (root / MANIFEST_PATH).exists():
@@ -234,6 +234,15 @@ def load_priorities(root, catalog, revision=None):
     stage_groups = {stage["id"]: stage["group"] for stage in manifest["stages"]}
     for row in rows:
         row["group"] = stage_groups[row["stage"]] if row["bucket"] == "player" else row["bucket"]
+    return manifest, raw, rows
+
+
+def load_priorities(root, catalog, revision=None):
+    """Read current or immutable historical classification; absent means unknown."""
+    classified = classified_rows(root, catalog, revision)
+    if classified is None:
+        return None
+    manifest, raw, rows = classified
     return {
         "schemaVersion": 1, "title": manifest["title"], "description": manifest["description"],
         "source": {**manifest["source"], "classificationSha256": hashlib.sha256(raw).hexdigest(), "manifestPath": MANIFEST_PATH},

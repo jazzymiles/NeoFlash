@@ -3,8 +3,8 @@
 
 The importer verifies the original catalogue/evidence hashes before joining every
 catalogue ID to its audited decision. It does not inspect current implementation,
-rerun the audit or promote any previously partial API to full compatibility.
-Authored --review records append bounded decisions to the normalized snapshot
+rerun the audit or certify full compatibility.
+Authored --review records (schema 2: test-backed status changes) update the snapshot
 while retaining original audit fingerprints and superseded evidence.
 """
 
@@ -266,6 +266,8 @@ def apply_review(review_path, root=ROOT):
         raise ValueError("Authored reviews belong under docs/progress/reviews/*.json")
     raw = path.read_bytes()
     review = json.loads(raw)
+    if set(review) == {"schemaVersion", "baseCatalogSha256", "reviews"} and review["schemaVersion"] == 2:
+        return apply_status_review(root, relative, raw, review)
     if set(review) != {"schemaVersion", "baseCatalogSha256", "reviews"} or review["schemaVersion"] != 1:
         raise ValueError("Unsupported normalized review schema")
     if not isinstance(review["reviews"], list) or not review["reviews"]:
@@ -336,12 +338,17 @@ def apply_review(review_path, root=ROOT):
             entry.update(status="partial", rule_id=item["id"], evidence_kind=change["evidenceKind"])
         added_rules.append({**item, "previousEntries": previous})
         verifications.append(verification)
+    metadata.setdefault("independentVerifications", []).extend(verifications)
+    return save_reviewed(root, data, added_rules, relative, raw, review, review_ids)
+
+
+def save_reviewed(root, data, added_rules, relative, raw, review, review_ids):
+    metadata = data["metadata"]
     used = {entry["rule_id"] for entry in data["entries"]}
     superseded = [rule for rule in data["rules"] if rule["id"] not in used]
     if superseded:
         metadata.setdefault("supersededRules", []).extend(superseded)
     data["rules"] = [rule for rule in data["rules"] if rule["id"] in used] + added_rules
-    metadata.setdefault("independentVerifications", []).extend(verifications)
     metadata.setdefault("normalizedReviewInputs", []).append({"path": relative, "sha256": sha256(raw),
         "baseCatalogSha256": review["baseCatalogSha256"], "reviewIds": review_ids})
     data["summary"] = aggregate(data["entries"])
@@ -352,6 +359,92 @@ def apply_review(review_path, root=ROOT):
     (root / CATALOG_PATH).write_bytes(payload)
     (root / AUDIT_PATH).write_text(json.dumps(frozen, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return load_catalog(root)
+
+
+REVIEW_STATUS = {"working": "implemented_subset", "partial": "partial", "missing": "missing", "needs_review": "needs_review"}
+REVIEW_FILE = re.compile(r"\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*\.json")
+REVIEW_ID = re.compile(r"(AS2|AS3)-[A-Z0-9]+(?:-[A-Z0-9]+)*")
+
+
+def apply_status_review(root, relative, raw, review):
+    """Apply a methodology v3 review: any status change, each backed by tests.
+
+    Promotions and demotions are both allowed; the previous decision is kept in
+    the rule so the change stays auditable. Tests must exist in this checkout.
+    """
+    name = PurePosixPath(relative).name
+    if not REVIEW_FILE.fullmatch(name) or "hour" in name:
+        raise ValueError("Name reviews YYYY-MM-DD-<area>.json (one per delivery, not per hour or batch)")
+    if not isinstance(review["reviews"], list) or not review["reviews"]:
+        raise ValueError("Review file must contain a nonempty reviews list")
+    data = load_catalog(root)
+    metadata = data["metadata"]
+    checked_hash((root / CATALOG_PATH).read_bytes(), review["baseCatalogSha256"], "baseCatalogSha256")
+    existing_ids = {rule["id"] for rule in data["rules"]}
+    existing_ids.update(rule["id"] for rule in metadata.get("supersededRules", []))
+    existing_ids.update(item["id"] for item in metadata.get("statusReviews", []))
+    existing_ids.update(identifier for item in metadata.get("normalizedReviewInputs", []) for identifier in item.get("reviewIds", []))
+    by_id = {entry["catalog_id"]: entry for entry in data["entries"]}
+    seen, added_rules, review_ids = set(), [], []
+    for item in review["reviews"]:
+        if set(item) != {"id", "date", "commit", "title", "summary", "tests", "entries"}:
+            raise ValueError("A status review needs exactly id, date, commit, title, summary, tests and entries")
+        identifier = item["id"]
+        if not isinstance(identifier, str) or not REVIEW_ID.fullmatch(identifier):
+            raise ValueError("Review ID must look like AS3-MOVIECLIP-20261101")
+        if identifier in existing_ids or identifier in review_ids:
+            raise ValueError(f"Duplicate or already-used review ID: {identifier}")
+        review_ids.append(identifier)
+        if not isinstance(item["date"], str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", item["date"]):
+            raise ValueError("Review date must be YYYY-MM-DD")
+        if not isinstance(item["commit"], str) or not re.fullmatch(r"[a-f0-9]{40}", item["commit"]):
+            raise ValueError("Review commit must be the full SHA the tests ran on")
+        if not isinstance(item["title"], str) or not item["title"].strip() or len(item["title"]) > 100:
+            raise ValueError("Review title is required (at most 100 characters)")
+        if not isinstance(item["summary"], str) or not item["summary"].strip() or len(item["summary"]) > 400:
+            raise ValueError("Review summary is required (at most 400 characters; no chronology or command logs)")
+        if not isinstance(item["tests"], list) or not item["tests"]:
+            raise ValueError("Review must list the tests that prove the decisions")
+        evidence = []
+        for test in item["tests"]:
+            safe_path(test)
+            if not (root / test).is_file():
+                raise ValueError(f"Review test file does not exist: {test}")
+            evidence.append({"path": test, "sha256": sha256((root / test).read_bytes())})
+        if not isinstance(item["entries"], list) or not item["entries"]:
+            raise ValueError("Review must classify at least one catalogue entry")
+        language = identifier.split("-", 1)[0]
+        previous, reviewed, changes = [], [], Counter()
+        for change in item["entries"]:
+            if set(change) - {"note"} != {"catalogId", "status"}:
+                raise ValueError("Reviewed entry needs catalogId, status and (unless working) note")
+            catalog_id, status = change["catalogId"], change["status"]
+            if catalog_id not in by_id:
+                raise ValueError(f"Unknown catalogue ID: {catalog_id}")
+            if catalog_id in seen:
+                raise ValueError(f"Duplicate reviewed catalogue ID: {catalog_id}")
+            seen.add(catalog_id)
+            entry = by_id[catalog_id]
+            if entry["language"] != language:
+                raise ValueError(f"{catalog_id} is not {language}; split reviews by language")
+            if status not in REVIEW_STATUS:
+                raise ValueError(f"{catalog_id}: status must be one of {', '.join(REVIEW_STATUS)}")
+            note = change.get("note", "")
+            if not isinstance(note, str) or (status != "working" and not note.strip()):
+                raise ValueError(f"{catalog_id}: {status} needs a note naming what is missing or unclear")
+            if REVIEW_STATUS[status] == entry["status"]:
+                raise ValueError(f"{catalog_id} is already {status}; list only changed entries")
+            previous.append({"catalogId": catalog_id, "status": entry["status"], "ruleId": entry["rule_id"], "evidenceKind": entry["evidence_kind"]})
+            entry.update(status=REVIEW_STATUS[status], rule_id=identifier, evidence_kind="test_backed_review")
+            reviewed.append({"catalogId": catalog_id, "status": REVIEW_STATUS[status],
+                             "scopeNote": note.strip() or "Main contract covered by the listed tests."})
+            changes[status] += 1
+        added_rules.append({"id": identifier, "title": item["title"], "reason": item["summary"],
+                            "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+                            "evidence": evidence, "reviewedEntries": reviewed, "previousEntries": previous})
+        metadata.setdefault("statusReviews", []).append({"id": identifier, "date": item["date"], "commit": item["commit"],
+                                                          "path": relative, "changes": dict(sorted(changes.items()))})
+    return save_reviewed(root, data, added_rules, relative, raw, review, review_ids)
 
 
 @lru_cache(maxsize=8)

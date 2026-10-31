@@ -4,47 +4,85 @@
 import argparse
 from datetime import datetime, timezone
 import json
-import hashlib
 from pathlib import Path
 import re
 import subprocess
 import sys
 
 from progress_catalog import load_catalog
-from progress_as3 import load_priorities
+from progress_targets import PUBLIC_STATUSES, load_targets, share
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFESTS = ("as2.json", "as3.json", "product.json")
+MANIFESTS = ("product.json",)
 STATUSES = ("implemented", "partial", "planned")
+ITEM_STATUSES = ("working", "partial", "planned")
+LANGUAGES = (("as2", "AS2"), ("as3", "AS3"))
 REPOSITORY = "https://github.com/jazzymiles/NeoFlash"
 REPORT_START = "<!-- progress:start -->"
 REPORT_END = "<!-- progress:end -->"
+STATUS_DEFINITIONS = ("**Working**: the main behavior from the Adobe reference runs and a linked test proves it. "
+                      "**Partial**: it runs, with the missing behavior named. **Missing**: no runtime path yet. "
+                      "**Needs review**: not yet classified. Statuses change only through test-backed reviews; "
+                      "this is not a Flash compatibility score.")
 
 
 def git(root, *args):
     return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
 
 
+def methodology(root, revision=None):
+    raw = git(root, "show", f"{revision}:docs/progress/methodology.json") if revision else (root / "docs/progress/methodology.json").read_text()
+    version = json.loads(raw)["version"]
+    if type(version) is not int or version < 1:
+        raise ValueError("Methodology version must be a positive integer")
+    return version
+
+
 def read_inventory(root, revision=None):
     categories, features = [], []
+    files = set(git(root, "ls-tree", "--name-only", revision, "docs/progress/").splitlines()) if revision else None
+    # Revisions before methodology v3 also kept supplementary AS family notes; they are not counted.
     for name in MANIFESTS:
         path = f"docs/progress/{name}"
+        if files is not None and path not in files:
+            raise ValueError(f"Incomplete historical inventory at {revision}")
         content = git(root, "show", f"{revision}:{path}") if revision else (root / path).read_text()
         data = json.loads(content)
         if data.get("schemaVersion") != 1:
             raise ValueError(f"{path}: unsupported schemaVersion")
-        if "category" in data:
-            category = data["category"]
-            categories.append(category)
-            features.extend({**f, "category": category["id"]} for f in data["features"])
-        else:
-            categories.extend(data["categories"])
-            features.extend(data["features"])
-    validate_inventory(root, categories, features, revision)
+        categories.extend(data["categories"])
+        features.extend(data["features"])
+    validate_inventory(root, categories, features, revision, require_items=methodology(root, revision) >= 3)
     return categories, features
 
 
-def validate_inventory(root, categories, features, revision=None):
+def derived_status(items):
+    statuses = {item["status"] for item in items}
+    return "implemented" if statuses == {"working"} else "planned" if statuses == {"planned"} else "partial"
+
+
+def validate_items(feature):
+    items = feature.get("items")
+    fid = feature["id"]
+    if not isinstance(items, list) or not items:
+        raise ValueError(f"{fid}: list the group's user-visible functions in items")
+    seen = set()
+    for item in items:
+        if set(item) != {"id", "title", "status"}:
+            raise ValueError(f"{fid}: each item needs exactly id, title and status")
+        if not re.fullmatch(r"[a-z][a-z0-9-]*", item["id"]) or item["id"] in seen:
+            raise ValueError(f"{fid}: invalid/duplicate item id {item['id']}")
+        seen.add(item["id"])
+        if not isinstance(item["title"], str) or not item["title"].strip():
+            raise ValueError(f"{fid}/{item['id']}: missing title")
+        if item["status"] not in ITEM_STATUSES:
+            raise ValueError(f"{fid}/{item['id']}: status must be one of {', '.join(ITEM_STATUSES)}")
+    if derived_status(items) != feature["status"]:
+        raise ValueError(f"{fid}: status must be {derived_status(items)} for these items "
+                         "(implemented = all working, planned = all planned, otherwise partial)")
+
+
+def validate_inventory(root, categories, features, revision=None, require_items=False):
     ids, feature_ids, paths = set(), set(), set()
     for category in categories:
         cid = category["id"]
@@ -64,6 +102,8 @@ def validate_inventory(root, categories, features, revision=None):
         for field in ("title", "scope", "limitations"):
             if not isinstance(feature.get(field), str) or not feature[field].strip():
                 raise ValueError(f"{fid}: missing {field}")
+        if require_items or "items" in feature:
+            validate_items(feature)
         if not isinstance(feature.get("evidence"), list) or not feature["evidence"]:
             raise ValueError(f"{fid}: evidence is required, including a roadmap for planned work")
         for path in feature["evidence"]:
@@ -87,106 +127,90 @@ def counts(features):
     return {**result, "total": len(features)}
 
 
+def item_counts(features):
+    result = dict.fromkeys(ITEM_STATUSES, 0)
+    for feature in features:
+        for item in feature.get("items", []):
+            result[item["status"]] += 1
+    return {**result, "total": sum(result.values())}
+
+
 def summary_table(categories, features):
-    lines = ["| Area | Closed | Partial | Planned | Closed capability groups |", "| --- | ---: | ---: | ---: | ---: |"]
-    for category in categories:
-        count = counts([f for f in features if f["category"] == category["id"]])
-        percentage = 100 * count["implemented"] / count["total"]
-        lines.append(f"| {category['title']} | {count['implemented']}/{count['total']} | {count['partial']} | {count['planned']} | {percentage:.1f}% |")
+    lines = ["| Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |",
+             "| --- | ---: | ---: | ---: | ---: |"]
+    rows = [(category["title"], [f for f in features if f["category"] == category["id"]]) for category in categories]
+    for title, members in rows + [("**All areas**", features)]:
+        items, groups = item_counts(members), counts(members)
+        lines.append(f"| {title} | {items['working']} of {items['total']} | {items['partial']} | {items['planned']} | "
+                     f"{groups['implemented']} / {groups['partial']} / {groups['planned']} |")
     return "\n".join(lines)
 
 
-def catalog_table(catalog):
-    lines = ["| Language | Documented entries | Implemented subset | Partial | Missing | Needs review |", "| --- | ---: | ---: | ---: | ---: | ---: |"]
-    for language, row in catalog["summary"]["byLanguage"].items():
-        lines.append(f"| {language} | {row['total']:,} | {row['implemented_subset']:,} | {row['partial']:,} | {row['missing']:,} | {row['needs_review']:,} |")
+def target_row(title, row):
+    return (f"| {title} | {row['total']:,} | {row['working']:,} | {row['partial']:,} | {row['missing']:,} | {row['needs_review']:,} | "
+            f"{share(row, 'working'):.1f}% | {share(row, 'working', 'partial'):.1f}% |")
+
+
+def target_table(view):
+    lines = ["| Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |",
+             "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    lines.extend(target_row(f"{stage['order']}. {stage['title']}", stage["counts"]) for stage in view["stages"])
+    last_now = max(stage["order"] for stage in view["stages"] if stage["now"])
+    lines.append(target_row(f"**Now: areas 1–{last_now}**", view["now"]))
+    lines.append(target_row("**All Flash Player areas**", view["target"]))
+    outside = " · ".join(f"{item['title']} {item['counts']['total']:,}" for item in view["outside"])
+    lines.extend(["", f"Outside the target and never in a percentage: {outside}."])
     return "\n".join(lines)
 
 
-def priority_table(rows, purpose=False):
-    """Keep every audit status visible when presenting a planning partition."""
-    lines = [
-        "| AS3 scope | Entries | Implemented subset | Partial | Audit missing | Needs review |" + (" Purpose |" if purpose else ""),
-        "| --- | ---: | ---: | ---: | ---: | ---: |" + (" --- |" if purpose else ""),
-    ]
-    for item in rows:
-        row = item["counts"]
-        title = item["title"].replace("|", "\\|")
-        cells = f"| {title} | {row['total']:,} | {row['implemented_subset']:,} | {row['partial']:,} | {row['missing']:,} | {row['needs_review']:,} |"
-        if purpose:
-            cells += " " + item["purpose"].replace("|", "\\|").replace("\n", " ") + " |"
-        lines.append(cells)
-    return "\n".join(lines)
+def last_review(catalog):
+    meta = catalog["metadata"]
+    dates = [run["verifiedAt"][:10] for run in meta.get("independentVerifications", [])]
+    dates += [review["date"] for review in meta.get("statusReviews", [])]
+    return max(dates, default=meta["auditedAt"][:10])
 
 
-def priority_report(priorities):
-    if not priorities:
-        return []
-    source = priorities["source"]
-    lines = [
-        "## AS3 adaptation priorities", "", priorities["description"], "",
-        "This planning view partitions the existing AS3 catalogue; it does not change any declaration status or the complete AS2/AS3 totals. **Audit missing** means missing in the dated audit, not a freshly demonstrated absence in the current source. Partial and unreviewed entries are not counted as complete or automatically assigned as new work.", "",
-        "### Important foundation and later work", "", priority_table(priorities["groups"], purpose=True), "",
-        "### Classic implementation order", "",
-        "The numbered stages subdivide the first three groups above; they are not additional entries. Implement only the remaining behavior after checking the current source; existing bounded methods are not repeated. Cameras, networking and other external facilities follow the language, objects and display foundation. The [roadmap](../ROADMAP.md) lists the remaining adaptation work separately from historical audit statuses.", "",
-        priority_table([{**stage, "title": f"{stage['order']}. {stage['title']}"} for stage in priorities["stages"]], purpose=True), "",
-        "Classification source: [AS3 priority manifest](as3-priorities.json), based on reference generation "
-        + f"{source['referenceGeneration']}; {source['entryCount']:,} declarations. "
-        + "Reference and catalogue identity SHA-256 values are pinned in the manifest; the generated site snapshot also records the manifest SHA-256. Counts retain the audit's evidence boundaries.", "",
-    ]
-    if priorities.get("limitations"):
-        lines.extend(["Classification limits:", ""])
-        lines.extend("- " + limitation for limitation in priorities["limitations"])
-        lines.append("")
+def targets_markdown(targets, heading="###"):
+    lines = []
+    for language in ("AS3", "AS2"):
+        if language in targets:
+            lines.extend([f"{heading} {targets[language]['title']}", "", target_table(targets[language]), ""])
     return lines
 
 
-def source_snapshot(root, revision, catalog):
-    changed_code, changed_docs = [], []
-    hashes = catalog["metadata"]["implementationSourceHashes"]
-    for path, expected in hashes.items():
-        if revision:
-            result = subprocess.run(["git", "-C", str(root), "show", f"{revision}:{path}"], capture_output=True)
-            actual = hashlib.sha256(result.stdout).hexdigest() if result.returncode == 0 else None
-        else:
-            actual = hashlib.sha256((root / path).read_bytes()).hexdigest() if (root / path).is_file() else None
-        if actual != expected:
-            (changed_docs if path.startswith("docs/") else changed_code).append(path)
-    return {"implementationMatches": not changed_code, "checkedFiles": len(hashes),
-            "changedImplementationFiles": sorted(changed_code), "changedDocumentationFiles": sorted(changed_docs)}
-
-
-def catalog_report(catalog, priorities=None):
+def catalog_report(catalog, targets):
     meta = catalog["metadata"]
-    lines = ["# ActionScript declaration coverage", "", "Generated by `python3 scripts/progress.py --write-reports` from the complete normalized catalogue and its frozen audit.", "",
-             f"Audit: `{meta['auditId']}` · {meta['auditedAt']} (UTC). Recorded baseline HEAD: `{meta['baselineRevision']}`; the implementation fingerprints in [the audit metadata](actionscript-audit.json) identify the actual source bytes.", "",
-             catalog_table(catalog), "", "These are documented declarations, not thousands of independently executed tests or equally sized features. **Implemented subset** means only the linked rule's bounded behavior. All entries lack full Flash compatibility certification; this does not mean nothing works. Most missing entries are architectural absence inferences. Original Flash differential testing was not performed.", "",
-             "## Scope breakdown", "", "The full reference includes AIR, Flex and component libraries. Even the core/language/runtime view includes some AIR declarations; it is not a Flash Player-only API list.", "",
-             "| Language | Scope | Entries | Implemented subset | Partial | Missing | Needs review |", "| --- | --- | ---: | ---: | ---: | ---: | ---: |"]
-    runs = meta.get("independentVerifications", [])
-    if runs:
-        later = ["## Follow-up acceptance", "",
-                 "The counts combine the historical baseline with explicitly reviewed declaration overrides below. Each follow-up has its own frozen source fingerprint; none certifies the current working tree. Product/import runs may add evidence without changing AS declaration counts.", "",
-                 "| Run | Review | Recorded HEAD | Source capture | Verification recorded | Browser |",
-                 "| --- | --- | --- | --- | --- | --- |"]
-        later.extend(f"| `{run['id']}` | {run.get('reviewKind', 'independent')} | `{run['recordedHead'][:12]}` + source manifest | {run['sourceCapturedAt']} | {run['verifiedAt']} | {run['browser']} |" for run in runs)
-        later.extend(["", "Exact manifest fingerprints, engine limitations and documented-only reference boundaries remain in the audit metadata and each linked evidence rule.", ""])
-        position = lines.index("## Scope breakdown")
-        lines[position:position] = later
-    if priorities:
-        # Keep the actionable planning view ahead of the historical run ledger.
-        position = lines.index("## Follow-up acceptance") if runs else lines.index("## Scope breakdown")
-        lines[position:position] = priority_report(priorities)
+    lines = ["# ActionScript declaration coverage", "", "Generated by `python3 scripts/progress.py --write-reports`. Counting rules: [README.md](README.md).", "",
+             f"{STATUS_DEFINITIONS} Last status review: {last_review(catalog)}.", "",
+             "## Flash Player target", "",
+             "Both languages are counted against the same eight Flash Player areas. Areas 1–6 are the current priority; 7–8 follow. "
+             "AS3 areas come from the [AS3 priority manifest](as3-priorities.json); AS2 areas from `scripts/progress_targets.py`.", ""]
+    lines.extend(targets_markdown(targets))
+    lines.extend(["## Full reference catalogue", "",
+                  "Every documented declaration, including AIR, Flex and components, for provenance. These totals are not progress measures.", "",
+                  "| Language | Scope | Entries | Working | Partial | Missing | Needs review |", "| --- | --- | ---: | ---: | ---: | ---: | ---: |"])
     for language, scopes in catalog["summary"]["byLanguageScope"].items():
         for scope, row in scopes.items():
-            lines.append(f"| {language} | {scope} | {row['total']:,} | {row['implemented_subset']} | {row['partial']} | {row['missing']:,} | {row['needs_review']} |")
-    lines.extend(["", "## Inspect individual declarations", "", "[Complete normalized catalogue](actionscript-catalog.json) · [Audit rules, source hashes and provenance](actionscript-audit.json)", "",
-                  "The normalized catalogue preserves every original ID, language, owner, name, kind, scope, source URL and audited status. Query it locally without loading the full list in the public page:", "", "```sh", "python3 scripts/progress_catalog.py --summary", "python3 scripts/progress_catalog.py --language AS3 --scope runtime --query MovieClip", "```", "",
-                  "The public page checks the baseline source fingerprints against its published revision. Changed implementation files make the audit a visibly dated snapshot; documentation changes are reported separately. Later working-tree reviews in the original audit are not promoted to shipped implementation or fresh test passes.", "", "## Evidence rules", ""])
+            lines.append(f"| {language} | {scope} | {row['total']:,} | {row['implemented_subset']:,} | {row['partial']:,} | {row['missing']:,} | {row['needs_review']:,} |")
+    lines.extend(["", f"Original audit `{meta['auditId']}` ({meta['auditedAt']}, baseline `{meta['baselineRevision'][:12]}`) set the starting statuses; later reviews below change them.", ""])
+    reviews = meta.get("statusReviews", [])
+    runs = meta.get("independentVerifications", [])
+    if reviews or runs:
+        lines.extend(["## Status reviews", "", "| Review | Date | Commit | Changed entries |", "| --- | --- | --- | --- |"])
+        for review in reversed(reviews):
+            changed = ", ".join(f"{count} → {status}" for status, count in review["changes"].items())
+            lines.append(f"| `{review['id']}` | {review['date']} | `{review['commit'][:12]}` | {changed} |")
+        for run in reversed(runs):
+            lines.append(f"| `{run['id']}` | {run['verifiedAt'][:10]} | `{run['recordedHead'][:12]}` | earlier format; see its rule |")
+        lines.append("")
+    lines.extend(["## Inspect individual declarations", "", "[Complete normalized catalogue](actionscript-catalog.json) · [Rules and provenance](actionscript-audit.json)", "",
+                  "```sh", "python3 scripts/progress_catalog.py --summary", "python3 scripts/progress_catalog.py --language AS3 --scope runtime --query MovieClip", "```", "",
+                  "## Evidence rules", ""])
     for rule in catalog["rules"]:
         lines.extend([f"### {rule['id']} — {rule['title']}", "", rule["reason"], "", rule["limitations"], ""])
         for item in rule.get("reviewedEntries", []):
-            lines.append(f"- `{item['catalogId']}` — **{item['status']}**: {item['scopeNote']}")
+            status = "working" if item["status"] == "implemented_subset" else item["status"]
+            lines.append(f"- `{item['catalogId']}` — **{status}**: {item['scopeNote']}")
         if rule.get("reviewedEntries"):
             lines.append("")
         refs = [f"[{r['path']}](../../{r['path']})" for r in rule["evidence"]]
@@ -196,28 +220,28 @@ def catalog_report(catalog, priorities=None):
 
 
 def reports(root, categories, features, write=False):
-    version = json.loads((root / "docs/progress/methodology.json").read_text())["version"]
-    catalog = load_catalog(root) if version >= 2 else None
-    priorities = load_priorities(root, catalog) if catalog else None
-    product_categories = [c for c in categories if c["id"] not in ("as2", "as3")] if catalog else categories
-    product_features = [f for f in features if f["category"] not in ("as2", "as3")] if catalog else features
-    priority_summary = ("\n\n### AS3 adaptation priorities\n\n" + priority_table(priorities["groups"]) +
-                        "\n\nThe important foundation comes first: mathematics and types, objects, MovieClips, display and text. Media and then cameras, networking and other platform facilities follow. AIR and libraries are separate. **Audit missing** is a dated audit status, not a fresh source check. See the [stage purposes, order and classification limits](docs/progress/ACTIONSCRIPT.md#as3-adaptation-priorities).") if priorities else ""
-    coverage = (("### ActionScript reference coverage\n\n" + catalog_table(catalog) +
-                 "\n\nCounts use the complete selected documentation catalogue, including AIR, Flex and components. “Implemented subset” covers only the audited rule, not the whole API contract. Missing and unreviewed declarations remain separate. These are **not Flash compatibility percentages**. See the [dated audit and scope breakdown](docs/progress/ACTIONSCRIPT.md)." + priority_summary + "\n\n### Product capabilities\n\n") if catalog else "") + summary_table(product_categories, product_features)
+    catalog = load_catalog(root)
+    targets = load_targets(root, catalog)
     block = "\n".join([
         REPORT_START,
         "## Where we are",
         "",
         "The editor foundation works: nested timelines, vector tools, scripting and standalone HTML5. Full AS2/AS3, FLA/SWF import, portable media and DOM applications remain in development.",
         "",
-        coverage,
+        "### ActionScript: Flash Player areas",
         "",
-        "Closed means the group's stated scope is implemented. Partial groups already contain working features; improvements within partial or already closed groups do not change the percentage. Closed capability groups = closed / tracked groups. This is **not overall product completion, Flash compatibility or test line coverage**. See the detailed registry for working subsets and remaining limits.",
+        f"{STATUS_DEFINITIONS} Last status review: {last_review(catalog)}.",
         "",
-        "[Current coverage](https://jazzymiles.github.io/NeoFlash/progress.html) · [Daily history](https://jazzymiles.github.io/NeoFlash/history.html) · [Detailed registry](docs/progress/DETAILS.md) · [Counting rules](docs/progress/README.md)",
+        *targets_markdown(targets, "####"),
+        "### Product functions",
         "",
-        "This summary is generated from `docs/progress/*.json`; GitHub Pages rebuilds on every push to `main`.",
+        summary_table(categories, features),
+        "",
+        "Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.",
+        "",
+        "[Current coverage](https://jazzymiles.github.io/NeoFlash/progress.html) · [Daily history](https://jazzymiles.github.io/NeoFlash/history.html) · [Detailed registry](docs/progress/DETAILS.md) · [ActionScript details](docs/progress/ACTIONSCRIPT.md) · [Counting rules](docs/progress/README.md)",
+        "",
+        "Generated from `docs/progress/`; GitHub Pages rebuilds on every push to `main`.",
         REPORT_END,
     ])
     readme_path = root / "README.md"
@@ -227,51 +251,52 @@ def reports(root, categories, features, write=False):
     before, rest = readme.split(REPORT_START, 1)
     _, after = rest.split(REPORT_END, 1)
     updated = before + block + after
-    labels = {"implemented": "Implemented", "partial": "Partial", "planned": "Planned"}
-    detail = ["# NeoFlash detailed capability notes", "", "Generated by `python3 scripts/progress.py --write-reports`. Edit the JSON inventories, not this file.", "", "[Methodology](README.md). Each status records a source review within an explicit scope; links to tests do not imply those tests run during the page build. This summary does not measure full Flash compatibility.", "", "ActionScript coverage uses the [complete declaration catalogue and audit](ACTIONSCRIPT.md). The AS2/AS3 capability notes below explain behavior; their 35/36 groups are **not a coverage denominator**.", "", summary_table(product_categories, product_features)]
+    labels = {"implemented": "Closed", "partial": "Partial", "planned": "Planned"}
+    detail = ["# NeoFlash detailed capability notes", "", "Generated by `python3 scripts/progress.py --write-reports`. Edit `product.json`, not this file. [Counting rules](README.md); ActionScript uses the [declaration catalogue](ACTIONSCRIPT.md).", "", summary_table(categories, features)]
     for category in categories:
         detail.extend(["", f"## {category['title']}", "", category["description"]])
         for feature in [f for f in features if f["category"] == category["id"]]:
-            detail.extend(["", f"### {feature['title']}", "", f"`{feature['id']}` · **{labels[feature['status']]}**", "", f"**Scope:** {feature['scope']}", "", f"**Limitations:** {feature['limitations']}", "", "**Evidence:** " + ", ".join(f"[{p}](../../{p})" for p in feature["evidence"])])
+            detail.extend(["", f"### {feature['title']}", "", f"`{feature['id']}` · **{labels[feature['status']]}**", ""])
+            detail.extend(f"- {item['status'].capitalize()}: {item['title']}" for item in feature.get("items", []))
+            detail.extend(["", f"**Scope:** {feature['scope']}", "", f"**Limitations:** {feature['limitations']}", "", "**Evidence:** " + ", ".join(f"[{p}](../../{p})" for p in feature["evidence"])])
     details = "\n".join(detail) + "\n"
     detail_path = root / "docs/progress/DETAILS.md"
     audit_path = root / "docs/progress/ACTIONSCRIPT.md"
-    audit_report = catalog_report(catalog, priorities) if catalog else None
+    audit_report = catalog_report(catalog, targets)
     if write:
         readme_path.write_text(updated)
         detail_path.write_text(details)
-        if audit_report:
-            audit_path.write_text(audit_report)
+        audit_path.write_text(audit_report)
     elif readme != updated or not detail_path.exists() or detail_path.read_text() != details:
         raise ValueError("Progress reports are stale: python3 scripts/progress.py --write-reports")
-    elif audit_report and (not audit_path.exists() or audit_path.read_text() != audit_report):
+    elif not audit_path.exists() or audit_path.read_text() != audit_report:
         raise ValueError("ActionScript report is stale: python3 scripts/progress.py --write-reports")
 
 
-def methodology_version(root, revision):
-    version = json.loads(git(root, "show", f"{revision}:docs/progress/methodology.json"))["version"]
-    if type(version) is not int or version < 1:
-        raise ValueError("Methodology version must be a positive integer")
-    return version
+def target_record(view):
+    """History counts for one language's Flash Player target."""
+    row = view["target"]
+    return {"implemented": row["working"], "partial": row["partial"], "planned": row["missing"],
+            **{status: row[status] for status in PUBLIC_STATUSES}, "total": row["total"],
+            "now": view["now"], "metric": "flash-player-target", "methodologyVersion": 3}
 
 
-def snapshot(categories, features, date, revision, methodology_version=1, catalog=None):
-    record = {
-        "date": date,
-        "revision": revision,
-        "methodologyVersion": methodology_version,
-        "categories": {c["id"]: counts([f for f in features if f["category"] == c["id"]]) for c in categories},
-        "total": counts(features),
-    }
-    if catalog:
-        for language, row in catalog["summary"]["byLanguage"].items():
-            record["categories"][language.lower()] = {
-                "implemented": row["implemented_subset"], "partial": row["partial"],
-                "planned": row["missing"], "missing": row["missing"], "needs_review": row["needs_review"],
-                "total": row["total"], "metric": "catalogue",
-            }
-        record["auditId"] = catalog["metadata"]["auditId"]
-        record["total"] = counts([f for f in features if f["category"] not in ("as2", "as3")])
+def snapshot(categories, features, date, revision, methodology_version=1, targets=None):
+    record = {"date": date, "revision": revision, "methodologyVersion": methodology_version, "categories": {}, "total": counts(features)}
+    for category in categories:
+        members = [f for f in features if f["category"] == category["id"]]
+        if methodology_version >= 3:
+            # Functions inside each group; the group status counts stay alongside.
+            items = item_counts(members)
+            record["categories"][category["id"]] = {"implemented": items["working"], "partial": items["partial"], "planned": items["planned"],
+                                                    "total": items["total"], "groups": counts(members), "metric": "functions"}
+        else:
+            record["categories"][category["id"]] = counts(members)
+    # Every committed catalogue is recounted with the current target rules, so
+    # the ActionScript lines stay continuous across methodology versions.
+    for key, language in LANGUAGES:
+        if targets and language in targets:
+            record["categories"][key] = target_record(targets[language])
     return record
 
 
@@ -288,23 +313,18 @@ def daily_revisions(root, revision):
 
 def history(root, revision):
     records = []
-    current_version = methodology_version(root, revision)
     for day, sha in daily_revisions(root, revision):
         files = set(git(root, "ls-tree", "-r", "--name-only", sha, "--", "docs/progress/").splitlines())
         if not files:
             continue  # No measurements existed yet; do not invent zeroes.
-        required = {f"docs/progress/{name}" for name in (*MANIFESTS, "methodology.json")}
-        if not required.issubset(files):
+        if "docs/progress/methodology.json" not in files:
             raise ValueError(f"Incomplete historical inventory at {sha}")
         categories, features = read_inventory(root, sha)
-        version = methodology_version(root, sha)
-        catalog = load_catalog(root, sha) if version >= 2 else None
-        record = snapshot(categories, features, day, sha, version, catalog)
-        if current_version >= 2 and version < 2:
-            # The former 35/36 capability groups are not declaration measurements.
-            for category in ("as2", "as3"):
-                record["categories"].pop(category, None)
-        records.append(record)
+        version = methodology(root, sha)
+        # Before v2 there was no declaration catalogue; the old 35/36 family counts are never shown.
+        targets = load_targets(root, load_catalog(root, sha), sha) if version >= 2 else None
+        product = [c for c in categories if c["id"] not in ("as2", "as3")]
+        records.append(snapshot(product, [f for f in features if f["category"] not in ("as2", "as3")], day, sha, version, targets))
     return records
 
 
@@ -313,37 +333,31 @@ def build(root, output, revision):
         raise ValueError("History needs a full checkout: git fetch --unshallow")
     revision = git(root, "rev-parse", "--verify", f"{revision}^{{commit}}")
     categories, features = read_inventory(root, revision)
-    version = methodology_version(root, revision)
-    catalog = load_catalog(root, revision) if version >= 2 else None
-    if catalog:
-        features = [f for f in features if f["category"] not in ("as2", "as3")]
-        categories = [{**c, "description": "Documented declarations in the complete selected reference catalogue; implemented subset, partial, missing and needs review are separate."} if c["id"] in ("as2", "as3") else c for c in categories]
+    version = methodology(root, revision)
+    catalog = load_catalog(root, revision)
+    targets = load_targets(root, catalog, revision)
     timestamp = git(root, "show", "-s", "--format=%ct", revision)
+    language_categories = [{"id": key, "title": targets[language]["title"],
+                            "description": "Declarations in the eight Flash Player areas; AIR, Flex and components are outside the target."}
+                           for key, language in LANGUAGES if language in targets]
     data = {
-        "schemaVersion": 2 if catalog else 1,
+        "schemaVersion": 3,
         "generatedAt": datetime.fromtimestamp(int(timestamp), timezone.utc).isoformat().replace("+00:00", "Z"),
         "revision": revision,
         "repository": REPOSITORY,
         "methodology": {
             "version": version,
-            "description": "ActionScript counts come from the full declaration catalogue and its dated audit, not capability groups. Product percentages use bounded capabilities. Neither is a Flash compatibility score. History uses the last main commit per UTC day; obsolete AS family counts are excluded from declaration history.",
+            "description": "ActionScript: declarations in eight Flash Player areas, statuses changed only by test-backed reviews. Product: user-visible functions listed inside each capability group. Neither is a Flash compatibility score. History uses the last main commit per UTC day.",
         },
-        "categories": categories,
+        "categories": categories + language_categories,
         "features": features,
         "history": history(root, revision),
+        "actionscript": {
+            "targets": targets, "lastReview": last_review(catalog), "definitions": STATUS_DEFINITIONS,
+            "auditId": catalog["metadata"]["auditId"], "counts": catalog["summary"]["byLanguage"],
+            "byScope": catalog["summary"]["byLanguageScope"],
+        },
     }
-    if catalog:
-        meta = catalog["metadata"]
-        data["actionscript"] = {
-            "auditId": meta["auditId"], "auditedAt": meta["auditedAt"], "sourceRevision": meta["baselineRevision"],
-            "counts": catalog["summary"]["byLanguage"], "byScope": catalog["summary"]["byLanguageScope"],
-            "sourceSnapshot": source_snapshot(root, revision, catalog),
-            "note": "Dated declaration audit, not full Flash conformance. Most missing entries are inferred from absent libraries. Later unshipped working-tree reviews are excluded.",
-        }
-        priorities = load_priorities(root, catalog, revision=revision)
-        if priorities:
-            # load_priorities returns aggregate rows, never the per-entry manifest.
-            data["actionscript"]["priorities"] = priorities
     output.mkdir(parents=True, exist_ok=True)
     for name in ("index.html", "history.html", "style.css", "app.js"):
         # Source and evidence links always describe the same immutable revision.
@@ -364,9 +378,6 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "dist/progress")
     args = parser.parse_args()
     if args.check or args.write_reports:
-        version = json.loads((ROOT / "docs/progress/methodology.json").read_text())["version"]
-        if type(version) is not int or version < 1:
-            raise ValueError("Methodology version must be a positive integer")
         categories, features = read_inventory(ROOT)
         reports(ROOT, categories, features, write=args.write_reports)
         # The Actions editor toolbox/code hints follow the declaration statuses.
@@ -375,15 +386,13 @@ def main():
             subprocess.run(index, check=True)
         else:
             subprocess.run([*index, "--check"], check=True)
-        if version >= 2:
-            catalog = load_catalog(ROOT)
-            product = [f for f in features if f["category"] not in ("as2", "as3")]
-            print(f"Valid inventory: {catalog['summary']['total']['total']:,} ActionScript declarations, {len(product)} product capabilities; supplementary AS notes are excluded from coverage counts")
-        else:
-            print(f"Valid inventory: {len(categories)} categories, {len(features)} capabilities; {counts(features)}")
+        catalog = load_catalog(ROOT)
+        items = item_counts(features)
+        print(f"Valid inventory: {catalog['summary']['total']['total']:,} ActionScript declarations; "
+              f"{len(features)} product groups with {items['total']} functions ({items['working']} working)")
     else:
         data = build(ROOT, args.output, args.revision)
-        print(f"Built {args.output}: {len(data['features'])} capabilities, {len(data['history'])} daily snapshots ({data['revision'][:7]})")
+        print(f"Built {args.output}: {len(data['features'])} capability groups, {len(data['history'])} daily snapshots ({data['revision'][:7]})")
 
 
 if __name__ == "__main__":
