@@ -60,11 +60,11 @@ impl Project {
 pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if !matches!(project.format_version, 1..=5) {
+    if !matches!(project.format_version, 1..=6) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported versions are 1, 2, 3, 4 and 5",
+                "unsupported version {}; supported versions are 1, 2, 3, 4, 5 and 6",
                 project.format_version
             ),
         );
@@ -311,6 +311,27 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                 format!("{sp}.timeline.frame_count"),
                 "frame count must be in 1..=1000000".into(),
             );
+        }
+        let guides = &symbol.timeline.guides;
+        if !guides.is_empty() && project.format_version < Guide::FORMAT_VERSION {
+            add(
+                format!("{sp}.timeline.guides"),
+                "ruler guides require document version 6".into(),
+            );
+        }
+        if guides.len() > Guide::LIMIT {
+            add(
+                format!("{sp}.timeline.guides"),
+                format!("guide count exceeds {}", Guide::LIMIT),
+            );
+        }
+        for (gi, guide) in guides.iter().enumerate() {
+            if !guide.position.is_finite() || guide.position.abs() > Guide::MAX_POSITION {
+                add(
+                    format!("{sp}.timeline.guides[{gi}].position"),
+                    "guide position must be finite and within ±1000000 px".into(),
+                );
+            }
         }
         for script in &symbol.timeline.scripts {
             if script.frame >= symbol.timeline.frame_count {

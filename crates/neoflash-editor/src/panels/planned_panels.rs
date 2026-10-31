@@ -1,6 +1,6 @@
 //! Planned previews of small panels: Debugger, Project, Code snippets (`scripting-panels.png`), Compiler errors,
-//! Info (`panels-more-2.png`), Scene, History, Swatches (`panels-more.png`, `swatches-popover.png`), View settings
-//! (`view-settings.png`), Properties — Sound (`panel-properties-sound.png`) and movie clip Display & Filters
+//! Info (`panels-more-2.png`), Scene, History, Swatches (`panels-more.png`, `swatches-popover.png`),
+//! Properties — Sound (`panel-properties-sound.png`) and movie clip Display & Filters
 //! (`panel-properties-movie-clip.png`). All values are fixed samples from the reference.
 use super::planned::{caption, check, mono, num, select, switch, type_header};
 use eframe::egui::{self, Ui};
@@ -406,12 +406,6 @@ pub(super) fn info(ui: &mut Ui) {
             mono(ui, value);
         });
     }
-}
-
-/// Popover / View settings (rulers, guides & grid).
-pub(super) fn view_settings(ui: &mut Ui) {
-    let mut state = c::ViewSettingsState::defaults(neoflash_ui::palette(ui.ctx()));
-    c::ViewSettings { state: &mut state }.show(ui);
 }
 
 /// Panel / Properties — Sound (frame with a sound).

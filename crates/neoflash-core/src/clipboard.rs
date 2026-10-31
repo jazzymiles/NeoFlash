@@ -148,6 +148,12 @@ impl ClipboardPayload {
     /// version. Inference must include top-level placements, not just symbols.
     fn document_version(&self) -> u32 {
         if self
+            .symbols
+            .iter()
+            .any(|symbol| !symbol.timeline.guides.is_empty())
+        {
+            Guide::FORMAT_VERSION
+        } else if self
             .elements
             .iter()
             .chain(self.symbols.iter().flat_map(symbol_elements))
@@ -501,6 +507,7 @@ impl ClipboardPayload {
             name: "Clipboard selection".into(),
             kind: SymbolKind::MovieClip,
             timeline: Timeline {
+                guides: vec![],
                 frame_count: 1,
                 scripts: vec![],
                 layers: vec![Layer {

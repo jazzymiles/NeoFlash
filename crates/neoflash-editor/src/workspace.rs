@@ -1160,6 +1160,9 @@ pub struct WorkspacePrefs {
     pub floating: Vec<FloatingDock>,
     /// Template the current layout started from (shown in the top-bar workspace select).
     pub template: WorkspaceTemplate,
+    /// Rulers, guides & grid settings saved with "Save as default" (View settings popover); every
+    /// session starts from them. `None` = NF2 defaults.
+    pub view_defaults: Option<crate::stage_view::ViewPrefs>,
 }
 impl Default for WorkspacePrefs {
     fn default() -> Self {
@@ -1173,6 +1176,7 @@ impl Default for WorkspacePrefs {
             dock: DockLayout::default(),
             floating: Vec::new(),
             template: WorkspaceTemplate::Classic,
+            view_defaults: None,
         }
     }
 }
@@ -1398,6 +1402,9 @@ impl WorkspacePrefs {
     }
     pub fn sanitize(&mut self) {
         self.version = VERSION;
+        if let Some(view) = &mut self.view_defaults {
+            view.sanitize();
+        }
         self.sizes.sanitize();
         self.detached.sanitize();
         self.dock.sanitize(self.detached);
@@ -1478,6 +1485,7 @@ impl WorkspacePrefs {
         let (dock, panels, active_bottom) = template.layout();
         *self = Self {
             theme: self.theme,
+            view_defaults: self.view_defaults.take(),
             dock,
             panels,
             active_bottom,

@@ -329,6 +329,7 @@ impl Context<'_> {
     fn timeline(&mut self, s: &BinaryTimelineStream) -> Result<Timeline, String> {
         let page = object(s, s.root.ok_or("Timeline has no root")?)?;
         let mut timeline = Timeline {
+            guides: vec![],
             frame_count: 1,
             layers: vec![],
             scripts: vec![],
@@ -730,6 +731,7 @@ fn group_symbol(id: &str, name: String, elements: Vec<Element>) -> Symbol {
         folder: String::new(),
         kind: SymbolKind::Graphic,
         timeline: Timeline {
+            guides: vec![],
             frame_count: 1,
             layers: vec![Layer {
                 id: format!("{id}-layer"),

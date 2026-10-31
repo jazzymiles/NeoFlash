@@ -25,6 +25,7 @@ fn layer(id: &str, labels: &[(u32, &str)]) -> Layer {
 fn fixture() -> Project {
     let mut project = Project::blank();
     project.symbols[0].timeline = Timeline {
+        guides: vec![],
         frame_count: 10,
         layers: vec![
             layer("first-layer", &[(0, ""), (4, "end"), (7, "SomeFrame")]),
@@ -107,6 +108,7 @@ fn as2_resolves_only_the_target_timeline() {
         name: "Child".into(),
         kind: SymbolKind::MovieClip,
         timeline: Timeline {
+            guides: vec![],
             frame_count: 10,
             layers: vec![layer("child-layer", &[(0, ""), (1, "END")])],
             scripts: vec![],

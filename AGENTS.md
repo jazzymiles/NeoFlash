@@ -43,4 +43,6 @@ The NF2 design system is owned by the design track (the project owner with the F
 
 **When the design is missing, unclear or blocks the work,** do not improvise: add an entry to `docs/NF2-REQUESTS.md` (what is needed, where, why, which reference/outline you checked, proposed component or state) and continue with the parts that do not need it. The design track answers the request and updates the design system.
 
+**Rulers, guides, grid and snapping are finished features** — read `docs/NF2-RULERS-GUIDES-GRID.md` (data model, invariants, tests, "Do not change") before touching `stage_view.rs`, `snapping.rs`, `panels/view_settings.rs`, `Timeline::guides` or the stage event order in `stage.rs`. Keep `stage_view_tests.rs` passing.
+
 **Checks:** `python3 scripts/design-lock.py` must pass (it is part of `scripts/check.sh`); it fails on any change to locked files. Functional scope and order of work: `docs/NF2-FUNCTIONAL-SPEC.md` and `docs/NF2-WIRING-PLAN.md`. Visual verification: `NEOFLASH_WINDOW=1920x1080 NEOFLASH_SCREENSHOT=target/ui-shots/x.png NEOFLASH_SCREENSHOT_THEME=dark|light [NEOFLASH_SCREENSHOT_WORKSPACE=developer] cargo run -p neoflash-editor`, compared with `interface/design-system/exports/` (local, not versioned).

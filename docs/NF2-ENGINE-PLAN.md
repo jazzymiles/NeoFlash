@@ -150,6 +150,9 @@ Rust-WASM) · **Script API** (AS2/AS3/JS) · **Editor** (existing UI element it 
 
 ### E-04 · Guides (authoring-only)
 
+Done: `Timeline::guides` (no per-document lock; lock is an editor view setting), format version 6, validation,
+export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md). Original plan:
+
 - Model: `Timeline.guides: Vec<Guide { id: Id, axis: Axis, position: f64 }>` (stage units), `Timeline.guides_locked:
   bool` (Flash locks guides per document; per-timeline is acceptable). Serde default, format bump, validation (finite,
   ≤ 1000 guides).

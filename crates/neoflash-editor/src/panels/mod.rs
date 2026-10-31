@@ -12,6 +12,7 @@
 //! | `accessibility.rs` | Accessibility |
 //! | `actions.rs` | Actions (script editor), Output, bottom-panel dispatch |
 //! | `actions_sidebar.rs` | Actions sidebar: toolbox and Script navigator |
+//! | `view_settings.rs` | View settings popover (rulers, guides & grid) |
 //! | `planned.rs` | NF2 panels the engine does not support yet (read-only previews; bodies in `planned_*.rs`) |
 pub(crate) mod accessibility;
 mod actions;
@@ -29,3 +30,4 @@ pub(crate) mod properties;
 mod timeline;
 mod timeline_controls;
 mod tools;
+mod view_settings;

@@ -67,6 +67,8 @@ pub(crate) struct SelectionGesture {
     began: bool,
     changed: bool,
     angle: f64,
+    /// Selection bounds (stage) when the move started: the edges that snap (ST-04).
+    snap_bounds: Option<Rect>,
 }
 
 pub(crate) struct ShapeDraft {
@@ -334,16 +336,40 @@ impl Editor {
         }
         let originals: Vec<_> = gesture.targets.iter().map(|(_, t)| *t).collect();
         let press = gesture.scope.local(gesture.press);
+        // Snapping (guides, grid): moves snap the selection's edges and centre; handles snap the
+        // dragged handle point; scaling snaps the pointer.
+        let origin = gesture.scope.origin;
+        let current = match gesture.kind {
+            GestureKind::Resize { bounds, handle } => {
+                let anchor = position(geometry::transformed_point(
+                    originals[0],
+                    handle.point(bounds),
+                ));
+                gesture
+                    .scope
+                    .local(self.snap_drag(origin, gesture.press, pos, anchor))
+            }
+            GestureKind::Scale { .. } => gesture.scope.local(self.snap_screen(origin, pos)),
+            _ => current,
+        };
         let transforms = match gesture.kind {
             GestureKind::Move => {
                 let mut delta = [current[0] - press[0], current[1] - press[1]];
+                let mut lock = [false, false];
                 if modifiers.shift {
                     if delta[0].abs() >= delta[1].abs() {
                         delta[1] = 0.;
+                        lock[1] = true;
                     } else {
                         delta[0] = 0.;
+                        lock[0] = true;
                     }
                 }
+                let bounds = *gesture.snap_bounds.get_or_insert_with(|| {
+                    self.selection_geometry(scene, p)
+                        .map_or(Rect::NOTHING, |g| g.world)
+                });
+                delta = self.snap_move(origin, bounds, position(press), delta, lock);
                 let moved: Vec<_> = originals
                     .iter()
                     .map(|t| Transform {
@@ -606,6 +632,7 @@ impl Editor {
                         began: false,
                         changed: false,
                         angle: 0.,
+                        snap_bounds: None,
                     });
                 }
                 egui::Event::PointerMoved(pos) => {
@@ -666,6 +693,7 @@ impl Editor {
         }
         if self.tool == Tool::Select
             && response.double_clicked()
+            && !self.stage_view.guide_pointer
             && let Some(Element {
                 kind: ElementKind::Instance { symbol_id, .. },
                 ..
@@ -716,11 +744,12 @@ impl Editor {
                 {
                     self.finish_edits();
                     self.playing = false;
+                    let start = self.snap_screen(origin, pos);
                     self.shape_draft = Some(ShapeDraft {
                         scope: Scope::new(self, origin),
                         layer: self.symbol().timeline.layers[self.layer].id.clone(),
                         tool: self.tool,
-                        start: pos,
+                        start,
                     });
                 }
                 egui::Event::PointerButton {
@@ -730,6 +759,7 @@ impl Editor {
                     ..
                 } => {
                     if let Some(draft) = self.shape_draft.take() {
+                        let pos = self.snap_screen(origin, pos);
                         let bounds = Rect::from_two_pos(
                             position(draft.scope.local(draft.start)),
                             position(draft.scope.local(pos)),
@@ -759,8 +789,10 @@ impl Editor {
                 _ => {}
             }
         }
-        if let Some(draft) = &self.shape_draft
+        if self.shape_draft.is_some()
             && let Some(pos) = ui.input(|input| input.pointer.latest_pos())
+            && let pos = self.snap_screen(origin, pos)
+            && let Some(draft) = &self.shape_draft
         {
             p.rect_stroke(
                 Rect::from_two_pos(draft.start, pos),

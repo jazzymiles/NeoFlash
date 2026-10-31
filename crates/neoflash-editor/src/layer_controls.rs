@@ -1005,6 +1005,7 @@ impl Editor {
                 folder: String::new(),
                 kind: SymbolKind::MovieClip,
                 timeline: Timeline {
+                    guides: vec![],
                     frame_count,
                     layers,
                     scripts: vec![],

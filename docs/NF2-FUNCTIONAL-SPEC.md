@@ -60,12 +60,12 @@ not confirmed in code.
 | TO-06 | Snap toggle (tools rail) | Tools | absent | editor | P1 |
 | TO-07 | Tool options: Object drawing, smooth / straighten | Tools | absent | editor | P2 |
 | TO-08 | Fill/stroke chip → Swatches popover | Tools | partial | UI-only | P1 |
-| ST-01 | Stage rulers + ruler corner | Stage chrome | absent | UI-only (+request) | P1 |
-| ST-02 | Guides | Stage chrome | absent | yes (small) | P1 |
-| ST-03 | Stage grid | Stage chrome | absent | UI-only (+request) | P1 |
-| ST-04 | Snapping (grid, guides, objects, pixels) + snap ring | Stage chrome | absent | editor | P1 |
-| ST-05 | Zoom control toggles rulers/guides/grid/snap | Stage chrome | hidden (`None`) | UI-only | P1 |
-| ST-06 | View settings popover | Stage chrome | preview | UI-only | P1 |
+| ST-01 | Stage rulers + ruler corner | Stage chrome | working | UI-only | P1 |
+| ST-02 | Guides | Stage chrome | working | yes (small) | P1 |
+| ST-03 | Stage grid | Stage chrome | working | UI-only | P1 |
+| ST-04 | Snapping (grid, guides, objects, pixels) + snap ring | Stage chrome | partial (grid, guides) | editor | P1 |
+| ST-05 | Zoom control toggles rulers/guides/grid/snap | Stage chrome | working | UI-only | P1 |
+| ST-06 | View settings popover | Stage chrome | working | UI-only | P1 |
 | ST-07 | NF2 stage cursors | Stage chrome | absent | UI-only | P1 |
 | ST-08 | Breadcrumb ▾ menu + Symbols & scenes popover | Stage chrome | absent | editor | P2 |
 | ST-09 | Toasts / progress / spinner | Window chrome | absent | UI-only | P1 |
@@ -108,7 +108,7 @@ not confirmed in code.
 | PP-09 | History | Planned panel | preview | editor (+small) | P1 |
 | PP-10 | Swatches | Planned panel | preview | editor | P1 |
 | PP-11 | Info | Planned panel | preview | editor | P1 |
-| PP-12 | Rulers, guides & grid (View settings) | Planned panel | preview | UI-only | P1 (= ST-06) |
+| PP-12 | Rulers, guides & grid (View settings) | Popover | working | UI-only | P1 (= ST-06) |
 | PP-13 | Properties — Sound | Planned panel | preview | yes | P3 (= PR-08) |
 | PP-14 | Properties — Display & filters | Planned panel | preview | yes | P2 (= PR-05) |
 | DL-01 | Preferences (9 pages) | Planned dialog | preview | editor | P1–P3 per page |
@@ -130,7 +130,7 @@ not confirmed in code.
 | DL-17 | Accessibility: child objects, auto label, shortcut | Panel | partial | yes (small) | P3 |
 | MN-01 | Menu items absent from §8 menus | Menus | absent | mixed | P1–P3 |
 | MN-02 | Frame / layer / stage context menu items absent | Menus | absent | mixed | P1–P2 |
-| MN-03 | View ▸ Rulers / Guides / Grid / Rulers, guides & grid… | Menus | disabled | UI-only | P1 |
+| MN-03 | View ▸ Rulers / Guides / Grid / Rulers, guides & grid… | Menus | working (Snapping ▸ disabled) | UI-only | P1 |
 
 Counts: 93 entries — 14 timeline, 8 tools, 11 stage/window chrome, 11 properties, 3 colour, 2 library, 8 actions,
 2 output, 14 planned panels (3 alias other entries), 17 dialogs/panels (DL-01 covers 9 preference pages), 3 menu
@@ -317,7 +317,7 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 
 ## 3. Stage chrome (`crates/neoflash-editor/src/shell.rs`, `stage.rs`, `panels/menu.rs`)
 
-**ST-01 · Stage rulers + ruler corner** — absent
+**ST-01 · Stage rulers + ruler corner** — working. Implemented: see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md) (behaviour, data model, invariants, tests).
 - Purpose: 20 pt horizontal/vertical rulers in stage units; corner drag moves the zero point, double-click resets.
 - Behaviour: Show via View ▸ Rulers (⌥⇧⌘R) and the zoom-control toggle; labels Auto (10/50/100/500 so labels never
   overlap) or Every N px; pointer position marker; dragging out of a ruler creates a guide (ST-02).
@@ -327,7 +327,7 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
   hand-style widgets → **request** the components first (tokens `color/guide`, `color/stage-grid` exist).
 - Acceptance: tick 0 meets the stage origin at every zoom/pan; labels never overlap; toggle persists.
 
-**ST-02 · Guides** — absent
+**ST-02 · Guides** — working; per-timeline `Timeline::guides`, document version 6. Implemented: see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md) (behaviour, data model, invariants, tests).
 - Purpose: horizontal/vertical reference lines (`color/guide`), Default / Selected / Locked states.
 - Behaviour: create by dragging from a ruler; move by dragging (unless locked); drag back onto a ruler or Delete to
   remove; double-click → exact position (verify NF2 has a field; else request); View ▸ Guides ▸ Show / Lock / Snap /
@@ -336,13 +336,13 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 - Depends on: engine (small: serialized authoring-only data, never exported).
 - Acceptance: guides survive save/open; never appear in HTML5; locked guides cannot be dragged.
 
-**ST-03 · Stage grid** — absent
+**ST-03 · Stage grid** — working. Implemented: see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md) (behaviour, data model, invariants, tests).
 - Purpose: `NF2/Stage Grid` overlay (20 px, every 5th line stronger), below content unless "Show over objects".
 - Behaviour: View ▸ Grid ▸ Show grid (⌘'), Snap to grid (⇧⌘'), Show over objects, Edit grid… (⌥⌘G → View settings).
 - Data: view settings (spacing W/H linked, colour, snap accuracy). Depends on: UI-only + component **request**.
 - Acceptance: lines align to stage origin at all zooms; over-objects toggles stacking.
 
-**ST-04 · Snapping + snap ring** — absent (`editor-advanced-drawing` limit "snapping")
+**ST-04 · Snapping + snap ring** — partial: grid and guide snapping with the snap ring work for moves, scale/resize handles, rectangle/oval, line, pen anchors and path points; object and pixel snapping and ⌘-suspend remain (R-003). Implemented: see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md) (behaviour, data model, invariants, tests).
 - Purpose: snap dragged/drawn points to grid, guides, objects (edges, centres, registration points), pixels; show
   `NF2/Snap Ring` while dragging (larger ring when snapped).
 - Behaviour: snap accuracy Must be close / Normal / Can be distant (View settings); tolerance from Preferences ▸
@@ -352,13 +352,13 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 - Acceptance: with grid snap on, rectangle corners land on grid intersections; snapping never changes untouched
   objects; Undo covers the drag only.
 
-**ST-05 · Zoom control toggles** — `stage_chrome` (`ZoomControl { rulers, guides, grid, snap: None }`) · hidden
+**ST-05 · Zoom control toggles** — working (`ZoomControl` gets `Some(state)`). Implemented: see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md) (behaviour, data model, invariants, tests).
 - Purpose: quick toggles for rulers, guides, grid, snap to guides in the floating zoom control.
 - Behaviour: pass `Some(state)` once ST-01…ST-04 work; actions `ZoomAction::{Rulers, Guides, Grid, Snap}` toggle the
   same state as the View menu.
 - Depends on: UI-only. Acceptance: toggles and menu items stay in sync.
 
-**ST-06 · View settings popover** — `ZoomAction::ViewSettings` (currently ignored) + preview `ViewSettings`
+**ST-06 · View settings popover** — working (`panels/view_settings.rs`; the planned preview was removed). Implemented: see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md) (behaviour, data model, invariants, tests).
 - Purpose: `NF2/View Settings` (rulers, guides, grid) — see PP-12 for controls.
 - Behaviour: opens anchored to the ⚙ button and from View ▸ Rulers, guides & grid…; edits apply live; Clear guides
   (one Undo); Save as default writes preferences.
@@ -641,7 +641,7 @@ refused.
   painted element at the point (approximation; true pixel readback is not available in egui — document the limit).
 - Depends on: editor. Acceptance: cursor values match ruler; editing W scales the selection with one Undo.
 
-**PP-12 · Rulers, guides & grid** — `planned_panels::view_settings` (`ViewSettings`): Rulers (Show, Units Pixels /
+**PP-12 · Rulers, guides & grid** — working popover (`panels/view_settings.rs`, ST-06): Rulers (Show, Units Pixels /
 Inches / Points / Centimetres / Millimetres, Labels Auto / Every N); Guides (Show, Snap, Lock, colour, snap accuracy);
 Grid (Show, Snap, Over objects, spacing ↔ ↕ linked, colour, snap accuracy); footer Clear guides · Save as default.
 See ST-01…ST-06.
@@ -728,7 +728,8 @@ metadata + encoding at publish). P3.
 
 ## 11. Menus (`panels/menu.rs`, `authoring_modify.rs::modify_menu_ui`, frame/layer context menus)
 
-**MN-03 · View ▸ Rulers / Guides / Grid / Rulers, guides & grid…** — disabled ("Not available yet"). Enable with
+**MN-03 · View ▸ Rulers / Guides / Grid / Rulers, guides & grid…** — working except the Snapping ▸ submenu
+(R-003). Was: disabled ("Not available yet"). Enable with
 ST-01…ST-06; reference has Grid / Guides / Snapping as submenus (§8 View ▸ Grid) — if the submenu shape differs from
 the current flat items, **request** before changing.
 

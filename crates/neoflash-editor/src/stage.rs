@@ -528,6 +528,7 @@ impl Editor {
                 let nested = self.editing.len() > 1;
                 let page = Rect::from_center_size(rect.center() + self.pan, size * self.zoom);
                 let origin = if nested { page.center() } else { page.min };
+                self.stage_view_input(ui, rect, origin);
                 self.stage_file_drop(ui, rect, origin);
                 self.stage_library_drop(ui, rect, origin);
                 let visible_page = page.intersect(rect);
@@ -543,6 +544,9 @@ impl Editor {
                 let p = ui.painter_at(rect);
                 p.rect_filled(page.translate(Vec2::new(3., 4.)), 0, palette.stage_shadow);
                 p.rect_filled(page, 0, color(self.project.background, 1., None));
+                if !self.stage_view.prefs.grid_over_objects {
+                    self.paint_stage_grid(&p, page, origin);
+                }
                 let content = p.with_clip_rect(page.intersect(rect));
                 if nested {
                     content.line_segment(
@@ -610,12 +614,16 @@ impl Editor {
                 if let Some(warning) = self.bitmap_textures.take_warning() {
                     self.message(warning);
                 }
+                if self.stage_view.prefs.grid_over_objects {
+                    self.paint_stage_grid(&p, page, origin);
+                }
                 p.rect_stroke(
                     page,
                     0,
                     Stroke::new(1.0_f32, palette.stage_border),
                     StrokeKind::Outside,
                 );
+                self.paint_stage_guides(&p, rect, origin);
                 let extended_tool = self.authoring_tool_stage(ui, &p, origin, page, rect, &scene);
                 if !extended_tool {
                     let zoom = self.zoom;
@@ -637,7 +645,8 @@ impl Editor {
                                 false
                             }
                         });
-                    if response.clicked()
+                    let clicked = response.clicked() && !self.stage_view.guide_pointer;
+                    if clicked
                         && self.tool == Tool::Subselect
                         && !on_path_handle
                         && self.vector.point_drag.is_none()
@@ -653,7 +662,7 @@ impl Editor {
                     }
                     self.selection_stage(ui, &p, origin, rect, &scene, &response);
                     self.shape_stage(ui, &p, origin, page, rect);
-                    if response.clicked()
+                    if clicked
                         && self.tool == Tool::Text
                         && let Some(pos) = response.interact_pointer_pos()
                         && page.contains(pos)
@@ -694,7 +703,9 @@ impl Editor {
                     }
                     self.vector_stage(ui, &content, origin, page, &response);
                 }
+                self.paint_snap_ring(&p);
                 self.stage_context_menu(&response, &scene, &p, origin);
+                self.stage_rulers(ctx, rect, origin);
                 self.stage_chrome(ui, rect);
             });
     }

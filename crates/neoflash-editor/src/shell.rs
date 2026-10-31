@@ -141,11 +141,16 @@ impl Editor {
     /// (top-right) and the zoom control (bottom centre).
     pub(crate) fn stage_chrome(&mut self, ui: &mut egui::Ui, canvas: Rect) {
         let ctx = ui.ctx().clone();
-        let p = palette(&ctx);
+        // Floating chrome starts below / right of the rulers when they are shown.
+        let ruler = if self.stage_view.prefs.rulers {
+            neoflash_ui::components::canvas::RULER
+        } else {
+            0.
+        };
         // Breadcrumb: Scene ▸ symbol ▸ nested symbol. Clicking an item returns to that level.
         egui::Area::new(egui::Id::new("stage-breadcrumb"))
             .order(egui::Order::Middle)
-            .fixed_pos(canvas.min + Vec2::splat(space::S3))
+            .fixed_pos(canvas.min + Vec2::splat(space::S3 + ruler))
             .constrain_to(canvas)
             .show(&ctx, |ui| {
                 nf::Surface::Floating
@@ -205,40 +210,50 @@ impl Editor {
         egui::Area::new(egui::Id::new("stage-size-badge"))
             .order(egui::Order::Middle)
             .pivot(egui::Align2::RIGHT_TOP)
-            .fixed_pos(canvas.right_top() + Vec2::new(-space::S3, space::S3))
+            .fixed_pos(canvas.right_top() + Vec2::new(-space::S3, space::S3 + ruler))
             .interactable(false)
             .show(&ctx, |ui| {
                 let label = format!("{} × {}", self.project.width, self.project.height);
                 ui.add(nf::Badge::new(&label, nf::BadgeType::Neutral));
             });
-        // Zoom control. Rulers, guides, grid and snap toggles stay hidden until the stage supports
-        // them: `ZoomControl` has no disabled state for its toggles, and enabled no-op toggles would be fakes.
+        // Zoom control with the rulers / guides / grid / snap-to-guides toggles (same state as the
+        // View menu) and ⚙, which opens the View settings popover anchored to it.
         if canvas.width() < 420. || canvas.height() < 160. {
+            self.stage_view.settings_button = None;
+            self.view_settings_popover(&ctx, canvas);
             return;
         }
-        let (action, _) = nf::ZoomControl {
+        let v = &self.stage_view.prefs;
+        let (action, settings) = nf::ZoomControl {
             zoom: self.zoom,
             hand: self.tool == Tool::Hand,
-            rulers: None,
-            guides: None,
-            grid: None,
-            snap: None,
+            rulers: Some(v.rulers),
+            guides: Some(v.guides_show),
+            grid: Some(v.grid_show),
+            snap: Some(v.guides_snap),
         }
         .show(
             &ctx,
             egui::Id::new("stage-zoom-control"),
             canvas.center_bottom() - Vec2::new(0., space::S4),
         );
-        let _ = p;
+        self.stage_view.settings_button = settings.map(|r| r.rect);
         match action {
             ZoomAction::Hand => self.tool = Tool::Hand,
             ZoomAction::ZoomIn => self.zoom_in(),
             ZoomAction::ZoomOut => self.zoom_out(),
             ZoomAction::ZoomReset => self.zoom_actual(),
             ZoomAction::Fit => self.fit_stage(),
-            ZoomAction::ViewSettings => Self::open_planned(&ctx, "Zoom control ▸ View settings"),
-            _ => {}
+            ZoomAction::Rulers => self.toggle_rulers(),
+            ZoomAction::Guides => self.toggle_guides(),
+            ZoomAction::Grid => self.toggle_grid(),
+            ZoomAction::Snap => self.toggle_guide_snap(),
+            ZoomAction::ViewSettings => {
+                self.stage_view.settings_open = !self.stage_view.settings_open;
+            }
+            ZoomAction::None => {}
         }
+        self.view_settings_popover(&ctx, canvas);
     }
 
     pub(crate) fn zoom_in(&mut self) {
@@ -260,6 +275,7 @@ impl Editor {
         if ctx.wants_keyboard_input() {
             return;
         }
+        self.stage_view_shortcuts(ctx);
         let pressed = |key| ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, key));
         if pressed(Key::Equals) || pressed(Key::Plus) {
             self.zoom_in();

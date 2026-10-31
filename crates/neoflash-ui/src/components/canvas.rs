@@ -38,6 +38,43 @@ pub fn ruler_step(zoom: f32, every: Option<f32>) -> f32 {
     }
 }
 
+/// Label step for rulers in other units (points, inches, centimetres, millimetres): the smallest of
+/// 1 / 5 × 10ⁿ units at least 50 pt apart. `unit_zoom` = screen points per unit. Pixels use
+/// [`ruler_step`] (never below 10 px).
+pub fn ruler_step_units(unit_zoom: f32, every: Option<f32>) -> f32 {
+    if let Some(step) = every.filter(|s| *s > 0.0) {
+        return step;
+    }
+    for exponent in -3..8 {
+        let base = 10.0_f32.powi(exponent);
+        for s in [1.0, 5.0] {
+            if s * base * unit_zoom >= 50.0 {
+                return s * base;
+            }
+        }
+    }
+    5.0e7
+}
+
+/// Ruler label text: whole numbers, or up to three decimals for fractional unit steps.
+pub fn ruler_label(value: f32, step: f32) -> String {
+    if step >= 1.0 {
+        format!("{}", value.round() as i64)
+    } else {
+        let decimals = (-step.log10()).ceil().clamp(1.0, 3.0) as usize;
+        let text = format!("{value:.decimals$}");
+        if text
+            .trim_start_matches('-')
+            .chars()
+            .all(|c| c == '0' || c == '.')
+        {
+            "0".into()
+        } else {
+            text
+        }
+    }
+}
+
 /// `NF2/Stage Ruler`: strip on `bg/panel`, minor ticks every step/10, labels in `NF2/Mono Small`.
 /// `origin` is the screen coordinate (x for horizontal, y for vertical) of stage 0.
 pub fn paint_stage_ruler(
@@ -49,7 +86,25 @@ pub fn paint_stage_ruler(
     zoom: f32,
     every: Option<f32>,
 ) {
+    paint_stage_ruler_units(painter, ctx, rect, orientation, origin, zoom, 1.0, every);
+}
+
+/// [`paint_stage_ruler`] in other units: `unit` = stage pixels per unit (1 for pixels and points,
+/// 72 for inches …). `every` is in units. Vertical labels are rotated a quarter turn
+/// counter-clockwise and end just above their tick, as in the Figma ruler.
+#[allow(clippy::too_many_arguments)]
+pub fn paint_stage_ruler_units(
+    painter: &Painter,
+    ctx: &egui::Context,
+    rect: Rect,
+    orientation: Orientation,
+    origin: f32,
+    zoom: f32,
+    unit: f32,
+    every: Option<f32>,
+) {
     let p = palette(ctx);
+    let painter = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
     painter.rect_filled(rect, 0.0, p.bg_panel);
     let horizontal = orientation == Orientation::Horizontal;
     let edge = Stroke::new(1.0_f32, p.border_subtle);
@@ -58,15 +113,24 @@ pub fn paint_stage_ruler(
     } else {
         painter.vline(rect.right() - 0.5, rect.y_range(), edge);
     }
-    let zoom = zoom.max(1.0e-3);
-    let step = ruler_step(zoom, every);
+    let unit = if unit.is_finite() && unit > 0.0 {
+        unit
+    } else {
+        1.0
+    };
+    let zoom = zoom.max(1.0e-3) * unit;
+    let step = if unit == 1.0 {
+        ruler_step(zoom, every)
+    } else {
+        ruler_step_units(zoom, every)
+    };
     let minor = step / 10.0;
     let (lo, hi) = if horizontal {
         (rect.left(), rect.right())
     } else {
         (rect.top(), rect.bottom())
     };
-    let first = ((lo - origin) / zoom / minor).floor() as i64;
+    let first = ((lo - origin) / zoom / minor).floor() as i64 - 10;
     let last = ((hi - origin) / zoom / minor).ceil() as i64;
     let font = crate::typography::font(TextStyle::MonoSmall);
     let tick = Stroke::new(1.0_f32, p.border_strong);
@@ -82,14 +146,15 @@ pub fn paint_stage_ruler(
         } else {
             RULER * 0.2
         };
+        let label = major.then(|| ruler_label(units, step));
         if horizontal {
             let x = at.round() + 0.5;
             painter.vline(x, (rect.bottom() - len)..=rect.bottom(), tick);
-            if major {
+            if let Some(label) = label {
                 painter.text(
                     egui::pos2(x + 2.0, rect.top() + 1.0),
                     egui::Align2::LEFT_TOP,
-                    format!("{}", units.round() as i64),
+                    label,
                     font.clone(),
                     p.text_tertiary,
                 );
@@ -97,24 +162,82 @@ pub fn paint_stage_ruler(
         } else {
             let y = at.round() + 0.5;
             painter.hline((rect.right() - len)..=rect.right(), y, tick);
-            if major {
-                // Vertical labels are drawn rotated in Figma; egui has no rotated text in painters,
-                // so labels stack their digits (readable, same width).
-                let label = format!("{}", units.round() as i64);
-                let mut y_text = y + 2.0;
-                for ch in label.chars() {
-                    painter.text(
-                        egui::pos2(rect.left() + 3.0, y_text),
-                        egui::Align2::LEFT_TOP,
-                        ch.to_string(),
-                        font.clone(),
-                        p.text_tertiary,
-                    );
-                    y_text += 9.0;
-                }
+            if let Some(label) = label {
+                let galley = painter.layout_no_wrap(label, font.clone(), p.text_tertiary);
+                let pos = egui::pos2(rect.left() + 1.0, y - 2.0);
+                painter.add(
+                    egui::epaint::TextShape::new(pos, galley, p.text_tertiary)
+                        .with_angle(-std::f32::consts::FRAC_PI_2),
+                );
             }
         }
     }
+}
+
+/// Where the rulers sit on a canvas: `NF2/Ruler Corner` top-left, the horizontal ruler along the top
+/// and the vertical ruler down the left edge, each [`RULER`] thick. Content keeps the full canvas;
+/// the rulers overlay it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RulerLayout {
+    pub corner: Rect,
+    pub horizontal: Rect,
+    pub vertical: Rect,
+}
+
+impl RulerLayout {
+    pub fn new(canvas: Rect) -> Self {
+        let corner = Rect::from_min_size(canvas.min, vec2(RULER, RULER));
+        Self {
+            corner,
+            horizontal: Rect::from_min_max(
+                egui::pos2(corner.right(), canvas.top()),
+                egui::pos2(canvas.right(), corner.bottom()),
+            ),
+            vertical: Rect::from_min_max(
+                egui::pos2(canvas.left(), corner.bottom()),
+                egui::pos2(corner.right(), canvas.bottom()),
+            ),
+        }
+    }
+
+    /// Ruler strip a guide of `orientation` is dragged out of (and deleted by dropping back on).
+    pub fn source(&self, orientation: Orientation) -> Rect {
+        match orientation {
+            Orientation::Horizontal => self.horizontal,
+            Orientation::Vertical => self.vertical,
+        }
+    }
+
+    /// Whether `pos` is on either ruler or the corner.
+    pub fn contains(&self, pos: Pos2) -> bool {
+        self.corner.contains(pos) || self.horizontal.contains(pos) || self.vertical.contains(pos)
+    }
+}
+
+/// Half the `NF2/Guide` hit band (the component is 9 pt across its line).
+pub const GUIDE_HIT: f32 = 4.5;
+
+/// Whether `pointer` is on a guide at screen coordinate `at` (y for horizontal, x for vertical).
+pub fn guide_hit(orientation: Orientation, at: f32, pointer: Pos2) -> bool {
+    let d = match orientation {
+        Orientation::Horizontal => pointer.y - at,
+        Orientation::Vertical => pointer.x - at,
+    };
+    d.abs() <= GUIDE_HIT
+}
+
+/// Area a guide spans: the canvas minus the ruler strip the guide runs along (the guide starts
+/// where the perpendicular ruler ends).
+pub fn guide_extent(canvas: Rect, orientation: Orientation, rulers: bool) -> Rect {
+    if !rulers {
+        return canvas;
+    }
+    let mut r = canvas;
+    match orientation {
+        Orientation::Horizontal => r.min.x += RULER,
+        Orientation::Vertical => r.min.y += RULER,
+    }
+    r
 }
 
 /// `NF2/Ruler Corner`: origin box where both rulers meet (drag to move zero, double-click to reset).
@@ -192,7 +315,9 @@ pub fn paint_guide(
 }
 
 /// `NF2/Stage Grid`: lines every `spacing` stage units over `page` (screen rect of the stage), every
-/// 5th line stronger. `color` = grid colour from View settings (default `color/stage-grid` at 14 %).
+/// 5th line stronger. `color` = grid colour from View settings (default `color/stage-grid` at 14 %):
+/// every 5th line uses it, the lines between use 42 % of it (editor-main.png: minor ≈ 6 %, major
+/// 14 % white over the stage).
 pub fn paint_stage_grid(
     painter: &Painter,
     ctx: &egui::Context,
@@ -202,8 +327,8 @@ pub fn paint_stage_grid(
     color: Option<Color32>,
 ) {
     let p = palette(ctx);
-    let base = color.unwrap_or_else(|| p.stage_grid.gamma_multiply(0.14));
-    let strong = base.gamma_multiply(1.8);
+    let strong = color.unwrap_or_else(|| p.stage_grid.gamma_multiply(0.14));
+    let base = strong.gamma_multiply(0.42);
     let (sx, sy) = (spacing.x.max(1.0) * zoom, spacing.y.max(1.0) * zoom);
     if sx < 3.0 || sy < 3.0 {
         return;
@@ -499,4 +624,64 @@ pub fn paint_snap_ring(painter: &Painter, ctx: &egui::Context, at: Pos2, snapped
     let p = palette(ctx);
     let (r, w): (f32, f32) = if snapped { (7.0, 2.5) } else { (5.0, 2.0) };
     painter.circle_stroke(at, r, Stroke::new(w, p.text_primary));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pixel_steps_keep_labels_fifty_points_apart() {
+        assert_eq!(ruler_step(1.0, None), 50.0);
+        assert_eq!(ruler_step(0.75, None), 100.0);
+        assert_eq!(ruler_step(0.25, None), 500.0);
+        assert_eq!(ruler_step(0.1, None), 500.0);
+        assert_eq!(ruler_step(0.05, None), 1000.0);
+        assert_eq!(ruler_step(4.0, None), 50.0);
+        assert_eq!(ruler_step(5.0, None), 10.0);
+        assert_eq!(ruler_step(1.0, Some(25.0)), 25.0);
+        for zoom in [0.1, 0.25, 0.33, 0.5, 0.75, 1.0, 1.5, 2.0, 4.0] {
+            assert!(ruler_step(zoom, None) * zoom >= 50.0, "{zoom}");
+        }
+    }
+
+    #[test]
+    fn unit_steps_go_below_one_unit() {
+        // Inches at 100 %: 72 pt per inch.
+        assert_eq!(ruler_step_units(72.0, None), 1.0);
+        // Centimetres at 100 %: 28.35 pt per cm.
+        assert_eq!(ruler_step_units(72.0 / 2.54, None), 5.0);
+        // Inches at 400 %: 288 pt per inch → half inches.
+        assert_eq!(ruler_step_units(288.0, None), 0.5);
+        assert_eq!(ruler_label(0.5, 0.5), "0.5");
+        assert_eq!(ruler_label(-0.0001, 0.5), "0");
+        assert_eq!(ruler_label(150.0, 50.0), "150");
+    }
+
+    #[test]
+    fn ruler_layout_and_guide_hits() {
+        let canvas = Rect::from_min_size(egui::pos2(56.0, 48.0), vec2(1544.0, 588.0));
+        let r = RulerLayout::new(canvas);
+        assert_eq!(r.corner, Rect::from_min_size(canvas.min, vec2(20.0, 20.0)));
+        assert_eq!(r.horizontal.left(), 76.0);
+        assert_eq!(r.horizontal.height(), 20.0);
+        assert_eq!(r.vertical.top(), 68.0);
+        assert_eq!(r.vertical.width(), 20.0);
+        assert!(r.contains(egui::pos2(60.0, 300.0)));
+        assert!(!r.contains(egui::pos2(100.0, 100.0)));
+        assert!(guide_hit(
+            Orientation::Vertical,
+            300.0,
+            egui::pos2(304.0, 0.0)
+        ));
+        assert!(!guide_hit(
+            Orientation::Vertical,
+            300.0,
+            egui::pos2(305.0, 0.0)
+        ));
+        assert_eq!(
+            guide_extent(canvas, Orientation::Horizontal, true).left(),
+            76.0
+        );
+    }
 }

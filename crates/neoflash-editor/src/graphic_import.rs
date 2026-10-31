@@ -277,6 +277,7 @@ impl Editor {
                 class_name: None,
                 linkage_id: None,
                 timeline: Timeline {
+                    guides: vec![],
                     frame_count: 1,
                     layers: vec![Layer {
                         properties: Default::default(),

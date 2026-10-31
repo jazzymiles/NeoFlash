@@ -469,6 +469,7 @@ fn nested_hit_selects_the_outer_placement_and_skips_a_locked_foreground() {
         name: "Nested".into(),
         kind: SymbolKind::MovieClip,
         timeline: Timeline {
+            guides: vec![],
             frame_count: 1,
             layers: vec![inside],
             scripts: vec![],

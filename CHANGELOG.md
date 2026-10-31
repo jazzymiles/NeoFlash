@@ -2,6 +2,7 @@
 
 ## Unreleased — NF2 design system
 
+- Stage rulers, guides and grid work as in the NF2 design: rulers in pixels, points, inches, centimetres or millimetres with Auto or fixed label steps and a movable zero point; guides dragged out of the rulers, moved, selected, locked, hidden, deleted by dropping on a ruler or with Delete, cleared in one Undo, saved per scene/symbol (document format 6) and never exported; a stage grid with spacing, colour and Over objects. Moves, transform handles, rectangles, ovals, lines, pen anchors and path points snap to guides and the grid, with a snap ring. View ▸ Rulers / Grid / Guides, the zoom-control toggles, shortcuts and the Rulers, guides & grid popover (Save as default) are enabled.
 - Actions gains the NF2 sidebar: a toolbox of the ActionScript 2.0/3.0 APIs NeoFlash runs (packages, classes, members with types; search; double-click inserts, adding the AS3 `import`) and a Script navigator that lists and opens every frame, object and project-file script. Project classes appear in the toolbox and in hints as soon as they are written.
 - Code hints after `.` and with ⌃Space or **Show code hint**: members of `this`, typed variables, stage instance names, classes and their statics, including inherited members; ↑↓ choose, Return/Tab insert, Esc closes.
 - Enable Auto-format (re-indents only, never moves code), Apply block/line comment and Remove comment. Scripts are checked automatically 0.6 s after typing stops; explicit Check still reports to Output. Debug, folding and Script assist remain unavailable.

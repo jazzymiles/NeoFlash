@@ -33,9 +33,6 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     ("Edit ▸ Find and replace", P::FindReplace),
     ("Edit ▸ Preferences…", P::Preferences),
     ("Edit ▸ Keyboard shortcuts…", P::Preferences),
-    ("View ▸ Grid ▸ Edit grid…", P::ViewSettings),
-    ("View ▸ Guides ▸ Edit guides…", P::ViewSettings),
-    ("View ▸ Rulers, guides & grid…", P::ViewSettings),
     ("Insert ▸ Motion tween", P::MotionTween),
     ("Modify ▸ Document…", P::DocumentSettings),
     ("Modify ▸ Timeline ▸ Layer properties…", P::LayerProperties),
@@ -70,7 +67,6 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     ("Timeline controls ▸ Motion tween", P::MotionTween),
     ("Timeline controls ▸ Ease", P::Ease),
     ("Timeline controls ▸ Sound", P::PropertiesSound),
-    ("Zoom control ▸ View settings", P::ViewSettings),
     ("Breadcrumb ▸ Symbols & scenes", P::SymbolsPopover),
     ("Properties ▸ Publish settings…", P::PublishSettings),
     ("Swatches popover ▸ Add swatch", P::Swatches),
@@ -149,6 +145,16 @@ impl Editor {
             planned::set_open(ui.ctx(), panel, open);
             ui.close();
         }
+    }
+
+    /// Checked menu row for a view setting; true when clicked (the caller toggles the setting).
+    fn view_toggle(ui: &mut egui::Ui, on: bool, label: &str, shortcut: &str) -> bool {
+        let mut value = on;
+        let clicked = menu_toggle(ui, &mut value, label, shortcut).changed();
+        if clicked {
+            ui.close();
+        }
+        clicked
     }
 
     /// Disabled row for a designed command the editor cannot perform yet. Its shortcut does nothing.
@@ -482,24 +488,50 @@ impl Editor {
         )
         .on_disabled_hover_text(NOT_AVAILABLE);
         nf::menu_separator(ui);
-        Self::unavailable_item(ui, "Rulers", "⌥⇧⌘R");
+        // Rulers, Grid and Guides toggle the same view settings as the zoom control and the View
+        // settings popover (stage_view.rs); the "…" items open that popover.
+        let v = self.stage_view.prefs.clone();
+        if Self::view_toggle(ui, v.rulers, "Rulers", "⌥⇧⌘R") {
+            self.toggle_rulers();
+        }
         menu_popup(ui, "Grid", "Show over objects", "⇧⌘'", |ui| {
-            Self::unavailable_item(ui, "Show grid", "⌘'");
-            Self::unavailable_item(ui, "Snap to grid", "⇧⌘'");
-            Self::unavailable_item(ui, "Show over objects", "");
+            if Self::view_toggle(ui, v.grid_show, "Show grid", "⌘'") {
+                self.toggle_grid();
+            }
+            if Self::view_toggle(ui, v.grid_snap, "Snap to grid", "⇧⌘'") {
+                self.toggle_grid_snap();
+            }
+            if Self::view_toggle(ui, v.grid_over_objects, "Show over objects", "") {
+                self.toggle_grid_over_objects();
+            }
             nf::menu_separator(ui);
-            Self::planned_menu_item(ui, "View ▸ Grid ▸ Edit grid…", "⌥⌘G");
+            if menu_item(ui, "Edit grid…", "⌥⌘G").clicked() {
+                self.open_view_settings();
+                ui.close();
+            }
         });
         menu_popup(ui, "Guides", "Snap to guides", "⇧⌘;", |ui| {
-            Self::unavailable_item(ui, "Show guides", "⌘;");
-            Self::unavailable_item(ui, "Lock guides", "");
-            Self::unavailable_item(ui, "Snap to guides", "⇧⌘;");
+            if Self::view_toggle(ui, v.guides_show, "Show guides", "⌘;") {
+                self.toggle_guides();
+            }
+            if Self::view_toggle(ui, v.guides_lock, "Lock guides", "") {
+                self.toggle_guide_lock();
+            }
+            if Self::view_toggle(ui, v.guides_snap, "Snap to guides", "⇧⌘;") {
+                self.toggle_guide_snap();
+            }
             nf::menu_separator(ui);
-            Self::planned_menu_item(ui, "View ▸ Guides ▸ Edit guides…", "");
+            if menu_item(ui, "Edit guides…", "").clicked() {
+                self.open_view_settings();
+                ui.close();
+            }
         });
         Self::unavailable_submenu(ui, "Snapping");
         nf::menu_separator(ui);
-        Self::planned_menu_item(ui, "View ▸ Rulers, guides & grid…", "");
+        if menu_item(ui, "Rulers, guides & grid…", "").clicked() {
+            self.open_view_settings();
+            ui.close();
+        }
         Self::unavailable_item(ui, "Show shape hints", "⌥⌘H");
     }
 

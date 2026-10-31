@@ -97,6 +97,7 @@ pub struct Editor {
     pub clipboard: crate::clipboard::ClipboardState,
     pub workspace: WorkspacePrefs,
     pub detached: crate::detached::DetachedState,
+    pub(crate) stage_view: crate::stage_view::StageView,
 }
 
 #[derive(Clone, Copy)]
@@ -129,6 +130,10 @@ impl Editor {
         }
         s.workspace.theme.apply(&cc.egui_ctx);
         s.bottom = s.workspace.active_bottom;
+        s.stage_view.prefs = s.workspace.view_defaults.clone().unwrap_or_default();
+        // Screenshot aid (editor-view-settings-open.png): open the View settings popover.
+        s.stage_view.settings_open =
+            std::env::var_os("NEOFLASH_SCREENSHOT_VIEW_SETTINGS").is_some();
         if let Some(path) = std::env::args().nth(1) {
             s.open_path(PathBuf::from(path), &cc.egui_ctx);
         }
@@ -163,6 +168,7 @@ impl Editor {
             clipboard: crate::clipboard::ClipboardState::default(),
             workspace: WorkspacePrefs::default(),
             detached: crate::detached::DetachedState::default(),
+            stage_view: Default::default(),
         };
         s.fonts.install_ui(ctx);
         s.load_project_fonts(ctx);
