@@ -1,0 +1,1555 @@
+{
+ "description": "AS3 core API surface probes. Each probe runs in one exported frame script through the real compiler, exporter and Rust/WASM player. 'ok' = call/construction completed with documented argument types; 'eq:V' = exact documented constant value; 'notundefined' = readable member; 'function' = callable global; 'not:V' = result differs from the JavaScript default; controls prove that unknown members are not reported as present. Add a probe here before promoting a catalogue entry on presence evidence.",
+ "probes": [
+  {
+   "catalogId": "AS3:class:Date.html#",
+   "owner": "Date",
+   "code": "__r = typeof Date;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:JSON.html#",
+   "owner": "JSON",
+   "code": "__r = typeof JSON;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:RegExp.html#",
+   "owner": "RegExp",
+   "code": "__r = typeof RegExp;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/Bitmap.html#",
+   "owner": "flash.display.Bitmap",
+   "code": "__r = typeof Bitmap;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/BitmapData.html#",
+   "owner": "flash.display.BitmapData",
+   "code": "__r = typeof BitmapData;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/DisplayObjectContainer.html#",
+   "owner": "flash.display.DisplayObjectContainer",
+   "code": "__r = typeof DisplayObjectContainer;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/Graphics.html#",
+   "owner": "flash.display.Graphics",
+   "code": "__r = typeof Graphics;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/LoaderInfo.html#",
+   "owner": "flash.display.LoaderInfo",
+   "code": "__r = typeof LoaderInfo;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/PixelSnapping.html#",
+   "owner": "flash.display.PixelSnapping",
+   "code": "__r = typeof PixelSnapping;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/Shape.html#",
+   "owner": "flash.display.Shape",
+   "code": "__r = typeof Shape;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/SimpleButton.html#",
+   "owner": "flash.display.SimpleButton",
+   "code": "__r = typeof SimpleButton;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/Sprite.html#",
+   "owner": "flash.display.Sprite",
+   "code": "__r = typeof Sprite;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/Stage.html#",
+   "owner": "flash.display.Stage",
+   "code": "__r = typeof Stage;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/events/Event.html#",
+   "owner": "flash.events.Event",
+   "code": "__r = typeof Event;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/events/EventDispatcher.html#",
+   "owner": "flash.events.EventDispatcher",
+   "code": "__r = typeof EventDispatcher;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/events/EventPhase.html#",
+   "owner": "flash.events.EventPhase",
+   "code": "__r = typeof EventPhase;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/events/FocusEvent.html#",
+   "owner": "flash.events.FocusEvent",
+   "code": "__r = typeof FocusEvent;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/events/KeyboardEvent.html#",
+   "owner": "flash.events.KeyboardEvent",
+   "code": "__r = typeof KeyboardEvent;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/events/MouseEvent.html#",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = typeof MouseEvent;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/events/TextEvent.html#",
+   "owner": "flash.events.TextEvent",
+   "code": "__r = typeof TextEvent;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/events/TimerEvent.html#",
+   "owner": "flash.events.TimerEvent",
+   "code": "__r = typeof TimerEvent;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/filters/BlurFilter.html#",
+   "owner": "flash.filters.BlurFilter",
+   "code": "__r = typeof BlurFilter;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/filters/ColorMatrixFilter.html#",
+   "owner": "flash.filters.ColorMatrixFilter",
+   "code": "__r = typeof ColorMatrixFilter;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/filters/DropShadowFilter.html#",
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__r = typeof DropShadowFilter;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/filters/GlowFilter.html#",
+   "owner": "flash.filters.GlowFilter",
+   "code": "__r = typeof GlowFilter;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/geom/Transform.html#",
+   "owner": "flash.geom.Transform",
+   "code": "__r = typeof Transform;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/text/TextFieldType.html#",
+   "owner": "flash.text.TextFieldType",
+   "code": "__r = typeof TextFieldType;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/text/TextFormat.html#",
+   "owner": "flash.text.TextFormat",
+   "code": "__r = typeof TextFormat;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/text/TextFormatAlign.html#",
+   "owner": "flash.text.TextFormatAlign",
+   "code": "__r = typeof TextFormatAlign;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/utils/ByteArray.html#",
+   "owner": "flash.utils.ByteArray",
+   "code": "__r = typeof ByteArray;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/utils/Dictionary.html#",
+   "owner": "flash.utils.Dictionary",
+   "code": "__r = typeof Dictionary;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/utils/Timer.html#",
+   "owner": "flash.utils.Timer",
+   "code": "__r = typeof Timer;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:constant:Array.html#CASEINSENSITIVE",
+   "owner": "Array",
+   "code": "__r = String(Array.CASEINSENSITIVE);",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:constant:Array.html#NUMERIC",
+   "owner": "Array",
+   "code": "__r = String(Array.NUMERIC);",
+   "expect": "eq:16"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/PixelSnapping.html#ALWAYS",
+   "owner": "flash.display.PixelSnapping",
+   "code": "__r = String(PixelSnapping.ALWAYS);",
+   "expect": "eq:always"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/PixelSnapping.html#AUTO",
+   "owner": "flash.display.PixelSnapping",
+   "code": "__r = String(PixelSnapping.AUTO);",
+   "expect": "eq:auto"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/PixelSnapping.html#NEVER",
+   "owner": "flash.display.PixelSnapping",
+   "code": "__r = String(PixelSnapping.NEVER);",
+   "expect": "eq:never"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#ACTIVATE",
+   "owner": "flash.events.Event",
+   "code": "__r = String(Event.ACTIVATE);",
+   "expect": "eq:activate"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#ADDED",
+   "owner": "flash.events.Event",
+   "code": "__r = String(Event.ADDED);",
+   "expect": "eq:added"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#ADDED_TO_STAGE",
+   "owner": "flash.events.Event",
+   "code": "__r = String(Event.ADDED_TO_STAGE);",
+   "expect": "eq:addedToStage"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#DEACTIVATE",
+   "owner": "flash.events.Event",
+   "code": "__r = String(Event.DEACTIVATE);",
+   "expect": "eq:deactivate"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#EXIT_FRAME",
+   "owner": "flash.events.Event",
+   "code": "__r = String(Event.EXIT_FRAME);",
+   "expect": "eq:exitFrame"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#FRAME_CONSTRUCTED",
+   "owner": "flash.events.Event",
+   "code": "__r = String(Event.FRAME_CONSTRUCTED);",
+   "expect": "eq:frameConstructed"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#OPEN",
+   "owner": "flash.events.Event",
+   "code": "__r = String(Event.OPEN);",
+   "expect": "eq:open"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#REMOVED",
+   "owner": "flash.events.Event",
+   "code": "__r = String(Event.REMOVED);",
+   "expect": "eq:removed"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#REMOVED_FROM_STAGE",
+   "owner": "flash.events.Event",
+   "code": "__r = String(Event.REMOVED_FROM_STAGE);",
+   "expect": "eq:removedFromStage"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#RESIZE",
+   "owner": "flash.events.Event",
+   "code": "__r = String(Event.RESIZE);",
+   "expect": "eq:resize"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/EventPhase.html#AT_TARGET",
+   "owner": "flash.events.EventPhase",
+   "code": "__r = String(EventPhase.AT_TARGET);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/EventPhase.html#BUBBLING_PHASE",
+   "owner": "flash.events.EventPhase",
+   "code": "__r = String(EventPhase.BUBBLING_PHASE);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/EventPhase.html#CAPTURING_PHASE",
+   "owner": "flash.events.EventPhase",
+   "code": "__r = String(EventPhase.CAPTURING_PHASE);",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/FocusEvent.html#KEY_FOCUS_CHANGE",
+   "owner": "flash.events.FocusEvent",
+   "code": "__r = String(FocusEvent.KEY_FOCUS_CHANGE);",
+   "expect": "eq:keyFocusChange"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/FocusEvent.html#MOUSE_FOCUS_CHANGE",
+   "owner": "flash.events.FocusEvent",
+   "code": "__r = String(FocusEvent.MOUSE_FOCUS_CHANGE);",
+   "expect": "eq:mouseFocusChange"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/KeyboardEvent.html#KEY_UP",
+   "owner": "flash.events.KeyboardEvent",
+   "code": "__r = String(KeyboardEvent.KEY_UP);",
+   "expect": "eq:keyUp"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#DOUBLE_CLICK",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = String(MouseEvent.DOUBLE_CLICK);",
+   "expect": "eq:doubleClick"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_DOWN",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = String(MouseEvent.MOUSE_DOWN);",
+   "expect": "eq:mouseDown"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_MOVE",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = String(MouseEvent.MOUSE_MOVE);",
+   "expect": "eq:mouseMove"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_OUT",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = String(MouseEvent.MOUSE_OUT);",
+   "expect": "eq:mouseOut"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_OVER",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = String(MouseEvent.MOUSE_OVER);",
+   "expect": "eq:mouseOver"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_UP",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = String(MouseEvent.MOUSE_UP);",
+   "expect": "eq:mouseUp"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_WHEEL",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = String(MouseEvent.MOUSE_WHEEL);",
+   "expect": "eq:mouseWheel"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#ROLL_OUT",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = String(MouseEvent.ROLL_OUT);",
+   "expect": "eq:rollOut"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#ROLL_OVER",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = String(MouseEvent.ROLL_OVER);",
+   "expect": "eq:rollOver"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/TextEvent.html#LINK",
+   "owner": "flash.events.TextEvent",
+   "code": "__r = String(TextEvent.LINK);",
+   "expect": "eq:link"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextFieldType.html#DYNAMIC",
+   "owner": "flash.text.TextFieldType",
+   "code": "__r = String(TextFieldType.DYNAMIC);",
+   "expect": "eq:dynamic"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#JUSTIFY",
+   "owner": "flash.text.TextFormatAlign",
+   "code": "__r = String(TextFormatAlign.JUSTIFY);",
+   "expect": "eq:justify"
+  },
+  {
+   "catalogId": "AS3:constructor:Object.html#Object()",
+   "owner": "Object",
+   "code": "__o = new Object(); __r = __o == null ? \"null\" : \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/display/DisplayObjectContainer.html#DisplayObjectContainer()",
+   "owner": "flash.display.DisplayObjectContainer",
+   "code": "__o = new Sprite(); __r = __o == null ? \"null\" : \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/display/MovieClip.html#MovieClip()",
+   "owner": "flash.display.MovieClip",
+   "code": "__o = new MovieClip(); __r = __o == null ? \"null\" : \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/events/EventDispatcher.html#EventDispatcher()",
+   "owner": "flash.events.EventDispatcher",
+   "code": "__o = new EventDispatcher(); __r = __o == null ? \"null\" : \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/events/FocusEvent.html#FocusEvent()",
+   "owner": "flash.events.FocusEvent",
+   "code": "__o = new FocusEvent(\"focusIn\"); __r = __o == null ? \"null\" : \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/events/KeyboardEvent.html#KeyboardEvent()",
+   "owner": "flash.events.KeyboardEvent",
+   "code": "__o = new KeyboardEvent(\"keyDown\"); __r = __o == null ? \"null\" : \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/events/MouseEvent.html#MouseEvent()",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __r = __o == null ? \"null\" : \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/events/TextEvent.html#TextEvent()",
+   "owner": "flash.events.TextEvent",
+   "code": "__o = new TextEvent(\"textInput\"); __r = __o == null ? \"null\" : \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/events/TimerEvent.html#TimerEvent()",
+   "owner": "flash.events.TimerEvent",
+   "code": "__o = new TimerEvent(\"timer\"); __r = __o == null ? \"null\" : \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:function:package.html#Array()",
+   "owner": "<global>",
+   "code": "__r = typeof Array;",
+   "expect": "function"
+  },
+  {
+   "catalogId": "AS3:function:package.html#Object()",
+   "owner": "<global>",
+   "code": "__r = typeof Object;",
+   "expect": "function"
+  },
+  {
+   "catalogId": "AS3:function:package.html#XML()",
+   "owner": "<global>",
+   "code": "__r = typeof XML;",
+   "expect": "function"
+  },
+  {
+   "catalogId": "AS3:function:package.html#XMLList()",
+   "owner": "<global>",
+   "code": "__r = typeof XMLList;",
+   "expect": "function"
+  },
+  {
+   "catalogId": "AS3:function:package.html#int()",
+   "owner": "<global>",
+   "code": "__r = typeof int;",
+   "expect": "function"
+  },
+  {
+   "catalogId": "AS3:function:package.html#uint()",
+   "owner": "<global>",
+   "code": "__r = typeof uint;",
+   "expect": "function"
+  },
+  {
+   "catalogId": "AS3:method:Array.html#toLocaleString()",
+   "owner": "Array",
+   "code": "__o = [3,1,2]; __v = __o.toLocaleString(); __r = String(__v);",
+   "expect": "not:[object Object]"
+  },
+  {
+   "catalogId": "AS3:method:Boolean.html#valueOf()",
+   "owner": "Boolean",
+   "code": "__o = true; __v = __o.valueOf(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Date.html#getTimezoneOffset()",
+   "owner": "Date",
+   "code": "__o = new Date(2020,0,1); __v = __o.getTimezoneOffset(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Date.html#parse()",
+   "owner": "Date",
+   "code": "__v = Date.parse(\"a\"); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Date.html#toDateString()",
+   "owner": "Date",
+   "code": "__o = new Date(2020,0,1); __v = __o.toDateString(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Date.html#toJSON()",
+   "owner": "Date",
+   "code": "__o = new Date(2020,0,1); __v = __o.toJSON(\"a\"); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Date.html#toLocaleDateString()",
+   "owner": "Date",
+   "code": "__o = new Date(2020,0,1); __v = __o.toLocaleDateString(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Date.html#toLocaleString()",
+   "owner": "Date",
+   "code": "__o = new Date(2020,0,1); __v = __o.toLocaleString(); __r = String(__v);",
+   "expect": "not:[object Object]"
+  },
+  {
+   "catalogId": "AS3:method:Date.html#toLocaleTimeString()",
+   "owner": "Date",
+   "code": "__o = new Date(2020,0,1); __v = __o.toLocaleTimeString(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Date.html#toString()",
+   "owner": "Date",
+   "code": "__o = new Date(2020,0,1); __v = __o.toString(); __r = String(__v);",
+   "expect": "not:[object Object]"
+  },
+  {
+   "catalogId": "AS3:method:Date.html#toTimeString()",
+   "owner": "Date",
+   "code": "__o = new Date(2020,0,1); __v = __o.toTimeString(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Number.html#toExponential()",
+   "owner": "Number",
+   "code": "__o = Number(1.5); __v = __o.toExponential(1); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Number.html#toPrecision()",
+   "owner": "Number",
+   "code": "__o = Number(1.5); __v = __o.toPrecision(1); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Number.html#valueOf()",
+   "owner": "Number",
+   "code": "__o = Number(1.5); __v = __o.valueOf(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:RegExp.html#test()",
+   "owner": "RegExp",
+   "code": "__o = new RegExp(\"a\",\"g\"); __v = __o.test(\"a\"); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:String.html#match()",
+   "owner": "String",
+   "code": "__o = \"abc\"; __v = __o.match(null); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:String.html#search()",
+   "owner": "String",
+   "code": "__o = \"abc\"; __v = __o.search(null); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#concat()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __v = __o.concat(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#every()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __v = __o.every(function(...a):* {return 0;}); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#filter()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __v = __o.filter(function(...a):* {return 0;}); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#forEach()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __v = __o.forEach(function(...a):* {return 0;}); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#join()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __v = __o.join(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#map()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __v = __o.map(function(...a):* {return 0;}); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#pop()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __v = __o.pop(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#reverse()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __v = __o.reverse(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#slice()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __v = __o.slice(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#some()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __v = __o.some(function(...a):* {return 0;}); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#sort()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __v = __o.sort(null); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#splice()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __v = __o.splice(1); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#toLocaleString()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __v = __o.toLocaleString(); __r = String(__v);",
+   "expect": "not:[object Object]"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#toString()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __v = __o.toString(); __r = String(__v);",
+   "expect": "not:[object Object]"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#unshift()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __v = __o.unshift(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/DisplayObject.html#getRect()",
+   "owner": "flash.display.DisplayObject",
+   "code": "__o = new Sprite(); __v = __o.getRect(new Sprite()); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/DisplayObject.html#hitTestObject()",
+   "owner": "flash.display.DisplayObject",
+   "code": "__o = new Sprite(); __v = __o.hitTestObject(new Sprite()); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/DisplayObject.html#hitTestPoint()",
+   "owner": "flash.display.DisplayObject",
+   "code": "__o = new Sprite(); __v = __o.hitTestPoint(1, 1); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/Graphics.html#curveTo()",
+   "owner": "flash.display.Graphics",
+   "code": "__o = new Shape().graphics; __v = __o.curveTo(1, 1, 1, 1); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/Graphics.html#drawEllipse()",
+   "owner": "flash.display.Graphics",
+   "code": "__o = new Shape().graphics; __v = __o.drawEllipse(1, 1, 1, 1); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/Graphics.html#lineTo()",
+   "owner": "flash.display.Graphics",
+   "code": "__o = new Shape().graphics; __v = __o.lineTo(1, 1); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/Sprite.html#stopDrag()",
+   "owner": "flash.display.Sprite",
+   "code": "__o = new Sprite(); __v = __o.stopDrag(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/Stage.html#dispatchEvent()",
+   "owner": "flash.display.Stage",
+   "code": "__o = stage; __v = __o.dispatchEvent(new Event(\"x\")); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/Stage.html#hasEventListener()",
+   "owner": "flash.display.Stage",
+   "code": "__o = stage; __v = __o.hasEventListener(\"a\"); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/Stage.html#willTrigger()",
+   "owner": "flash.display.Stage",
+   "code": "__o = stage; __v = __o.willTrigger(\"a\"); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/Event.html#clone()",
+   "owner": "flash.events.Event",
+   "code": "__o = new Event(\"x\"); __v = __o.clone(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/Event.html#stopImmediatePropagation()",
+   "owner": "flash.events.Event",
+   "code": "__o = new Event(\"x\"); __v = __o.stopImmediatePropagation(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/Event.html#stopPropagation()",
+   "owner": "flash.events.Event",
+   "code": "__o = new Event(\"x\"); __v = __o.stopPropagation(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/Event.html#toString()",
+   "owner": "flash.events.Event",
+   "code": "__o = new Event(\"x\"); __v = __o.toString(); __r = String(__v);",
+   "expect": "not:[object Object]"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/EventDispatcher.html#willTrigger()",
+   "owner": "flash.events.EventDispatcher",
+   "code": "__o = new EventDispatcher(); __v = __o.willTrigger(\"a\"); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/FocusEvent.html#clone()",
+   "owner": "flash.events.FocusEvent",
+   "code": "__o = new FocusEvent(\"focusIn\"); __v = __o.clone(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/FocusEvent.html#toString()",
+   "owner": "flash.events.FocusEvent",
+   "code": "__o = new FocusEvent(\"focusIn\"); __v = __o.toString(); __r = String(__v);",
+   "expect": "not:[object Object]"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/KeyboardEvent.html#clone()",
+   "owner": "flash.events.KeyboardEvent",
+   "code": "__o = new KeyboardEvent(\"keyDown\"); __v = __o.clone(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/KeyboardEvent.html#toString()",
+   "owner": "flash.events.KeyboardEvent",
+   "code": "__o = new KeyboardEvent(\"keyDown\"); __v = __o.toString(); __r = String(__v);",
+   "expect": "not:[object Object]"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/KeyboardEvent.html#updateAfterEvent()",
+   "owner": "flash.events.KeyboardEvent",
+   "code": "__o = new KeyboardEvent(\"keyDown\"); __v = __o.updateAfterEvent(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/MouseEvent.html#clone()",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __v = __o.clone(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/MouseEvent.html#toString()",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __v = __o.toString(); __r = String(__v);",
+   "expect": "not:[object Object]"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/MouseEvent.html#updateAfterEvent()",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __v = __o.updateAfterEvent(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/TextEvent.html#clone()",
+   "owner": "flash.events.TextEvent",
+   "code": "__o = new TextEvent(\"textInput\"); __v = __o.clone(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/TextEvent.html#toString()",
+   "owner": "flash.events.TextEvent",
+   "code": "__o = new TextEvent(\"textInput\"); __v = __o.toString(); __r = String(__v);",
+   "expect": "not:[object Object]"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/TimerEvent.html#clone()",
+   "owner": "flash.events.TimerEvent",
+   "code": "__o = new TimerEvent(\"timer\"); __v = __o.clone(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/TimerEvent.html#toString()",
+   "owner": "flash.events.TimerEvent",
+   "code": "__o = new TimerEvent(\"timer\"); __v = __o.toString(); __r = String(__v);",
+   "expect": "not:[object Object]"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/TimerEvent.html#updateAfterEvent()",
+   "owner": "flash.events.TimerEvent",
+   "code": "__o = new TimerEvent(\"timer\"); __v = __o.updateAfterEvent(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/filters/ColorMatrixFilter.html#clone()",
+   "owner": "flash.filters.ColorMatrixFilter",
+   "code": "__o = new ColorMatrixFilter(); __v = __o.clone(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/filters/DropShadowFilter.html#clone()",
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__o = new DropShadowFilter(); __v = __o.clone(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/filters/GlowFilter.html#clone()",
+   "owner": "flash.filters.GlowFilter",
+   "code": "__o = new GlowFilter(); __v = __o.clone(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/Dictionary.html#toJSON()",
+   "owner": "flash.utils.Dictionary",
+   "code": "__o = new Dictionary(); __v = __o.toJSON(\"a\"); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/Timer.html#reset()",
+   "owner": "flash.utils.Timer",
+   "code": "__o = new Timer(1000); __v = __o.reset(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/Timer.html#stop()",
+   "owner": "flash.utils.Timer",
+   "code": "__o = new Timer(1000); __v = __o.stop(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:int.html#toExponential()",
+   "owner": "int",
+   "code": "__o = int(3); __v = __o.toExponential(1); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:int.html#toPrecision()",
+   "owner": "int",
+   "code": "__o = int(3); __v = __o.toPrecision(1); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:int.html#valueOf()",
+   "owner": "int",
+   "code": "__o = int(3); __v = __o.valueOf(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:uint.html#toExponential()",
+   "owner": "uint",
+   "code": "__o = uint(3); __v = __o.toExponential(1); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:uint.html#toPrecision()",
+   "owner": "uint",
+   "code": "__o = uint(3); __v = __o.toPrecision(1); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:uint.html#valueOf()",
+   "owner": "uint",
+   "code": "__o = uint(3); __v = __o.valueOf(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:property:Date.html#timezoneOffset",
+   "owner": "Date",
+   "code": "__o = new Date(2020,0,1); __r = typeof __o.timezoneOffset;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:RegExp.html#dotall",
+   "owner": "RegExp",
+   "code": "__o = new RegExp(\"a\",\"g\"); __r = typeof __o.dotall;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:RegExp.html#extended",
+   "owner": "RegExp",
+   "code": "__o = new RegExp(\"a\",\"g\"); __r = typeof __o.extended;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:RegExp.html#global",
+   "owner": "RegExp",
+   "code": "__o = new RegExp(\"a\",\"g\"); __r = typeof __o.global;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:RegExp.html#ignoreCase",
+   "owner": "RegExp",
+   "code": "__o = new RegExp(\"a\",\"g\"); __r = typeof __o.ignoreCase;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:RegExp.html#lastIndex",
+   "owner": "RegExp",
+   "code": "__o = new RegExp(\"a\",\"g\"); __r = typeof __o.lastIndex;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:RegExp.html#multiline",
+   "owner": "RegExp",
+   "code": "__o = new RegExp(\"a\",\"g\"); __r = typeof __o.multiline;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Bitmap.html#pixelSnapping",
+   "owner": "flash.display.Bitmap",
+   "code": "__o = new Bitmap(new BitmapData(2,2)); __r = typeof __o.pixelSnapping;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Bitmap.html#smoothing",
+   "owner": "flash.display.Bitmap",
+   "code": "__o = new Bitmap(new BitmapData(2,2)); __r = typeof __o.smoothing;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/DisplayObject.html#mouseX",
+   "owner": "flash.display.DisplayObject",
+   "code": "__o = new Sprite(); __r = typeof __o.mouseX;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/DisplayObject.html#mouseY",
+   "owner": "flash.display.DisplayObject",
+   "code": "__o = new Sprite(); __r = typeof __o.mouseY;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/DisplayObjectContainer.html#mouseChildren",
+   "owner": "flash.display.DisplayObjectContainer",
+   "code": "__o = new Sprite(); __r = typeof __o.mouseChildren;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Sprite.html#dropTarget",
+   "owner": "flash.display.Sprite",
+   "code": "__o = new Sprite(); __r = typeof __o.dropTarget;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Sprite.html#hitArea",
+   "owner": "flash.display.Sprite",
+   "code": "__o = new Sprite(); __r = typeof __o.hitArea;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Sprite.html#useHandCursor",
+   "owner": "flash.display.Sprite",
+   "code": "__o = new Sprite(); __r = typeof __o.useHandCursor;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/Event.html#bubbles",
+   "owner": "flash.events.Event",
+   "code": "__o = new Event(\"x\"); __r = typeof __o.bubbles;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/Event.html#cancelable",
+   "owner": "flash.events.Event",
+   "code": "__o = new Event(\"x\"); __r = typeof __o.cancelable;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/Event.html#currentTarget",
+   "owner": "flash.events.Event",
+   "code": "__o = new Event(\"x\"); __r = typeof __o.currentTarget;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/Event.html#type",
+   "owner": "flash.events.Event",
+   "code": "__o = new Event(\"x\"); __r = typeof __o.type;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/FocusEvent.html#isRelatedObjectInaccessible",
+   "owner": "flash.events.FocusEvent",
+   "code": "__o = new FocusEvent(\"focusIn\"); __r = typeof __o.isRelatedObjectInaccessible;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/FocusEvent.html#keyCode",
+   "owner": "flash.events.FocusEvent",
+   "code": "__o = new FocusEvent(\"focusIn\"); __r = typeof __o.keyCode;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/FocusEvent.html#shiftKey",
+   "owner": "flash.events.FocusEvent",
+   "code": "__o = new FocusEvent(\"focusIn\"); __r = typeof __o.shiftKey;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/KeyboardEvent.html#altKey",
+   "owner": "flash.events.KeyboardEvent",
+   "code": "__o = new KeyboardEvent(\"keyDown\"); __r = typeof __o.altKey;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/KeyboardEvent.html#charCode",
+   "owner": "flash.events.KeyboardEvent",
+   "code": "__o = new KeyboardEvent(\"keyDown\"); __r = typeof __o.charCode;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/KeyboardEvent.html#ctrlKey",
+   "owner": "flash.events.KeyboardEvent",
+   "code": "__o = new KeyboardEvent(\"keyDown\"); __r = typeof __o.ctrlKey;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/KeyboardEvent.html#keyLocation",
+   "owner": "flash.events.KeyboardEvent",
+   "code": "__o = new KeyboardEvent(\"keyDown\"); __r = typeof __o.keyLocation;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/KeyboardEvent.html#shiftKey",
+   "owner": "flash.events.KeyboardEvent",
+   "code": "__o = new KeyboardEvent(\"keyDown\"); __r = typeof __o.shiftKey;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#altKey",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.altKey;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#buttonDown",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.buttonDown;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#ctrlKey",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.ctrlKey;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#delta",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.delta;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#localX",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.localX;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#localY",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.localY;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#relatedObject",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.relatedObject;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#shiftKey",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.shiftKey;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#stageX",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.stageX;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#stageY",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.stageY;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/BlurFilter.html#blurY",
+   "owner": "flash.filters.BlurFilter",
+   "code": "__o = new BlurFilter(); __r = typeof __o.blurY;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/BlurFilter.html#quality",
+   "owner": "flash.filters.BlurFilter",
+   "code": "__o = new BlurFilter(); __r = typeof __o.quality;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#alpha",
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__o = new DropShadowFilter(); __r = typeof __o.alpha;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#angle",
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__o = new DropShadowFilter(); __r = typeof __o.angle;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#blurX",
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__o = new DropShadowFilter(); __r = typeof __o.blurX;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#blurY",
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__o = new DropShadowFilter(); __r = typeof __o.blurY;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#color",
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__o = new DropShadowFilter(); __r = typeof __o.color;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#distance",
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__o = new DropShadowFilter(); __r = typeof __o.distance;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#hideObject",
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__o = new DropShadowFilter(); __r = typeof __o.hideObject;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#inner",
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__o = new DropShadowFilter(); __r = typeof __o.inner;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#knockout",
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__o = new DropShadowFilter(); __r = typeof __o.knockout;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#quality",
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__o = new DropShadowFilter(); __r = typeof __o.quality;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#strength",
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__o = new DropShadowFilter(); __r = typeof __o.strength;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GlowFilter.html#alpha",
+   "owner": "flash.filters.GlowFilter",
+   "code": "__o = new GlowFilter(); __r = typeof __o.alpha;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GlowFilter.html#blurX",
+   "owner": "flash.filters.GlowFilter",
+   "code": "__o = new GlowFilter(); __r = typeof __o.blurX;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GlowFilter.html#blurY",
+   "owner": "flash.filters.GlowFilter",
+   "code": "__o = new GlowFilter(); __r = typeof __o.blurY;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GlowFilter.html#color",
+   "owner": "flash.filters.GlowFilter",
+   "code": "__o = new GlowFilter(); __r = typeof __o.color;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GlowFilter.html#inner",
+   "owner": "flash.filters.GlowFilter",
+   "code": "__o = new GlowFilter(); __r = typeof __o.inner;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GlowFilter.html#knockout",
+   "owner": "flash.filters.GlowFilter",
+   "code": "__o = new GlowFilter(); __r = typeof __o.knockout;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GlowFilter.html#quality",
+   "owner": "flash.filters.GlowFilter",
+   "code": "__o = new GlowFilter(); __r = typeof __o.quality;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GlowFilter.html#strength",
+   "owner": "flash.filters.GlowFilter",
+   "code": "__o = new GlowFilter(); __r = typeof __o.strength;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/geom/Transform.html#pixelBounds",
+   "owner": "flash.geom.Transform",
+   "code": "__o = new Sprite().transform; __r = typeof __o.pixelBounds;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#displayAsPassword",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __r = typeof __o.displayAsPassword;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#font",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __r = typeof __o.font;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#indent",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __r = typeof __o.indent;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#leftMargin",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __r = typeof __o.leftMargin;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#rightMargin",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __r = typeof __o.rightMargin;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#size",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __r = typeof __o.size;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#target",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __r = typeof __o.target;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#underline",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __r = typeof __o.underline;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#url",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __r = typeof __o.url;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/utils/ByteArray.html#defaultObjectEncoding",
+   "owner": "flash.utils.ByteArray",
+   "code": "__r = String(ByteArray.defaultObjectEncoding);",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/utils/Timer.html#delay",
+   "owner": "flash.utils.Timer",
+   "code": "__o = new Timer(1000); __r = typeof __o.delay;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/utils/Timer.html#repeatCount",
+   "owner": "flash.utils.Timer",
+   "code": "__o = new Timer(1000); __r = typeof __o.repeatCount;",
+   "expect": "notundefined"
+  }
+ ],
+ "controls": [
+  {
+   "owner": "Date",
+   "code": "__o = new Date(2020,0,1); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "Date",
+   "code": "__o = new Date(2020,0,1); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "RegExp",
+   "code": "__o = new RegExp(\"a\",\"g\"); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "RegExp",
+   "code": "__o = new RegExp(\"a\",\"g\"); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.display.Bitmap",
+   "code": "__o = new Bitmap(new BitmapData(2,2)); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.display.Bitmap",
+   "code": "__o = new Bitmap(new BitmapData(2,2)); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.display.DisplayObject",
+   "code": "__o = new Sprite(); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.display.DisplayObject",
+   "code": "__o = new Sprite(); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.display.DisplayObjectContainer",
+   "code": "__o = new Sprite(); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.display.DisplayObjectContainer",
+   "code": "__o = new Sprite(); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.display.LoaderInfo",
+   "code": "__o = this.loaderInfo; __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.display.MovieClip",
+   "code": "__o = new MovieClip(); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.display.MovieClip",
+   "code": "__o = new MovieClip(); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.display.SimpleButton",
+   "code": "__o = new SimpleButton(); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.display.Sprite",
+   "code": "__o = new Sprite(); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.display.Sprite",
+   "code": "__o = new Sprite(); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.display.Stage",
+   "code": "__o = stage; __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.display.Stage",
+   "code": "__o = stage; __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.events.Event",
+   "code": "__o = new Event(\"x\"); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.events.Event",
+   "code": "__o = new Event(\"x\"); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.events.FocusEvent",
+   "code": "__o = new FocusEvent(\"focusIn\"); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.events.FocusEvent",
+   "code": "__o = new FocusEvent(\"focusIn\"); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.events.KeyboardEvent",
+   "code": "__o = new KeyboardEvent(\"keyDown\"); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.events.KeyboardEvent",
+   "code": "__o = new KeyboardEvent(\"keyDown\"); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\"); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.filters.BlurFilter",
+   "code": "__o = new BlurFilter(); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.filters.BlurFilter",
+   "code": "__o = new BlurFilter(); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__o = new DropShadowFilter(); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__o = new DropShadowFilter(); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.filters.GlowFilter",
+   "code": "__o = new GlowFilter(); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.filters.GlowFilter",
+   "code": "__o = new GlowFilter(); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.geom.Transform",
+   "code": "__o = new Sprite().transform; __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.geom.Transform",
+   "code": "__o = new Sprite().transform; __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.utils.Timer",
+   "code": "__o = new Timer(1000); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.utils.Timer",
+   "code": "__o = new Timer(1000); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  }
+ ]
+}

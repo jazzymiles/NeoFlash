@@ -32,6 +32,7 @@ import { verifyVideoPlayback } from './video-playback.mjs';
 import { verifyDragDrop } from './drag-drop.mjs';
 import { verifyLegacyImport } from './legacy-import.mjs';
 import { verifyWebIntegration } from './web-integration.mjs';
+import { verifyCoreSurface } from './core-surface.mjs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
@@ -202,6 +203,7 @@ const workflows=[
   ['video-playback',verifyVideoPlayback],
   ['drag-drop',verifyDragDrop],
   ['web-integration',verifyWebIntegration],
+  ['core-surface',verifyCoreSurface],
 ];
 let selected=workflows;
 if(process.env.NEOFLASH_WORKFLOWS!==undefined){
