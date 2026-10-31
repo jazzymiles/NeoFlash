@@ -607,12 +607,27 @@ impl Editor {
                 |ui| {
                     Self::unavailable_item(ui, "Distribute to layers", "⇧⌘D");
                     Self::planned_menu_item(ui, "Modify ▸ Timeline ▸ Layer properties…", "");
-                    Self::unavailable_item(ui, "Reverse frames", "");
+                    let editable = self.layer_editable();
+                    if menu_item_enabled(ui, self.can_reverse_frames(), "Reverse frames", "")
+                        .clicked()
+                    {
+                        self.reverse_frames();
+                        ui.close();
+                    }
                     Self::unavailable_item(ui, "Synchronise symbols", "");
                     neoflash_ui::components::menu_separator(ui);
-                    Self::unavailable_item(ui, "Convert to keyframes", "");
-                    Self::unavailable_item(ui, "Clear keyframe", "⇧F6");
-                    Self::unavailable_item(ui, "Convert to blank keyframes", "");
+                    if menu_item_enabled(ui, editable, "Convert to keyframes", "").clicked() {
+                        self.convert_to_keyframes(false);
+                        ui.close();
+                    }
+                    if menu_item_enabled(ui, editable, "Clear keyframe", "⇧F6").clicked() {
+                        self.clear_keyframe();
+                        ui.close();
+                    }
+                    if menu_item_enabled(ui, editable, "Convert to blank keyframes", "").clicked() {
+                        self.convert_to_keyframes(true);
+                        ui.close();
+                    }
                 },
             );
             self.transform_menu(ui);

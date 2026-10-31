@@ -5,12 +5,13 @@
 //! · zoom − slider +.
 //!
 //! Controls whose feature the engine lacks are shown disabled with "not available yet" in their name
-//! and tooltip, never as working-looking fakes; ease, sound and motion tween open their planned
-//! previews (Ease panel, Properties — Sound, Properties — Motion tween). When the bar is narrower than its content the left
+//! and tooltip, never as working-looking fakes; ease and sound open their planned previews (Ease
+//! panel, Properties — Sound). Tweens, motion guides, scenes, loop and edit multiple frames run the
+//! commands in `timeline_commands.rs`. When the bar is narrower than its content the left
 //! part scrolls horizontally while the onion group and frame view menu stay pinned and visible.
 use super::menu::NOT_AVAILABLE;
 use crate::app::*;
-use crate::workspace::{PanelId, PanelPlacement};
+use crate::workspace::{DockDestination, DockEdge, PanelId, PanelPlacement};
 use eframe::egui::{self, Rect, Sense, Stroke, Vec2};
 use neoflash_core::*;
 use neoflash_ui::components::{
@@ -29,32 +30,6 @@ const GAP: f32 = space::S2;
 const GROUP_GAP: f32 = 2.;
 const SLIDER: f32 = 140.;
 
-/// Frame view ⋯ options that only change presentation. Workspace-only, never in the document.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct FrameViewOptions {
-    /// Off = spans are not colour-coded, only arrows (§5.4 "Tinted frames").
-    pub tinted: bool,
-    pub show_seconds: bool,
-}
-
-impl Default for FrameViewOptions {
-    fn default() -> Self {
-        Self {
-            tinted: true,
-            show_seconds: true,
-        }
-    }
-}
-
-fn options_id() -> egui::Id {
-    egui::Id::new("neoflash-timeline-frame-view")
-}
-
-pub(crate) fn frame_view_options(ctx: &egui::Context) -> FrameViewOptions {
-    ctx.data(|data| data.get_temp(options_id()))
-        .unwrap_or_default()
-}
-
 /// Requests from the bar that the frame area applies after layout.
 #[derive(Default)]
 pub(crate) struct ControlsOutcome {
@@ -67,10 +42,6 @@ pub(crate) fn timecode(frame: u32, fps: u32) -> String {
     let t = frame as f64 / fps.max(1) as f64;
     let minutes = (t / 60.).floor();
     format!("{:02}:{:05.2}", minutes as u32, t - minutes * 60.)
-}
-
-fn not_available(label: &str) -> String {
-    format!("{label} — not available yet")
 }
 
 impl Editor {
@@ -221,10 +192,15 @@ impl Editor {
                 {
                     self.insert_layer_folder(self.layer);
                 }
-                ui.add_enabled(
-                    false,
-                    IconButton::new(i16::GUIDEPLUS, &not_available("Add motion guide")),
-                );
+                if ui
+                    .add_enabled(
+                        self.can_add_motion_guide_to(self.layer),
+                        IconButton::new(i16::GUIDEPLUS, "Add motion guide"),
+                    )
+                    .clicked()
+                {
+                    self.add_motion_guide();
+                }
                 let rest = ui.available_width() - CONTROL;
                 if rest > 0. {
                     ui.add_space(rest);
@@ -289,40 +265,51 @@ impl Editor {
         {
             self.timeline_seek(last);
         }
-        ui.add_enabled(
-            false,
-            IconButton::new(i16::LOOP, &not_available("Loop playback")),
-        );
+        let looping = self.workspace.timeline.loop_playback;
+        if ui
+            .add(IconButton::new(i16::LOOP, "Loop playback").selected(looping))
+            .clicked()
+        {
+            self.workspace.timeline.loop_playback = !looping;
+        }
     }
 
-    /// Scene `Select`. The engine has one main timeline per document; the menu returns to it.
+    /// Scene `Select`: the document's scenes in play order (checked = edited scene) + New scene.
+    /// Choosing a scene leaves symbol editing and shows that scene's timeline.
     fn timeline_scene_select(&mut self, ui: &mut egui::Ui) {
-        let root = self.project.root.clone();
-        let name = self
-            .project
-            .symbol(&root)
-            .map(|s| s.name.clone())
+        let scenes = self.scene_list();
+        let current = self.current_scene().to_owned();
+        let name = scenes
+            .iter()
+            .find(|(id, _)| id == &current)
+            .map(|(_, name)| name.clone())
             .unwrap_or_default();
-        let at_root = self.editing.len() <= 1;
-        let mut go_root = false;
+        let at_scene = self.editing.len() <= 1;
+        let mut chosen = None;
+        let mut create = false;
         let (response, _) = nf::Select::new("timeline-scene", &name)
             .width(120.)
             .show(ui, |ui| {
-                if ui.add(MenuItem::new(&name).checked(at_root)).clicked() {
-                    go_root = true;
+                for (id, scene) in &scenes {
+                    if ui
+                        .add(MenuItem::new(scene).checked(at_scene && id == &current))
+                        .clicked()
+                    {
+                        chosen = Some(id.clone());
+                    }
                 }
                 nf::menu_separator(ui);
-                ui.add_enabled(false, MenuItem::new(&not_available("New scene")));
+                if ui.add(MenuItem::new("New scene")).clicked() {
+                    create = true;
+                }
             });
-        response.on_hover_text("Main timeline. Multiple scenes are not available yet.");
-        if go_root && !at_root {
-            self.finish_edits();
-            self.timeline_key_drag = None;
-            self.editing.truncate(1);
-            self.reset_authored_preview();
-            self.frame = 0;
-            self.layer = 0;
-            self.clear_selection();
+        response.on_hover_text("Scene");
+        if create {
+            self.new_scene();
+        } else if let Some(id) = chosen
+            && (id != current || !at_scene)
+        {
+            self.switch_scene(&id);
         }
     }
 
@@ -344,44 +331,41 @@ impl Editor {
             Some(2) => self.make_key(true),
             _ => {}
         }
-        let tweened = self
-            .symbol()
-            .timeline
-            .layers
-            .get(self.layer)
-            .and_then(|layer| layer.key_at(self.frame))
-            .map(|key| key.tween.is_some());
-        let shape = not_available("Shape tween");
-        let motion = "Motion tween";
-        let classic = if tweened == Some(true) {
+        let tween = self.current_tween();
+        let classic = if tween == Some(TweenKind::Classic) {
             "Remove classic tween"
         } else {
             "Create classic tween"
         };
-        let tween = IconGroup {
+        let shape = if tween == Some(TweenKind::Shape) {
+            "Remove shape tween"
+        } else {
+            "Shape tween"
+        };
+        let motion = if tween == Some(TweenKind::Motion) {
+            "Remove motion tween"
+        } else {
+            "Motion tween"
+        };
+        let can_tween = self.can_create_tween();
+        let clicked = IconGroup {
             items: &[
                 (i16::TWEEN_CLASSIC, classic),
-                (i16::TWEEN_SHAPE, &shape),
+                (i16::TWEEN_SHAPE, shape),
                 (i16::TWEEN_MOTION, motion),
             ],
-            selected: (tweened == Some(true)).then_some(0),
+            selected: tween.map(|kind| match kind {
+                TweenKind::Classic => 0,
+                TweenKind::Shape => 1,
+                TweenKind::Motion => 2,
+            }),
         }
-        .show_with(ui, &[editable && tweened.is_some(), false, true], &[]);
-        if tween == Some(2) {
-            Self::open_planned(ui.ctx(), "Timeline controls ▸ Motion tween");
-        }
-        if tween == Some(0) {
-            self.finish_edits();
-            self.transact(|s| {
-                let (f, l) = (s.frame, s.layer);
-                if let Some(k) = s.symbol_mut().timeline.layers[l].key_at_mut(f) {
-                    k.tween = if k.tween.is_some() {
-                        None
-                    } else {
-                        Some(Easing::EaseInOut)
-                    };
-                }
-            });
+        .show_with(ui, &[can_tween; 3], &[]);
+        match clicked {
+            Some(0) => self.toggle_tween(TweenKind::Classic),
+            Some(1) => self.toggle_tween(TweenKind::Shape),
+            Some(2) => self.toggle_tween(TweenKind::Motion),
+            _ => {}
         }
         // Ease opens the Ease panel (§6); the classic tween's preset stays editable in Properties.
         if ui.add(IconButton::new(i16::EASE, "Ease")).clicked() {
@@ -437,10 +421,13 @@ impl Editor {
                 {
                     self.onion_outlines = !self.onion_outlines;
                 }
-                ui.add_enabled(
-                    false,
-                    IconButton::new(i16::EDITMULTI, &not_available("Edit multiple frames")),
-                );
+                let multiple = self.timeline_edit.edit_multiple;
+                if ui
+                    .add(IconButton::new(i16::EDITMULTI, "Edit multiple frames").selected(multiple))
+                    .clicked()
+                {
+                    self.timeline_edit.edit_multiple = !multiple;
+                }
                 let popup_id = ui.id().with("onion-options-popup");
                 let open = egui::Popup::is_id_open(ui.ctx(), popup_id);
                 let options =
@@ -526,21 +513,47 @@ impl Editor {
     /// Frame view ⋯ (§5.4): placement, frame sizes, fit, tinted frames, seconds on the ruler, help, close.
     fn timeline_frame_view_menu(&mut self, ui: &mut egui::Ui, frames_width: f32) {
         let ctx = ui.ctx().clone();
-        let mut options = frame_view_options(&ctx);
         crate::ui_icons::menu_popup(ui, "Placement", "Floating window", "", |ui| {
             let docked = self.workspace.placement(PanelId::Timeline) == PanelPlacement::Docked;
-            for (label, placement, current) in [
-                ("Bottom (docked)", PanelPlacement::Docked, docked),
-                ("Floating window", PanelPlacement::Detached, !docked),
+            let edge = self
+                .workspace
+                .dock
+                .location(PanelId::Timeline)
+                .map(|location| location.edge);
+            for (label, target) in [
+                ("Bottom (docked)", Some(DockEdge::Bottom)),
+                ("Top", Some(DockEdge::Top)),
+                ("Left", Some(DockEdge::Left)),
+                ("Right", Some(DockEdge::Right)),
+                ("Floating window", None),
             ] {
+                let current = match target {
+                    Some(target) => docked && edge == Some(target),
+                    None => !docked,
+                };
                 if ui.add(MenuItem::new(label).checked(current)).clicked() && !current {
-                    self.set_panel_placement(&ctx, PanelId::Timeline, placement);
-                    ui.close();
-                }
-                if label.starts_with("Bottom") {
-                    for edge in ["Top", "Left", "Right"] {
-                        Self::unavailable_item(ui, edge, "");
+                    match target {
+                        Some(target) => {
+                            if !docked {
+                                self.set_panel_placement(
+                                    &ctx,
+                                    PanelId::Timeline,
+                                    PanelPlacement::Docked,
+                                );
+                            }
+                            self.dock_panel_at(
+                                &ctx,
+                                PanelId::Timeline,
+                                DockDestination::Edge(target),
+                            );
+                        }
+                        None => self.set_panel_placement(
+                            &ctx,
+                            PanelId::Timeline,
+                            PanelPlacement::Detached,
+                        ),
                     }
+                    ui.close();
                 }
             }
         });
@@ -559,27 +572,36 @@ impl Editor {
                 / self.symbol().timeline.frame_count.max(1) as f32)
                 .clamp(MIN_CELL, MAX_CELL);
         }
+        let view = &mut self.workspace.timeline;
         ui.add_enabled(false, MenuItem::new("Preview"))
             .on_disabled_hover_text(NOT_AVAILABLE);
         ui.add_enabled(false, MenuItem::new("Preview in context"))
             .on_disabled_hover_text(NOT_AVAILABLE);
-        ui.add_enabled(false, MenuItem::new("Short"))
-            .on_disabled_hover_text(NOT_AVAILABLE);
+        if ui
+            .add(MenuItem::new("Short").checked(view.short_rows))
+            .clicked()
+        {
+            view.short_rows = !view.short_rows;
+        }
         nf::menu_separator(ui);
         if ui
-            .add(MenuItem::new("Tinted frames").checked(options.tinted))
+            .add(MenuItem::new("Tinted frames").checked(view.tinted))
             .clicked()
         {
-            options.tinted = !options.tinted;
+            view.tinted = !view.tinted;
         }
         if ui
-            .add(MenuItem::new("Show seconds on ruler").checked(options.show_seconds))
+            .add(MenuItem::new("Show seconds on ruler").checked(view.show_seconds))
             .clicked()
         {
-            options.show_seconds = !options.show_seconds;
+            view.show_seconds = !view.show_seconds;
         }
-        ui.add_enabled(false, MenuItem::new("Snap playhead to keyframes"))
-            .on_disabled_hover_text(NOT_AVAILABLE);
+        if ui
+            .add(MenuItem::new("Snap playhead to keyframes").checked(view.snap_playhead))
+            .clicked()
+        {
+            view.snap_playhead = !view.snap_playhead;
+        }
         nf::menu_separator(ui);
         ui.add_enabled(false, MenuItem::new("Help").shortcut("F1"))
             .on_disabled_hover_text(NOT_AVAILABLE);
@@ -587,7 +609,6 @@ impl Editor {
             self.set_panel_visible(PanelId::Timeline, false);
             ui.close();
         }
-        ctx.data_mut(|data| data.insert_temp(options_id(), options));
     }
 
     /// Zoom − slider +. The slider is logarithmic over the frame width; − / + step by 1.4×.

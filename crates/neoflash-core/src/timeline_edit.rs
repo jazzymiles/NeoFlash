@@ -62,6 +62,12 @@ pub enum TimelineEdit {
     },
     /// Explicitly trim or extend exposure; trimming discards keys at/after end.
     SetEnd { layers: Vec<Id>, end_frame: u32 },
+    /// Mirror the selected frames in time (Modify ▸ Timeline ▸ Reverse frames).
+    /// Content before and after the range is unchanged.
+    Reverse { range: FrameRange },
+    /// Make every selected frame a keyframe holding its visible pose, or a
+    /// blank keyframe (Convert to keyframes / Convert to blank keyframes).
+    ConvertToKeyframes { range: FrameRange, blank: bool },
 }
 fn layer_indices(timeline: &Timeline, ids: &[Id]) -> Result<Vec<usize>, String> {
     if ids.is_empty() {
@@ -541,6 +547,89 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 &mut budget,
             )?;
         }
+        TimelineEdit::Reverse { range } => {
+            let end = range_end(timeline, &range)?;
+            for index in layer_indices(timeline, &range.layers)? {
+                let layer = &mut timeline.layers[index];
+                let last = end.min(layer.properties.end_frame.unwrap_or(0));
+                if last <= range.start + 1 {
+                    continue;
+                }
+                // Tweens crossing either boundary are baked; tweens inside are kept.
+                bake_touched(layer, range.start, range.start, &mut budget)?;
+                bake_touched(layer, last, last, &mut budget)?;
+                let original = layer.clone();
+                for frame in [range.start, last - 1, last] {
+                    split(layer, frame);
+                }
+                let (first, final_frame) = (range.start, last - 1);
+                let mut inside: Vec<Keyframe> = layer
+                    .keyframes
+                    .iter()
+                    .filter(|key| (first..=final_frame).contains(&key.frame))
+                    .cloned()
+                    .collect();
+                layer
+                    .keyframes
+                    .retain(|key| !(first..=final_frame).contains(&key.frame));
+                let tweens: Vec<_> = inside.iter().map(|key| key.tween).collect();
+                let count = inside.len();
+                for (i, key) in inside.iter_mut().enumerate() {
+                    // A segment a→b becomes b'→a' and keeps a's tween. Motion tween
+                    // tracks do not survive reversal; their poses become classic keys.
+                    if key.keyed_properties.take().is_some() || key.tween_kind == TweenKind::Motion
+                    {
+                        key.elements = sample_layer(&original, key.frame);
+                        key.tween_kind = TweenKind::Classic;
+                    }
+                    key.tween = tweens[if i == 0 { count - 1 } else { i - 1 }];
+                    key.frame = first + final_frame - key.frame;
+                }
+                layer.keyframes.extend(inside);
+                layer.keyframes.sort_by_key(|key| key.frame);
+            }
+        }
+        TimelineEdit::ConvertToKeyframes {
+            range,
+            blank: to_blank,
+        } => {
+            let end = range_end(timeline, &range)?;
+            for index in layer_indices(timeline, &range.layers)? {
+                let layer = &mut timeline.layers[index];
+                let last = end.min(layer.properties.end_frame.unwrap_or(0));
+                if last <= range.start {
+                    continue;
+                }
+                let original = layer.clone();
+                let records = (last - range.start) as usize
+                    * original
+                        .key_at(range.start)
+                        .map_or(1, |key| key.elements.len().max(1));
+                budget = budget
+                    .checked_add(records)
+                    .ok_or("Frame edit is too large.")?;
+                if budget > MAX_BAKED_RECORDS {
+                    return Err("This edit would create more than 100000 frame/object records. Select a shorter range.".into());
+                }
+                bake_touched(layer, last, last, &mut budget)?;
+                split(layer, last);
+                layer
+                    .keyframes
+                    .retain(|key| key.frame < range.start || key.frame >= last);
+                layer.keyframes.extend((range.start..last).map(|frame| {
+                    if to_blank {
+                        let mut key = blank(frame);
+                        if let Some(old) = original.keyframes.iter().find(|k| k.frame == frame) {
+                            key.label = old.label.clone();
+                        }
+                        key
+                    } else {
+                        sampled_key(&original, frame)
+                    }
+                }));
+                layer.keyframes.sort_by_key(|key| key.frame);
+            }
+        }
         TimelineEdit::SetEnd { layers, end_frame } => {
             if end_frame > MAX_FRAME {
                 return Err("Layer exposure exceeds 1000000 frames.".into());
@@ -574,7 +663,11 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 .retain(|key| key.frame < timeline.frame_count);
         }
     }
+    for layer in &mut timeline.layers {
+        layer.normalize_motion_keys();
+    }
     candidate.format_version = candidate.format_version.max(5);
+    candidate.upgrade_format_for_features();
     candidate.prune_authoring_groups();
     candidate.validate().map_err(|error| error.to_string())?;
     *project = candidate;

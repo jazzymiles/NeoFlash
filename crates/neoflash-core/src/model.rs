@@ -250,6 +250,30 @@ impl Project {
                 })
     }
 
+    /// Drop motion-guide links whose guide layer was deleted or is no longer a guide.
+    pub fn prune_motion_guides(&mut self) {
+        for symbol in &mut self.symbols {
+            let guides: HashSet<Id> = symbol
+                .timeline
+                .layers
+                .iter()
+                .filter(|l| l.properties.role == LayerRole::Guide)
+                .map(|l| l.id.clone())
+                .collect();
+            for layer in &mut symbol.timeline.layers {
+                if layer.properties.role != LayerRole::Normal
+                    || layer
+                        .properties
+                        .motion_guide
+                        .as_ref()
+                        .is_some_and(|id| !guides.contains(id))
+                {
+                    layer.properties.motion_guide = None;
+                }
+            }
+        }
+    }
+
     /// Raise the format version after an edit that uses a format 6 feature.
     pub fn upgrade_format_for_features(&mut self) {
         if self.uses_format_6() {
@@ -601,6 +625,20 @@ impl Project {
 }
 
 impl Layer {
+    /// Property keyframes left outside a motion tween by an edit become ordinary
+    /// keyframes holding their stored pose (they then start their own span).
+    pub fn normalize_motion_keys(&mut self) {
+        self.keyframes.sort_by_key(|key| key.frame);
+        let mut in_motion = false;
+        for key in &mut self.keyframes {
+            if key.keyed_properties.is_some() && !in_motion {
+                key.keyed_properties = None;
+            }
+            if key.keyed_properties.is_none() {
+                in_motion = key.tween.is_some() && key.tween_kind == TweenKind::Motion;
+            }
+        }
+    }
     pub fn key_at(&self, frame: u32) -> Option<&Keyframe> {
         if self.properties.end_frame.is_some_and(|end| frame >= end) {
             return None;

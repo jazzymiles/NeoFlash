@@ -119,6 +119,10 @@ impl Editor {
         };
         s.workspace =
             WorkspacePrefs::load_for_viewport(storage, cc.egui_ctx.viewport_rect().size().into());
+        // `NEOFLASH_OPEN=path.nflash` opens a document at launch (screenshots of real documents).
+        if let Some(path) = std::env::var_os("NEOFLASH_OPEN") {
+            s.open_path(path.into(), &cc.egui_ctx);
+        }
         crate::native_windows::install();
         if let Some(template) = crate::shell::screenshot_workspace() {
             s.workspace.apply_template(template);
@@ -269,7 +273,7 @@ impl Editor {
         self.history.begin(&self.project);
         f(self);
         self.project.prune_authoring_groups();
-        self.history.commit(&self.project);
+        self.commit_history();
     }
     pub fn normalize_selection(&mut self) {
         self.cancel_stale_selection_gesture();
@@ -331,7 +335,19 @@ impl Editor {
         if !self.layer_editable() {
             return;
         }
-        self.transact(|s| s.ensure_key(blank));
+        self.transact(|s| {
+            s.ensure_key(blank);
+            // F6 inside a motion tween keys every property at this frame (◆).
+            let (l, f) = (s.layer, s.frame);
+            if let Some(key) = s.symbol_mut().timeline.layers[l]
+                .keyframes
+                .iter_mut()
+                .find(|key| key.frame == f && key.keyed_properties.is_some())
+                && !blank
+            {
+                key.keyed_properties = Some(TweenProperty::ALL.to_vec());
+            }
+        });
     }
     pub fn ensure_key(&mut self, blank: bool) {
         let id = self.symbol().timeline.layers[self.layer].id.clone();
@@ -901,11 +917,13 @@ impl Editor {
                 Self::toggle_planned(ctx, path);
             }
         }
+        if exact(shift, Key::F6) {
+            self.clear_keyframe();
+        }
         // Unavailable items: consume so a shorter shortcut (F6, ⌘D, ⌘K …) does not run instead.
         for (m, key) in [
             (cmd, Key::W),
             (cmd, Key::P),
-            (shift, Key::F6),
             (cmd | shift, Key::D),
             (cmd | shift, Key::W),
             (alt | shift | cmd, Key::R),
@@ -1174,8 +1192,10 @@ impl eframe::App for Editor {
             self.last_tick = Instant::now();
             self.accumulator += elapsed;
             let step = 1. / self.project.fps.max(1) as f64;
-            while self.accumulator >= step {
+            while self.playing && self.accumulator >= step {
+                let before = self.frame;
                 self.tick_authored_preview();
+                self.after_playback_tick(before);
                 self.accumulator -= step;
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(8));

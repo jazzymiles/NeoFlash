@@ -85,6 +85,16 @@
           "id": "multiple-documents",
           "title": "Multiple open documents",
           "status": "planned"
+        },
+        {
+          "id": "timeline-frame-view",
+          "title": "Timeline short rows, snap playhead and placement on any dock edge",
+          "status": "working"
+        },
+        {
+          "id": "timeline-thumbnails",
+          "title": "Timeline frame preview thumbnails",
+          "status": "planned"
         }
       ],
       "evidence": [
@@ -112,7 +122,8 @@
         "crates/neoflash-editor/src/paint_controls.rs",
         "crates/neoflash-editor/src/ui_icons.rs",
         "crates/neoflash-editor/src/shell.rs",
-        "crates/neoflash-ui/src/components/mod.rs"
+        "crates/neoflash-ui/src/components/mod.rs",
+        "crates/neoflash-editor/src/timeline_commands_tests.rs"
       ]
     },
     {
@@ -702,8 +713,8 @@
       "category": "editor",
       "title": "Layer organization",
       "status": "partial",
-      "scope": "Compact left-aligned layer names with row dividers and inline rename. Layer context menus provide visibility/locks, insert/delete, document-local copy/cut/paste/duplicate, merge and layer/group-to-symbol conversion. Folders support child grouping, collapse, inherited visibility/locks and editable properties. Guides remain authoring-only; mask relationships use stable layer IDs. Per-layer colored squares toggle authoring outlines; an RGB dialog edits the saved outline color with one Undo. Outlined folders include descendants within the edited symbol; nested symbol outline preferences do not leak into parent artwork. Native transport and publication retain original fills and strokes. Layer-column width is draggable and saved as a workspace preference. Name dragging reorders a layer or its dependent folder/mask group with insertion feedback, cancellation and one Undo. Upper sibling rows represent foreground layers; drag reordering and frame paste follow the visible order without reversing the serialized painter order.",
-      "limitations": "Motion-path guides, arbitrary multi-row selection and drag-to-reparent remain unfinished. Reordering preserves existing parent/mask IDs. Layer clipboard stays within the current document. Merging tweened layers samples frames into keys.",
+      "scope": "Compact left-aligned layer names with row dividers and inline rename. Layer context menus provide visibility/locks, insert/delete, document-local copy/cut/paste/duplicate, merge and layer/group-to-symbol conversion. Folders support child grouping, collapse, inherited visibility/locks and editable properties. Guides remain authoring-only; mask relationships use stable layer IDs. Per-layer colored squares toggle authoring outlines; an RGB dialog edits the saved outline color with one Undo. Outlined folders include descendants within the edited symbol; nested symbol outline preferences do not leak into parent artwork. Native transport and publication retain original fills and strokes. Layer-column width is draggable and saved as a workspace preference. Name dragging reorders a layer or its dependent folder/mask group with insertion feedback, cancellation and one Undo. Upper sibling rows represent foreground layers; drag reordering and frame paste follow the visible order without reversing the serialized painter order. Add motion guide inserts \"Guide: <name>\" above a layer and guides it; classic tweens on the guided layer move along the guide's first stroke in the editor and HTML5, and the guide is never published.",
+      "limitations": "Orient to path, arbitrary multi-row selection and drag-to-reparent remain unfinished. Reordering preserves existing parent/mask IDs. Layer clipboard stays within the current document. Merging tweened layers samples frames into keys.",
       "items": [
         {
           "id": "layer-commands",
@@ -742,8 +753,8 @@
         },
         {
           "id": "motion-guides",
-          "title": "Motion-path guides",
-          "status": "planned"
+          "title": "Motion guide layers for classic tweens",
+          "status": "working"
         },
         {
           "id": "multi-row-selection",
@@ -762,7 +773,9 @@
         "crates/neoflash-editor/src/panel_tests.rs",
         "crates/neoflash-editor/src/layer_controls.rs",
         "crates/neoflash-core/src/authored_layers.rs",
-        "examples/authoring-workspace.nflash"
+        "examples/authoring-workspace.nflash",
+        "crates/neoflash-core/tests/timeline_tweens.rs",
+        "crates/neoflash-editor/src/timeline_commands_tests.rs"
       ]
     },
     {
@@ -797,6 +810,11 @@
           "id": "fps-duration",
           "title": "Edit FPS and total duration",
           "status": "working"
+        },
+        {
+          "id": "clear-keyframe",
+          "title": "Clear keyframe (⇧F6)",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -805,7 +823,8 @@
         "crates/neoflash-editor/src/panels/timeline.rs",
         "crates/neoflash-editor/src/timeline_paint.rs",
         "crates/neoflash-editor/src/panel_tests.rs",
-        "crates/neoflash-core/tests/core.rs"
+        "crates/neoflash-core/tests/core.rs",
+        "crates/neoflash-editor/src/timeline_commands_tests.rs"
       ]
     },
     {
@@ -891,9 +910,9 @@
       "id": "animation-motion-tween",
       "category": "animation",
       "title": "Pose interpolation",
-      "status": "implemented",
-      "scope": "Tweens match stable object identities and interpolate position, scale, rotation, alpha and supported geometry/color properties. Format 5 also interpolates affine skew and color transforms, with classic Flash acceleration and single global cubic easing.",
-      "limitations": "Independent property-level motion curves and complete Flash motion tween support are missing.",
+      "status": "partial",
+      "scope": "Tweens match stable object identities and interpolate position, scale, rotation, alpha and supported geometry/color properties. Format 5 also interpolates affine skew and color transforms, with classic Flash acceleration and single global cubic easing. Motion tweens (blue spans) target one symbol instance or text block: editing it inside the span creates a ◆ property keyframe that keys exactly the changed properties, F6 keys all of them, and each property interpolates on its own track with the span ease. Removing the tween drops its ◆ keys; switching to classic keeps their poses as keyframes.",
+      "limitations": "Motion paths are not drawn or editable on the stage; the Motion editor and the Motion tween Properties section are previews. Per-property eases, rotate-count and orient-to-path for motion tweens are missing.",
       "items": [
         {
           "id": "identity-matching",
@@ -919,11 +938,33 @@
           "id": "classic-easing",
           "title": "Classic Flash acceleration and global cubic easing",
           "status": "working"
+        },
+        {
+          "id": "motion-tween-spans",
+          "title": "Motion tweens with ◆ property keyframes",
+          "status": "working"
+        },
+        {
+          "id": "independent-tracks",
+          "title": "Independent X, Y, scale, rotation, skew, alpha and color tracks",
+          "status": "working"
+        },
+        {
+          "id": "motion-path-stage",
+          "title": "Editable motion path on the stage",
+          "status": "planned"
+        },
+        {
+          "id": "motion-editor",
+          "title": "Motion editor panel and Motion tween properties",
+          "status": "planned"
         }
       ],
       "evidence": [
         "crates/neoflash-core/src/evaluate.rs",
-        "crates/neoflash-core/tests/core.rs"
+        "crates/neoflash-core/tests/core.rs",
+        "crates/neoflash-core/tests/timeline_tweens.rs",
+        "crates/neoflash-editor/src/timeline_commands_tests.rs"
       ]
     },
     {
@@ -1021,13 +1062,24 @@
           "id": "onion-indicator",
           "title": "Stage header indicator for active onion skin",
           "status": "working"
+        },
+        {
+          "id": "loop-playback",
+          "title": "Loop playback on or off",
+          "status": "working"
+        },
+        {
+          "id": "edit-multiple-frames",
+          "title": "Edit multiple frames view",
+          "status": "working"
         }
       ],
       "evidence": [
         "crates/neoflash-editor/src/panels/timeline.rs",
         "crates/neoflash-editor/src/stage.rs",
         "crates/neoflash-core/src/evaluate.rs",
-        "crates/neoflash-core/tests/core.rs"
+        "crates/neoflash-core/tests/core.rs",
+        "crates/neoflash-editor/src/timeline_commands_tests.rs"
       ]
     },
     {
@@ -1035,8 +1087,8 @@
       "category": "animation",
       "title": "Shape morphing",
       "status": "partial",
-      "scope": "Paths interpolate when their command topology matches.",
-      "limitations": "General shape tweening with different-contour matching, shape hints and topology changes is missing.",
+      "scope": "Shape tweens are a span kind (green) created from the Timeline controls, frame menu and Insert menu. Shapes pair by identity, then by order; rectangles, ovals and paths morph in parent space. Matching command structure interpolates exactly; different contours are resampled by arc length with start-point alignment. Fills, strokes and compatible gradients interpolate. Unpaired shapes and contours shrink or grow from their centre. Evaluation is shared by the editor and HTML5.",
+      "limitations": "Shape hints are missing. Contours pair by index, so very different contour counts or holes can morph unnaturally. Symbols, text and bitmaps on a shape-tweened layer hold still. Gradients of different kind or stop count switch at the midpoint.",
       "items": [
         {
           "id": "matching-topology",
@@ -1046,7 +1098,7 @@
         {
           "id": "different-contours",
           "title": "Morph shapes with different contours",
-          "status": "planned"
+          "status": "working"
         },
         {
           "id": "shape-hints",
@@ -1056,13 +1108,20 @@
         {
           "id": "topology-changes",
           "title": "Morph across topology changes",
-          "status": "planned"
+          "status": "partial"
+        },
+        {
+          "id": "shape-tween-command",
+          "title": "Create shape tweens from the timeline and menus",
+          "status": "working"
         }
       ],
       "evidence": [
         "crates/neoflash-core/src/evaluate.rs",
         "crates/neoflash-core/tests/paths.rs",
-        "README.md"
+        "README.md",
+        "crates/neoflash-core/src/shape_tween.rs",
+        "crates/neoflash-editor/src/timeline_commands_tests.rs"
       ]
     },
     {
@@ -1071,7 +1130,7 @@
       "title": "Frame-range operations",
       "status": "partial",
       "scope": "Rectangular multi-layer selection; copy, cut, paste, move, clear, insert and remove time as atomic Undo operations. Explicit Include frame scripts transfers symbol-level code once and rejects destination collisions; object scripts travel with placements. Independent layer ends can be set numerically or dragged and stop exposure in native and HTML5 evaluation. macOS range clipboard and visible layer-order paste are supported.",
-      "limitations": "Reverse, simultaneous artwork editing across frames and creation of destination layer structure remain unfinished. Frame clips are session-local and require existing destination rows. Trimming deletes later keys with Undo recovery. Edits intersecting tweens bake the touched segment to integer-frame poses instead of retaining editable sliced easing curves.",
+      "limitations": "Creation of destination layer structure remain unfinished. Frame clips are session-local and require existing destination rows. Trimming deletes later keys with Undo recovery. Edits intersecting tweens bake the touched segment to integer-frame poses instead of retaining editable sliced easing curves. Edit multiple frames shows every keyframe in the onion range and moves the selected objects on all of them; other edits still apply to the current keyframe. Reversing a motion tween turns its ◆ poses into classic keyframes.",
       "items": [
         {
           "id": "range-selection",
@@ -1111,17 +1170,22 @@
         {
           "id": "reverse",
           "title": "Reverse frames",
-          "status": "planned"
+          "status": "working"
         },
         {
           "id": "multi-frame-editing",
           "title": "Edit artwork across several frames at once",
-          "status": "planned"
+          "status": "partial"
         },
         {
           "id": "create-destination-layers",
           "title": "Create destination layers when pasting",
           "status": "planned"
+        },
+        {
+          "id": "convert-keyframes",
+          "title": "Convert frames to keyframes or blank keyframes",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -1130,7 +1194,9 @@
         "crates/neoflash-editor/src/timeline_edit.rs",
         "crates/neoflash-editor/src/panels/properties.rs",
         "crates/neoflash-editor/src/tests.rs",
-        "docs/COMPATIBILITY.md"
+        "docs/COMPATIBILITY.md",
+        "crates/neoflash-core/tests/timeline_tweens.rs",
+        "crates/neoflash-editor/src/timeline_commands_tests.rs"
       ]
     },
     {

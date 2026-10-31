@@ -18,7 +18,7 @@ not confirmed in code.
 
 ## Conventions
 
-- **Status**: `disabled` = control exists, rendered disabled with "Not available yet"; `preview` = body exists as a
+- **Status**: `done` = works as specified (remaining limits are named in its entry); `disabled` = control exists, rendered disabled with "Not available yet"; `preview` = body exists as a
   read-only planned preview (`panels/planned*.rs`, Window ▸ Planned panels); `absent` = in the NF2 reference, not in
   the UI; `partial` = control works but part of its NF2 behaviour is missing.
 - **Engine**: `yes` = needs new `neoflash-core` / `-script` / `-export` / `-import` / `-web` behaviour; `editor` =
@@ -38,19 +38,19 @@ not confirmed in code.
 
 | ID | Element | Surface | Status | Engine | Priority |
 | --- | --- | --- | --- | --- | --- |
-| TL-01 | Add motion guide | Timeline controls | disabled | yes | P2 |
-| TL-02 | Loop playback | Timeline controls | disabled | editor | P1 |
-| TL-03 | Scene select ▸ New scene | Timeline controls | disabled | yes | P2 |
-| TL-04 | Shape tween | Timeline controls | disabled | yes (small) | P2 |
-| TL-05 | Motion tween | Timeline controls | disabled | yes | P2 |
+| TL-01 | Add motion guide | Timeline controls | done | yes | P2 |
+| TL-02 | Loop playback | Timeline controls | done | editor | P1 |
+| TL-03 | Scene select ▸ New scene | Timeline controls | done | yes | P2 |
+| TL-04 | Shape tween | Timeline controls | done | yes (small) | P2 |
+| TL-05 | Motion tween | Timeline controls | partial | yes | P2 |
 | TL-06 | Ease panel button | Timeline controls | disabled | editor | P1 |
 | TL-07 | Sound | Timeline controls | disabled | yes | P3 |
-| TL-08 | Edit multiple frames | Timeline controls | disabled | editor | P2 |
-| TL-09 | Frame view ▸ Short rows | Frame view menu | disabled | UI-only | P1 |
+| TL-08 | Edit multiple frames | Timeline controls | partial | editor | P2 |
+| TL-09 | Frame view ▸ Short rows | Frame view menu | done | UI-only | P1 |
 | TL-10 | Frame view ▸ Preview | Frame view menu | disabled | editor | P3 |
-| TL-11 | Frame view ▸ Snap playhead to keyframes | Frame view menu | disabled | UI-only | P1 |
-| TL-12 | Frame view ▸ Placement, Preview in context, Help, Close | Frame view menu | absent | UI-only | P3 |
-| TL-13 | Layer types Sound / Video / Armature / Motion guide rows | Timeline layers | absent | yes | P2–P3 |
+| TL-11 | Frame view ▸ Snap playhead to keyframes | Frame view menu | done | UI-only | P1 |
+| TL-12 | Frame view ▸ Placement, Preview in context, Help, Close | Frame view menu | partial | UI-only | P3 |
+| TL-13 | Layer types Sound / Video / Armature / Motion guide rows | Timeline layers | partial | yes | P2–P3 |
 | TL-14 | Button symbol state labels Up/Over/Down/Hit | Timeline | verify | editor | P2 |
 | TO-01 | Rectangle / Oval primitive tools | Tools | absent | yes | P2 |
 | TO-02 | PolyStar tool + settings | Tools | absent | editor (+small) | P2 |
@@ -140,7 +140,8 @@ groups.
 
 ## 1. Timeline controls (`crates/neoflash-editor/src/panels/timeline_controls.rs`, `panels/timeline.rs`)
 
-**TL-01 · Add motion guide** — `timeline_layer_actions` · disabled
+**TL-01 · Add motion guide** — `timeline_layer_actions` · done
+- Done (2026-11-01): `LayerProperties.motion_guide` link to a Guide-role layer (format 6); Timeline button, Insert ▸ Motion guide and layer menu Add classic motion guide; the guided layer indents under the guide, which shows the Motion guide type. Classic tweens follow the guide's first stroke (`evaluate::sample_layer_in`). Not yet: Orient to path / Snap options (PR-10), drawing the path when the guide has no stroke is the author's step.
 - Purpose: insert a classic motion guide layer above the current layer and make the current layer guided by it.
 - Behaviour: click → new layer `Guide: <name>` of type Motion Guide above the current layer; current layer indents
   under it. A stroke drawn on the guide is the path; classic tweens on guided layers follow it ("Snap to motion
@@ -151,7 +152,8 @@ groups.
 - Acceptance: button creates a guide layer + guided relation in one Undo; a classic tween on the guided layer moves
   along a drawn curve in the editor and in HTML5; the guide is not exported as artwork.
 
-**TL-02 · Loop playback** — `timeline_transport` · disabled
+**TL-02 · Loop playback** — `timeline_transport` · done
+- Done: `WorkspacePrefs.timeline.loop_playback` (default on), toggle in the bar and Control ▸ Loop playback; off stops on the last frame and Play restarts from frame 1.
 - Purpose: when on, editor playback wraps from the last frame to frame 1; when off, it stops at the last frame
   (Control ▸ Loop playback, checked by default in §8).
 - Behaviour: toggle (Selected style when on). Editor preference, not document data; no Undo.
@@ -161,7 +163,8 @@ groups.
 - Acceptance: off → playback stops on the last frame and the Play button returns to Play; on → wraps; state survives
   panel re-dock (workspace prefs).
 
-**TL-03 · Scene select ▸ New scene** — `timeline_scene_select` · disabled
+**TL-03 · Scene select ▸ New scene** — `timeline_scene_select` · done
+- Done: `Project.scenes` (ordered MovieClip symbol IDs, first = `root`, format 6); Scene select lists and switches scenes, New scene and Insert ▸ Scene add one (one Undo); scene symbols are hidden from the Library; Control ▸ Play all scenes continues editor playback into the next scene. Runtime/HTML5 flatten scenes into one main timeline (`neoflash_core::flatten_scenes`). Not yet: Scene panel (PP-08) rename/duplicate/reorder; `Editor::delete_scene` exists for it.
 - Purpose: Flash scenes — consecutive main timelines played in order; the Scene select switches the edited scene.
 - Behaviour: menu lists scenes (checked = current) + New scene; selecting a scene leaves symbol editing and shows its
   timeline. New scene is one Undo step. Scene panel (PP-08) adds rename/duplicate/delete/reorder.
@@ -170,7 +173,8 @@ groups.
 - Acceptance: two scenes play in order in the editor preview and HTML5; AS3 `scenes`/`currentScene` report them
   (bounded); legacy one-scene documents load unchanged.
 
-**TL-04 · Shape tween** — `timeline_frame_tools` (tween group, item 2) · disabled
+**TL-04 · Shape tween** — `timeline_frame_tools` (tween group, item 2) · done
+- Done: `Keyframe.tween_kind = Shape`; general morph in `neoflash_core::shape_tween` (different contours, rect/oval/path, gradients); diagnostic when a keyframe lacks shapes. Not yet: shape hints.
 - Purpose: morph raw shapes between two keyframes (green span, `timeline/shape-tween`).
 - Behaviour: enabled on a keyframe whose layer holds shapes (paths, rectangles, ovals) in this and the next keyframe;
   click toggles a shape tween. Mixed content or symbols → diagnostic "Shape tweens need shapes on both keyframes".
@@ -181,7 +185,8 @@ groups.
 - Acceptance: shape tween marker renders green with arrow; matching-topology paths morph as today; mismatched
   topology produces a diagnostic instead of a jump (until general morphing lands).
 
-**TL-05 · Motion tween** — `timeline_frame_tools` (tween group, item 3) · disabled
+**TL-05 · Motion tween** — `timeline_frame_tools` (tween group, item 3) · partial
+- Done: `tween_kind = Motion`; ◆ property keyframes are keyframes with `keyed_properties`; editing inside the span keys only changed properties (`timeline_commands::record_motion_property_keys`, run on every history commit); F6 keys all; independent tracks with the span ease (`evaluate::sample_motion`). Not yet: motion path on stage (request R-001), Motion editor (PP-02), Properties — Motion tween (PR-10).
 - Purpose: object-based tween with per-property keyframes ◆ (blue span) and an editable motion path on stage.
 - Behaviour: on a frame with exactly one symbol instance → convert span to a motion tween; dragging the instance on a
   later frame creates property keyframes; path visible on stage; edited in Motion editor (PP-02) and Properties —
@@ -207,7 +212,8 @@ groups.
 - Acceptance: waveform span on the layer; Event/Start/Stop/Stream behave in HTML5 preview; scrubbing with Stream
   sync plays audio (or a documented limitation).
 
-**TL-08 · Edit multiple frames** — `timeline_onion_group` · disabled
+**TL-08 · Edit multiple frames** — `timeline_onion_group` · partial
+- Done: toggle; stage draws every keyframe in the onion range opaque; a Move gesture applies the same offset to the selected objects on all those keyframes (one Undo). Not yet: selecting objects that exist only on other keyframes; scale/rotate across frames.
 - Purpose: show and edit content of all keyframes inside the onion range at once (Flash "Edit multiple frames").
 - Behaviour: toggle; while on, stage shows every keyframe in the range opaque; selection/move/transform apply to
   objects on several keyframes; one Undo for the whole gesture.
@@ -215,7 +221,8 @@ groups.
 - Depends on: editor (selection across keyframes; `animation-frame-ranges` limit "simultaneous artwork editing").
 - Acceptance: select-all + move shifts objects on all keyframes in range with one Undo; off restores normal view.
 
-**TL-09 · Frame view ▸ Short rows** — `timeline_frame_view_menu` · disabled
+**TL-09 · Frame view ▸ Short rows** — `timeline_frame_view_menu` · done
+- Done: `TimelineView.short_rows`; row height is passed to painters and hit tests.
 - Purpose: 18 pt layer rows (`metrics::LAYER_ROW_SHORT`).
 - Behaviour: checked menu item; layer list, grid, hit testing and drag targets all use the short height.
 - Data: workspace pref. `timeline_paint::ROW_HEIGHT` is a constant today → must become per-view.
@@ -230,13 +237,14 @@ groups.
 - Depends on: editor (offscreen thumbnail rendering + cache).
 - Acceptance: thumbnails update after edits; 1000-frame timelines stay responsive (virtualised).
 
-**TL-11 · Frame view ▸ Snap playhead to keyframes** — `timeline_frame_view_menu` · disabled
+**TL-11 · Frame view ▸ Snap playhead to keyframes** — `timeline_frame_view_menu` · done (⇧ suspends snapping)
 - Purpose: dragging the playhead snaps to keyframes of the current layer (Preferences ▸ Timeline has the default).
 - Behaviour: checked item; scrub snaps within ~4 pt of a keyframe; holding ⇧ (verify convention) suspends snapping.
 - Data: workspace pref. Depends on: UI-only.
 - Acceptance: scrub lands exactly on keyframes when on; free scrubbing when off.
 
-**TL-12 · Frame view ▸ Placement / Preview in context / Help / Close panel** — absent
+**TL-12 · Frame view ▸ Placement / Preview in context / Help / Close panel** — partial
+- Done: Placement Bottom/Top/Left/Right/Floating, Close panel. Not yet: Preview in context (TL-10), Help (F1).
 - Purpose (§5.4): move the Timeline to Bottom / Top / Left / Right / Floating; Help (F1); Close panel.
 - Behaviour: Placement items call the existing dock/detach commands (`set_panel_placement`); Close hides the panel.
 - Data: workspace layout. Depends on: UI-only. Missing menu rows require a design check that the existing menu

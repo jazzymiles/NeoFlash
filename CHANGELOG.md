@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — Timeline
+
+- Shape tweens (green spans): create them from the Timeline controls, the frame menu or Insert ▸ Shape tween. Rectangles, ovals and paths morph between keyframes even when their contours differ; fills, strokes and compatible gradients blend. A keyframe without shapes gets an explanation instead of a jump.
+- Motion tweens (blue spans) for one symbol instance or text block: moving, scaling, rotating or recolouring it inside the span adds a ◆ property keyframe that keys only what changed, and every property follows its own track. F6 inside the span keys all properties; removing the tween removes its ◆ keys.
+- Motion guides: Add motion guide (Timeline, Insert ▸ Motion guide, layer menu) creates "Guide: <layer>" above the layer; classic tweens on the guided layer follow the guide's first stroke in the editor and in HTML5. Guides are never published.
+- Scenes: the Scene select lists the document's scenes and adds new ones (also Insert ▸ Scene). Scenes play one after another in HTML5; `currentScene`, `scenes` and `gotoAndPlay(frame, scene)` see them. Control ▸ Play all scenes continues editor playback into the next scene.
+- Loop playback toggle (Timeline and Control menu): off stops on the last frame. Edit multiple frames shows every keyframe in the onion range and moves the selection on all of them.
+- Frame commands: Clear keyframe (⇧F6), Convert to keyframes, Convert to blank keyframes and Reverse frames in the frame menu and Modify ▸ Timeline.
+- Frame view: Short rows, Snap playhead to keyframes (⇧ suspends it) and Timeline placement on any dock edge. These options are saved with the workspace.
+- Documents using scenes, shape/motion tweens or motion guides are saved as format 6; older documents open unchanged.
+
 ## Unreleased — Progress counting v3
 
 - Count ActionScript 2 and 3 in the same eight Flash Player areas, with Working % and Working-or-partial % per area. AIR, Flex and component libraries are shown once, outside every percentage.

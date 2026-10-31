@@ -1,6 +1,6 @@
 //! Transient frame selection and pointer gestures. Authored edits live in the core.
 use crate::app::{Editor, ScriptTarget};
-use crate::timeline_paint::{ROW_HEIGHT, frame_at_x, timeline_cell_at};
+use crate::timeline_paint::{frame_at_x, timeline_cell_at};
 use eframe::egui::{self, Pos2, Rect, Vec2};
 use neoflash_core::{
     FrameClipboard, FrameRange, LayerRole, TimelineEdit, copy_frames, edit_frames,
@@ -10,6 +10,11 @@ use neoflash_core::{
 pub(crate) struct TimelineSelection {
     pub focused: bool,
     pub include_scripts: bool,
+    /// Edit multiple frames: the stage shows every keyframe in the onion range and
+    /// moves apply to the selected objects on all of them.
+    pub edit_multiple: bool,
+    /// Control ▸ Play all scenes: editor playback continues into the next scene.
+    pub play_all_scenes: bool,
     pub range: Option<FrameRange>,
     symbol: String,
     anchor: Option<(String, u32)>,
@@ -388,6 +393,7 @@ impl Editor {
         rows: &[usize],
         blocked: bool,
     ) {
+        let row_height = self.workspace.timeline.row_height();
         if rows.is_empty() {
             return;
         }
@@ -429,7 +435,7 @@ impl Editor {
                 && !response.context_menu_opened()
                 && ui.ctx().layer_id_at(*pos) == Some(ui.layer_id())
         }) {
-            let hit = timeline_cell_at(pos, rect.min, cell, count, rows.len());
+            let hit = timeline_cell_at(pos, rect.min, cell, count, rows.len(), row_height);
             let end_hit = rows
                 .iter()
                 .enumerate()
@@ -441,6 +447,7 @@ impl Editor {
                             *row,
                             cell,
                             layer.properties.end_frame.unwrap_or(count),
+                            row_height,
                         )
                         .contains(pos)
                 })
@@ -523,7 +530,8 @@ impl Editor {
             }
         } else if response.secondary_clicked()
             && let Some(pos) = response.interact_pointer_pos()
-            && let Some((frame, row)) = timeline_cell_at(pos, rect.min, cell, count, rows.len())
+            && let Some((frame, row)) =
+                timeline_cell_at(pos, rect.min, cell, count, rows.len(), row_height)
         {
             self.finish_edits();
             self.set_playing(false);
@@ -549,7 +557,7 @@ impl Editor {
             && let Some(gesture) = self.timeline_edit.gesture.clone()
         {
             let frame = frame_at_x(pos.x, rect.left(), cell, count);
-            let row = (((pos.y - rect.top()) / ROW_HEIGHT).max(0.) as usize)
+            let row = (((pos.y - rect.top()) / row_height).max(0.) as usize)
                 .min(rows.len().saturating_sub(1));
             let dragging = ui.input(|i| i.pointer.is_decidedly_dragging()) || response.dragged();
             if dragging || released.is_some() {
@@ -597,7 +605,7 @@ impl Editor {
                 || pos.y
                     >= clip
                         .bottom()
-                        .min(rect.top() + rows.len() as f32 * ROW_HEIGHT)
+                        .min(rect.top() + rows.len() as f32 * row_height)
             {
                 return;
             }
@@ -665,6 +673,7 @@ impl Editor {
         cell: f32,
         rows: &[usize],
     ) {
+        let row_height = self.workspace.timeline.row_height();
         // Selected frames are painted per row as `NF2/TL Span` Type=Selected (panels/timeline.rs)
         // so markers on top can switch to Tone=On Selection. Here: cursor feedback only.
         let palette = crate::theme::UiPalette::current(ui.ctx());
@@ -674,9 +683,9 @@ impl Editor {
                     let selected = Rect::from_min_size(
                         Pos2::new(
                             rect.left() + range.start as f32 * cell,
-                            rect.top() + row as f32 * ROW_HEIGHT,
+                            rect.top() + row as f32 * row_height,
                         ),
-                        Vec2::new((range.end - range.start + 1) as f32 * cell, ROW_HEIGHT),
+                        Vec2::new((range.end - range.start + 1) as f32 * cell, row_height),
                     );
                     if ui.rect_contains_pointer(selected) {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
@@ -711,9 +720,9 @@ impl Editor {
                 let preview = Rect::from_min_size(
                     Pos2::new(
                         rect.left() + start as f32 * cell,
-                        rect.top() + row as f32 * ROW_HEIGHT,
+                        rect.top() + row as f32 * row_height,
                     ),
-                    Vec2::new((range.end - range.start + 1) as f32 * cell, ROW_HEIGHT),
+                    Vec2::new((range.end - range.start + 1) as f32 * cell, row_height),
                 );
                 ui.painter().rect_stroke(
                     preview,
@@ -736,17 +745,17 @@ impl Editor {
                     .end_frame
                     .unwrap_or(self.symbol().timeline.frame_count),
             };
-            let handle = end_handle(rect, row, cell, end);
+            let handle = end_handle(rect, row, cell, end, row_height);
             // The span end ▯ marks the layer end; the drag handle shows as an accent edge
             // while hovered or dragged (drop-indicator role).
             let dragging = matches!(&self.timeline_edit.gesture, Some(Gesture::End { layer: id, .. }) if id == &layer.id);
             if ui.rect_contains_pointer(handle) || dragging {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                 let x = rect.left() + end as f32 * cell;
-                let top = rect.top() + row as f32 * ROW_HEIGHT;
+                let top = rect.top() + row as f32 * row_height;
                 ui.painter().vline(
                     x,
-                    top..=top + ROW_HEIGHT,
+                    top..=top + row_height,
                     egui::Stroke::new(2.0_f32, palette.accent),
                 );
             }
@@ -756,11 +765,11 @@ impl Editor {
     }
 }
 
-fn end_handle(rect: Rect, row: usize, cell: f32, end: u32) -> Rect {
+fn end_handle(rect: Rect, row: usize, cell: f32, end: u32, row_height: f32) -> Rect {
     Rect::from_center_size(
         Pos2::new(
             rect.left() + end as f32 * cell,
-            rect.top() + (row + 1) as f32 * ROW_HEIGHT - 4.,
+            rect.top() + (row + 1) as f32 * row_height - 4.,
         ),
         Vec2::new(8., 7.),
     )

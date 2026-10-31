@@ -137,7 +137,29 @@ impl Editor {
             && gesture.began
         {
             if gesture.changed {
-                self.history.commit(&self.project);
+                if self.timeline_edit.edit_multiple && matches!(gesture.kind, GestureKind::Move) {
+                    let frame = self.frame;
+                    let moved: Vec<(String, [f64; 2])> = gesture
+                        .targets
+                        .iter()
+                        .filter_map(|(target, original)| {
+                            let now = self
+                                .symbol()
+                                .timeline
+                                .layers
+                                .iter()
+                                .filter_map(|layer| layer.key_at(frame))
+                                .flat_map(|key| &key.elements)
+                                .find(|element| element.id == target.element)?;
+                            Some((
+                                target.element.clone(),
+                                [now.transform.x - original.x, now.transform.y - original.y],
+                            ))
+                        })
+                        .collect();
+                    self.move_on_other_keyframes(&moved);
+                }
+                self.commit_history();
             } else {
                 self.history.cancel(&mut self.project);
             }

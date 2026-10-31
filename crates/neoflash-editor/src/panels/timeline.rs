@@ -3,13 +3,12 @@
 //! resizable), the `TL Ruler` (32), and the frame area painted with the `TL Grid`, `TL Span`,
 //! `TL Grid Lines`, `TL Marker` and `TL Frame Label` painters, plus `TL Playhead` and `TL Onion Range`.
 //! Frame `n` (1-based) starts at `(n − 1) × frame width`; the editor keeps 0-based frames.
-use super::timeline_controls::frame_view_options;
 use crate::app::*;
 use crate::theme::ScrollTheme as _;
 use crate::{
     layer_controls::{layer_color, layer_depth, layer_kind, visible_layer_indices},
     theme::UiPalette,
-    timeline_paint::{ROW_HEIGHT, RULER_HEIGHT, frame_at_x, timeline_cell_at},
+    timeline_paint::{RULER_HEIGHT, frame_at_x, timeline_cell_at},
     workspace::PanelId,
 };
 use eframe::egui::{self, Align2, Pos2, Rect, Sense, Stroke, Vec2};
@@ -106,6 +105,7 @@ impl Editor {
         let mut commit_rename = None;
         let mut cancel_rename = false;
         let previous_cell = self.timeline_cell;
+        let row_height = self.workspace.timeline.row_height();
         let timeline_width = ui.available_width();
         let maximum_layer_width = (timeline_width - 100.).clamp(140., 320.);
         let mut layer_column_width = self
@@ -128,7 +128,7 @@ impl Editor {
                 self.timeline_key_drag = None;
             }
             let recenter = zoom_changed || controls.recenter;
-            let view = frame_view_options(&ctx);
+            let view = self.workspace.timeline;
             let button_states = self.symbol().kind == SymbolKind::Button;
             let cell_width = if button_states { 64. } else { self.timeline_cell };
             let height = (ui.available_height() - RULER_HEIGHT).max(25.);
@@ -189,7 +189,7 @@ impl Editor {
             // Frame scripts belong to the whole timeline. Like Flash's actions layer, they show as
             // Action keyframes on the top non-folder row where it has a keyframe; otherwise on the ruler.
             let action_row = layers.iter().position(|layer| layer.properties.role != LayerRole::Folder);
-            let content_height = layers.len() as f32 * ROW_HEIGHT;
+            let content_height = layers.len() as f32 * row_height;
             // Solid scrollbars own a separate strip instead of covering the last
             // visible key. Content drags belong to frames, not kinetic scrolling.
             let scroll_source = egui::scroll_area::ScrollSource::SCROLL_BAR
@@ -214,13 +214,13 @@ impl Editor {
                                 for (row_index, layer) in layers.iter().enumerate() {
                                     let idx = layer_indices[row_index];
                                     let (row_rect, row_response) = ui.allocate_exact_size(
-                                        Vec2::new(layer_column_width, ROW_HEIGHT),
+                                        Vec2::new(layer_column_width, row_height),
                                         Sense::click_and_drag(),
                                     );
                                     let renaming = rename.as_ref().is_some_and(|draft| draft.layer == layer.id);
                                     let row = LayerRow {
                                         label: if renaming { "" } else { &layer.name },
-                                        kind: layer_kind(layer),
+                                        kind: layer_kind(&self.symbol().timeline, layer),
                                         selected: idx == self.layer,
                                         indent: depths[row_index],
                                         editing: idx == self.layer,
@@ -328,13 +328,13 @@ impl Editor {
                                 self.paint_frame_selection(ui, rect, cell_width, &layer_indices);
                                 let end_x = rect.left() + count as f32 * cell_width;
                                 let selected_cell = Rect::from_min_size(
-                                    Pos2::new(rect.left() + self.frame as f32 * cell_width, rect.top() + layer_indices.iter().position(|i| *i == self.layer).unwrap_or(0) as f32 * ROW_HEIGHT),
-                                    Vec2::new(cell_width, ROW_HEIGHT),
+                                    Pos2::new(rect.left() + self.frame as f32 * cell_width, rect.top() + layer_indices.iter().position(|i| *i == self.layer).unwrap_or(0) as f32 * row_height),
+                                    Vec2::new(cell_width, row_height),
                                 );
                                 if response.hovered()
                                     && let Some(pos) = response.hover_pos()
                                 {
-                                    if let Some((frame, layer)) = timeline_cell_at(pos, rect.min, cell_width, count, layers.len()) {
+                                    if let Some((frame, layer)) = timeline_cell_at(pos, rect.min, cell_width, count, layers.len(), row_height) {
                                         let key = layers[layer].key_at(frame);
                                         let label = match key {
                                             Some(key) if key.frame == frame && key.elements.is_empty() => "Blank keyframe".to_owned(),
@@ -364,7 +364,7 @@ impl Editor {
                                     painter.text(Pos2::new(grid_clip.left() + space::S1, grid_clip.bottom() - space::S1), Align2::LEFT_BOTTOM, text, typography::font(TextStyle::Small), stroke.color);
                                 }
                                 if response.context_menu_opened()
-                                    || response.interact_pointer_pos().is_some_and(|pos| timeline_cell_at(pos, rect.min, cell_width, count, layers.len()).is_some())
+                                    || response.interact_pointer_pos().is_some_and(|pos| timeline_cell_at(pos, rect.min, cell_width, count, layers.len(), row_height).is_some())
                                 {
                                 response.context_menu(|ui| {
                                     crate::ui_icons::menu_contents(ui, 280., |ui| self.frame_context_menu(ui));
@@ -413,8 +413,8 @@ impl Editor {
                         let within=names_view.contains(position);
                         ctx.set_cursor_icon(if within {egui::CursorIcon::Grabbing} else {egui::CursorIcon::NotAllowed});
                         if within {
-                            let boundary=(((position.y-grid_rect.top())/ROW_HEIGHT).round().max(0.) as usize).min(layers.len());
-                            let y=(grid_rect.top()+boundary as f32*ROW_HEIGHT).clamp(names_view.top(),names_view.bottom());
+                            let boundary=(((position.y-grid_rect.top())/row_height).round().max(0.) as usize).min(layers.len());
+                            let y=(grid_rect.top()+boundary as f32*row_height).clamp(names_view.top(),names_view.bottom());
                             nf::surface::drop_indicator(ui.painter(), &ctx, Pos2::new(names_view.left(),y), Pos2::new(rows.inner_rect.right(),y));
                             if released.is_some() {commit_reorder=Some((drag.layer.clone(),layers.get(boundary).map(|layer|layer.id.clone())));}
                             if down {
@@ -440,7 +440,7 @@ impl Editor {
                     Pos2::new(grid_clip.left(), header.top()),
                     Pos2::new(grid_clip.right(), header.bottom()),
                 );
-                let geo = Geometry { origin_x: grid_rect.left(), frame_width: cell_width, row_height: ROW_HEIGHT };
+                let geo = Geometry { origin_x: grid_rect.left(), frame_width: cell_width, row_height };
                 let end_x = grid_rect.left() + count as f32 * cell_width;
                 let rp = ui.painter_at(ruler);
                 rp.rect_filled(ruler, 0, p.bg_panel);
@@ -482,7 +482,12 @@ impl Editor {
                     self.set_playing(false);
                     if pos.x < end_x {
                         self.reset_authored_preview();
-                        self.frame = frame_at_x(pos.x, grid_rect.left(), cell_width, count);
+                        let frame = frame_at_x(pos.x, grid_rect.left(), cell_width, count);
+                        self.frame = if view.snap_playhead && !ui.input(|i| i.modifiers.shift) {
+                            self.snap_scrub_frame(frame, pos.x, grid_rect.left(), cell_width)
+                        } else {
+                            frame
+                        };
                         self.select_frame_range(FrameRange { layers: vec![self.symbol().timeline.layers[self.layer].id.clone()], start: self.frame, end: self.frame });
                         self.script_target = ScriptTarget::Frame;
                         self.clear_selection();
@@ -594,19 +599,20 @@ impl Editor {
         let ctx = painter.ctx().clone();
         let p = neoflash_ui::palette(&ctx);
         let count = self.symbol().timeline.frame_count;
+        let row_height = self.workspace.timeline.row_height();
         let geo = Geometry {
             origin_x: rect.left(),
             frame_width: cell,
-            row_height: ROW_HEIGHT,
+            row_height,
         };
         let first = (((clip.left() - rect.left()) / cell).max(0.) as u32).min(count);
         let last = (((clip.right() - rect.left()) / cell).ceil().max(0.) as u32).min(count);
         let end_x = rect.left() + count as f32 * cell;
         let selection = self.frame_range();
         for (li, layer) in layers.iter().enumerate() {
-            let y = rect.top() + li as f32 * ROW_HEIGHT;
+            let y = rect.top() + li as f32 * row_height;
             let row =
-                Rect::from_min_max(Pos2::new(rect.left(), y), Pos2::new(end_x, y + ROW_HEIGHT));
+                Rect::from_min_max(Pos2::new(rect.left(), y), Pos2::new(end_x, y + row_height));
             if !row.intersects(clip) {
                 continue;
             }
@@ -617,19 +623,33 @@ impl Editor {
             }
             tl::paint_grid(&rp, &ctx, row, &geo, GridKind::Layer);
             let layer_end = layer.properties.end_frame.unwrap_or(count).min(count);
+            // A motion tween is one span through its ◆ property keys (which have no span of
+            // their own); classic and shape tweens without an end keyframe are broken.
+            let span_end = |ki: usize| {
+                let key = &layer.keyframes[ki];
+                let motion = key.tween.is_some() && key.tween_kind == TweenKind::Motion;
+                layer.keyframes[ki + 1..]
+                    .iter()
+                    .find(|k| !(motion && k.keyed_properties.is_some()))
+                    .map(|k| k.frame)
+            };
             let spans: Vec<(u32, u32, Option<SpanType>)> = layer
                 .keyframes
                 .iter()
                 .enumerate()
                 .filter_map(|(ki, key)| {
-                    let next_key = layer.keyframes.get(ki + 1).map(|k| k.frame);
+                    if key.keyed_properties.is_some() {
+                        return Some((key.frame, key.frame, None));
+                    }
+                    let next_key = span_end(ki);
                     let next = next_key.unwrap_or(layer_end).min(count);
                     (next > key.frame).then(|| {
                         let kind = if key.tween.is_some() {
-                            Some(if next_key.is_some_and(|f| f < count) {
-                                SpanType::ClassicTween
-                            } else {
-                                SpanType::BrokenTween
+                            Some(match key.tween_kind {
+                                TweenKind::Motion => SpanType::MotionTween,
+                                _ if !next_key.is_some_and(|f| f < count) => SpanType::BrokenTween,
+                                TweenKind::Shape => SpanType::ShapeTween,
+                                TweenKind::Classic => SpanType::ClassicTween,
                             })
                         } else if !key.elements.is_empty() {
                             Some(SpanType::Static)
@@ -671,6 +691,7 @@ impl Editor {
                 let key = &layer.keyframes[ki];
                 let action = Some(li) == action_row && script_frames.contains(&start);
                 let marker = match (key.elements.is_empty(), action) {
+                    _ if key.keyed_properties.is_some() => MarkerKind::PropertyKeyframe,
                     (true, true) => MarkerKind::ActionBlankKeyframe,
                     (true, false) => MarkerKind::BlankKeyframe,
                     (false, true) => MarkerKind::ActionKeyframe,
@@ -683,7 +704,15 @@ impl Editor {
                     marker,
                     on_selection(start),
                 );
-                let tween = matches!(kind, Some(SpanType::ClassicTween | SpanType::BrokenTween));
+                let tween = matches!(
+                    kind,
+                    Some(
+                        SpanType::ClassicTween
+                            | SpanType::ShapeTween
+                            | SpanType::MotionTween
+                            | SpanType::BrokenTween
+                    )
+                ) || key.keyed_properties.is_some();
                 if !tween && next > start + 1 {
                     tl::paint_marker(
                         &rp,
@@ -716,11 +745,23 @@ impl Editor {
         use crate::timeline_edit::FrameCommand as F;
         use crate::ui_icons::{menu_item, menu_item_enabled, menu_toggle};
         let editable = self.layer_editable();
-        Self::planned_menu_item(ui, "Frame menu ▸ Create motion tween", "");
-        Self::unavailable_item(ui, "Create shape tween", "");
-        if menu_item_enabled(ui, editable, "Create classic tween", "").clicked() {
-            self.create_classic_tween();
-            ui.close();
+        let tweenable = self.can_create_tween();
+        for (label, kind) in [
+            ("Create motion tween", TweenKind::Motion),
+            ("Create shape tween", TweenKind::Shape),
+            ("Create classic tween", TweenKind::Classic),
+        ] {
+            if menu_item_enabled(
+                ui,
+                tweenable && self.current_tween() != Some(kind),
+                label,
+                "",
+            )
+            .clicked()
+            {
+                self.create_tween(kind);
+                ui.close();
+            }
         }
         nf::menu_separator(ui);
         if menu_item_enabled(ui, editable, "Insert frame", "F5").clicked() {
@@ -738,9 +779,18 @@ impl Editor {
             self.make_key(true);
             ui.close();
         }
-        Self::unavailable_item(ui, "Clear keyframe", "⇧F6");
-        Self::unavailable_item(ui, "Convert to keyframes", "");
-        Self::unavailable_item(ui, "Convert to blank keyframes", "");
+        if menu_item_enabled(ui, editable, "Clear keyframe", "⇧F6").clicked() {
+            self.clear_keyframe();
+            ui.close();
+        }
+        if menu_item_enabled(ui, editable, "Convert to keyframes", "").clicked() {
+            self.convert_to_keyframes(false);
+            ui.close();
+        }
+        if menu_item_enabled(ui, editable, "Convert to blank keyframes", "").clicked() {
+            self.convert_to_keyframes(true);
+            ui.close();
+        }
         nf::menu_separator(ui);
         self.frame_command_item(ui, "Cut frames", "⌥⌘X", F::Cut);
         self.frame_command_item(ui, "Copy frames", "⌥⌘C", F::Copy);
@@ -752,7 +802,10 @@ impl Editor {
         Self::unavailable_item(ui, "Paste motion", "");
         Self::unavailable_item(ui, "Paste motion special…", "");
         nf::menu_separator(ui);
-        Self::unavailable_item(ui, "Reverse frames", "");
+        if menu_item_enabled(ui, self.can_reverse_frames(), "Reverse frames", "").clicked() {
+            self.reverse_frames();
+            ui.close();
+        }
         Self::unavailable_item(ui, "Synchronise symbols", "");
         nf::menu_separator(ui);
         if menu_item(ui, "Actions", "F9").clicked() {
@@ -787,22 +840,6 @@ impl Editor {
             self.run_frame_command(ui.ctx(), command);
             ui.close();
         }
-    }
-
-    /// Create classic tween on the keyframe span under the playhead (Insert menu, frame menu, tween button).
-    pub(crate) fn create_classic_tween(&mut self) {
-        self.finish_edits();
-        if !self.layer_editable() {
-            return;
-        }
-        self.transact(|s| {
-            let (f, l) = (s.frame, s.layer);
-            if let Some(k) = s.symbol_mut().timeline.layers[l].key_at_mut(f)
-                && k.tween.is_none()
-            {
-                k.tween = Some(Easing::EaseInOut);
-            }
-        });
     }
 
     pub fn onion_range(&self) -> (u32, u32) {

@@ -1,0 +1,592 @@
+{
+  "format_version": 6,
+  "name": "Timeline tweens and scenes",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    20,
+    24,
+    32,
+    255
+  ],
+  "root": "scene-1",
+  "symbols": [
+    {
+      "id": "scene-1",
+      "name": "Tweens",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 48,
+        "scripts": [],
+        "layers": [
+          {
+            "id": "title",
+            "name": "Title",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "title-1",
+                    "name": "title-1",
+                    "transform": {
+                      "x": 40,
+                      "y": 40,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Scene 1 \u00b7 shape, motion and guided tweens",
+                      "font_family": "Helvetica",
+                      "font_size": 22,
+                      "color": [
+                        230,
+                        236,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "shape",
+            "name": "Shape tween",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "square",
+                    "name": "square",
+                    "transform": {
+                      "x": 60,
+                      "y": 100,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 80,
+                      "height": 80,
+                      "fill": [
+                        64,
+                        140,
+                        230,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": "",
+                "tween_kind": "shape"
+              },
+              {
+                "frame": 30,
+                "elements": [
+                  {
+                    "id": "circle",
+                    "name": "circle",
+                    "transform": {
+                      "x": 60,
+                      "y": 100,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 120,
+                      "height": 60,
+                      "fill": [
+                        240,
+                        140,
+                        50,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "motion",
+            "name": "Motion tween",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "star-1",
+                    "name": "star-1",
+                    "transform": {
+                      "x": 300,
+                      "y": 140,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "star",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": "",
+                "tween_kind": "motion"
+              },
+              {
+                "frame": 16,
+                "elements": [
+                  {
+                    "id": "star-1",
+                    "name": "star-1",
+                    "transform": {
+                      "x": 600,
+                      "y": 140,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "star",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": "",
+                "tween_kind": "motion",
+                "keyed_properties": [
+                  "x"
+                ]
+              },
+              {
+                "frame": 32,
+                "elements": [
+                  {
+                    "id": "star-1",
+                    "name": "star-1",
+                    "transform": {
+                      "x": 600,
+                      "y": 300,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 180,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "star",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": "",
+                "tween_kind": "motion",
+                "keyed_properties": [
+                  "y",
+                  "rotation"
+                ]
+              }
+            ]
+          },
+          {
+            "id": "guided",
+            "name": "Guided",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "dot",
+                    "name": "dot",
+                    "transform": {
+                      "x": 60,
+                      "y": 420,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 24,
+                      "height": 24,
+                      "fill": [
+                        90,
+                        190,
+                        110,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": ""
+              },
+              {
+                "frame": 40,
+                "elements": [
+                  {
+                    "id": "dot",
+                    "name": "dot",
+                    "transform": {
+                      "x": 860,
+                      "y": 420,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 24,
+                      "height": 24,
+                      "fill": [
+                        90,
+                        190,
+                        110,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ],
+            "properties": {
+              "motion_guide": "guide"
+            }
+          },
+          {
+            "id": "guide",
+            "name": "Guide: Guided",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "path",
+                    "name": "path",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 60,
+                          "y": 420
+                        },
+                        {
+                          "op": "cubic_to",
+                          "cx1": 300,
+                          "cy1": 220,
+                          "cx2": 600,
+                          "cy2": 620,
+                          "x": 860,
+                          "y": 420
+                        }
+                      ],
+                      "fill": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke": [
+                        120,
+                        120,
+                        120,
+                        255
+                      ],
+                      "stroke_width": 2
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ],
+            "properties": {
+              "role": "guide"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "scene-2",
+      "name": "Outro",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 24,
+        "scripts": [],
+        "layers": [
+          {
+            "id": "outro",
+            "name": "Outro",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "title-2",
+                    "name": "title-2",
+                    "transform": {
+                      "x": 40,
+                      "y": 240,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Scene 2 \u00b7 plays after scene 1",
+                      "font_family": "Helvetica",
+                      "font_size": 28,
+                      "color": [
+                        230,
+                        236,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_out",
+                "label": ""
+              },
+              {
+                "frame": 20,
+                "elements": [
+                  {
+                    "id": "title-2",
+                    "name": "title-2",
+                    "transform": {
+                      "x": 40,
+                      "y": 240,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Scene 2 \u00b7 plays after scene 1",
+                      "font_family": "Helvetica",
+                      "font_size": 28,
+                      "color": [
+                        230,
+                        236,
+                        245,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "star",
+      "name": "Star",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "scripts": [],
+        "layers": [
+          {
+            "id": "star-art",
+            "name": "Art",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "star-shape",
+                    "name": "star-shape",
+                    "transform": {
+                      "x": 0,
+                      "y": 0,
+                      "scale_x": 1,
+                      "scale_y": 1,
+                      "rotation": 0,
+                      "alpha": 1
+                    },
+                    "kind": {
+                      "type": "path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 0,
+                          "y": -40
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 12,
+                          "y": -12
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 40,
+                          "y": -12
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 18,
+                          "y": 6
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 26,
+                          "y": 36
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 0,
+                          "y": 18
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -26,
+                          "y": 36
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -18,
+                          "y": 6
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -40,
+                          "y": -12
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -12,
+                          "y": -12
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill": [
+                        250,
+                        210,
+                        60,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "scenes": [
+    "scene-1",
+    "scene-2"
+  ]
+}

@@ -23,6 +23,8 @@ use PlannedPanel as P;
 /// Natural entry points (design §4–§9) that open a planned preview, by location. Menu rows use the last
 /// path segment as their label. `GraphicProperties` has no entry: graphic looping is a working
 /// Properties section (`instance_playback_ui`), so its preview stays under Window ▸ Planned panels.
+/// `MotionTween` has none either: the Insert, frame, stage and Timeline controls entries now create
+/// motion tweens, and its Properties section is still a preview under Window ▸ Planned panels.
 pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     // Menu bar (§8).
     ("File ▸ Import ▸ Import video…", P::ImportVideo),
@@ -36,7 +38,6 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     ("View ▸ Grid ▸ Edit grid…", P::ViewSettings),
     ("View ▸ Guides ▸ Edit guides…", P::ViewSettings),
     ("View ▸ Rulers, guides & grid…", P::ViewSettings),
-    ("Insert ▸ Motion tween", P::MotionTween),
     ("Modify ▸ Document…", P::DocumentSettings),
     ("Modify ▸ Timeline ▸ Layer properties…", P::LayerProperties),
     ("Control ▸ Test scene", P::TestMovie),
@@ -54,10 +55,8 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     ("Window ▸ Movie Explorer", P::MovieExplorer),
     ("Window ▸ Filters", P::PropertiesFilters),
     // Context menus (§8).
-    ("Frame menu ▸ Create motion tween", P::MotionTween),
     ("Frame menu ▸ Ease…", P::Ease),
     ("Layer menu ▸ Properties…", P::LayerProperties),
-    ("Stage menu ▸ Create motion tween", P::MotionTween),
     // Panel menus (§6).
     ("Color menu ▸ Add swatch", P::Swatches),
     ("Color fill type ▸ Linear gradient", P::ColorGradient),
@@ -67,7 +66,6 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     ("Library menu ▸ Edit envelope…", P::EditEnvelope),
     ("Library menu ▸ Font embedding…", P::FontEmbedding),
     // Buttons and popovers (§4–§6).
-    ("Timeline controls ▸ Motion tween", P::MotionTween),
     ("Timeline controls ▸ Ease", P::Ease),
     ("Timeline controls ▸ Sound", P::PropertiesSound),
     ("Zoom control ▸ View settings", P::ViewSettings),
@@ -434,7 +432,10 @@ impl Editor {
         self.frame_command_item(ui, "Remove frames", "⇧F5", F::Remove);
         nf::menu_separator(ui);
         self.frame_command_item(ui, "Select all frames", "⌥⌘A", F::SelectAll);
-        Self::unavailable_item(ui, "Reverse frames", "");
+        if menu_item_enabled(ui, self.can_reverse_frames(), "Reverse frames", "").clicked() {
+            self.reverse_frames();
+            ui.close();
+        }
         Self::unavailable_item(ui, "Synchronise symbols", "");
     }
 
@@ -518,7 +519,17 @@ impl Editor {
             self.insert_layer_folder(self.layer);
             ui.close();
         }
-        Self::unavailable_item(ui, "Motion guide", "");
+        if menu_item_enabled(
+            ui,
+            self.can_add_motion_guide_to(self.layer),
+            "Motion guide",
+            "",
+        )
+        .clicked()
+        {
+            self.add_motion_guide();
+            ui.close();
+        }
         nf::menu_separator(ui);
         let editable = self.layer_editable();
         if menu_item_enabled(ui, editable, "Frame", "F5").clicked() {
@@ -537,14 +548,29 @@ impl Editor {
             ui.close();
         }
         nf::menu_separator(ui);
-        if menu_item_enabled(ui, editable, "Classic tween", "").clicked() {
-            self.create_classic_tween();
+        let tweenable = self.can_create_tween();
+        for (label, kind) in [
+            ("Classic tween", TweenKind::Classic),
+            ("Shape tween", TweenKind::Shape),
+            ("Motion tween", TweenKind::Motion),
+        ] {
+            if menu_item_enabled(
+                ui,
+                tweenable && self.current_tween() != Some(kind),
+                label,
+                "",
+            )
+            .clicked()
+            {
+                self.create_tween(kind);
+                ui.close();
+            }
+        }
+        nf::menu_separator(ui);
+        if menu_item(ui, "Scene", "").clicked() {
+            self.new_scene();
             ui.close();
         }
-        Self::unavailable_item(ui, "Shape tween", "");
-        Self::planned_menu_item(ui, "Insert ▸ Motion tween", "");
-        nf::menu_separator(ui);
-        Self::unavailable_item(ui, "Scene", "");
     }
 
     /// Control (§8).
@@ -572,8 +598,18 @@ impl Editor {
         }
         Self::planned_menu_item(ui, "Control ▸ Test scene", "⌥⌘↵");
         nf::menu_separator(ui);
-        Self::unavailable_item(ui, "Loop playback", "");
-        Self::unavailable_item(ui, "Play all scenes", "");
+        menu_toggle(
+            ui,
+            &mut self.workspace.timeline.loop_playback,
+            "Loop playback",
+            "",
+        );
+        menu_toggle(
+            ui,
+            &mut self.timeline_edit.play_all_scenes,
+            "Play all scenes",
+            "",
+        );
         Self::unavailable_item(ui, "Mute sounds", "⌥⌘M");
         nf::menu_separator(ui);
         Self::unavailable_item(ui, "Enable simple buttons", "⌥⌘B");
@@ -689,8 +725,11 @@ mod tests {
     #[test]
     fn every_planned_panel_has_a_natural_entry_point() {
         for panel in PlannedPanel::ALL {
-            if panel == PlannedPanel::GraphicProperties {
-                // Working Properties section; see PLANNED_ENTRY_POINTS.
+            if matches!(
+                panel,
+                PlannedPanel::GraphicProperties | PlannedPanel::MotionTween
+            ) {
+                // Working commands; see PLANNED_ENTRY_POINTS.
                 continue;
             }
             assert!(

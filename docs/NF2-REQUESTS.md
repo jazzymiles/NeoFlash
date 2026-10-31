@@ -27,7 +27,15 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 
 ## Open requests
 
-_None yet._
+### R-001 · Motion path on the stage
+- **Status:** open
+- **Requested by / for:** Claude (implementation) · TL-05 Motion tween, PR-10
+- **Where:** `crates/neoflash-editor/src/stage.rs` overlay for the selected motion-tweened instance
+- **Need:** an NF2 painter for a motion tween path: polyline through the per-frame positions with frame dots, ◆ markers at property keyframes, selected/hover states, and a drag handle style for editing path points.
+- **Why:** motion tweens work (independent tracks, ◆ keys) but the path is invisible on the stage; drawing it with hand-styled egui strokes is not allowed.
+- **Checked:** design system reference §5 (Timeline) and §9 (Stage overlays), `exports/interface/*/png/editor-main.png`; no motion-path component in `neoflash-ui`.
+- **Proposal (optional):** reuse `color/guide` for the line and the `TL Marker` ◆ glyph at keyframes.
+- **Answer:**
 
 ## Resolved requests
 

@@ -79,6 +79,7 @@ pub(crate) fn visible_layer_indices(timeline: &Timeline) -> Vec<usize> {
             .properties
             .mask
             .as_ref()
+            .or(layer.properties.motion_guide.as_ref())
             .or(layer.properties.parent.as_ref())
             .and_then(|id| indices.get(id.as_str()).copied());
         if let Some(parent) = parent {
@@ -103,12 +104,24 @@ pub(crate) fn visible_layer_indices(timeline: &Timeline) -> Vec<usize> {
     visible
 }
 /// NF2 `TL Layer` type of a document layer. Folders follow their collapsed state; a normal layer
-/// with a mask is Masked. The editor has no motion-guide, sound, video or armature layers yet.
-pub(crate) fn layer_kind(layer: &Layer) -> neoflash_ui::components::timeline::LayerKind {
+/// with a mask is Masked; a guide that guides a layer is a Motion guide. The editor has no sound,
+/// video or armature layers yet.
+pub(crate) fn layer_kind(
+    timeline: &Timeline,
+    layer: &Layer,
+) -> neoflash_ui::components::timeline::LayerKind {
     use neoflash_ui::components::timeline::LayerKind;
     match layer.properties.role {
         LayerRole::Folder if layer.properties.collapsed => LayerKind::FolderClosed,
         LayerRole::Folder => LayerKind::FolderOpen,
+        LayerRole::Guide
+            if timeline
+                .layers
+                .iter()
+                .any(|l| l.properties.motion_guide.as_ref() == Some(&layer.id)) =>
+        {
+            LayerKind::MotionGuide
+        }
         LayerRole::Guide => LayerKind::Guide,
         LayerRole::Mask => LayerKind::Mask,
         LayerRole::Normal if layer.properties.mask.is_some() => LayerKind::Masked,
@@ -125,6 +138,7 @@ pub(crate) fn layer_depth(timeline: &Timeline, layer: &Layer) -> usize {
         .properties
         .mask
         .as_ref()
+        .or(current.properties.motion_guide.as_ref())
         .or(current.properties.parent.as_ref())
         .and_then(|id| timeline.layers.iter().find(|l| &l.id == id))
     {
@@ -431,6 +445,8 @@ impl Editor {
         let symbol = self.symbol_id().to_owned();
         let mut candidate = self.project.clone();
         change(&mut candidate, &symbol);
+        candidate.prune_motion_guides();
+        candidate.upgrade_format_for_features();
         if candidate
             .symbols
             .iter()
@@ -684,7 +700,18 @@ impl Editor {
             self.set_layer_role(index, role);
             ui.close();
         }
-        Self::unavailable_item(ui, "Add classic motion guide", "");
+        if menu_item_enabled(
+            ui,
+            self.can_add_motion_guide_to(index),
+            "Add classic motion guide",
+            "",
+        )
+        .clicked()
+        {
+            self.layer = index;
+            self.add_motion_guide();
+            ui.close();
+        }
         let mut mask = layer.properties.role == LayerRole::Mask;
         if ui
             .add_enabled_ui(!folder, |ui| menu_toggle(ui, &mut mask, "Mask", ""))

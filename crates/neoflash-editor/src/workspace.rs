@@ -1160,6 +1160,46 @@ pub struct WorkspacePrefs {
     pub floating: Vec<FloatingDock>,
     /// Template the current layout started from (shown in the top-bar workspace select).
     pub template: WorkspaceTemplate,
+    /// Timeline frame view and playback options (Frame view ⋯, Control menu).
+    pub timeline: TimelineView,
+}
+
+/// Presentation and playback options of the Timeline. Workspace-only, never in the document.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TimelineView {
+    /// Off = spans are not colour-coded, only arrows (§5.4 "Tinted frames").
+    pub tinted: bool,
+    pub show_seconds: bool,
+    /// 18 pt layer rows (Frame view ▸ Short).
+    pub short_rows: bool,
+    /// Ruler scrubbing lands on the current layer's keyframes (⇧ suspends it).
+    pub snap_playhead: bool,
+    /// Off = editor playback stops on the last frame instead of wrapping.
+    pub loop_playback: bool,
+}
+
+impl Default for TimelineView {
+    fn default() -> Self {
+        Self {
+            tinted: true,
+            show_seconds: true,
+            short_rows: false,
+            snap_playhead: false,
+            loop_playback: true,
+        }
+    }
+}
+
+impl TimelineView {
+    /// `NF2/TL Layer` row height for the current frame view.
+    pub fn row_height(&self) -> f32 {
+        if self.short_rows {
+            neoflash_ui::metrics::LAYER_ROW_SHORT
+        } else {
+            neoflash_ui::metrics::LAYER_ROW
+        }
+    }
 }
 impl Default for WorkspacePrefs {
     fn default() -> Self {
@@ -1173,6 +1213,7 @@ impl Default for WorkspacePrefs {
             dock: DockLayout::default(),
             floating: Vec::new(),
             template: WorkspaceTemplate::Classic,
+            timeline: TimelineView::default(),
         }
     }
 }

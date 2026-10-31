@@ -362,7 +362,7 @@ impl Editor {
     }
     pub(crate) fn finish_property_edit(&mut self) {
         if self.property_edit.take().is_some() {
-            self.history.commit(&self.project);
+            self.commit_history();
         }
     }
     pub(crate) fn begin_property_edit(&mut self, scope: egui::Id, control: egui::Id) {

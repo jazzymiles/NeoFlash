@@ -311,7 +311,7 @@ impl Editor {
             .project
             .symbols
             .iter()
-            .filter(|symbol| symbol.id != self.project.root)
+            .filter(|symbol| !self.project.is_scene(&symbol.id))
             .map(|symbol| LibrarySymbol {
                 id: symbol.id.clone(),
                 name: symbol.name.clone(),

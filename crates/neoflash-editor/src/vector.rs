@@ -402,7 +402,7 @@ impl Editor {
             && drag.began
         {
             if drag.changed {
-                self.history.commit(&self.project);
+                self.commit_history();
             } else {
                 self.history.cancel(&mut self.project);
             }
@@ -439,6 +439,9 @@ impl Editor {
     }
     pub(crate) fn set_playing(&mut self, playing: bool) {
         self.finish_edits();
+        if playing && !self.playing {
+            self.rewind_if_finished();
+        }
         self.timeline_key_drag = None;
         self.playing = playing;
         self.accumulator = 0.;

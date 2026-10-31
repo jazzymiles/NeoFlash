@@ -47,6 +47,7 @@ mod resources;
 mod runtime;
 mod runtime_graph;
 mod runtime_graphics;
+mod shape_tween;
 mod text;
 mod timeline_edit;
 mod validation;
@@ -60,7 +61,10 @@ pub use authored_playback::AuthoredPlayback;
 pub use clipboard::{
     CLIPBOARD_PREFIX, ClipboardError, ClipboardPayload, MAX_CLIPBOARD_BYTES, PasteResult,
 };
-pub use evaluate::{DrawItem, affine_multiply, easing, evaluate, sample_layer, transform_matrix};
+pub use evaluate::{
+    DrawItem, GuidePath, affine_multiply, easing, evaluate, guide_polyline, motion_span,
+    property_value, sample_layer, sample_layer_in, transform_matrix,
+};
 pub use filters::{
     FilterError, FilterPadding, FilterSpec, MAX_FILTER_PIXELS, MAX_OBJECT_FILTERS, filter_padding,
     filter_rgba, validate_filters,
@@ -95,6 +99,7 @@ pub use runtime_graphics::{
     GradientKind, GradientPaint, GradientSpec, GradientStop, GraphicsOp, MAX_GRAPHICS_COMMANDS,
     MAX_GRAPHICS_OPS,
 };
+pub use shape_tween::{MAX_SHAPE_TWEEN_SEGMENTS, shape_tween_elements};
 pub use text::{
     MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextError, TextFieldState, TextFieldType, TextFormat,
     TextFormatPatch, TextInputEdit, TextLayout, TextLine, TextPatch, TextReplacement,

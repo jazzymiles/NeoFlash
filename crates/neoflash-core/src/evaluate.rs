@@ -336,21 +336,24 @@ pub fn sample_layer(layer: &Layer, frame: u32) -> Vec<Element> {
     let Some(key) = layer.key_at(frame) else {
         return vec![];
     };
+    if key.keyed_properties.is_some()
+        || (key.tween.is_some() && key.tween_kind == TweenKind::Motion)
+    {
+        return sample_motion(layer, frame);
+    }
     let Some(ease) = key.tween else {
         return key.elements.clone();
     };
-    let Some(next) = layer
-        .keyframes
-        .iter()
-        .filter(|k| k.frame > key.frame)
-        .min_by_key(|k| k.frame)
-    else {
+    let Some(next) = next_key(layer, key.frame) else {
         return key.elements.clone();
     };
     let t = easing(
         (frame - key.frame) as f64 / (next.frame - key.frame) as f64,
         ease,
     );
+    if key.tween_kind == TweenKind::Shape {
+        return crate::shape_tween::shape_tween_elements(&key.elements, &next.elements, t);
+    }
     key.elements
         .iter()
         .map(|e| {
@@ -360,6 +363,264 @@ pub fn sample_layer(layer: &Layer, frame: u32) -> Vec<Element> {
                 .map_or_else(|| e.clone(), |n| interpolate(e, n, t))
         })
         .collect()
+}
+
+fn next_key(layer: &Layer, frame: u32) -> Option<&Keyframe> {
+    layer
+        .keyframes
+        .iter()
+        .filter(|k| k.frame > frame)
+        .min_by_key(|k| k.frame)
+}
+
+/// The keys of the motion tween span containing `frame`: its start key, then
+/// its ◆ property keys in frame order, and the frame where the span ends.
+pub fn motion_span(layer: &Layer, frame: u32) -> Option<(&Keyframe, Vec<&Keyframe>, Option<u32>)> {
+    let mut keys: Vec<_> = layer.keyframes.iter().collect();
+    keys.sort_by_key(|k| k.frame);
+    let start = keys
+        .iter()
+        .rposition(|k| k.frame <= frame && k.keyed_properties.is_none())?;
+    let first = keys[start];
+    if first.tween.is_none() || first.tween_kind != TweenKind::Motion {
+        return None;
+    }
+    let mut properties = vec![];
+    let mut end = layer.properties.end_frame;
+    for key in &keys[start + 1..] {
+        if key.keyed_properties.is_none() {
+            end = Some(key.frame);
+            break;
+        }
+        properties.push(*key);
+    }
+    Some((first, properties, end))
+}
+
+pub fn property_value(transform: &Transform, property: TweenProperty) -> f64 {
+    match property {
+        TweenProperty::X => transform.x,
+        TweenProperty::Y => transform.y,
+        TweenProperty::ScaleX => transform.scale_x,
+        TweenProperty::ScaleY => transform.scale_y,
+        TweenProperty::Rotation => transform.rotation,
+        TweenProperty::Skew => transform.skew,
+        TweenProperty::Alpha => transform.alpha,
+        TweenProperty::Color => 0.,
+    }
+}
+
+fn set_property(
+    transform: &mut Transform,
+    property: TweenProperty,
+    a: &Transform,
+    b: &Transform,
+    t: f64,
+) {
+    let value = |p| lerp(property_value(a, p), property_value(b, p), t);
+    match property {
+        TweenProperty::X => transform.x = value(property),
+        TweenProperty::Y => transform.y = value(property),
+        TweenProperty::ScaleX => transform.scale_x = value(property),
+        TweenProperty::ScaleY => transform.scale_y = value(property),
+        TweenProperty::Rotation => transform.rotation = value(property),
+        TweenProperty::Skew => transform.skew = value(property),
+        TweenProperty::Alpha => transform.alpha = value(property),
+        TweenProperty::Color => {
+            let (x, y) = (a.color_transform, b.color_transform);
+            transform.color_transform = crate::ColorTransform {
+                multipliers: std::array::from_fn(|i| lerp(x.multipliers[i], y.multipliers[i], t)),
+                offsets: std::array::from_fn(|i| lerp(x.offsets[i], y.offsets[i], t)),
+            };
+        }
+    }
+}
+
+/// Motion tween: every property has its own track through the ◆ keys that key
+/// it. The span ease remaps time over the whole span, as Flash motion tweens do;
+/// after the last property key a track holds its value.
+fn sample_motion(layer: &Layer, frame: u32) -> Vec<Element> {
+    let Some((start, properties, end)) = motion_span(layer, frame) else {
+        return layer
+            .key_at(frame)
+            .map(|k| k.elements.clone())
+            .unwrap_or_default();
+    };
+    let last = properties.last().map_or(start.frame, |k| k.frame);
+    let span_end = end.unwrap_or(last).max(last).max(start.frame + 1);
+    let length = (span_end - start.frame) as f64;
+    let progress = ((frame - start.frame) as f64 / length).min(1.);
+    let time =
+        start.frame as f64 + easing(progress, start.tween.unwrap_or(Easing::Linear)) * length;
+    start
+        .elements
+        .iter()
+        .map(|element| {
+            let mut out = element.clone();
+            for property in TweenProperty::ALL {
+                let mut previous = (start.frame as f64, element.transform);
+                let mut next = None;
+                for key in &properties {
+                    if !key
+                        .keyed_properties
+                        .as_ref()
+                        .is_some_and(|keyed| keyed.contains(&property))
+                    {
+                        continue;
+                    }
+                    let Some(keyed) = key.elements.iter().find(|e| e.id == element.id) else {
+                        continue;
+                    };
+                    if key.frame as f64 <= time {
+                        previous = (key.frame as f64, keyed.transform);
+                    } else {
+                        next = Some((key.frame as f64, keyed.transform));
+                        break;
+                    }
+                }
+                let (to, t) = match next {
+                    Some((frame, to)) => (to, (time - previous.0) / (frame - previous.0)),
+                    None => (previous.1, 0.),
+                };
+                set_property(&mut out.transform, property, &previous.1, &to, t);
+            }
+            out
+        })
+        .collect()
+}
+
+/// Sample a layer within its timeline: classic tweens on a layer guided by a
+/// motion guide move their objects' registration points along the guide's
+/// first stroke, from the point nearest the start pose to the point nearest
+/// the end pose.
+pub fn sample_layer_in(timeline: &Timeline, layer: &Layer, frame: u32) -> Vec<Element> {
+    let mut elements = sample_layer(layer, frame);
+    let Some(guide) = layer
+        .properties
+        .motion_guide
+        .as_ref()
+        .and_then(|id| timeline.layers.iter().find(|l| &l.id == id))
+    else {
+        return elements;
+    };
+    let Some(key) = layer.key_at(frame) else {
+        return elements;
+    };
+    let (Some(ease), TweenKind::Classic, None) = (key.tween, key.tween_kind, &key.keyed_properties)
+    else {
+        return elements;
+    };
+    let Some(next) = next_key(layer, key.frame) else {
+        return elements;
+    };
+    let Some(path) = guide_polyline(guide, key.frame) else {
+        return elements;
+    };
+    let t = easing(
+        (frame - key.frame) as f64 / (next.frame - key.frame) as f64,
+        ease,
+    );
+    for element in &mut elements {
+        let (Some(a), Some(b)) = (
+            key.elements.iter().find(|e| e.id == element.id),
+            next.elements.iter().find(|e| e.id == element.id),
+        ) else {
+            continue;
+        };
+        let s0 = path.nearest([a.transform.x, a.transform.y]);
+        let s1 = path.nearest([b.transform.x, b.transform.y]);
+        let [x, y] = path.point_at(lerp(s0, s1, t));
+        element.transform.x = x;
+        element.transform.y = y;
+    }
+    elements
+}
+
+/// A guide stroke flattened in timeline coordinates with cumulative lengths.
+pub struct GuidePath {
+    points: Vec<[f64; 2]>,
+    lengths: Vec<f64>,
+}
+
+impl GuidePath {
+    pub fn length(&self) -> f64 {
+        self.lengths.last().copied().unwrap_or(0.)
+    }
+
+    /// Arc length of the point on the path nearest to `p`.
+    pub fn nearest(&self, p: [f64; 2]) -> f64 {
+        let mut best = (f64::INFINITY, 0.);
+        for i in 1..self.points.len() {
+            let (a, b) = (self.points[i - 1], self.points[i]);
+            let d = [b[0] - a[0], b[1] - a[1]];
+            let len2 = d[0] * d[0] + d[1] * d[1];
+            let u = if len2 > 0. {
+                (((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1]) / len2).clamp(0., 1.)
+            } else {
+                0.
+            };
+            let q = [a[0] + d[0] * u, a[1] + d[1] * u];
+            let dist = (q[0] - p[0]).powi(2) + (q[1] - p[1]).powi(2);
+            if dist < best.0 {
+                best = (dist, lerp(self.lengths[i - 1], self.lengths[i], u));
+            }
+        }
+        best.1
+    }
+
+    pub fn point_at(&self, s: f64) -> [f64; 2] {
+        let s = s.clamp(0., self.length());
+        let i = self
+            .lengths
+            .partition_point(|l| *l < s)
+            .clamp(1, self.points.len() - 1);
+        let (l0, l1) = (self.lengths[i - 1], self.lengths[i]);
+        let u = if l1 > l0 { (s - l0) / (l1 - l0) } else { 0. };
+        let (a, b) = (self.points[i - 1], self.points[i]);
+        [lerp(a[0], b[0], u), lerp(a[1], b[1], u)]
+    }
+}
+
+/// The first stroke on a guide layer at `frame`, in its timeline's coordinates.
+pub fn guide_polyline(guide: &Layer, frame: u32) -> Option<GuidePath> {
+    let key = guide.key_at(frame)?;
+    key.elements.iter().find_map(|element| {
+        let commands = match &element.kind {
+            ElementKind::Path { commands, .. } | ElementKind::PaintedPath { commands, .. } => {
+                commands
+            }
+            _ => return None,
+        };
+        let contour = crate::geometry::flatten_path(commands, Default::default())
+            .ok()?
+            .into_iter()
+            .next()?;
+        let m = transform_matrix(element.transform);
+        let mut points: Vec<[f64; 2]> = contour
+            .points
+            .iter()
+            .map(|p| {
+                [
+                    m[0] * p[0] + m[2] * p[1] + m[4],
+                    m[1] * p[0] + m[3] * p[1] + m[5],
+                ]
+            })
+            .collect();
+        if contour.closed
+            && let Some(first) = points.first().copied()
+        {
+            points.push(first);
+        }
+        if points.len() < 2 {
+            return None;
+        }
+        let mut lengths = vec![0.];
+        for i in 1..points.len() {
+            let d = (points[i][0] - points[i - 1][0]).hypot(points[i][1] - points[i - 1][1]);
+            lengths.push(lengths[i - 1] + d);
+        }
+        Some(GuidePath { points, lengths })
+    })
 }
 
 /// Earliest key in the current continuous placement span (stable IDs survive keys).
@@ -492,7 +753,7 @@ impl Walker<'_> {
             {
                 continue;
             }
-            for mut e in sample_layer(layer, frame) {
+            for mut e in sample_layer_in(&symbol.timeline, layer, frame) {
                 if self.result.nodes.len() >= MAX_NODES {
                     return;
                 }

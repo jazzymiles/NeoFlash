@@ -271,6 +271,7 @@ impl Editor {
             return;
         }
         let sampled = sample_layer(layer, frame);
+        let motion = motion_span(layer, frame).map(|(start, ..)| (start.tween, start.tween_kind));
         let mut key = if blank {
             Keyframe {
                 frame,
@@ -290,6 +291,14 @@ impl Editor {
         };
         if !blank {
             key.elements = sampled;
+        }
+        key.keyed_properties = None;
+        if let Some((tween, kind)) = motion.filter(|_| !blank) {
+            // Inside a motion tween the new key is a ◆ property key; the edit that follows
+            // keys exactly the properties it changes (`record_motion_property_keys`).
+            key.tween = tween;
+            key.tween_kind = kind;
+            key.keyed_properties = Some(vec![]);
         }
         key.frame = frame;
         key.label.clear();

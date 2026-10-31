@@ -29,6 +29,7 @@ mod svg_graphics;
 mod symbol_dialog;
 mod text_boxes;
 mod theme;
+mod timeline_commands;
 mod timeline_edit;
 mod timeline_paint;
 mod transform_geometry;
@@ -46,6 +47,8 @@ mod panel_tests;
 mod selection_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod timeline_commands_tests;
 #[cfg(test)]
 mod transform_gesture_tests;
 #[cfg(test)]

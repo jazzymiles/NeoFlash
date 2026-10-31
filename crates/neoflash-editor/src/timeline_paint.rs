@@ -1,7 +1,8 @@
 //! Timeline hit-testing geometry shared by painting (panels/timeline.rs) and gestures
 //! (timeline_edit.rs). Rows, ruler and frame widths are NF2 Timeline 2.0 metrics.
 use eframe::egui::Pos2;
-/// `NF2/TL Layer` row height.
+/// `NF2/TL Layer` row height (regular rows; Short rows use `LAYER_ROW_SHORT`).
+#[cfg(test)]
 pub(crate) const ROW_HEIGHT: f32 = neoflash_ui::metrics::LAYER_ROW;
 /// `NF2/TL Ruler` / `NF2/TL Layers Header` height.
 pub(crate) const RULER_HEIGHT: f32 = neoflash_ui::metrics::TIMELINE_RULER;
@@ -13,6 +14,7 @@ pub(crate) fn timeline_cell_at(
     cell_width: f32,
     frame_count: u32,
     layer_count: usize,
+    row_height: f32,
 ) -> Option<(u32, usize)> {
     let local = pos - origin;
     if !pos.is_finite()
@@ -20,13 +22,13 @@ pub(crate) fn timeline_cell_at(
         || local.x < 0.
         || local.y < 0.
         || local.x >= frame_count as f32 * cell_width
-        || local.y >= layer_count as f32 * ROW_HEIGHT
+        || local.y >= layer_count as f32 * row_height
     {
         return None;
     }
     Some((
         (local.x / cell_width).floor() as u32,
-        (local.y / ROW_HEIGHT).floor() as usize,
+        (local.y / row_height).floor() as usize,
     ))
 }
 
@@ -52,7 +54,7 @@ mod tests {
                 let count = frames as u32;
                 let last = Pos2::new(origin.x + (frames - 0.25) * cell, origin.y + 12.);
                 assert_eq!(
-                    timeline_cell_at(last, origin, cell, count, 1),
+                    timeline_cell_at(last, origin, cell, count, 1, ROW_HEIGHT),
                     Some((count - 1, 0))
                 );
                 assert_eq!(
@@ -61,7 +63,8 @@ mod tests {
                         origin,
                         cell,
                         count,
-                        1
+                        1,
+                        ROW_HEIGHT
                     ),
                     None
                 );
@@ -71,12 +74,20 @@ mod tests {
                         origin,
                         cell,
                         count,
-                        1
+                        1,
+                        ROW_HEIGHT
                     ),
                     None
                 );
                 assert_eq!(
-                    timeline_cell_at(Pos2::new(origin.x - 1., last.y), origin, cell, count, 1),
+                    timeline_cell_at(
+                        Pos2::new(origin.x - 1., last.y),
+                        origin,
+                        cell,
+                        count,
+                        1,
+                        ROW_HEIGHT
+                    ),
                     None
                 );
                 assert_eq!(frame_at_x(last.x + 500., origin.x, cell, count), count - 1);

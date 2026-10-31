@@ -32,6 +32,19 @@ impl History {
         }
     }
 
+    /// Commit after letting `normalize` adjust the edited project with the
+    /// pre-edit snapshot (document housekeeping that depends on what changed).
+    pub fn commit_with(
+        &mut self,
+        project: &mut Project,
+        normalize: impl FnOnce(&Project, &mut Project),
+    ) -> bool {
+        if let Some(before) = &self.pending {
+            normalize(before, project);
+        }
+        self.commit(project)
+    }
+
     pub fn commit(&mut self, project: &Project) -> bool {
         let Some(before) = self.pending.take() else {
             return false;

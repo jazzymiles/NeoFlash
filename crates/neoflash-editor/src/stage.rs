@@ -555,18 +555,31 @@ impl Editor {
                     );
                 }
                 let id = self.symbol_id().to_owned();
-                if self.onion {
+                // Edit multiple frames shows every keyframe in the onion range opaque.
+                let multiple = self.timeline_edit.edit_multiple;
+                if self.onion || multiple {
                     let (start, end) = self.onion_range();
-                    for frame in start..=end.min(self.symbol().timeline.frame_count - 1) {
+                    let frames: Vec<u32> = if multiple {
+                        self.edit_multiple_key_frames()
+                    } else {
+                        (start..=end.min(self.symbol().timeline.frame_count - 1)).collect()
+                    };
+                    for frame in frames {
                         if frame == self.frame {
                             continue;
                         }
                         let distance = frame.abs_diff(self.frame).max(1);
-                        let opacity = self.onion_opacity as f64 / (distance as f64).sqrt();
-                        let tint = if frame < self.frame {
-                            palette.onion_before
+                        let opacity = if multiple {
+                            1.
                         } else {
-                            palette.onion_after
+                            self.onion_opacity as f64 / (distance as f64).sqrt()
+                        };
+                        let tint = if multiple {
+                            None
+                        } else if frame < self.frame {
+                            Some(palette.onion_before)
+                        } else {
+                            Some(palette.onion_after)
                         };
                         let ghost = evaluate_scene(
                             &self.project,
@@ -582,8 +595,8 @@ impl Editor {
                                 origin,
                                 zoom: self.zoom,
                                 opacity,
-                                tint: Some(tint),
-                                outlines: self.onion_outlines,
+                                tint,
+                                outlines: self.onion_outlines && !multiple,
                                 bitmap_texture: None,
                             },
                         );
@@ -760,7 +773,17 @@ impl Editor {
         Self::unavailable_item(ui, "Swap symbol…", "");
         Self::unavailable_item(ui, "Duplicate symbol…", "");
         nf::menu_separator(ui);
-        Self::planned_menu_item(ui, "Stage menu ▸ Create motion tween", "");
+        if crate::ui_icons::menu_item_enabled(
+            ui,
+            self.can_create_tween(),
+            "Create motion tween",
+            "",
+        )
+        .clicked()
+        {
+            self.create_tween(TweenKind::Motion);
+            ui.close();
+        }
         Self::unavailable_item(ui, "Distribute to layers", "⇧⌘D");
         nf::menu_separator(ui);
         self.arrange_menu(ui);
