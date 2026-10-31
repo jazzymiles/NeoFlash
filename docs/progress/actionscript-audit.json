@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "7f87c8c47d614f939072f94bfbf17868abe1ed112c43e96f90f56c34cfb0aaa3",
+  "catalogSha256": "2015fe0cf4f2da479bf73f544dc2bc1af115e261703933ea165b0eaceac41915",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -1141,6 +1141,29 @@
             "sha256": "e7f28aac6e76fbcd15a04edcdb137a8b9fcc04a00bd7068d2f70d446aced04c1"
           }
         ]
+      },
+      {
+        "id": "host:eventdispatcher-and-graphics",
+        "title": "Eventdispatcher and graphics",
+        "reason": "Proxy exposes no EventDispatcher methods or Graphics object. addEventListener and graphics.beginFill are rejected with an unknown API diagnostic by the limited AS frontend.",
+        "limitations": "Do not infer full Graphics absence from authored geometry support: rectangles/ellipses/paths can render, but runtime drawing API is absent.",
+        "evidence": [
+          {
+            "path": "web/runtime.js",
+            "line": 132,
+            "sha256": "ff02fdd0396a66f13c3ad77f7daf646fcd5e2273251979680f5e8b02d525f88a"
+          },
+          {
+            "path": "web/runtime.js",
+            "line": 148,
+            "sha256": "ff02fdd0396a66f13c3ad77f7daf646fcd5e2273251979680f5e8b02d525f88a"
+          },
+          {
+            "path": "crates/neoflash-script/src/actionscript.rs",
+            "line": 972,
+            "sha256": "e7f28aac6e76fbcd15a04edcdb137a8b9fcc04a00bd7068d2f70d446aced04c1"
+          }
+        ]
       }
     ],
     "normalizedReviewInputs": [
@@ -1249,15 +1272,35 @@
         "reviewIds": [
           "COORD-AS3-SCENE-LIFECYCLE-20261028"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-01-as3-core-surface.json",
+        "sha256": "9745f7593f09bea912274280abfd6fe9529f380c539041703107eb5f6ee462a1",
+        "baseCatalogSha256": "7f87c8c47d614f939072f94bfbf17868abe1ed112c43e96f90f56c34cfb0aaa3",
+        "reviewIds": [
+          "AS3-CORE-SURFACE-20261101"
+        ]
+      }
+    ],
+    "statusReviews": [
+      {
+        "id": "AS3-CORE-SURFACE-20261101",
+        "date": "2026-11-01",
+        "commit": "85bc957d8b6b20affa20a2305a1983a8450f16de",
+        "path": "docs/progress/reviews/2026-11-01-as3-core-surface.json",
+        "changes": {
+          "partial": 190,
+          "working": 33
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 30,
-      "partial": 2812,
-      "missing": 43018,
-      "needs_review": 187,
+      "implemented_subset": 63,
+      "partial": 3002,
+      "missing": 42847,
+      "needs_review": 135,
       "total": 46047
     },
     "byLanguage": {
@@ -1269,10 +1312,10 @@
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 15,
-        "partial": 1294,
-        "missing": 42281,
-        "needs_review": 150,
+        "implemented_subset": 48,
+        "partial": 1484,
+        "missing": 42110,
+        "needs_review": 98,
         "total": 43740
       }
     },
@@ -1285,10 +1328,10 @@
         "total": 3083
       },
       "core": {
-        "implemented_subset": 0,
-        "partial": 358,
-        "missing": 9,
-        "needs_review": 154,
+        "implemented_subset": 2,
+        "partial": 413,
+        "missing": 4,
+        "needs_review": 102,
         "total": 521
       },
       "framework": {
@@ -1313,9 +1356,9 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 2,
-        "partial": 1664,
-        "missing": 4489,
+        "implemented_subset": 33,
+        "partial": 1799,
+        "missing": 4323,
         "needs_review": 3,
         "total": 6158
       }
@@ -1374,10 +1417,10 @@
           "total": 2039
         },
         "core": {
-          "implemented_subset": 0,
-          "partial": 222,
-          "missing": 9,
-          "needs_review": 145,
+          "implemented_subset": 2,
+          "partial": 277,
+          "missing": 4,
+          "needs_review": 93,
           "total": 376
         },
         "framework": {
@@ -1402,9 +1445,9 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 1,
-          "partial": 854,
-          "missing": 4393,
+          "implemented_subset": 32,
+          "partial": 989,
+          "missing": 4227,
           "needs_review": 2,
           "total": 5250
         }
@@ -18391,29 +18434,6 @@
           "path": "web/runtime.js",
           "line": 190,
           "sha256": "ff02fdd0396a66f13c3ad77f7daf646fcd5e2273251979680f5e8b02d525f88a"
-        }
-      ]
-    },
-    {
-      "id": "host:eventdispatcher-and-graphics",
-      "title": "Eventdispatcher and graphics",
-      "reason": "Proxy exposes no EventDispatcher methods or Graphics object. addEventListener and graphics.beginFill are rejected with an unknown API diagnostic by the limited AS frontend.",
-      "limitations": "Do not infer full Graphics absence from authored geometry support: rectangles/ellipses/paths can render, but runtime drawing API is absent.",
-      "evidence": [
-        {
-          "path": "web/runtime.js",
-          "line": 132,
-          "sha256": "ff02fdd0396a66f13c3ad77f7daf646fcd5e2273251979680f5e8b02d525f88a"
-        },
-        {
-          "path": "web/runtime.js",
-          "line": 148,
-          "sha256": "ff02fdd0396a66f13c3ad77f7daf646fcd5e2273251979680f5e8b02d525f88a"
-        },
-        {
-          "path": "crates/neoflash-script/src/actionscript.rs",
-          "line": 972,
-          "sha256": "e7f28aac6e76fbcd15a04edcdb137a8b9fcc04a00bd7068d2f70d446aced04c1"
         }
       ]
     },
@@ -46250,6 +46270,2483 @@
         },
         {
           "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#stopAllMovieClips()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        }
+      ]
+    },
+    {
+      "id": "AS3-CORE-SURFACE-20261101",
+      "title": "AS3 core API surface present in the runtime",
+      "reason": "Re-audit of stale missing/needs-review AS3 core entries. Each listed member ran in the core-surface workflow through the real compiler, exporter and WASM player: constants equal their documented values (working); other members exist and run with documented argument types (partial). Unknown-member controls guard against false presence.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-script/tests/core-surface.mjs",
+          "sha256": "74303d2fa61a0b8d66df940bbd21e416586195c877abe99aaef0ae5baaeeba54"
+        },
+        {
+          "path": "crates/neoflash-script/tests/core-surface.json",
+          "sha256": "e4a3a5bf8d00f928a17de4765259d6bf7b0d935384006ce0d1fea605f0f4b44b"
+        },
+        {
+          "path": "crates/neoflash-script/tests/project-execute.mjs",
+          "sha256": "cd434a21d3ffb13d2219b9a311e6c9076dc7538162d9f544541b6f04d9b78c2a"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:class:Date.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:JSON.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:RegExp.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Bitmap.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/BitmapData.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/DisplayObjectContainer.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Graphics.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/LoaderInfo.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/PixelSnapping.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Shape.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/SimpleButton.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Sprite.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Stage.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/Event.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/EventDispatcher.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/EventPhase.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/FocusEvent.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/KeyboardEvent.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/MouseEvent.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/TextEvent.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/TimerEvent.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/BlurFilter.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/ColorMatrixFilter.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/DropShadowFilter.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/GlowFilter.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/geom/Transform.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextFieldType.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextFormat.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextFormatAlign.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/utils/ByteArray.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/utils/Dictionary.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:class:flash/utils/Timer.html#",
+          "status": "partial",
+          "scopeNote": "Class resolves for import and use; only members reviewed separately are available."
+        },
+        {
+          "catalogId": "AS3:constant:Array.html#CASEINSENSITIVE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:Array.html#NUMERIC",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/PixelSnapping.html#ALWAYS",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/PixelSnapping.html#AUTO",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/PixelSnapping.html#NEVER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#ACTIVATE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#ADDED",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#ADDED_TO_STAGE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#DEACTIVATE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#EXIT_FRAME",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#FRAME_CONSTRUCTED",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#OPEN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#REMOVED",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#REMOVED_FROM_STAGE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#RESIZE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/EventPhase.html#AT_TARGET",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/EventPhase.html#BUBBLING_PHASE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/EventPhase.html#CAPTURING_PHASE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/FocusEvent.html#KEY_FOCUS_CHANGE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/FocusEvent.html#MOUSE_FOCUS_CHANGE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/KeyboardEvent.html#KEY_UP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#DOUBLE_CLICK",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_DOWN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_MOVE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_OUT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_OVER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_UP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_WHEEL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#ROLL_OUT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#ROLL_OVER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TextEvent.html#LINK",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldType.html#DYNAMIC",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#JUSTIFY",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constructor:Object.html#Object()",
+          "status": "partial",
+          "scopeNote": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/DisplayObjectContainer.html#DisplayObjectContainer()",
+          "status": "partial",
+          "scopeNote": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/MovieClip.html#MovieClip()",
+          "status": "partial",
+          "scopeNote": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/EventDispatcher.html#EventDispatcher()",
+          "status": "partial",
+          "scopeNote": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/FocusEvent.html#FocusEvent()",
+          "status": "partial",
+          "scopeNote": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/KeyboardEvent.html#KeyboardEvent()",
+          "status": "partial",
+          "scopeNote": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/MouseEvent.html#MouseEvent()",
+          "status": "partial",
+          "scopeNote": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/TextEvent.html#TextEvent()",
+          "status": "partial",
+          "scopeNote": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/TimerEvent.html#TimerEvent()",
+          "status": "partial",
+          "scopeNote": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+        },
+        {
+          "catalogId": "AS3:function:package.html#Array()",
+          "status": "partial",
+          "scopeNote": "Global function is callable (core-surface probe); coercion edge cases are not verified."
+        },
+        {
+          "catalogId": "AS3:function:package.html#Object()",
+          "status": "partial",
+          "scopeNote": "Global function is callable (core-surface probe); coercion edge cases are not verified."
+        },
+        {
+          "catalogId": "AS3:function:package.html#XML()",
+          "status": "partial",
+          "scopeNote": "Global function is callable (core-surface probe); coercion edge cases are not verified."
+        },
+        {
+          "catalogId": "AS3:function:package.html#XMLList()",
+          "status": "partial",
+          "scopeNote": "Global function is callable (core-surface probe); coercion edge cases are not verified."
+        },
+        {
+          "catalogId": "AS3:function:package.html#int()",
+          "status": "partial",
+          "scopeNote": "Global function is callable (core-surface probe); coercion edge cases are not verified."
+        },
+        {
+          "catalogId": "AS3:function:package.html#uint()",
+          "status": "partial",
+          "scopeNote": "Global function is callable (core-surface probe); coercion edge cases are not verified."
+        },
+        {
+          "catalogId": "AS3:method:Array.html#toLocaleString()",
+          "status": "partial",
+          "scopeNote": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+        },
+        {
+          "catalogId": "AS3:method:Boolean.html#valueOf()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Date.html#getTimezoneOffset()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Date.html#parse()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Date.html#toDateString()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Date.html#toJSON()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Date.html#toLocaleDateString()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Date.html#toLocaleString()",
+          "status": "partial",
+          "scopeNote": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+        },
+        {
+          "catalogId": "AS3:method:Date.html#toLocaleTimeString()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Date.html#toString()",
+          "status": "partial",
+          "scopeNote": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+        },
+        {
+          "catalogId": "AS3:method:Date.html#toTimeString()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Number.html#toExponential()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Number.html#toPrecision()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Number.html#valueOf()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:RegExp.html#test()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:String.html#match()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:String.html#search()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#concat()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#every()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#filter()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#forEach()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#join()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#map()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#pop()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#reverse()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#slice()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#some()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#sort()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#splice()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#toLocaleString()",
+          "status": "partial",
+          "scopeNote": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#toString()",
+          "status": "partial",
+          "scopeNote": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#unshift()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#getRect()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#hitTestObject()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#hitTestPoint()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#curveTo()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#drawEllipse()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#lineTo()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Sprite.html#stopDrag()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#dispatchEvent()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#hasEventListener()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#willTrigger()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#clone()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#stopImmediatePropagation()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#stopPropagation()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#toString()",
+          "status": "partial",
+          "scopeNote": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#willTrigger()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/FocusEvent.html#clone()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/FocusEvent.html#toString()",
+          "status": "partial",
+          "scopeNote": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/KeyboardEvent.html#clone()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/KeyboardEvent.html#toString()",
+          "status": "partial",
+          "scopeNote": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/KeyboardEvent.html#updateAfterEvent()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/MouseEvent.html#clone()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/MouseEvent.html#toString()",
+          "status": "partial",
+          "scopeNote": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/MouseEvent.html#updateAfterEvent()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/TextEvent.html#clone()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/TextEvent.html#toString()",
+          "status": "partial",
+          "scopeNote": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/TimerEvent.html#clone()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/TimerEvent.html#toString()",
+          "status": "partial",
+          "scopeNote": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/TimerEvent.html#updateAfterEvent()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/ColorMatrixFilter.html#clone()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/DropShadowFilter.html#clone()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/GlowFilter.html#clone()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/Dictionary.html#toJSON()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/Timer.html#reset()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/Timer.html#stop()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:int.html#toExponential()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:int.html#toPrecision()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:int.html#valueOf()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:uint.html#toExponential()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:uint.html#toPrecision()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:method:uint.html#valueOf()",
+          "status": "partial",
+          "scopeNote": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+        },
+        {
+          "catalogId": "AS3:property:Date.html#timezoneOffset",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:RegExp.html#dotall",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:RegExp.html#extended",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:RegExp.html#global",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:RegExp.html#ignoreCase",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:RegExp.html#lastIndex",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:RegExp.html#multiline",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Bitmap.html#pixelSnapping",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Bitmap.html#smoothing",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mouseX",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mouseY",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObjectContainer.html#mouseChildren",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#dropTarget",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#hitArea",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#useHandCursor",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#bubbles",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#cancelable",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#currentTarget",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#type",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/FocusEvent.html#isRelatedObjectInaccessible",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/FocusEvent.html#keyCode",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/FocusEvent.html#shiftKey",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#altKey",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#charCode",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#ctrlKey",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#keyLocation",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#shiftKey",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#altKey",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#buttonDown",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#ctrlKey",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#delta",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#localX",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#localY",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#relatedObject",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#shiftKey",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#stageX",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#stageY",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BlurFilter.html#blurY",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BlurFilter.html#quality",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#alpha",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#angle",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#blurX",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#blurY",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#color",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#distance",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#hideObject",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#inner",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#knockout",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#quality",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#strength",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#alpha",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#blurX",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#blurY",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#color",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#inner",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#knockout",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#quality",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#strength",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Transform.html#pixelBounds",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#displayAsPassword",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#font",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#indent",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#leftMargin",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#rightMargin",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#size",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#target",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#underline",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#url",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/ByteArray.html#defaultObjectEncoding",
+          "status": "partial",
+          "scopeNote": "Static value is readable (core-surface probe); exact value is not compared."
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/Timer.html#delay",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/Timer.html#repeatCount",
+          "status": "partial",
+          "scopeNote": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:class:Date.html#",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:class:JSON.html#",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:class:RegExp.html#",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Bitmap.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/BitmapData.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/DisplayObjectContainer.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Graphics.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/LoaderInfo.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/PixelSnapping.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Shape.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/SimpleButton.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Sprite.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Stage.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/Event.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/EventDispatcher.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/EventPhase.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/FocusEvent.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/KeyboardEvent.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/MouseEvent.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/TextEvent.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/TimerEvent.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/BlurFilter.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/ColorMatrixFilter.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/DropShadowFilter.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/GlowFilter.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/geom/Transform.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextFieldType.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextFormat.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextFormatAlign.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/utils/ByteArray.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/utils/Dictionary.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/utils/Timer.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:Array.html#CASEINSENSITIVE",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:constant:Array.html#NUMERIC",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/PixelSnapping.html#ALWAYS",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/PixelSnapping.html#AUTO",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/PixelSnapping.html#NEVER",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#ACTIVATE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#ADDED",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#ADDED_TO_STAGE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#DEACTIVATE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#EXIT_FRAME",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#FRAME_CONSTRUCTED",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#OPEN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#REMOVED",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#REMOVED_FROM_STAGE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#RESIZE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/EventPhase.html#AT_TARGET",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/EventPhase.html#BUBBLING_PHASE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/EventPhase.html#CAPTURING_PHASE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/FocusEvent.html#KEY_FOCUS_CHANGE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/FocusEvent.html#MOUSE_FOCUS_CHANGE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/KeyboardEvent.html#KEY_UP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#DOUBLE_CLICK",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_DOWN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_MOVE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_OUT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_OVER",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_UP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_WHEEL",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#ROLL_OUT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#ROLL_OVER",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TextEvent.html#LINK",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldType.html#DYNAMIC",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#JUSTIFY",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constructor:Object.html#Object()",
+          "status": "missing",
+          "ruleId": "C14",
+          "evidenceKind": "source_routing_and_selected_probes"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/DisplayObjectContainer.html#DisplayObjectContainer()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/MovieClip.html#MovieClip()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/EventDispatcher.html#EventDispatcher()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/FocusEvent.html#FocusEvent()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/KeyboardEvent.html#KeyboardEvent()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/MouseEvent.html#MouseEvent()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/TextEvent.html#TextEvent()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/TimerEvent.html#TimerEvent()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:function:package.html#Array()",
+          "status": "missing",
+          "ruleId": "C14",
+          "evidenceKind": "source_routing_and_selected_probes"
+        },
+        {
+          "catalogId": "AS3:function:package.html#Object()",
+          "status": "missing",
+          "ruleId": "C14",
+          "evidenceKind": "source_routing_and_selected_probes"
+        },
+        {
+          "catalogId": "AS3:function:package.html#XML()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:function:package.html#XMLList()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:function:package.html#int()",
+          "status": "missing",
+          "ruleId": "C14",
+          "evidenceKind": "source_routing_and_selected_probes"
+        },
+        {
+          "catalogId": "AS3:function:package.html#uint()",
+          "status": "missing",
+          "ruleId": "C14",
+          "evidenceKind": "source_routing_and_selected_probes"
+        },
+        {
+          "catalogId": "AS3:method:Array.html#toLocaleString()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Boolean.html#valueOf()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Date.html#getTimezoneOffset()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Date.html#parse()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Date.html#toDateString()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Date.html#toJSON()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Date.html#toLocaleDateString()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Date.html#toLocaleString()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Date.html#toLocaleTimeString()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Date.html#toString()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Date.html#toTimeString()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Number.html#toExponential()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Number.html#toPrecision()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Number.html#valueOf()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:RegExp.html#test()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:String.html#match()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:String.html#search()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#concat()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#every()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#filter()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#forEach()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#join()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#map()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#pop()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#reverse()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#slice()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#some()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#sort()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#splice()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#toLocaleString()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#toString()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#unshift()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#getRect()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#hitTestObject()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#hitTestPoint()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#curveTo()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#drawEllipse()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#lineTo()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Sprite.html#stopDrag()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#dispatchEvent()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#hasEventListener()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#willTrigger()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#clone()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#stopImmediatePropagation()",
+          "status": "missing",
+          "ruleId": "host:eventdispatcher-and-graphics",
+          "evidenceKind": "source_and_bounded_internal_tests"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#stopPropagation()",
+          "status": "missing",
+          "ruleId": "host:eventdispatcher-and-graphics",
+          "evidenceKind": "source_and_bounded_internal_tests"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#toString()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#willTrigger()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/FocusEvent.html#clone()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/FocusEvent.html#toString()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/KeyboardEvent.html#clone()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/KeyboardEvent.html#toString()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/KeyboardEvent.html#updateAfterEvent()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/MouseEvent.html#clone()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/MouseEvent.html#toString()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/MouseEvent.html#updateAfterEvent()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/TextEvent.html#clone()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/TextEvent.html#toString()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/TimerEvent.html#clone()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/TimerEvent.html#toString()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/TimerEvent.html#updateAfterEvent()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/ColorMatrixFilter.html#clone()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/DropShadowFilter.html#clone()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/GlowFilter.html#clone()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/Dictionary.html#toJSON()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/Timer.html#reset()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/Timer.html#stop()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:int.html#toExponential()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:int.html#toPrecision()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:int.html#valueOf()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:uint.html#toExponential()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:uint.html#toPrecision()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:method:uint.html#valueOf()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:property:Date.html#timezoneOffset",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:property:RegExp.html#dotall",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:property:RegExp.html#extended",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:property:RegExp.html#global",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:property:RegExp.html#ignoreCase",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:property:RegExp.html#lastIndex",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:property:RegExp.html#multiline",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Bitmap.html#pixelSnapping",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Bitmap.html#smoothing",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mouseX",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mouseY",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObjectContainer.html#mouseChildren",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#dropTarget",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#hitArea",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#useHandCursor",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#bubbles",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#cancelable",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#currentTarget",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#type",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/FocusEvent.html#isRelatedObjectInaccessible",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/FocusEvent.html#keyCode",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/FocusEvent.html#shiftKey",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#altKey",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#charCode",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#ctrlKey",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#keyLocation",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#shiftKey",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#altKey",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#buttonDown",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#ctrlKey",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#delta",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#localX",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#localY",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#relatedObject",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#shiftKey",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#stageX",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#stageY",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BlurFilter.html#blurY",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BlurFilter.html#quality",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#alpha",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#angle",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#blurX",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#blurY",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#color",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#distance",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#hideObject",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#inner",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#knockout",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#quality",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#strength",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#alpha",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#blurX",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#blurY",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#color",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#inner",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#knockout",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#quality",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#strength",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Transform.html#pixelBounds",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#displayAsPassword",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#font",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#indent",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#leftMargin",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#rightMargin",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#size",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#target",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#underline",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#url",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/ByteArray.html#defaultObjectEncoding",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/Timer.html#delay",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/Timer.html#repeatCount",
           "status": "missing",
           "ruleId": "B01",
           "evidenceKind": "architectural_absence_inference"

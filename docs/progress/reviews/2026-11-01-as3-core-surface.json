@@ -1,0 +1,1102 @@
+{
+ "schemaVersion": 2,
+ "baseCatalogSha256": "7f87c8c47d614f939072f94bfbf17868abe1ed112c43e96f90f56c34cfb0aaa3",
+ "reviews": [
+  {
+   "id": "AS3-CORE-SURFACE-20261101",
+   "date": "2026-11-01",
+   "commit": "85bc957d8b6b20affa20a2305a1983a8450f16de",
+   "title": "AS3 core API surface present in the runtime",
+   "summary": "Re-audit of stale missing/needs-review AS3 core entries. Each listed member ran in the core-surface workflow through the real compiler, exporter and WASM player: constants equal their documented values (working); other members exist and run with documented argument types (partial). Unknown-member controls guard against false presence.",
+   "tests": [
+    "crates/neoflash-script/tests/core-surface.mjs",
+    "crates/neoflash-script/tests/core-surface.json",
+    "crates/neoflash-script/tests/project-execute.mjs"
+   ],
+   "entries": [
+    {
+     "catalogId": "AS3:class:Date.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:JSON.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:RegExp.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/display/Bitmap.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/display/BitmapData.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/display/DisplayObjectContainer.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/display/Graphics.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/display/LoaderInfo.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/display/PixelSnapping.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/display/Shape.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/display/SimpleButton.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/display/Sprite.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/display/Stage.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/events/Event.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/events/EventDispatcher.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/events/EventPhase.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/events/FocusEvent.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/events/KeyboardEvent.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/events/MouseEvent.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/events/TextEvent.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/events/TimerEvent.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/filters/BlurFilter.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/filters/ColorMatrixFilter.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/filters/DropShadowFilter.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/filters/GlowFilter.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/geom/Transform.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/text/TextFieldType.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/text/TextFormat.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/text/TextFormatAlign.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/utils/ByteArray.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/utils/Dictionary.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:class:flash/utils/Timer.html#",
+     "status": "partial",
+     "note": "Class resolves for import and use; only members reviewed separately are available."
+    },
+    {
+     "catalogId": "AS3:constant:Array.html#CASEINSENSITIVE",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:Array.html#NUMERIC",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/display/PixelSnapping.html#ALWAYS",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/display/PixelSnapping.html#AUTO",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/display/PixelSnapping.html#NEVER",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/Event.html#ACTIVATE",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/Event.html#ADDED",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/Event.html#ADDED_TO_STAGE",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/Event.html#DEACTIVATE",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/Event.html#EXIT_FRAME",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/Event.html#FRAME_CONSTRUCTED",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/Event.html#OPEN",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/Event.html#REMOVED",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/Event.html#REMOVED_FROM_STAGE",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/Event.html#RESIZE",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/EventPhase.html#AT_TARGET",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/EventPhase.html#BUBBLING_PHASE",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/EventPhase.html#CAPTURING_PHASE",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/FocusEvent.html#KEY_FOCUS_CHANGE",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/FocusEvent.html#MOUSE_FOCUS_CHANGE",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/KeyboardEvent.html#KEY_UP",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/MouseEvent.html#DOUBLE_CLICK",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_DOWN",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_MOVE",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_OUT",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_OVER",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_UP",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_WHEEL",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/MouseEvent.html#ROLL_OUT",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/MouseEvent.html#ROLL_OVER",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/events/TextEvent.html#LINK",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/text/TextFieldType.html#DYNAMIC",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#JUSTIFY",
+     "status": "working"
+    },
+    {
+     "catalogId": "AS3:constructor:Object.html#Object()",
+     "status": "partial",
+     "note": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+    },
+    {
+     "catalogId": "AS3:constructor:flash/display/DisplayObjectContainer.html#DisplayObjectContainer()",
+     "status": "partial",
+     "note": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+    },
+    {
+     "catalogId": "AS3:constructor:flash/display/MovieClip.html#MovieClip()",
+     "status": "partial",
+     "note": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+    },
+    {
+     "catalogId": "AS3:constructor:flash/events/EventDispatcher.html#EventDispatcher()",
+     "status": "partial",
+     "note": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+    },
+    {
+     "catalogId": "AS3:constructor:flash/events/FocusEvent.html#FocusEvent()",
+     "status": "partial",
+     "note": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+    },
+    {
+     "catalogId": "AS3:constructor:flash/events/KeyboardEvent.html#KeyboardEvent()",
+     "status": "partial",
+     "note": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+    },
+    {
+     "catalogId": "AS3:constructor:flash/events/MouseEvent.html#MouseEvent()",
+     "status": "partial",
+     "note": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+    },
+    {
+     "catalogId": "AS3:constructor:flash/events/TextEvent.html#TextEvent()",
+     "status": "partial",
+     "note": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+    },
+    {
+     "catalogId": "AS3:constructor:flash/events/TimerEvent.html#TimerEvent()",
+     "status": "partial",
+     "note": "Constructs with documented defaults (core-surface probe); argument validation and edge cases are not verified."
+    },
+    {
+     "catalogId": "AS3:function:package.html#Array()",
+     "status": "partial",
+     "note": "Global function is callable (core-surface probe); coercion edge cases are not verified."
+    },
+    {
+     "catalogId": "AS3:function:package.html#Object()",
+     "status": "partial",
+     "note": "Global function is callable (core-surface probe); coercion edge cases are not verified."
+    },
+    {
+     "catalogId": "AS3:function:package.html#XML()",
+     "status": "partial",
+     "note": "Global function is callable (core-surface probe); coercion edge cases are not verified."
+    },
+    {
+     "catalogId": "AS3:function:package.html#XMLList()",
+     "status": "partial",
+     "note": "Global function is callable (core-surface probe); coercion edge cases are not verified."
+    },
+    {
+     "catalogId": "AS3:function:package.html#int()",
+     "status": "partial",
+     "note": "Global function is callable (core-surface probe); coercion edge cases are not verified."
+    },
+    {
+     "catalogId": "AS3:function:package.html#uint()",
+     "status": "partial",
+     "note": "Global function is callable (core-surface probe); coercion edge cases are not verified."
+    },
+    {
+     "catalogId": "AS3:method:Array.html#toLocaleString()",
+     "status": "partial",
+     "note": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+    },
+    {
+     "catalogId": "AS3:method:Boolean.html#valueOf()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Date.html#getTimezoneOffset()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Date.html#parse()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Date.html#toDateString()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Date.html#toJSON()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Date.html#toLocaleDateString()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Date.html#toLocaleString()",
+     "status": "partial",
+     "note": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+    },
+    {
+     "catalogId": "AS3:method:Date.html#toLocaleTimeString()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Date.html#toString()",
+     "status": "partial",
+     "note": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+    },
+    {
+     "catalogId": "AS3:method:Date.html#toTimeString()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Number.html#toExponential()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Number.html#toPrecision()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Number.html#valueOf()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:RegExp.html#test()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:String.html#match()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:String.html#search()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Vector.html#concat()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Vector.html#every()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Vector.html#filter()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Vector.html#forEach()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Vector.html#join()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Vector.html#map()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Vector.html#pop()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Vector.html#reverse()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Vector.html#slice()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Vector.html#some()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Vector.html#sort()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Vector.html#splice()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:Vector.html#toLocaleString()",
+     "status": "partial",
+     "note": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+    },
+    {
+     "catalogId": "AS3:method:Vector.html#toString()",
+     "status": "partial",
+     "note": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+    },
+    {
+     "catalogId": "AS3:method:Vector.html#unshift()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/display/DisplayObject.html#getRect()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/display/DisplayObject.html#hitTestObject()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/display/DisplayObject.html#hitTestPoint()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/display/Graphics.html#curveTo()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/display/Graphics.html#drawEllipse()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/display/Graphics.html#lineTo()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/display/Sprite.html#stopDrag()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/display/Stage.html#dispatchEvent()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/display/Stage.html#hasEventListener()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/display/Stage.html#willTrigger()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/Event.html#clone()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/Event.html#stopImmediatePropagation()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/Event.html#stopPropagation()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/Event.html#toString()",
+     "status": "partial",
+     "note": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/EventDispatcher.html#willTrigger()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/FocusEvent.html#clone()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/FocusEvent.html#toString()",
+     "status": "partial",
+     "note": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/KeyboardEvent.html#clone()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/KeyboardEvent.html#toString()",
+     "status": "partial",
+     "note": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/KeyboardEvent.html#updateAfterEvent()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/MouseEvent.html#clone()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/MouseEvent.html#toString()",
+     "status": "partial",
+     "note": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/MouseEvent.html#updateAfterEvent()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/TextEvent.html#clone()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/TextEvent.html#toString()",
+     "status": "partial",
+     "note": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/TimerEvent.html#clone()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/TimerEvent.html#toString()",
+     "status": "partial",
+     "note": "Returns a class-specific string (core-surface probe); exact Flash formatting is not verified."
+    },
+    {
+     "catalogId": "AS3:method:flash/events/TimerEvent.html#updateAfterEvent()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/filters/ColorMatrixFilter.html#clone()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/filters/DropShadowFilter.html#clone()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/filters/GlowFilter.html#clone()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/utils/Dictionary.html#toJSON()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/utils/Timer.html#reset()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:flash/utils/Timer.html#stop()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:int.html#toExponential()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:int.html#toPrecision()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:int.html#valueOf()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:uint.html#toExponential()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:uint.html#toPrecision()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:method:uint.html#valueOf()",
+     "status": "partial",
+     "note": "Callable with documented argument types (core-surface probe); results and edge cases are not compared with Flash Player."
+    },
+    {
+     "catalogId": "AS3:property:Date.html#timezoneOffset",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:RegExp.html#dotall",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:RegExp.html#extended",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:RegExp.html#global",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:RegExp.html#ignoreCase",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:RegExp.html#lastIndex",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:RegExp.html#multiline",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/display/Bitmap.html#pixelSnapping",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/display/Bitmap.html#smoothing",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/display/DisplayObject.html#mouseX",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/display/DisplayObject.html#mouseY",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/display/DisplayObjectContainer.html#mouseChildren",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/display/Sprite.html#dropTarget",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/display/Sprite.html#hitArea",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/display/Sprite.html#useHandCursor",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/Event.html#bubbles",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/Event.html#cancelable",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/Event.html#currentTarget",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/Event.html#type",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/FocusEvent.html#isRelatedObjectInaccessible",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/FocusEvent.html#keyCode",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/FocusEvent.html#shiftKey",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/KeyboardEvent.html#altKey",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/KeyboardEvent.html#charCode",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/KeyboardEvent.html#ctrlKey",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/KeyboardEvent.html#keyLocation",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/KeyboardEvent.html#shiftKey",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/MouseEvent.html#altKey",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/MouseEvent.html#buttonDown",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/MouseEvent.html#ctrlKey",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/MouseEvent.html#delta",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/MouseEvent.html#localX",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/MouseEvent.html#localY",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/MouseEvent.html#relatedObject",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/MouseEvent.html#shiftKey",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/MouseEvent.html#stageX",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/events/MouseEvent.html#stageY",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/BlurFilter.html#blurY",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/BlurFilter.html#quality",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#alpha",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#angle",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#blurX",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#blurY",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#color",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#distance",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#hideObject",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#inner",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#knockout",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#quality",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#strength",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/GlowFilter.html#alpha",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/GlowFilter.html#blurX",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/GlowFilter.html#blurY",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/GlowFilter.html#color",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/GlowFilter.html#inner",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/GlowFilter.html#knockout",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/GlowFilter.html#quality",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/filters/GlowFilter.html#strength",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/geom/Transform.html#pixelBounds",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/text/TextField.html#displayAsPassword",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/text/TextFormat.html#font",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/text/TextFormat.html#indent",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/text/TextFormat.html#leftMargin",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/text/TextFormat.html#rightMargin",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/text/TextFormat.html#size",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/text/TextFormat.html#target",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/text/TextFormat.html#underline",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/text/TextFormat.html#url",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/utils/ByteArray.html#defaultObjectEncoding",
+     "status": "partial",
+     "note": "Static value is readable (core-surface probe); exact value is not compared."
+    },
+    {
+     "catalogId": "AS3:property:flash/utils/Timer.html#delay",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    },
+    {
+     "catalogId": "AS3:property:flash/utils/Timer.html#repeatCount",
+     "status": "partial",
+     "note": "Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified."
+    }
+   ]
+  }
+ ]
+}

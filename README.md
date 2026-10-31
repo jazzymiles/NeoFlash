@@ -13,22 +13,22 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 ### ActionScript: Flash Player areas
 
-**Working**: the main behavior from the Adobe reference runs and a linked test proves it. **Partial**: it runs, with the missing behavior named. **Missing**: no runtime path yet. **Needs review**: not yet classified. Statuses change only through test-backed reviews; this is not a Flash compatibility score. Last status review: 2026-10-28.
+**Working**: the main behavior from the Adobe reference runs and a linked test proves it. **Partial**: it runs, with the missing behavior named. **Missing**: no runtime path yet. **Needs review**: not yet classified. Statuses change only through test-backed reviews; this is not a Flash compatibility score. Last status review: 2026-11-01.
 
 #### ActionScript 3 — Flash Player
 
 | Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1. Mathematics and 2D geometry | 155 | 0 | 141 | 3 | 11 | 0.0% | 91.0% |
-| 2. Objects, language and collections | 582 | 14 | 311 | 121 | 136 | 2.4% | 55.8% |
-| 3. MovieClip and timeline | 37 | 0 | 27 | 10 | 0 | 0.0% | 73.0% |
-| 4. Display, events and basic input | 678 | 1 | 109 | 568 | 0 | 0.1% | 16.2% |
-| 5. Graphics, bitmaps and filters | 313 | 0 | 114 | 199 | 0 | 0.0% | 36.4% |
-| 6. Text and fonts | 174 | 0 | 42 | 132 | 0 | 0.0% | 24.1% |
+| 1. Mathematics and 2D geometry | 155 | 0 | 152 | 1 | 2 | 0.0% | 98.1% |
+| 2. Objects, language and collections | 582 | 16 | 361 | 112 | 93 | 2.7% | 64.8% |
+| 3. MovieClip and timeline | 37 | 2 | 28 | 7 | 0 | 5.4% | 81.1% |
+| 4. Display, events and basic input | 678 | 24 | 183 | 471 | 0 | 3.5% | 30.5% |
+| 5. Graphics, bitmaps and filters | 313 | 3 | 151 | 159 | 0 | 1.0% | 49.2% |
+| 6. Text and fonts | 174 | 3 | 58 | 113 | 0 | 1.7% | 35.1% |
 | 7. File audio and video playback | 91 | 0 | 35 | 54 | 2 | 0.0% | 38.5% |
-| 8. Services and advanced Player APIs | 2,134 | 0 | 358 | 1,776 | 0 | 0.0% | 16.8% |
-| **Now: areas 1–6** | 1,939 | 15 | 744 | 1,033 | 147 | 0.8% | 39.1% |
-| **All Flash Player areas** | 4,164 | 15 | 1,137 | 2,863 | 149 | 0.4% | 27.7% |
+| 8. Services and advanced Player APIs | 2,134 | 0 | 359 | 1,775 | 0 | 0.0% | 16.8% |
+| **Now: areas 1–6** | 1,939 | 48 | 933 | 863 | 95 | 2.5% | 50.6% |
+| **All Flash Player areas** | 4,164 | 48 | 1,327 | 2,692 | 97 | 1.2% | 33.0% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 

@@ -140,6 +140,23 @@ mechanical** (constants, event-name constants, class facades):
 
 - `python3 scripts/as-gap.py --stage 4 --classes` → `flash.ui.Keyboard` alone is 284 missing constants.
 
+**Wave 0 — re-audit by execution (done 2026-11-01).** `crates/neoflash-script/tests/core-surface.json` holds
+data-driven probes that the `core-surface` workflow runs in one exported frame script through the real compiler,
+exporter and WASM player, with unknown-member controls. Review `AS3-CORE-SURFACE-20261101` promoted 223 stale AS3
+core entries (33 working constants, 190 partial). To promote more presence evidence, add a probe to that JSON
+(no new harness), run `NEOFLASH_WORKFLOWS=core-surface node crates/neoflash-script/tests/project-execute.mjs`,
+then write a review. What the probes proved is still missing in the AS3 core, in the user's priority order:
+
+| Area | Compiler does not know the class (import rejected) | Runtime reports "not implemented" or the member is absent |
+| --- | --- | --- |
+| Stage, fullscreen | `StageScaleMode`, `StageAlign`, `StageDisplayState`, `StageQuality` | `Stage.scaleMode`, `align`, `displayState`, `fullScreenWidth/Height`, `fullScreenSourceRect`, `allowsFullScreen`, `quality`, `color`, `width`/`height`, `numChildren`, `mouseChildren`, `contentsScaleFactor` |
+| Display, input | `InteractiveObject`, `flash.ui.Keyboard`, `flash.ui.Mouse` | `DisplayObject.blendMode`, `cacheAsBitmap`, `opaqueBackground`, `scale9Grid`, `z`/`rotationX/Y/Z`; `SimpleButton` dynamic construction and states; `MouseEvent` right/middle button types, `movementX/Y`; `tabChildren` |
+| TextField | `TextFieldAutoSize`, `AntiAliasType`, `Font`, `StyleSheet`, `TextLineMetrics` | `autoSize`, `background(Color)`, `border(Color)`, `htmlText`, `condenseWhite`, `scrollH/V`, `maxScrollH/V`, `bottomScrollV`, `getLineMetrics`, `getCharBoundaries`, `getCharIndexAtPoint`, `getLineIndexAtPoint`, `getParagraphLength`; `TextFormat.letterSpacing`, `kerning`, `bullet`, `blockIndent`, `tabStops` |
+| BitmapData | `BitmapDataChannel` | `threshold`, `floodFill`, `noise`, `perlinNoise`, `paletteMap`, `merge`, `compare`, `copyChannel`, `hitTest`, `getColorBoundsRect`, `histogram`, `pixelDissolve`, `getVector`, `lock`/`unlock`, `drawWithQuality`; `Graphics.beginBitmapFill`, `lineBitmapStyle` |
+
+Events (63 entries such as `enterFrame`, `added`, `click` on display classes) were not probed: they need a dispatch
+scenario, not a presence check. AS2 core (27 missing, 35 needs review) was not re-audited in this wave.
+
 **Wave 1 — generated surface (one session, low effort).** Write `scripts/as-codegen.py` that reads the reference
 snapshot and emits, per selected class: static constants with documented values (`public static const X:T = v`),
 event-type string constants, class facades with constructor signatures and default arguments, and an explicit
