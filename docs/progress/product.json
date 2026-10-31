@@ -1329,7 +1329,10 @@
         "examples/saved-game.nflash",
         "crates/neoflash-script/tests/saved-game.mjs",
         "docs/decisions/0025-shared-objects-and-amf.md",
-        "docs/AS-RUNTIME-HOUR-2.md"
+        "docs/RUNTIME-EVENTS-PROVENANCE.md",
+        "docs/RUNTIME-FILTERS-PROVENANCE.md",
+        "docs/RUNTIME-DATE-PROVENANCE.md",
+        "docs/RUNTIME-NUMBER-FORMAT-PROVENANCE.md"
       ]
     },
     {
@@ -1500,8 +1503,8 @@
         "crates/neoflash-core/src/as_broadcaster.rs",
         "crates/neoflash-web/src/as_broadcaster.rs",
         "web/broadcaster.js",
-        "docs/AS-RUNTIME-HOUR.md",
-        "docs/AS-RUNTIME-HOUR-2.md"
+        "docs/RUNTIME-EVENTS-PROVENANCE.md",
+        "examples/runtime-event-families.nflash"
       ]
     },
     {
@@ -1733,7 +1736,6 @@
         "crates/neoflash-core/src/as_broadcaster.rs",
         "crates/neoflash-web/src/as_broadcaster.rs",
         "web/broadcaster.js",
-        "docs/AS-RUNTIME-HOUR.md",
         "crates/neoflash-editor/src/script_api.rs",
         "crates/neoflash-editor/src/code_tools.rs",
         "crates/neoflash-editor/src/panels/actions_sidebar.rs",
