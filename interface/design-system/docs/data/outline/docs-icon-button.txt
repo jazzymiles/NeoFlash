@@ -1,0 +1,27 @@
+F Shelf / Icon button 700×144 [V gap 12]
+  T "Icon button"
+  F NF2/Icon Button 660×74 [H gap 16]
+    F Type=Ghost, Size=SM, State=Default 32×32 [H gap 0]
+      I NF2 Icon/16/select 16×16
+    F Type=Ghost, Size=SM, State=Hover 32×32 [H gap 0]
+      I NF2 Icon/16/select 16×16
+    F Type=Ghost, Size=MD, State=Default 40×40 [H gap 0]
+      I NF2 Icon/20/select 20×20
+    F Type=Ghost, Size=MD, State=Hover 40×40 [H gap 0]
+      I NF2 Icon/20/select 20×20
+    F Type=Selected, Size=SM, State=Default 32×32 [H gap 0]
+      I NF2 Icon/16/select 16×16
+    F Type=Selected, Size=SM, State=Hover 32×32 [H gap 0]
+      I NF2 Icon/16/select 16×16
+    F Type=Selected, Size=MD, State=Default 40×40 [H gap 0]
+      I NF2 Icon/20/select 20×20
+    F Type=Selected, Size=MD, State=Hover 40×40 [H gap 0]
+      I NF2 Icon/20/select 20×20
+    F Type=Primary, Size=SM, State=Default 32×32 [H gap 0]
+      I NF2 Icon/16/select 16×16
+    F Type=Primary, Size=SM, State=Hover 32×32 [H gap 0]
+      I NF2 Icon/16/select 16×16
+    F Type=Primary, Size=MD, State=Default 40×40 [H gap 0]
+      I NF2 Icon/20/select 20×20
+    F Type=Primary, Size=MD, State=Hover 40×40 [H gap 0]
+      I NF2 Icon/20/select 20×20

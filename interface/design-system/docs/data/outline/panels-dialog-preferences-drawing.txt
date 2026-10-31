@@ -1,0 +1,56 @@
+F Dialog / Preferences — Drawing 920×641 [V gap 0]
+  I NF2/Dialog Header 918×60 "Preferences"
+  F Main 918×514 [H gap 0]
+    F Categories 220×308 [V gap 2]
+      I NF2/Tree Item {Label=General, Type=Symbol, Selected=False} 196×32 "General"
+      I NF2/Tree Item {Label=Code editor, Type=Symbol, Selected=False} 196×32 "Code editor"
+      I NF2/Tree Item {Label=Timeline, Type=Symbol, Selected=False} 196×32 "Timeline"
+      I NF2/Tree Item {Label=Drawing, Type=Symbol, Selected=True} 196×32 "Drawing"
+      I NF2/Tree Item {Label=Text, Type=Symbol, Selected=False} 196×32 "Text"
+      I NF2/Tree Item {Label=Clipboard, Type=Symbol, Selected=False} 196×32 "Clipboard"
+      I NF2/Tree Item {Label=Shortcuts, Type=Symbol, Selected=False} 196×32 "Shortcuts"
+      I NF2/Tree Item {Label=Publish, Type=Symbol, Selected=False} 196×32 "Publish"
+      I NF2/Tree Item {Label=Updates, Type=Symbol, Selected=False} 196×32 "Updates"
+    F Content 698×514 [V gap 16]
+      F Default mode 650×60 [V gap 10]
+        T "Default mode"
+        F Row 650×34 [H gap 8]
+          T "New shapes"
+          F Segments 233×34 [H gap 2]
+            I NF2/Segment {Label=Merge drawing, Selected=False} 111×28 "Merge drawing"
+            I NF2/Segment {Label=Object drawing, Selected=True} 114×28 "Object drawing"
+      F Pen tool 650×46 [V gap 10]
+        T "Pen tool"
+        F Row 650×20 [H gap 8]
+          I NF2/Switch {Label=Show pen preview, On=True} 151×20 "Show pen preview"
+          I NF2/Switch {Label=Show solid points, On=False} 146×20 "Show solid points"
+          I NF2/Switch {Label=Precise cursors, On=False} 133×20 "Precise cursors"
+      F Recognition 650×226 [V gap 10]
+        T "Recognition"
+        F Row 650×32 [H gap 8]
+          T "Connect lines"
+          I NF2/Select {Label=Normal, State=Default} 160×32 "Normal"
+        F Row 650×32 [H gap 8]
+          T "Smooth curves"
+          I NF2/Select {Label=Normal, State=Default} 160×32 "Normal"
+        F Row 650×32 [H gap 8]
+          T "Recognise lines"
+          I NF2/Select {Label=Normal, State=Default} 160×32 "Normal"
+        F Row 650×32 [H gap 8]
+          T "Recognise shapes"
+          I NF2/Select {Label=Normal, State=Default} 160×32 "Normal"
+        F Row 650×32 [H gap 8]
+          T "Click accuracy"
+          I NF2/Select {Label=Normal, State=Default} 160×32 "Normal"
+      F Snapping 650×58 [V gap 10]
+        T "Snapping"
+        F Row 650×32 [H gap 8]
+          T "Tolerance"
+          I NF2/Stepper Field {Prefix=px, Label=8, State=Default} 120×32 "px" "8"
+          I NF2/Switch {Label=Snap to pixels, On=False} 125×20 "Snap to pixels"
+          I NF2/Switch {Label=Snap align, On=True} 102×20 "Snap align"
+  F Row 918×65 [H gap 8]
+    I NF2/Button {Icon=false, Label=Reset to defaults, Type=Ghost, State=Default} 130×32 "Reset to defaults"
+    F Spacer 592×2
+    I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+    I NF2/Button {Icon=false, Label=Save, Type=Primary, State=Default} 55×32 "Save"

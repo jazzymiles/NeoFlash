@@ -1,0 +1,23 @@
+F Shelf / Dock tab · Section header · Panel header 700×274 [V gap 12]
+  T "Dock tab · Section header · Panel header"
+  F NF2/Dock Tab 660×74 [H gap 16]
+    F State=Active 76×40 [H gap 8]
+      I NF2 Icon/16/film 16×16
+      T "Tab"
+    F State=Inactive 76×40 [H gap 8]
+      I NF2 Icon/16/film 16×16
+      T "Tab"
+    F State=Hover 76×40 [H gap 8]
+      I NF2 Icon/16/film 16×16
+      T "Tab"
+  F NF2/Section Header 660×66 [H gap 16]
+    F State=Expanded 288×32 [H gap 4]
+      I NF2 Icon/16/chevdown 16×16
+      T "Section"
+    F State=Collapsed 288×32 [H gap 4]
+      I NF2 Icon/16/chevright 16×16
+      T "Section"
+  F NF2/Panel Header 320×40 [H gap 0]
+    T "Panel"
+    F Spacer 221×4
+    I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32

@@ -2,7 +2,9 @@
 use crate::{app::BottomTab, theme::ThemeMode};
 use serde::{Deserialize, Serialize};
 
-pub const PREFS_KEY: &str = "neoflash.workspace.v1";
+/// v2 = NF2 layout (bottom dock with Timeline · Actions · Output · Accessibility). Layouts saved
+/// under v1 are not migrated: the NF2 default replaces them once.
+pub const PREFS_KEY: &str = "neoflash.workspace.v2";
 pub const MAX_PREFS_BYTES: usize = 16 * 1024;
 const VERSION: u32 = 1;
 
@@ -33,6 +35,45 @@ impl PanelId {
             Self::Align => "Align",
             Self::Transform => "Transform",
             Self::Color => "Color",
+        }
+    }
+    /// Body padding of the docked panel, from the Figma outlines: inspector 16, Library 8,
+    /// floating-style utility panels 12; Tools, Timeline and Actions draw edge-to-edge bars.
+    pub fn body_padding(self) -> f32 {
+        use neoflash_ui::tokens::space;
+        match self {
+            // Properties (16) and Accessibility (12) pad inside their scroll areas, see panels/actions.rs.
+            Self::Tools
+            | Self::Timeline
+            | Self::Actions
+            | Self::Properties
+            | Self::Accessibility => 0.,
+            Self::Library => space::S2,
+            _ => space::S3,
+        }
+    }
+    /// Smallest height when stacked in a side column: the panel header plus its first control row
+    /// (Figma editor-main keeps Library at 100 pt: header + search). Users drag the splitter for more.
+    pub fn min_stacked_height(self) -> f32 {
+        match self {
+            Self::Library => 100.,
+            _ => 120.,
+        }
+    }
+    /// NF2 icon shown in dock tabs.
+    pub fn icon(self) -> neoflash_ui::Icon {
+        use neoflash_ui::icons::i16;
+        match self {
+            Self::Timeline => i16::FILM,
+            Self::Tools => i16::SELECT,
+            Self::Library => i16::SYMBOL,
+            Self::Properties => i16::SETTINGS,
+            Self::Actions => i16::CODE,
+            Self::Accessibility => i16::ACCESS,
+            Self::Output => i16::TERMINAL,
+            Self::Align => i16::ALIGN_LEFT,
+            Self::Transform => i16::TRANSFORM,
+            Self::Color => i16::COLORWHEEL,
         }
     }
     pub const DETACHABLE: [Self; 10] = [
@@ -178,7 +219,7 @@ impl Default for PanelSizes {
             timeline_height: crate::theme::TIMELINE_HEIGHT,
             bottom_height: 190.,
             library_width: 280.,
-            layer_column_width: 200.,
+            layer_column_width: neoflash_ui::metrics::LAYER_COLUMN,
         }
     }
 }
@@ -625,31 +666,36 @@ impl Default for DockLayout {
             tabs,
             weight: 1.,
         };
+        // NF2 main window (§4): tools rail left, inspector right (Properties over Library),
+        // one full-width bottom dock with Timeline · Actions · Output · Accessibility.
         Self {
             top: DockArea {
                 size: crate::theme::TIMELINE_HEIGHT,
-                groups: vec![group(1, vec![PanelId::Timeline])],
+                groups: vec![],
             },
             bottom: DockArea {
-                size: 190.,
+                size: neoflash_ui::metrics::BOTTOM_DOCK,
                 groups: vec![group(
                     2,
-                    vec![PanelId::Actions, PanelId::Accessibility, PanelId::Output],
+                    vec![
+                        PanelId::Timeline,
+                        PanelId::Actions,
+                        PanelId::Output,
+                        PanelId::Accessibility,
+                    ],
                 )],
             },
+            // Base Tools layout is two columns; one column (with a "…" overflow) is the narrow variant.
             left: DockArea {
-                size: crate::theme::TOOLS_WIDTH + 6.,
+                size: neoflash_ui::metrics::TOOLS_TWO_COLUMNS + 6.,
                 groups: vec![group(3, vec![PanelId::Tools])],
             },
             right: DockArea {
-                size: 280.,
+                // 320 pt panel + the 6 pt resize strip, so rows keep the Figma 288 pt width.
+                size: neoflash_ui::metrics::INSPECTOR + 6.,
                 groups: vec![
                     DockGroup {
-                        weight: 0.6,
-                        ..group(4, vec![PanelId::Library])
-                    },
-                    DockGroup {
-                        weight: 0.4,
+                        weight: 0.83, // Figma editor-main: Properties 488 of 588 pt, Library 100.
                         ..group(
                             5,
                             vec![
@@ -659,6 +705,10 @@ impl Default for DockLayout {
                                 PanelId::Color,
                             ],
                         )
+                    },
+                    DockGroup {
+                        weight: 0.17,
+                        ..group(4, vec![PanelId::Library])
                     },
                 ],
             },
@@ -1108,19 +1158,173 @@ pub struct WorkspacePrefs {
     pub detached: DetachedPanels,
     pub dock: DockLayout,
     pub floating: Vec<FloatingDock>,
+    /// Template the current layout started from (shown in the top-bar workspace select).
+    pub template: WorkspaceTemplate,
 }
 impl Default for WorkspacePrefs {
     fn default() -> Self {
         Self {
             version: VERSION,
-            theme: ThemeMode::Light,
+            theme: ThemeMode::default(),
             panels: PanelVisibility::default(),
             active_bottom: BottomTab::Properties,
             sizes: PanelSizes::default(),
             detached: DetachedPanels::default(),
             dock: DockLayout::default(),
             floating: Vec::new(),
+            template: WorkspaceTemplate::Classic,
         }
+    }
+}
+
+/// Built-in workspace templates (Window ▸ Workspace and the top-bar select). Each one is a complete
+/// dock layout + panel visibility; applying it closes floating panel windows. Documents, history,
+/// theme and drafts are never touched.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceTemplate {
+    /// NF2 main window: tools left, Properties over Library, bottom dock Timeline · Actions · Output · Accessibility.
+    #[default]
+    Classic,
+    /// Tall timeline for keyframing; Transform next to Properties.
+    Animator,
+    /// Drawing and layout: Properties, Color, Align, Transform visible; shorter timeline.
+    Designer,
+    /// Scripting: tall Actions editor with Output, timeline as a tab.
+    Developer,
+    /// Small screens: one-column tools, one inspector group, compact bottom dock.
+    Essentials,
+}
+
+impl WorkspaceTemplate {
+    pub const ALL: [Self; 5] = [
+        Self::Classic,
+        Self::Animator,
+        Self::Designer,
+        Self::Developer,
+        Self::Essentials,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Classic => "Classic",
+            Self::Animator => "Animator",
+            Self::Designer => "Designer",
+            Self::Developer => "Developer",
+            Self::Essentials => "Essentials",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Classic => {
+                "Tools, Properties over Library, Timeline with Actions and Output below."
+            }
+            Self::Animator => "Tall timeline for keyframing, Transform beside Properties.",
+            Self::Designer => "Properties, Color, Align and Transform open; shorter timeline.",
+            Self::Developer => "Tall Actions editor with Output; Timeline as a tab.",
+            Self::Essentials => "One-column tools and a compact dock for small screens.",
+        }
+    }
+
+    /// Dock layout, visibility and active bottom tab of this template.
+    pub fn layout(self) -> (DockLayout, PanelVisibility, BottomTab) {
+        use PanelId::*;
+        let group = |id, tabs: Vec<PanelId>, weight: f32| DockGroup {
+            id,
+            active: tabs[0],
+            tabs,
+            weight,
+        };
+        let area = |size: f32, groups: Vec<DockGroup>| DockArea { size, groups };
+        let tools = |size: f32| area(size + 6., vec![group(3, vec![Tools], 1.)]);
+        let two_columns = neoflash_ui::metrics::TOOLS_TWO_COLUMNS;
+        let inspector = neoflash_ui::metrics::INSPECTOR + 6.;
+        let mut visible = PanelVisibility::default();
+        let (dock, bottom) = match self {
+            Self::Classic => (DockLayout::default(), BottomTab::Properties),
+            Self::Animator => {
+                visible.transform = true;
+                let dock = DockLayout {
+                    top: area(crate::theme::TIMELINE_HEIGHT, vec![]),
+                    bottom: area(
+                        520.,
+                        vec![group(2, vec![Timeline, Actions, Output, Accessibility], 1.)],
+                    ),
+                    left: tools(two_columns),
+                    right: area(
+                        inspector,
+                        vec![
+                            group(5, vec![Properties, Transform, Align, Color], 0.55),
+                            group(4, vec![Library], 0.45),
+                        ],
+                    ),
+                    next_group: 6,
+                };
+                (dock, BottomTab::Properties)
+            }
+            Self::Designer => {
+                visible.align = true;
+                visible.transform = true;
+                visible.color = true;
+                let dock = DockLayout {
+                    top: area(crate::theme::TIMELINE_HEIGHT, vec![]),
+                    bottom: area(
+                        300.,
+                        vec![group(2, vec![Timeline, Actions, Output, Accessibility], 1.)],
+                    ),
+                    left: tools(two_columns),
+                    right: area(
+                        inspector,
+                        vec![
+                            group(5, vec![Properties, Library], 0.5),
+                            group(6, vec![Color, Align, Transform], 0.5),
+                        ],
+                    ),
+                    next_group: 7,
+                };
+                (dock, BottomTab::Properties)
+            }
+            Self::Developer => {
+                let mut bottom = group(2, vec![Actions, Output, Timeline, Accessibility], 1.);
+                bottom.active = Actions;
+                let dock = DockLayout {
+                    top: area(crate::theme::TIMELINE_HEIGHT, vec![]),
+                    bottom: area(560., vec![bottom]),
+                    left: tools(two_columns),
+                    right: area(
+                        inspector,
+                        vec![
+                            group(5, vec![Properties, Align, Transform, Color], 0.5),
+                            group(4, vec![Library], 0.5),
+                        ],
+                    ),
+                    next_group: 6,
+                };
+                (dock, BottomTab::Actions)
+            }
+            Self::Essentials => {
+                let dock = DockLayout {
+                    top: area(crate::theme::TIMELINE_HEIGHT, vec![]),
+                    bottom: area(
+                        300.,
+                        vec![group(2, vec![Timeline, Actions, Output, Accessibility], 1.)],
+                    ),
+                    left: tools(neoflash_ui::metrics::TOOLS_RAIL),
+                    right: area(
+                        280.,
+                        vec![group(
+                            5,
+                            vec![Properties, Library, Align, Transform, Color],
+                            1.,
+                        )],
+                    ),
+                    next_group: 6,
+                };
+                (dock, BottomTab::Properties)
+            }
+        };
+        (dock, visible, bottom)
     }
 }
 impl WorkspacePrefs {
@@ -1180,7 +1384,7 @@ impl WorkspacePrefs {
                 active: PanelId::Properties,
                 weight: 1.,
             }];
-            self.dock.bottom.size = 144.;
+            self.dock.bottom.size = 300.;
         }
     }
     /// Only this small JSON key is written. Eframe owns flushing the storage;
@@ -1269,11 +1473,18 @@ impl WorkspacePrefs {
     }
     /// Reset layout only. Theme is a separate user preference. The caller may
     /// remove known egui PanelState IDs, but must preserve authoring/input state.
-    pub fn restore_layout(&mut self) {
+    /// Replace the layout with a built-in template, keeping theme and remembered window geometry.
+    pub fn apply_template(&mut self, template: WorkspaceTemplate) {
+        let (dock, panels, active_bottom) = template.layout();
         *self = Self {
             theme: self.theme,
+            dock,
+            panels,
+            active_bottom,
+            template,
             ..Self::default()
         };
+        self.sanitize();
     }
     pub fn placement(&self, panel: PanelId) -> PanelPlacement {
         if self.dock.location(panel).is_some() {
@@ -1713,6 +1924,54 @@ mod tests {
         }
     }
     #[test]
+    fn every_template_is_a_valid_layout_that_keeps_every_panel_reachable() {
+        for template in WorkspaceTemplate::ALL {
+            let mut prefs = WorkspacePrefs {
+                theme: ThemeMode::Light,
+                ..Default::default()
+            };
+            prefs.set_placement(PanelId::Library, PanelPlacement::Detached);
+            prefs.apply_template(template);
+            assert_eq!(prefs.template, template);
+            assert_eq!(
+                prefs.theme,
+                ThemeMode::Light,
+                "{template:?} keeps the theme"
+            );
+            assert!(
+                prefs.floating.is_empty(),
+                "{template:?} closes floating windows"
+            );
+            let mut seen = std::collections::HashSet::new();
+            for edge in [
+                DockEdge::Top,
+                DockEdge::Bottom,
+                DockEdge::Left,
+                DockEdge::Right,
+            ] {
+                for group in &prefs.dock.area(edge).groups {
+                    assert!(group.tabs.contains(&group.active));
+                    for panel in &group.tabs {
+                        assert!(seen.insert(*panel), "{template:?}: {panel:?} docked twice");
+                    }
+                }
+            }
+            for panel in PanelId::ALL {
+                assert!(
+                    prefs.is_panel_docked(panel),
+                    "{template:?}: {panel:?} has a place"
+                );
+            }
+            let mut storage = Storage::default();
+            prefs.save(&mut storage);
+            assert_eq!(
+                WorkspacePrefs::load(Some(&storage)),
+                prefs,
+                "{template:?} round-trips"
+            );
+        }
+    }
+    #[test]
     fn restore_layout_preserves_theme_and_resets_visibility_sizes_and_active_tab() {
         let mut prefs = WorkspacePrefs {
             theme: ThemeMode::Dark,
@@ -1727,7 +1986,7 @@ mod tests {
             library_width: 360.,
             layer_column_width: 420.,
         };
-        prefs.restore_layout();
+        prefs.apply_template(WorkspaceTemplate::Classic);
         assert_eq!(
             prefs,
             WorkspacePrefs {
@@ -1756,7 +2015,7 @@ mod tests {
                 timeline_height: crate::theme::TIMELINE_HEIGHT,
                 bottom_height: 190.,
                 library_width: 248.,
-                layer_column_width: 200.,
+                layer_column_width: neoflash_ui::metrics::LAYER_COLUMN,
             }
         );
         assert!(prefs.sizes.timeline_height.is_nan());
@@ -1769,7 +2028,7 @@ mod tests {
                 timeline_height: 380.,
                 bottom_height: 145.,
                 library_width: 360.,
-                layer_column_width: 200.,
+                layer_column_width: neoflash_ui::metrics::LAYER_COLUMN,
             }
         );
     }
@@ -1780,7 +2039,7 @@ mod tests {
         );
         assert_eq!(prefs.active_bottom, BottomTab::Actions);
         let prefs = WorkspacePrefs::from_json(
-            r#"{"active_bottom":"Output","panels":{"properties":false,"actions":false,"accessibility":false,"output":false}}"#,
+            r#"{"active_bottom":"Output","panels":{"timeline":false,"properties":false,"actions":false,"accessibility":false,"output":false}}"#,
         );
         assert_eq!(prefs.active_bottom, BottomTab::Output);
         assert!(!prefs.bottom_visible());
@@ -1803,7 +2062,13 @@ mod tests {
         assert!(!prefs.is_panel_docked(PanelId::Actions));
         assert!(prefs.set_placement(PanelId::Library, PanelPlacement::Detached));
         assert!(!prefs.is_panel_docked(PanelId::Library));
-        for panel in [PanelId::Properties, PanelId::Accessibility, PanelId::Output] {
+        // NF2: Timeline shares the bottom dock with Actions, Output and Accessibility.
+        for panel in [
+            PanelId::Timeline,
+            PanelId::Properties,
+            PanelId::Accessibility,
+            PanelId::Output,
+        ] {
             prefs.set_panel_visible(panel, false);
         }
         assert!(!prefs.bottom_visible());
@@ -1845,7 +2110,14 @@ mod tests {
             }),
         );
         assert_eq!(
-            prefs.dock.right.groups[0].tabs,
+            prefs
+                .dock
+                .right
+                .groups
+                .iter()
+                .find(|g| g.tabs.contains(&PanelId::Library))
+                .unwrap()
+                .tabs,
             [PanelId::Properties, PanelId::Library]
         );
         prefs.dock_panel(
@@ -2055,7 +2327,7 @@ mod tests {
             let encoded = serde_json::to_string(&grouped).unwrap();
             assert_eq!(WorkspacePrefs::from_json(&encoded), grouped);
         }
-        prefs.restore_layout();
+        prefs.apply_template(WorkspaceTemplate::Classic);
         assert_eq!(prefs.theme, ThemeMode::Dark);
         assert_eq!(prefs.detached, DetachedPanels::default());
     }

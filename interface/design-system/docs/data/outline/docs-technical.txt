@@ -1,0 +1,74 @@
+F Shelf / Technical 868×1370 [V gap 16]
+  T "Technical — scrollbars, splitters, docking, drag & drop, feedback, focus, empty states"
+  F NF2/Scrollbar 600×194 [H gap 16]
+    F Orientation=Vertical, State=Default 12×160
+    F Orientation=Vertical, State=Hover 12×160
+    F Orientation=Horizontal, State=Default 160×12
+    F Orientation=Horizontal, State=Hover 160×12
+  F NF2/Splitter 600×154 [H gap 16]
+    F Orientation=Vertical, State=Default 8×120
+    F Orientation=Vertical, State=Hover 8×120
+    F Orientation=Vertical, State=Drag 8×120
+    F Orientation=Horizontal, State=Default 120×8
+    F Orientation=Horizontal, State=Hover 120×8
+    F Orientation=Horizontal, State=Drag 120×8
+  F NF2/Dock Zone 240×160
+    T "Dock here"
+  F NF2/Dock Compass 112×112
+    F chevup 32×32 [H gap 0]
+      I NF2 Icon/16/chevup 16×16
+    F sidebar 32×32 [H gap 0]
+      I NF2 Icon/16/sidebar 16×16
+    F film 32×32 [H gap 0]
+      I NF2 Icon/16/film 16×16
+    F chevright 32×32 [H gap 0]
+      I NF2 Icon/16/chevright 16×16
+    F chevdown 32×32 [H gap 0]
+      I NF2 Icon/16/chevdown 16×16
+  F NF2/Drag Ghost 73×30 [H gap 6]
+    I NF2 Icon/16/grip-h 16×16
+    T "Align"
+  F NF2/Drop Indicator 240×8
+  F NF2/Toast 820×142 [H gap 16]
+    F Type=Info 380×46 [H gap 10]
+      I NF2 Icon/16/info 16×16
+      T "Published to ~/Desktop/ideas.html"
+      T "Reveal"
+      F Frame 28×28 [H gap 0]
+        I NF2 Icon/16/x 16×16
+    F Type=Success 380×46 [H gap 10]
+      I NF2 Icon/16/check 16×16
+      T "Movie exported · 32.4 s · 12.1 MB"
+      T "Undo"
+      F Frame 28×28 [H gap 0]
+        I NF2 Icon/16/x 16×16
+    F Type=Warning 380×46 [H gap 10]
+      I NF2 Icon/16/warning 16×16
+      T "Font "Inter" is not embedded"
+      T "Undo"
+      F Frame 28×28 [H gap 0]
+        I NF2 Icon/16/x 16×16
+    F Type=Error 380×46 [H gap 10]
+      I NF2 Icon/16/error 16×16
+      T "Test Movie failed — 1 compiler error"
+      T "Show"
+      F Frame 28×28 [H gap 0]
+        I NF2 Icon/16/x 16×16
+  F NF2/Spinner 20×20
+  F NF2/Progress 640×62 [H gap 16]
+    F Mode=Determinate 280×28 [V gap 6]
+      F Frame 280×16 [H gap 8]
+        T "Exporting frames 72 / 120"
+        T "60 %"
+      F Track 280×6
+    F Mode=Indeterminate 280×28 [V gap 6]
+      F Frame 280×16 [H gap 8]
+        T "Encoding video…"
+      F Track 280×6
+  F NF2/Focus Ring 120×36
+  F NF2/Empty State 280×204 [V gap 8]
+    F Frame 48×48 [H gap 0]
+      I NF2 Icon/16/symbol 16×16
+    T "Library is empty"
+    T "Convert artwork to a symbol (F8) or import files to see them here."
+    I NF2/Button {Icon=false, Label=Import to library…, Type=Secondary, State=Default} 136×32 "Import to library…"

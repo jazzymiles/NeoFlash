@@ -1,0 +1,81 @@
+F Shelf / Timeline 2.0 — frames 1530×1129 [V gap 16]
+  T "Timeline 2.0 — frame area: grid, spans, markers, labels, ruler, onion skin, playhead (12 px per frame)"
+  F NF2/TL Grid 1480×102 [H gap 12]
+    F Kind=Layer 1440×28
+    F Kind=Folder 1440×28
+  F NF2/TL Grid Lines 1440×28
+  F NF2/TL Span 900×139 [H gap 12]
+    F Type=Static 120×27 [H gap 0]
+    F Type=Classic Tween 120×27 [H gap 0]
+      F Arrowhead 6×7
+    F Type=Shape Tween 120×27 [H gap 0]
+      F Arrowhead 6×7
+    F Type=Motion Tween 120×27 [H gap 0]
+    F Type=Broken Tween 120×27 [H gap 0]
+    F Type=Selected 120×27 [H gap 0]
+    F Type=Sound 1440×27
+      F Waveform 1440×27
+    F Type=Video 1440×27
+      F Filmstrip 1440×27
+  F NF2/TL Marker 600×61 [H gap 12]
+    F Kind=Keyframe, Tone=Default 12×27 [H gap 1]
+    F Kind=Keyframe, Tone=On Selection 12×27 [H gap 1]
+    F Kind=Blank Keyframe, Tone=Default 12×27 [H gap 1]
+    F Kind=Blank Keyframe, Tone=On Selection 12×27 [H gap 1]
+    F Kind=Span End, Tone=Default 12×27 [H gap 1]
+    F Kind=Span End, Tone=On Selection 12×27 [H gap 1]
+    F Kind=Property Keyframe, Tone=Default 12×27 [H gap 1]
+      F Diamond 8×8
+    F Kind=Property Keyframe, Tone=On Selection 12×27 [H gap 1]
+      F Diamond 8×8
+    F Kind=Action Keyframe, Tone=Default 12×27 [V gap 1]
+      T "a"
+    F Kind=Action Keyframe, Tone=On Selection 12×27 [V gap 1]
+      T "a"
+  F NF2/TL Frame Label 600×61 [H gap 12]
+    F Kind=Label 49×27 [H gap 3]
+      F Icon 7×10
+      T "intro"
+    F Kind=Comment 49×27 [H gap 3]
+      F Icon 7×10
+      T "intro"
+    F Kind=Anchor 50×27 [H gap 3]
+      F Icon 8×10
+      T "intro"
+  F NF2/TL Ruler 1440×32
+    T "1"
+    T "5"
+    T "10"
+    T "15"
+    T "20"
+    T "25"
+    T "30"
+    T "35"
+    T "40"
+    T "45"
+    T "50"
+    T "55"
+    T "60"
+    T "65"
+    T "70"
+    T "75"
+    T "80"
+    T "85"
+    T "90"
+    T "95"
+    T "100"
+    T "105"
+    T "110"
+    T "115"
+    T "120"
+    T "0s"
+    T "1s"
+    T "2s"
+    T "3s"
+    T "4s"
+  F NF2/TL Onion Range 60×24 [H gap 0]
+  F NF2/TL Playhead 24×480
+    F Head 24×18 [H gap 0]
+      T "1"
+    F Time 39×13 [H gap 0]
+      T "1.21s"

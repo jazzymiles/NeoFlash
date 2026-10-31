@@ -76,6 +76,7 @@ pub struct Editor {
     pub script_event: ObjectEvent,
     pub selected_source: Option<String>,
     pub code_feedback: Option<crate::sources::CodeFeedback>,
+    pub(crate) actions_ui: crate::panels::actions_sidebar::ActionsUi,
     pub status: String,
     pub output: Vec<String>,
     pub fonts: Fonts,
@@ -110,10 +111,22 @@ pub enum Pending {
 impl Editor {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut s = Self::from_project(&cc.egui_ctx, Project::demo());
-        s.workspace = WorkspacePrefs::load_for_viewport(
-            cc.storage,
-            cc.egui_ctx.viewport_rect().size().into(),
-        );
+        // Screenshots ignore saved layouts so captures are reproducible (see shell::capture).
+        let storage = if std::env::var_os("NEOFLASH_SCREENSHOT").is_some() {
+            None
+        } else {
+            cc.storage
+        };
+        s.workspace =
+            WorkspacePrefs::load_for_viewport(storage, cc.egui_ctx.viewport_rect().size().into());
+        crate::native_windows::install();
+        if let Some(template) = crate::shell::screenshot_workspace() {
+            s.workspace.apply_template(template);
+            s.bottom = s.workspace.active_bottom;
+        }
+        if let Some(theme) = crate::shell::screenshot_theme() {
+            s.workspace.theme = theme;
+        }
         s.workspace.theme.apply(&cc.egui_ctx);
         s.bottom = s.workspace.active_bottom;
         if let Some(path) = std::env::args().nth(1) {
@@ -137,11 +150,11 @@ impl Editor {
             property_edit: None, authoring_modify: crate::authoring_modify::AuthoringModify::default(), bottom: BottomTab::Properties,
             authoring_tools: crate::authoring_tools::AuthoringToolsState::default(),
             script_target: ScriptTarget::Frame, script_event: ObjectEvent::Click,
-            selected_source: None, code_feedback: None,
+            selected_source: None, code_feedback: None, actions_ui: Default::default(),
             status: "Ready · F5 frame · F6 keyframe · F7 blank keyframe · ⌘↵ Test Movie".into(),
             output: vec!["NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser.".into()],
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
-            timeline_cell: 13., timeline_key_drag: None, timeline_edit: Default::default(), library_selected: None, symbol_conversion: None,
+            timeline_cell: neoflash_ui::metrics::FRAME, timeline_key_drag: None, timeline_edit: Default::default(), library_selected: None, symbol_conversion: None,
             library_panel: crate::library::LibraryPanel::default(),
             graphic_drop_position: None,
             resource_panel: crate::resources::ResourcePanel::default(),
@@ -184,10 +197,21 @@ impl Editor {
         self.workspace.set_panel_visible(panel, visible);
         self.bottom = self.workspace.active_bottom;
     }
+    /// Re-apply the current workspace template ("Reset <template> workspace").
     pub(crate) fn restore_workspace(&mut self, ctx: &egui::Context) {
-        self.workspace.restore_layout();
-        self.workspace
-            .compact_default(ctx.viewport_rect().size().into());
+        self.apply_workspace_template(ctx, self.workspace.template);
+    }
+    /// Switch to a built-in workspace template (Window ▸ Workspace, top-bar select).
+    pub(crate) fn apply_workspace_template(
+        &mut self,
+        ctx: &egui::Context,
+        template: crate::workspace::WorkspaceTemplate,
+    ) {
+        self.workspace.apply_template(template);
+        if template == crate::workspace::WorkspaceTemplate::Classic {
+            self.workspace
+                .compact_default(ctx.viewport_rect().size().into());
+        }
         self.detached = crate::detached::DetachedState::default();
         self.bottom = self.workspace.active_bottom;
         // Reset only the panel geometry that we own. Editor drafts, focus and
@@ -629,10 +653,14 @@ impl Editor {
         if self.symbol_conversion.is_some() {
             return;
         }
+        self.menu_shortcuts(ctx);
         self.timeline_shortcuts(ctx);
+        self.view_shortcuts(ctx);
         self.clipboard_events(ctx);
         let typing = ctx.wants_keyboard_input();
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S)) {
+        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::S)) {
+            self.save(true);
+        } else if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S)) {
             self.save(false);
         }
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::O)) {
@@ -730,6 +758,171 @@ impl Editor {
         }
     }
 
+    /// Design §8 menu shortcuts not handled elsewhere. Modifiers match exactly, so ⇧F5 never runs F5
+    /// and ⌥⇧R never selects the Rectangle tool. Shortcuts of unavailable menu items are consumed and
+    /// do nothing.
+    fn menu_shortcuts(&mut self, ctx: &egui::Context) {
+        use crate::timeline_edit::FrameCommand as F;
+        if ctx.wants_keyboard_input() {
+            return;
+        }
+        let (cmd, shift, alt, none) = (
+            Modifiers::COMMAND,
+            Modifiers::SHIFT,
+            Modifiers::ALT,
+            Modifiers::NONE,
+        );
+        let exact = |m: Modifiers, key: Key| {
+            ctx.input_mut(|i| {
+                let held = i.modifiers;
+                held.alt == m.alt
+                    && held.shift == m.shift
+                    && held.command == m.command
+                    && i.consume_key(m, key)
+            })
+        };
+        // ⌥⌘X / ⌥⌘C / ⌥⌘V arrive as Cut / Copy / Paste events: frames, never objects.
+        let frame_clipboard = ctx.input_mut(|i| {
+            if !(i.modifiers.alt && i.modifiers.command) {
+                return None;
+            }
+            let mut command = None;
+            i.events.retain(|event| {
+                let found = match event {
+                    egui::Event::Cut => Some(F::Cut),
+                    egui::Event::Copy => Some(F::Copy),
+                    egui::Event::Paste(_) => Some(F::Paste),
+                    _ => None,
+                };
+                command = command.or(found);
+                found.is_none()
+            });
+            command
+        });
+        if let Some(command) = frame_clipboard {
+            self.run_frame_command(ctx, command);
+        }
+        for (m, key, command) in [
+            (alt | cmd, Key::X, F::Cut),
+            (alt | cmd, Key::C, F::Copy),
+            (alt | cmd, Key::V, F::Paste),
+            (alt, Key::Backspace, F::Clear),
+            (shift, Key::F5, F::Remove),
+            (alt | cmd, Key::A, F::SelectAll),
+        ] {
+            if exact(m, key) {
+                self.run_frame_command(ctx, command);
+            }
+        }
+        // File.
+        if exact(shift, Key::F12) {
+            Self::open_planned(ctx, "File ▸ Publish settings…");
+        }
+        if exact(shift | alt, Key::F12) {
+            self.export(false);
+        }
+        // Edit.
+        if exact(cmd | shift, Key::A) {
+            self.finish_edits();
+            self.clear_selection();
+        }
+        if exact(cmd, Key::F) {
+            Self::open_planned(ctx, "Edit ▸ Find and replace");
+        }
+        if exact(cmd, Key::E) {
+            self.toggle_edit_symbols();
+        }
+        if exact(cmd, Key::U) {
+            Self::open_planned(ctx, "Edit ▸ Preferences…");
+        }
+        if exact(alt | shift | cmd, Key::K) {
+            Self::open_planned(ctx, "Edit ▸ Keyboard shortcuts…");
+        }
+        // View.
+        if exact(alt | cmd, Key::G) {
+            Self::open_planned(ctx, "View ▸ Grid ▸ Edit grid…");
+        }
+        // Modify.
+        if exact(cmd, Key::J) {
+            Self::open_planned(ctx, "Modify ▸ Document…");
+        }
+        if exact(cmd, Key::B) && !self.selection.is_empty() {
+            self.break_apart_selection();
+        }
+        if exact(cmd | shift, Key::G) && !self.selection.is_empty() {
+            self.ungroup_selection();
+        }
+        if exact(cmd, Key::G) && self.selection.len() >= 2 {
+            self.group_selection();
+        }
+        // Control.
+        let last = self.symbol().timeline.frame_count.saturating_sub(1);
+        if exact(alt | shift, Key::R) {
+            self.seek_frame(0);
+        }
+        if exact(alt | shift, Key::Period) {
+            self.seek_frame(last);
+        }
+        if exact(none, Key::Period) {
+            self.seek_frame((self.frame + 1).min(last));
+        }
+        if exact(none, Key::Comma) {
+            self.seek_frame(self.frame.saturating_sub(1));
+        }
+        if exact(alt | cmd, Key::Enter) {
+            Self::open_planned(ctx, "Control ▸ Test scene");
+        }
+        // Window.
+        for (m, key, panel) in [
+            (alt | cmd, Key::T, PanelId::Timeline),
+            (cmd, Key::F2, PanelId::Tools),
+            (cmd, Key::F3, PanelId::Properties),
+            (cmd, Key::L, PanelId::Library),
+            (cmd, Key::K, PanelId::Align),
+            (cmd | shift, Key::F9, PanelId::Color),
+            (cmd, Key::T, PanelId::Transform),
+            (none, Key::F2, PanelId::Output),
+            (shift, Key::F11, PanelId::Accessibility),
+        ] {
+            if exact(m, key) {
+                let visible = self.workspace.is_panel_visible(panel);
+                self.set_panel_visible(panel, !visible);
+            }
+        }
+        for (m, key, path) in [
+            (cmd, Key::F9, "Window ▸ Swatches"),
+            (cmd, Key::I, "Window ▸ Info"),
+            (cmd, Key::F10, "Window ▸ History"),
+            (shift, Key::F2, "Window ▸ Scene"),
+            (alt, Key::F2, "Window ▸ Compiler errors"),
+        ] {
+            if exact(m, key) {
+                Self::toggle_planned(ctx, path);
+            }
+        }
+        // Unavailable items: consume so a shorter shortcut (F6, ⌘D, ⌘K …) does not run instead.
+        for (m, key) in [
+            (cmd, Key::W),
+            (cmd, Key::P),
+            (shift, Key::F6),
+            (cmd | shift, Key::D),
+            (cmd | shift, Key::W),
+            (alt | shift | cmd, Key::R),
+            (cmd, Key::Quote),
+            (cmd | shift, Key::Quote),
+            (cmd, Key::Semicolon),
+            (cmd | shift, Key::Semicolon),
+            (alt | cmd, Key::H),
+            (alt | cmd, Key::M),
+            (alt | cmd, Key::B),
+            (alt | cmd, Key::K),
+            (none, Key::F4),
+            (none, Key::F1),
+        ] {
+            let _ = exact(m, key);
+        }
+    }
+
     pub fn move_key(&mut self, layer: usize, from: u32, to: u32, copy: bool) -> bool {
         let timeline = &self.symbol().timeline;
         let Some(l) = timeline.layers.get(layer) else {
@@ -813,44 +1006,138 @@ impl Editor {
     }
 
     pub fn draw_dialogs(&mut self, ctx: &egui::Context) {
+        use neoflash_ui::{
+            TextStyle,
+            components::{Button, DialogHeader, Surface, logo, surface::dialog_footer},
+            tokens::space,
+            typography::rich,
+        };
+        let p = neoflash_ui::palette(ctx);
+        let body = egui::Margin {
+            left: space::S5 as i8,
+            right: space::S5 as i8,
+            top: 0,
+            bottom: space::S5 as i8,
+        };
         if self.show_about {
-            egui::Window::new("About NeoFlash")
-                .default_width(360.)
-                .collapsible(false)
-                .resizable(false)
-                .open(&mut self.show_about)
+            let mut close = false;
+            let modal = egui::Modal::new(egui::Id::new("about-neoflash"))
+                .frame(Surface::Dialog.frame(ctx))
+                .backdrop_color(p.overlay)
                 .show(ctx, |ui| {
-                    ui.heading("NeoFlash 0.1 — development preview");
-                    ui.label("Classic Flash workflow. Rust core. HTML5 publishing.");
-                    ui.label("Open source · MIT OR Apache-2.0");
-                    ui.separator();
-                    ui.label(
-                        "This is an early authoring foundation, not complete Flash compatibility.",
-                    );
-                    ui.label("See docs/COMPATIBILITY.md and docs/ROADMAP.md for the exact scope.");
-                });
-        }
-        if let Some(pending) = self.confirm {
-            let mut action = None;
-            egui::Window::new("Unsaved changes")
-                .default_width(360.)
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-                .show(ctx, |ui| {
-                    ui.label("Save changes to this project before continuing?");
-                    ui.horizontal(|ui| {
-                        if ui.button("Save").clicked() {
-                            action = Some(0);
-                        }
-                        if ui.button("Discard").clicked() {
-                            action = Some(1);
-                        }
-                        if ui.button("Cancel").clicked() {
-                            action = Some(2);
+                    ui.set_width(440.);
+                    close |= DialogHeader { title: "About NeoFlash" }.show(ui);
+                    egui::Frame::new().inner_margin(body).show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = space::S2;
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = space::S3;
+                            logo(ui, 40.);
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    rich("NeoFlash 0.1 — development preview", TextStyle::Title)
+                                        .color(p.text_primary),
+                                );
+                                ui.label(
+                                    rich("Open source · MIT OR Apache-2.0", TextStyle::Small)
+                                        .color(p.text_secondary),
+                                );
+                            });
+                        });
+                        for line in [
+                            "Classic Flash workflow. Rust core. HTML5 publishing.",
+                            "This is an early authoring foundation, not complete Flash compatibility.",
+                            "See docs/COMPATIBILITY.md and docs/ROADMAP.md for the exact scope.",
+                        ] {
+                            ui.add(
+                                egui::Label::new(
+                                    rich(line, TextStyle::DialogBody).color(p.text_secondary),
+                                )
+                                .wrap(),
+                            );
                         }
                     });
+                    dialog_footer(
+                        ui,
+                        |_| {},
+                        |ui| close |= ui.add(Button::primary("Close").shortcut("↵")).clicked(),
+                    );
                 });
+            let enter = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+            if close || enter || modal.should_close() {
+                self.show_about = false;
+            }
+        }
+        if let Some(pending) = self.confirm {
+            // 0 = Save, 1 = Discard, 2 = Cancel.
+            let mut action = None;
+            let name = self.project.name.clone();
+            let modal = egui::Modal::new(egui::Id::new("unsaved-changes"))
+                .frame(Surface::Dialog.frame(ctx))
+                .backdrop_color(p.overlay)
+                .show(ctx, |ui| {
+                    ui.set_width(480.);
+                    egui::Frame::new()
+                        .inner_margin(egui::Margin::same(space::S5 as i8))
+                        .show(ui, |ui| {
+                            ui.horizontal_top(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S4;
+                                let (badge, _) = ui.allocate_exact_size(
+                                    egui::vec2(40., 40.),
+                                    egui::Sense::hover(),
+                                );
+                                ui.painter().circle_filled(badge.center(), 20., p.warning_subtle);
+                                neoflash_ui::icons::paint(
+                                    ui.painter(),
+                                    ctx,
+                                    badge,
+                                    neoflash_ui::icons::i16::WARNING,
+                                    p.warning_default,
+                                );
+                                ui.vertical(|ui| {
+                                    ui.spacing_mut().item_spacing.y = space::S1;
+                                    ui.label(
+                                        rich("Save changes before continuing?", TextStyle::DialogTitle)
+                                            .color(p.text_primary),
+                                    );
+                                    ui.add(
+                                        egui::Label::new(
+                                            rich(
+                                                format!(
+                                                    "Your changes to “{name}” will be lost if you discard them."
+                                                ),
+                                                TextStyle::DialogBody,
+                                            )
+                                            .color(p.text_secondary),
+                                        )
+                                        .wrap(),
+                                    );
+                                });
+                            });
+                        });
+                    let (mut discard, mut save, mut cancel) = (false, false, false);
+                    dialog_footer(
+                        ui,
+                        |ui| discard = ui.add(Button::danger("Discard")).clicked(),
+                        |ui| {
+                            save = ui.add(Button::primary("Save").shortcut("↵")).clicked();
+                            cancel = ui.add(Button::new("Cancel").shortcut("Esc")).clicked();
+                        },
+                    );
+                    if save {
+                        action = Some(0);
+                    } else if discard {
+                        action = Some(1);
+                    } else if cancel {
+                        action = Some(2);
+                    }
+                });
+            if action.is_none() {
+                if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
+                    action = Some(0);
+                } else if modal.should_close() {
+                    action = Some(2);
+                }
+            }
             if let Some(action) = action {
                 self.confirm = None;
                 if action == 1 || (action == 0 && self.save(false)) {
@@ -894,6 +1181,7 @@ impl eframe::App for Editor {
         }
         self.normalize_selection();
         self.menu(ctx);
+        self.status_bar(ctx);
         self.bitmap_textures.begin_frame(&self.project);
         self.prepare_docked_panel_focus(ctx);
         self.dock_grid(ctx);
@@ -901,6 +1189,8 @@ impl eframe::App for Editor {
         self.draw_dialogs(ctx);
         self.symbol_creation_dialog(ctx);
         self.detached_panels(ctx);
+        self.planned_panels(ctx);
+        crate::native_windows::configure_panels();
         let name = self
             .path
             .as_ref()
@@ -912,6 +1202,7 @@ impl eframe::App for Editor {
             name,
             if self.dirty() { " •" } else { "" }
         )));
+        crate::shell::capture(ctx, ctx.cumulative_pass_nr());
     }
 }
 

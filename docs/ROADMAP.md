@@ -6,6 +6,8 @@ NeoFlash aims to provide a complete Flash-inspired environment for websites, app
 
 Timeline authoring includes compact controls, inline layer rename, drag reordering, resizable layer columns, frame zoom, colored outlines, folders, guides and vector masks. The workspace has four-sided docks with resizable tab groups; the library has preview, folders, search and linkage. SVG/PNG/JPEG graphics can be imported from files or dropped onto the stage. Frame-range selection/clipboard, independent layer ends and explicit global script movement are available with integer-frame baking at edited tween boundaries. Next authoring work includes editable sliced easing curves, richer button state-object APIs, advanced mask sources and motion-path guides.
 
+The NF2 interface is complete visually; its unfinished controls and planned panels (rulers/guides/grid, motion editor, ease, debugger, preferences, export dialogs and others) are specified in [NF2-FUNCTIONAL-SPEC.md](NF2-FUNCTIONAL-SPEC.md) and ordered in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md).
+
 Further work includes snapping, richer drawing tools, general shape morphing, custom transform pivots, autosave and crash recovery. See [workspace behavior](WORKSPACE.md) for the current controls.
 
 ## Remaining product work

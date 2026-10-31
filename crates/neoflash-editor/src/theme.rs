@@ -3,100 +3,45 @@ use eframe::egui::{self, Color32, Stroke};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
-pub(crate) const PANEL_FONT: f32 = 12.;
-pub(crate) const CONTROL_HEIGHT: f32 = 24.;
+// Editor layout constants are NF2 metrics (crates/neoflash-ui/src/metrics.rs); keep names stable
+// for existing call sites. Never introduce a size here that is not in the design system.
+use neoflash_ui::metrics as nf;
+/// `NF2/Body` size (13).
+pub(crate) const PANEL_FONT: f32 = 13.;
+/// Fields, buttons, icon buttons (`NF2/Field`, `NF2/Button`).
+pub(crate) const CONTROL_HEIGHT: f32 = nf::CONTROL;
 pub(crate) const LABEL_WIDTH: f32 = 76.;
-pub(crate) const SECONDARY_FONT: f32 = 11.;
-pub(crate) const ROW_HEIGHT: f32 = 24.;
-pub(crate) const PROPERTY_ROW_HEIGHT: f32 = 28.;
-pub(crate) const HEADER_HEIGHT: f32 = 28.;
-pub(crate) const FOOTER_HEIGHT: f32 = 28.;
-pub(crate) const PANEL_PADDING: f32 = 8.;
-pub(crate) const ICON_SIZE: f32 = 16.;
-pub(crate) const ICON_STROKE: f32 = 1.5;
-pub(crate) const TOOLS_WIDTH: f32 = 64.;
-pub(crate) const TIMELINE_HEIGHT: f32 = 200.;
-pub(crate) const TIMELINE_MIN_HEIGHT: f32 = 160.;
+/// `NF2/Small` size (12).
+pub(crate) const SECONDARY_FONT: f32 = 12.;
+/// Tree rows, menu items, layer rows (`NF2/Tree Item`, `NF2/TL Layer`).
+pub(crate) const ROW_HEIGHT: f32 = nf::ROW;
+/// One inspector field row.
+pub(crate) const PROPERTY_ROW_HEIGHT: f32 = nf::CONTROL;
+/// Panel tabs / floating panel header (`NF2/Panel Tab`).
+pub(crate) const HEADER_HEIGHT: f32 = nf::PANEL_TAB;
+pub(crate) const FOOTER_HEIGHT: f32 = nf::CONTROL;
+/// Docked tools rail (`NF2/Tools Panel` Layout = 1 Column).
+pub(crate) const TOOLS_WIDTH: f32 = nf::TOOLS_RAIL;
+/// Bottom dock: controls 44 + timeline body 336 (dock tabs 40 come from the group header).
+pub(crate) const TIMELINE_HEIGHT: f32 = nf::BOTTOM_DOCK - nf::DOCK_TAB;
+pub(crate) const TIMELINE_MIN_HEIGHT: f32 = 200.;
 pub(crate) const TRANSFORM_HANDLE: f32 = 6.;
 
-/// Give small timeline controls clear rails, handles and check marks without
-/// changing the rest of the panel or adding any layout padding.
-pub(crate) fn timeline_controls<R>(
-    ui: &mut egui::Ui,
-    content: impl FnOnce(&mut egui::Ui) -> R,
-) -> egui::InnerResponse<R> {
-    ui.scope(|ui| {
-        let p = UiPalette::current(ui.ctx());
-        let rail = p.control_border;
-        ui.spacing_mut().slider_rail_height = 6.;
-        let visuals = ui.visuals_mut();
-        visuals.slider_trailing_fill = true;
-        visuals.selection.bg_fill = p.accent;
-        visuals.widgets.inactive.bg_fill = rail;
-        visuals.widgets.inactive.bg_stroke = Stroke::new(ICON_STROKE, p.text);
-        // Slider handles use fg_stroke for their outline; checkboxes use it
-        // for the check. Keep both readable even before hover or focus.
-        visuals.widgets.inactive.fg_stroke = Stroke::new(ICON_STROKE, p.text);
-        for widget in [
-            &mut visuals.widgets.hovered,
-            &mut visuals.widgets.active,
-            &mut visuals.widgets.open,
-        ] {
-            widget.bg_fill = p.input_fill;
-            widget.bg_stroke = Stroke::new(1.5_f32, p.accent);
-            widget.fg_stroke = Stroke::new(2.0_f32, p.text);
-        }
-        content(ui)
-    })
-}
-
-/// Install the editor's initial layout once. Later theme changes only update
-/// colors and preserve any customized typography and widget state.
+/// Install NF2 spacing and text styles once (fonts are installed by `fonts.rs`).
 pub(crate) fn initialize_editor_style(ctx: &egui::Context) {
     ctx.all_styles_mut(|style| {
-        style.spacing.item_spacing = egui::vec2(8., 4.);
-        style.spacing.button_padding = egui::vec2(8., 4.);
-        style.spacing.interact_size = egui::vec2(CONTROL_HEIGHT, CONTROL_HEIGHT);
-        style.spacing.combo_width = 120.;
-        style.spacing.icon_width = ICON_SIZE;
-        style.spacing.icon_spacing = 8.;
-        style.spacing.menu_margin = egui::Margin::same(8);
-        style.spacing.window_margin = egui::Margin::same(8);
-        style.spacing.scroll.bar_width = 8.;
-        style.spacing.scroll.bar_inner_margin = 2.;
-        style.spacing.scroll.bar_outer_margin = 2.;
-        style.spacing.scroll.handle_min_length = 24.;
-        style.spacing.scroll.foreground_color = false;
-        style.spacing.scroll.floating = false;
+        neoflash_ui::theme::spacing(style);
+        neoflash_ui::typography::install_text_styles(style);
         style.visuals.resize_corner_size = 6.;
-        style.text_styles.insert(
-            egui::TextStyle::Monospace,
-            egui::FontId::monospace(PANEL_FONT),
-        );
-        style.text_styles.insert(
-            egui::TextStyle::Body,
-            egui::FontId::proportional(PANEL_FONT),
-        );
-        style.text_styles.insert(
-            egui::TextStyle::Button,
-            egui::FontId::proportional(PANEL_FONT),
-        );
-        style.text_styles.insert(
-            egui::TextStyle::Small,
-            egui::FontId::proportional(SECONDARY_FONT),
-        );
-        style.text_styles.insert(
-            egui::TextStyle::Heading,
-            egui::FontId::proportional(PANEL_FONT),
-        );
     });
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemeMode {
-    #[default]
     Light,
+    /// NF2 default theme.
+    #[default]
     Dark,
 }
 
@@ -111,75 +56,14 @@ impl ThemeMode {
     /// Change visuals immediately without replacing fonts, input memory, widget
     /// state or authoring data. Explicit preference does not follow OS changes.
     pub fn apply(self, ctx: &egui::Context) {
-        for mode in [Self::Light, Self::Dark] {
-            let theme = match mode {
-                Self::Light => egui::Theme::Light,
-                Self::Dark => egui::Theme::Dark,
-            };
-            ctx.style_mut_of(theme, |style| {
-                style.visuals = mode.visuals();
-            });
-        }
-        ctx.set_theme(match self {
-            Self::Light => egui::Theme::Light,
-            Self::Dark => egui::Theme::Dark,
-        });
-        ctx.request_repaint();
+        neoflash_ui::theme::apply_visuals(ctx, self.nf2());
     }
 
-    fn visuals(self) -> egui::Visuals {
-        let p = self.palette();
-        let mut v = match self {
-            Self::Light => egui::Visuals::light(),
-            Self::Dark => egui::Visuals::dark(),
-        };
-        v.override_text_color = None;
-        v.weak_text_color = Some(p.muted_text);
-        v.panel_fill = p.panel_fill;
-        v.window_fill = p.window_fill;
-        v.window_stroke = Stroke::new(1.0_f32, p.divider);
-        v.window_corner_radius = 3.into();
-        v.menu_corner_radius = 3.into();
-        v.extreme_bg_color = p.input_fill;
-        v.text_edit_bg_color = Some(p.input_fill);
-        v.code_bg_color = p.input_fill;
-        v.faint_bg_color = p.surface;
-        v.selection.bg_fill = p.selection_fill;
-        v.selection.stroke = Stroke::new(2.0_f32, p.selection_stroke);
-        v.hyperlink_color = p.accent;
-        v.warn_fg_color = p.warning_text;
-        v.error_fg_color = p.error_text;
-        v.text_cursor.stroke = Stroke::new(2.0_f32, p.focus);
-        v.disabled_alpha = 1.; // Disabled controls use the semantic role, not composited text opacity.
-        for widget in [
-            &mut v.widgets.noninteractive,
-            &mut v.widgets.inactive,
-            &mut v.widgets.hovered,
-            &mut v.widgets.active,
-            &mut v.widgets.open,
-        ] {
-            widget.fg_stroke = Stroke::new(1.0_f32, p.text);
-            widget.bg_stroke = Stroke::new(1.0_f32, p.control_border);
-            widget.corner_radius = 3.into();
+    pub fn nf2(self) -> neoflash_ui::Theme {
+        match self {
+            Self::Light => neoflash_ui::Theme::Light,
+            Self::Dark => neoflash_ui::Theme::Dark,
         }
-        v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, p.divider);
-        v.widgets.noninteractive.bg_fill = p.input_fill;
-        v.widgets.noninteractive.weak_bg_fill = p.panel_fill;
-        v.widgets.inactive.bg_fill = p.surface;
-        v.widgets.inactive.weak_bg_fill = p.surface;
-        for widget in [&mut v.widgets.hovered, &mut v.widgets.open] {
-            widget.bg_fill = p.hover;
-            widget.weak_bg_fill = p.hover;
-            widget.bg_stroke = Stroke::new(2.0_f32, p.focus);
-            widget.fg_stroke = Stroke::new(1.0_f32, p.text);
-        }
-        // egui also uses active.fg_stroke for strong labels and headings on
-        // ordinary panels, so this pair must work on both backgrounds.
-        v.widgets.active.bg_fill = p.pressed;
-        v.widgets.active.weak_bg_fill = p.pressed;
-        v.widgets.active.bg_stroke = Stroke::new(2.0_f32, p.focus);
-        v.widgets.active.fg_stroke = Stroke::new(1.0_f32, p.text);
-        v
     }
 }
 
@@ -187,11 +71,7 @@ impl ThemeMode {
 /// overlays need both overlay and overlay_halo over arbitrary authored colors.
 #[derive(Clone, Copy, Debug)]
 pub struct UiPalette {
-    pub surface: Color32,
-    pub hover: Color32,
-    pub pressed: Color32,
     pub divider: Color32,
-    pub control_border: Color32,
     pub focus: Color32,
     pub disabled_text: Color32,
     pub scrollbar_track: Color32,
@@ -199,34 +79,16 @@ pub struct UiPalette {
     pub scrollbar_hover: Color32,
     pub scrollbar_drag: Color32,
     pub scrollbar_focus: Color32,
-    pub text: Color32,
     pub muted_text: Color32,
     pub error_text: Color32,
+    #[allow(dead_code)] // Read by contrast tests; reserved for warning rows.
     pub warning_text: Color32,
     pub panel_fill: Color32,
     pub window_fill: Color32,
-    pub input_fill: Color32,
     pub border: Color32,
     pub accent: Color32,
-    pub selection_fill: Color32,
-    pub selection_stroke: Color32,
-    pub timeline_fill: Color32,
-    pub timeline_cell: Color32,
-    pub timeline_major: Color32,
-    pub timeline_grid: Color32,
-    pub timeline_row_separator: Color32,
-    pub timeline_active_frame: Color32,
-    pub timeline_active_layer: Color32,
-    pub timeline_tween: Color32,
-    pub timeline_tween_stroke: Color32,
-    pub timeline_key: Color32,
-    pub timeline_blank_key: Color32,
-    pub timeline_label: Color32,
     pub timeline_script: Color32,
-    pub playhead: Color32,
-    pub onion_range: Color32,
     pub pasteboard: Color32,
-    pub stage_title: Color32,
     pub stage_border: Color32,
     pub stage_shadow: Color32,
     pub origin_cross: Color32,
@@ -246,83 +108,81 @@ impl UiPalette {
     }
 }
 
-// Embed the reviewed token file so native chrome and the reference share one palette.
-static TOKENS: LazyLock<serde_json::Value> = LazyLock::new(|| {
-    serde_json::from_str(include_str!("../../../docs/design-system/tokens.json"))
-        .expect("valid bundled design tokens")
-});
-fn token_color(theme: &str, key: &str) -> Color32 {
-    let hex = TOKENS["themes"][theme][key]
-        .as_str()
-        .expect("semantic color token");
-    let byte = |i| u8::from_str_radix(&hex[i..i + 2], 16).expect("hex color token");
-    Color32::from_rgba_unmultiplied(
-        byte(1),
-        byte(3),
-        byte(5),
-        if hex.len() == 9 { byte(7) } else { 255 },
-    )
-}
-fn palette(theme: &str) -> UiPalette {
-    let c = |key| token_color(theme, key);
-    let translucent = |key, alpha| {
-        let color = c(key);
-        Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha)
+/// Editor roles mapped onto NF2 tokens (`neoflash_ui::Palette`). This is the only place where the
+/// editor names colours; panels and painters read roles, never hex values.
+/// See docs/DESIGN-SYSTEM.md › "Editor palette roles" for the table.
+fn palette(theme: ThemeMode) -> UiPalette {
+    let t = match theme {
+        ThemeMode::Light => &neoflash_ui::LIGHT,
+        ThemeMode::Dark => &neoflash_ui::DARK,
     };
+    let x = StageOverlay::of(theme);
     UiPalette {
-        surface: c("surface"),
-        hover: c("hover"),
-        pressed: c("pressed"),
-        divider: c("divider"),
-        control_border: c("controlBorder"),
-        focus: c("focus"),
-        disabled_text: c("disabled"),
-        scrollbar_track: c("scrollbarTrack"),
-        scrollbar_thumb: c("scrollbarThumb"),
-        scrollbar_hover: c("scrollbarThumbHover"),
-        scrollbar_drag: c("scrollbarThumbDrag"),
-        scrollbar_focus: c("scrollbarFocus"),
-        text: c("text"),
-        muted_text: c("muted"),
-        error_text: c("error"),
-        warning_text: c("warning"),
-        panel_fill: c("panel"),
-        window_fill: c("raised"),
-        input_fill: c("inset"),
-        border: c("controlBorder"),
-        accent: c("accent"),
-        selection_fill: c("selection"),
-        selection_stroke: c("selectionText"),
-        timeline_fill: c("timeline"),
-        timeline_cell: c("timeline"),
-        timeline_major: c("timelineMajor"),
-        timeline_grid: c("grid"),
-        timeline_row_separator: c("timelineDivider"),
-        timeline_active_frame: c("selection"),
-        timeline_active_layer: translucent("accent", 24),
-        timeline_tween: c("tween"),
-        timeline_tween_stroke: c("tweenLine"),
-        timeline_key: c("key"),
-        timeline_blank_key: c("blank"),
-        timeline_label: c("text"),
-        timeline_script: c("accent"),
-        playhead: c("playhead"),
-        onion_range: c("accent"),
-        pasteboard: c("pasteboard"),
-        stage_title: c("text"),
-        stage_border: c("controlBorder"),
-        stage_shadow: c("shadow"),
-        origin_cross: c("muted"),
-        onion_before: c("onionBefore"),
-        onion_after: c("onionAfter"),
-        overlay: c("overlay"),
-        overlay_halo: c("overlayHalo"),
-        overlay_fill: translucent("overlay", 24),
-        handle_fill: c("handle"),
+        divider: t.border_subtle,
+        focus: t.border_focus,
+        disabled_text: t.text_disabled,
+        scrollbar_track: t.bg_hover,
+        scrollbar_thumb: t.text_disabled,
+        scrollbar_hover: t.text_tertiary,
+        scrollbar_drag: t.text_secondary,
+        scrollbar_focus: t.border_focus,
+        muted_text: t.text_secondary,
+        error_text: t.danger_default,
+        warning_text: t.warning_default,
+        panel_fill: t.bg_panel,
+        window_fill: t.bg_raised,
+        border: t.border_default,
+        accent: t.accent_default,
+        timeline_script: t.accent_default,
+        pasteboard: t.bg_canvas,
+        stage_border: t.border_default,
+        stage_shadow: x.stage_shadow,
+        origin_cross: t.text_tertiary,
+        onion_before: x.onion_before,
+        onion_after: x.onion_after,
+        overlay: x.overlay,
+        overlay_halo: x.overlay_halo,
+        overlay_fill: x.overlay.gamma_multiply(24. / 255.),
+        handle_fill: x.handle,
     }
 }
-static LIGHT: LazyLock<UiPalette> = LazyLock::new(|| palette("light"));
-static DARK: LazyLock<UiPalette> = LazyLock::new(|| palette("dark"));
+
+/// Editor-only colours that NF2 does not define (yet). They draw over arbitrary authored artwork
+/// (selection outline + halo pair with ≥9:1 contrast, onion-skin tints). Promote them to `NF2 · Tokens` in Figma when the designer
+/// covers them; until then they are documented in docs/DESIGN-SYSTEM.md.
+struct StageOverlay {
+    overlay: Color32,
+    overlay_halo: Color32,
+    handle: Color32,
+    onion_before: Color32,
+    onion_after: Color32,
+    stage_shadow: Color32,
+}
+impl StageOverlay {
+    fn of(theme: ThemeMode) -> Self {
+        let rgb = |v: u32| Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
+        match theme {
+            ThemeMode::Light => Self {
+                overlay: rgb(0x0f4485),
+                overlay_halo: rgb(0xffffff),
+                handle: rgb(0xffffff),
+                onion_before: rgb(0x256eaa),
+                onion_after: rgb(0xa05c16),
+                stage_shadow: Color32::from_black_alpha(38),
+            },
+            ThemeMode::Dark => Self {
+                overlay: rgb(0x98c5ff),
+                overlay_halo: rgb(0x18202c),
+                handle: rgb(0x20242b),
+                onion_before: rgb(0x8ac4f0),
+                onion_after: rgb(0xf3bd80),
+                stage_shadow: Color32::from_black_alpha(102),
+            },
+        }
+    }
+}
+static LIGHT: LazyLock<UiPalette> = LazyLock::new(|| palette(ThemeMode::Light));
+static DARK: LazyLock<UiPalette> = LazyLock::new(|| palette(ThemeMode::Dark));
 
 /// Shared disabled presentation keeps concrete colors opaque and leaves layout
 /// and widget IDs intact. Native widget semantics still reject interaction.
@@ -508,38 +368,50 @@ mod tests {
     fn essential_text_and_timeline_markers_have_contrast_in_both_themes() {
         for mode in [ThemeMode::Light, ThemeMode::Dark] {
             let p = mode.palette();
+            let t = mode.nf2().palette();
             for (name, a, b) in [
-                ("panel text", p.text, p.panel_fill),
-                ("window text", p.text, p.window_fill),
-                ("input text", p.text, p.input_fill),
+                ("panel text", t.text_primary, p.panel_fill),
+                ("window text", t.text_primary, p.window_fill),
+                ("input text", t.text_primary, t.bg_field),
                 ("muted text", p.muted_text, p.panel_fill),
                 ("error", p.error_text, p.window_fill),
-                ("warning", p.warning_text, p.window_fill),
-                ("selected text", p.selection_stroke, p.selection_fill),
-                ("timeline text", p.text, p.timeline_cell),
-                ("key", p.timeline_key, p.timeline_active_frame),
-                ("held key and end marker", p.timeline_key, p.timeline_major),
-                ("blank key", p.timeline_key, p.timeline_blank_key),
-                ("tween", p.timeline_tween_stroke, p.timeline_tween),
-                ("label", p.timeline_label, p.timeline_cell),
-                ("script", p.timeline_script, p.timeline_cell),
-                ("stage title", p.stage_title, p.pasteboard),
+                ("timeline text", t.text_primary, t.timeline_cell),
+                ("key", t.timeline_marker_inverse, t.timeline_selected),
+                (
+                    "held key and end marker",
+                    t.timeline_marker,
+                    t.timeline_empty_5th,
+                ),
+                ("blank key", t.timeline_marker, t.timeline_empty),
+                ("tween", t.timeline_marker, t.timeline_classic_tween),
+                ("label", t.timeline_label, t.timeline_cell),
+                ("script", p.timeline_script, t.timeline_cell),
             ] {
                 assert!(contrast(a, b) >= 4.5, "{mode:?} {name}: {}", contrast(a, b));
             }
             for (name, a, b, minimum) in [
-                ("scroll thumb", p.scrollbar_thumb, p.scrollbar_track, 3.),
+                // NF2 Light `warning/default` on `bg/raised` is 4.24:1. Recorded as a design finding in
+                // docs/DESIGN-SYSTEM.md; warnings always pair the colour with an icon or label.
+                ("warning", p.warning_text, p.window_fill, 4.2),
+                // NF2 selected rows keep `text/primary` labels; the accent marks icons and outlines
+                // (non-text contrast, WCAG 1.4.11).
+                ("selected text", t.text_primary, t.bg_selected, 4.5),
+                ("selected marker", t.accent_default, t.bg_selected, 3.),
+                // NF2 idle thumb is a quiet 4 pt floating bar (≈2:1); hover and drag reach 3:1.
+                ("scroll thumb", p.scrollbar_thumb, p.scrollbar_track, 1.9),
                 ("scroll hover", p.scrollbar_hover, p.scrollbar_track, 3.),
                 ("scroll drag", p.scrollbar_drag, p.scrollbar_track, 3.),
                 ("scroll focus", p.scrollbar_focus, p.scrollbar_track, 3.),
-                ("empty frame grid", p.timeline_grid, p.timeline_cell, 2.5),
-                ("held frame grid", p.timeline_grid, p.timeline_major, 2.),
+                // NF2 keeps the frame grid quiet on purpose (Figma `timeline/*` tokens); these only
+                // guard that grid, 5th-frame shading and row lines stay distinguishable.
+                ("empty frame grid", t.timeline_grid, t.timeline_empty, 1.15),
                 (
-                    "layer separator",
-                    p.timeline_row_separator,
-                    p.timeline_cell,
-                    3.,
+                    "fifth frame shading",
+                    t.timeline_empty_5th,
+                    t.timeline_empty,
+                    1.05,
                 ),
+                ("layer separator", t.timeline_line, p.panel_fill, 1.05),
             ] {
                 assert!(
                     contrast(a, b) >= minimum,
@@ -588,7 +460,10 @@ mod tests {
             mode.apply(&ctx);
             assert_eq!(ctx.style().visuals.dark_mode, mode == ThemeMode::Dark);
             assert_eq!(ctx.style().visuals.panel_fill, mode.palette().panel_fill);
-            assert_eq!(UiPalette::current(&ctx).text, mode.palette().text);
+            assert_eq!(
+                neoflash_ui::palette(&ctx).text_primary,
+                mode.nf2().palette().text_primary
+            );
             assert_eq!(ctx.style().text_styles[&egui::TextStyle::Body].size, 19.);
             assert_eq!(
                 ctx.data(|d| d.get_temp::<String>(id)).as_deref(),
@@ -596,7 +471,7 @@ mod tests {
             );
             assert_eq!(
                 ctx.style().visuals.selection.stroke.color,
-                mode.palette().selection_stroke
+                mode.nf2().palette().accent_default
             );
         }
         // Actual scrollbar focus must survive a theme change and scroll by

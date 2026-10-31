@@ -1,0 +1,14 @@
+{
+  "name": "NeoFlash Export",
+  "id": "neoflash-export-local",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["none"],
+    "devAllowedDomains": ["http://localhost:8765"],
+    "reasoning": "Sends exported files to the local receiver (tools/receiver.py) only."
+  }
+}

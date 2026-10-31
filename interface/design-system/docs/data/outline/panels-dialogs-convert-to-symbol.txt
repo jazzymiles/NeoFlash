@@ -1,0 +1,108 @@
+F Dialogs — Convert to Symbol 560×1550 [V gap 32]
+  F Dialog / Convert to Symbol 560×322 [V gap 0]
+    I NF2/Dialog Header 558×60 "Convert to Symbol"
+    F Body 558×260 [V gap 14]
+      F Name 510×52 [V gap 4]
+        T "Name"
+        I NF2/Field {Show prefix=false, Prefix=W, Label=Badge symbol, State=Focus} 512×32 "W" "Badge symbol"
+      F Row 510×52 [H gap 12]
+        F Type 196×52 [V gap 4]
+          T "Type"
+          I NF2/Select {Label=Movie clip, State=Default} 196×32 "Movie clip"
+        F Folder 196×52 [V gap 4]
+          T "Folder"
+          I NF2/Select {Label=Library root, State=Default} 196×32 "Library root"
+        F Registration 75×48 [V gap 4]
+          T "Registration"
+          F Row 75×28 [H gap 8]
+            I NF2/Registration Picker {Point=Center} 28×28
+            T "Centre"
+      T "Movie clips have their own timeline and can be scripted."
+      I NF2/Section Header {Label=Advanced, State=Collapsed} 510×32 "Advanced"
+      F Footer 510×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+        I NF2/Button {Icon=false, Label=Convert, Type=Primary, State=Default} 74×32 "Convert"
+  F Dialog / Convert to Symbol — Type menu 560×322 [V gap 0]
+    I NF2/Dialog Header 558×60 "Convert to Symbol"
+    F Body 558×260 [V gap 14]
+      F Name 510×52 [V gap 4]
+        T "Name"
+        I NF2/Field {Show prefix=false, Prefix=W, Label=Badge symbol, State=Focus} 512×32 "W" "Badge symbol"
+      F Row 510×52 [H gap 12]
+        F Type 196×52 [V gap 4]
+          T "Type"
+          I NF2/Select {Label=Movie clip, State=Default} 196×32 "Movie clip"
+        F Folder 196×52 [V gap 4]
+          T "Folder"
+          I NF2/Select {Label=Library root, State=Default} 196×32 "Library root"
+        F Registration 75×48 [V gap 4]
+          T "Registration"
+          F Row 75×28 [H gap 8]
+            I NF2/Registration Picker {Point=Center} 28×28
+            T "Centre"
+      T "Movie clips have their own timeline and can be scripted."
+      I NF2/Section Header {Label=Advanced, State=Collapsed} 510×32 "Advanced"
+      F Footer 510×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+        I NF2/Button {Icon=false, Label=Convert, Type=Primary, State=Default} 74×32 "Convert"
+    F Type menu 270×94 [V gap 0]
+      I NF2/Menu Item {Submenu=false, Shortcut=own timeline, Label=Movie clip, State=Checked} 260×28 "Movie clip" "own timeline"
+      I NF2/Menu Item {Submenu=false, Shortcut=up · over · down · hit, Label=Button, State=Hover} 260×28 "Button" "up · over · down · hit"
+      I NF2/Menu Item {Submenu=false, Shortcut=synced to parent, Label=Graphic, State=Default} 260×28 "Graphic" "synced to parent"
+  F Dialog / Convert to Symbol — Advanced 560×842 [V gap 0]
+    I NF2/Dialog Header 558×60 "Convert to Symbol"
+    F Body 558×780 [V gap 14]
+      F Name 510×52 [V gap 4]
+        T "Name"
+        I NF2/Field {Show prefix=false, Prefix=W, Label=Badge symbol, State=Focus} 512×32 "W" "Badge symbol"
+      F Row 510×52 [H gap 12]
+        F Type 196×52 [V gap 4]
+          T "Type"
+          I NF2/Select {Label=Movie clip, State=Default} 196×32 "Movie clip"
+        F Folder 196×52 [V gap 4]
+          T "Folder"
+          I NF2/Select {Label=Library root, State=Default} 196×32 "Library root"
+        F Registration 75×48 [V gap 4]
+          T "Registration"
+          F Row 75×28 [H gap 8]
+            I NF2/Registration Picker {Point=Center} 28×28
+            T "Centre"
+      T "Movie clips have their own timeline and can be scripted."
+      I NF2/Section Header {Label=Advanced, State=Expanded} 510×32 "Advanced"
+      F Advanced 510×506 [V gap 12]
+        I NF2/Switch {Label=Enable guides for 9-slice scaling, On=False} 237×20 "Enable guides for 9-slice scaling"
+        F ActionScript linkage 510×190 [V gap 8]
+          T "ActionScript linkage"
+          F Row 484×20 [H gap 8]
+            I NF2/Checkbox {Label=Export for ActionScript, Checked=True} 167×20 "Export for ActionScript"
+            I NF2/Checkbox {Label=Export in frame 1, Checked=True} 130×20 "Export in frame 1"
+          F Row 484×32 [H gap 8]
+            I NF2/Field {Show prefix=true, Prefix=Identifier, Label=badge_symbol, State=Default} 488×32 "Identifier" "badge_symbol"
+          F Row 484×32 [H gap 8]
+            I NF2/Field {Show prefix=true, Prefix=Class, Label=Badge, State=Default} 408×32 "Class" "Badge"
+            I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+            I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          F Row 484×32 [H gap 8]
+            I NF2/Field {Show prefix=true, Prefix=Base, Label=flash.display.MovieClip, State=Default} 408×32 "Base" "flash.display.MovieClip"
+            I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+            I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Runtime shared library 510×110 [V gap 8]
+          T "Runtime shared library"
+          F Row 484×20 [H gap 8]
+            I NF2/Checkbox {Label=Export for runtime sharing, Checked=False} 187×20 "Export for runtime sharing"
+            I NF2/Checkbox {Label=Import for runtime sharing, Checked=False} 187×20 "Import for runtime sharing"
+          F Row 484×32 [H gap 8]
+            I NF2/Field {Prefix=URL, Show prefix=true, Label=shared/ui.swf, State=Disabled} 488×32 "URL" "shared/ui.swf"
+        F Authortime sharing 510×150 [V gap 8]
+          T "Authortime sharing"
+          F Row 484×32 [H gap 8]
+            I NF2/Button {Icon=false, Label=Source file…, Type=Secondary, State=Default} 103×32 "Source file…"
+            T "File: —"
+          F Row 484×32 [H gap 8]
+            I NF2/Button {Icon=false, Label=Symbol…, Type=Secondary, State=Default} 84×32 "Symbol…"
+            T "Symbol: —"
+          F Row 484×20 [H gap 8]
+            I NF2/Checkbox {Label=Update automatically, Checked=False} 157×20 "Update automatically"
+      F Footer 510×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+        I NF2/Button {Icon=false, Label=Convert, Type=Primary, State=Default} 74×32 "Convert"

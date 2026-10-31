@@ -1,0 +1,136 @@
+F Motion — panels 1120×1120 [V gap 32]
+  F Panel / Motion editor 1120×520
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 1120×36 "Motion editor" "Timeline" "Panel"
+    F Frame 1120×28
+      T "PROPERTY"
+      T "VALUE"
+      T "EASE"
+      T "KEYFRAME"
+      T "1"
+      T "6"
+      T "11"
+      T "16"
+      T "21"
+      T "26"
+      T "31"
+      T "36"
+      T "41"
+      T "46"
+      T "51"
+      T "56"
+    I NF2/Section Header {Label=Basic motion, State=Expanded} 448×26 "Basic motion"
+    I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+    T "X"
+    I NF2/Field {Show prefix=false, Prefix=W, Label=412.0 px, State=Default} 90×24 "W" "412.0 px"
+    I NF2/Select {Label=Simple (slow), State=Default} 100×24 "Simple (slow)"
+    F Keyframe nav 58×24 [H gap 0]
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+      F Frame 10×10
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+    F Curve · X 1120×520
+    F Frame 10×10
+    F Frame 10×10
+    F Frame 10×10
+    F Frame 10×10
+    T "Y"
+    I NF2/Field {Show prefix=false, Prefix=W, Label=160.0 px, State=Default} 90×24 "W" "160.0 px"
+    I NF2/Select {Label=No ease, State=Default} 100×24 "No ease"
+    F Keyframe nav 58×24 [H gap 0]
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+      F Frame 10×10
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+    F Curve · Y 1120×520
+    F Frame 10×10
+    F Frame 10×10
+    F Frame 10×10
+    T "Rotation Z"
+    I NF2/Field {Show prefix=false, Prefix=W, Label=0°, State=Default} 90×24 "W" "0°"
+    I NF2/Select {Label=No ease, State=Default} 100×24 "No ease"
+    F Keyframe nav 58×24 [H gap 0]
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+      F Frame 10×10
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+    F Curve · Rotation Z 1120×520
+    F Frame 10×10
+    F Frame 10×10
+    I NF2/Section Header {Label=Transformation, State=Expanded} 448×26 "Transformation"
+    I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+    T "Scale X"
+    I NF2/Field {Show prefix=false, Prefix=W, Label=100 %, State=Default} 90×24 "W" "100 %"
+    I NF2/Select {Label=Bounce, State=Default} 100×24 "Bounce"
+    F Keyframe nav 58×24 [H gap 0]
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+      F Frame 10×10
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+    F Curve · Scale X 1120×520
+    F Frame 10×10
+    F Frame 10×10
+    F Frame 10×10
+    T "Scale Y"
+    I NF2/Field {Show prefix=false, Prefix=W, Label=100 %, State=Default} 90×24 "W" "100 %"
+    I NF2/Select {Label=Bounce, State=Default} 100×24 "Bounce"
+    F Keyframe nav 58×24 [H gap 0]
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+      F Frame 10×10
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+    F Curve · Scale Y 1120×520
+    F Frame 10×10
+    F Frame 10×10
+    F Frame 10×10
+    I NF2/Section Header {Label=Colour effect, State=Expanded} 448×26 "Colour effect"
+    I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+    T "Alpha"
+    I NF2/Field {Show prefix=false, Prefix=W, Label=100 %, State=Default} 90×24 "W" "100 %"
+    I NF2/Select {Label=No ease, State=Default} 100×24 "No ease"
+    F Keyframe nav 58×24 [H gap 0]
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+      F Frame 10×10
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+    F Curve · Alpha 1120×520
+    F Frame 10×10
+    F Frame 10×10
+    F Frame 10×10
+    I NF2/Section Header {Label=Filters, State=Expanded} 448×26 "Filters"
+    I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 24×24
+    T "30"
+    F Footer 934×28 [H gap 12]
+      T "Graph size"
+      I NF2/Slider 120×20
+      T "Expanded"
+      I NF2/Slider 120×20
+      I NF2/Stepper Field {Prefix=Frames, Label=60, State=Default} 120×28 "Frames" "60"
+      T "Click a curve to edit · ⌥-drag a keyframe to copy · ⇧ snaps to frames"
+  F Panel / Properties — Motion tween 320×568 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 318×36 "Properties" "Panel" "Panel"
+    F Body 318×530 [V gap 10]
+      F Row 294×48 [H gap 8]
+        F Type icon 48×48 [H gap 0]
+          I NF2 Icon/16/tween-motion 16×16
+        F Title 152×38 [V gap 2]
+          T "Motion tween"
+          T "Layer "hand" · frames 1–60"
+      I NF2/Section Header {Label=Ease, State=Expanded} 294×32 "Ease"
+      F Row 294×32 [H gap 8]
+        I NF2/Stepper Field {Prefix=Ease, Label=−40 (in), State=Default} 160×32 "Ease" "−40 (in)"
+        I NF2/Button {Icon=false, Label=Edit curve…, Type=Ghost, State=Default} 98×32 "Edit curve…"
+      I NF2/Section Header {Label=Rotation, State=Expanded} 294×32 "Rotation"
+      F Row 294×32 [H gap 8]
+        I NF2/Stepper Field {Prefix=Rotate, Label=1 ×, State=Default} 140×32 "Rotate" "1 ×"
+        I NF2/Select {Label=Direction: CW, State=Default} 148×32 "Direction: CW"
+      F Row 294×20 [H gap 8]
+        I NF2/Checkbox {Label=Orient to path, Checked=True} 112×20 "Orient to path"
+      I NF2/Section Header {Label=Path, State=Expanded} 294×32 "Path"
+      F Row 294×32 [H gap 8]
+        I NF2/Stepper Field {Prefix=X, Label=412.0, State=Default} 140×32 "X" "412.0"
+        I NF2/Stepper Field {Prefix=Y, Label=160.0, State=Default} 140×32 "Y" "160.0"
+      F Row 294×32 [H gap 8]
+        I NF2/Stepper Field {Prefix=W, Label=220.0, State=Default} 140×32 "W" "220.0"
+        I NF2/Stepper Field {Prefix=H, Label=120.0, State=Default} 140×32 "H" "120.0"
+      F Row 294×20 [H gap 8]
+        I NF2/Checkbox {Label=Show path, Checked=True} 92×20 "Show path"
+        I NF2/Checkbox {Label=Show frame dots, Checked=True} 131×20 "Show frame dots"
+      I NF2/Section Header {Label=Options, State=Expanded} 294×32 "Options"
+      F Row 294×20 [H gap 8]
+        I NF2/Checkbox {Label=Sync graphic symbols, Checked=True} 161×20 "Sync graphic symbols"
+      F Row 294×20 [H gap 8]
+        I NF2/Checkbox {Label=Snap to motion guide, Checked=False} 157×20 "Snap to motion guide"

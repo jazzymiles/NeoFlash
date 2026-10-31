@@ -5,6 +5,10 @@ use eframe::egui;
 use neoflash_core::{
     MAX_RESOURCE_BYTES, MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES, ResourceUnit, new_id,
 };
+use neoflash_ui::components::{self as nf, TreeItemType};
+use neoflash_ui::icons::i16;
+use neoflash_ui::tokens::{TextStyle, space};
+use neoflash_ui::typography::rich;
 use std::{io::Read, path::Path};
 
 #[derive(Default)]
@@ -55,16 +59,23 @@ impl Editor {
 
     pub(crate) fn resource_library(&mut self, ui: &mut egui::Ui) {
         let count = self.project.resources.len();
-        egui::CollapsingHeader::new(format!("Resource files ({count})"))
+        nf::SectionHeader::new(&format!("Resource files · {count}"))
             .id_salt("library-resources")
+            .default_open(false)
             .show(ui, |ui| {
                 self.resource_files_body(ui);
             });
     }
 
     fn resource_files_body(&mut self, ui: &mut egui::Ui) {
-        ui.small("Project data and media. Select an image to place it.");
-        if ui.button("Add resource files…").clicked()
+        let p = neoflash_ui::palette(ui.ctx());
+        let note = |ui: &mut egui::Ui, text: &str| {
+            ui.label(rich(text, TextStyle::Small).color(p.text_tertiary));
+        };
+        note(ui, "Project data and media. Select an image to place it.");
+        if ui
+            .add(nf::Button::new("Add resource files…").icon(i16::PLUS))
+            .clicked()
             && let Some(paths) = rfd::FileDialog::new().pick_files()
         {
             match self.import_resource_paths(&paths) {
@@ -80,32 +91,36 @@ impl Editor {
         {
             self.resource_panel = ResourcePanel::default();
         }
-        for unit in &self.project.resources {
-            let selected = self.resource_panel.selected.as_ref() == Some(&unit.id);
-            let response = ui
-                .add_sized(
-                    [ui.available_width(), crate::theme::CONTROL_HEIGHT],
-                    egui::Button::new(&unit.path)
-                        .truncate()
-                        .selected(selected)
-                        .frame(false)
-                        .sense(egui::Sense::click_and_drag()),
+        ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.y = 0.;
+            for unit in &self.project.resources {
+                let selected = self.resource_panel.selected.as_ref() == Some(&unit.id);
+                let row = crate::library::tree_row(
+                    ui,
+                    &unit.path,
+                    TreeItemType::Symbol(media_icon(&unit.media_type)),
+                    selected,
+                    0,
+                    "",
                 )
-                .on_hover_text(format!("{}\n{}", unit.path, unit.media_type));
-            if matches!(
-                unit.media_type.as_str(),
-                "image/png" | "image/jpeg" | "image/svg+xml"
-            ) {
-                crate::library::capture_row_drag(&mut self.library_panel, ui, &response, || {
-                    crate::library::LibraryDrag::Resource(unit.id.clone())
-                });
+                .row;
+                let response =
+                    nf::tooltip(row, &format!("{} · {}", unit.path, unit.media_type), None);
+                if is_placeable_image(&unit.media_type) {
+                    crate::library::capture_row_drag(
+                        &mut self.library_panel,
+                        ui,
+                        &response,
+                        || crate::library::LibraryDrag::Resource(unit.id.clone()),
+                    );
+                }
+                if response.clicked() {
+                    self.resource_panel.selected = Some(unit.id.clone());
+                    self.resource_panel.baseline = None;
+                    self.library_selected = None;
+                }
             }
-            if response.clicked() {
-                self.resource_panel.selected = Some(unit.id.clone());
-                self.resource_panel.baseline = None;
-                self.library_selected = None;
-            }
-        }
+        });
         let Some(index) = self
             .project
             .resources
@@ -113,7 +128,7 @@ impl Editor {
             .position(|unit| Some(&unit.id) == self.resource_panel.selected.as_ref())
         else {
             if self.project.resources.is_empty() {
-                ui.small("Text, data and media files");
+                note(ui, "Text, data and media files");
             }
             return;
         };
@@ -124,11 +139,9 @@ impl Editor {
             self.resource_panel.media_type = metadata.1.clone();
             self.resource_panel.baseline = Some(metadata);
         }
-        ui.small(format!("{} bytes", unit.byte_len()));
-        if matches!(
-            unit.media_type.as_str(),
-            "image/svg+xml" | "image/png" | "image/jpeg"
-        ) && ui.button("Place on Stage").clicked()
+        note(ui, &format!("{} bytes", unit.byte_len()));
+        if is_placeable_image(&unit.media_type)
+            && ui.add(nf::Button::new("Place on Stage")).clicked()
         {
             let id = unit.id.clone();
             if let Err(error) = self.place_graphic_resource(&id, None) {
@@ -136,20 +149,22 @@ impl Editor {
             }
             return;
         }
-        ui.label("Project path");
         ui.add(
-            egui::TextEdit::singleline(&mut self.resource_panel.path).desired_width(f32::INFINITY),
+            nf::TextField::new(&mut self.resource_panel.path, "Project path")
+                .prefix("Path")
+                .mono(),
         );
-        ui.label("Content type");
         ui.add(
-            egui::TextEdit::singleline(&mut self.resource_panel.media_type)
-                .desired_width(f32::INFINITY),
+            nf::TextField::new(&mut self.resource_panel.media_type, "Content type")
+                .prefix("Type")
+                .mono(),
         );
         ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = egui::Vec2::splat(space::S2);
             let changed = self.resource_panel.path != self.project.resources[index].path
                 || self.resource_panel.media_type != self.project.resources[index].media_type;
             if ui
-                .add_enabled_semantic(changed, egui::Button::new("Apply"))
+                .add_enabled_semantic(changed, nf::Button::primary("Apply"))
                 .clicked()
             {
                 self.finish_edits();
@@ -164,7 +179,7 @@ impl Editor {
                     Err(error) => self.message(format!("Resource details rejected: {error}")),
                 }
             }
-            if ui.button("Remove file").clicked() {
+            if ui.add(nf::Button::danger("Remove file")).clicked() {
                 self.finish_edits();
                 let mut candidate = self.project.clone();
                 candidate.resources.remove(index);
@@ -178,6 +193,29 @@ impl Editor {
                 }
             }
         });
+    }
+}
+
+fn is_placeable_image(media_type: &str) -> bool {
+    matches!(media_type, "image/png" | "image/jpeg" | "image/svg+xml")
+}
+
+/// Type icon of a resource row: bitmap, sound, font, script / text, other.
+fn media_icon(media_type: &str) -> neoflash_ui::Icon {
+    let top = media_type.split('/').next().unwrap_or("");
+    match top {
+        "image" => i16::BITMAP,
+        "audio" => i16::SOUND_FILE,
+        "video" => i16::VIDEO,
+        "font" => i16::FONT,
+        "text" => i16::FILE_CODE,
+        _ if media_type.contains("json")
+            || media_type.contains("javascript")
+            || media_type.contains("xml") =>
+        {
+            i16::FILE_CODE
+        }
+        _ => i16::PACKAGE,
     }
 }
 

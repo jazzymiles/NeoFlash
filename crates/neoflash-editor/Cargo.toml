@@ -6,6 +6,8 @@ license.workspace = true
 
 [dependencies]
 neoflash-core.workspace = true
+neoflash-ui = { path = "../neoflash-ui" }
+image.workspace = true
 neoflash-script.workspace = true
 neoflash-export.workspace = true
 serde_json.workspace = true

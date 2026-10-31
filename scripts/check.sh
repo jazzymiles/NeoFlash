@@ -3,6 +3,8 @@ set -euo pipefail
 project_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$project_root"
 export PATH="$HOME/.cargo/bin:$PATH"
+python3 scripts/design-lock.py
+python3 scripts/editor-api-index.py --check
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace

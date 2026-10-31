@@ -1,0 +1,114 @@
+F Scripting — panels 960×1001 [V gap 32]
+  F Panel / Debugger 960×335 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 958×36 "Debugger" "Output" "Panel"
+    F Toolbar 958×44 [H gap 2]
+      I NF2/Icon Button {Type=Primary, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Button {Icon=false, Label=Remove all breakpoints, Type=Ghost, State=Default} 169×32 "Remove all breakpoints"
+      F Spacer 276×2
+      I NF2/Badge {Label=Paused · orbit : Frame 1 · line 18 (breakpoint), Type=Warning} 283×22 "Paused · orbit : Frame 1 · line 18 (breakpoint)"
+    F Main 958×253 [H gap 0]
+      F Call stack 240×143 [V gap 0]
+        F Title 239×30 [H gap 6]
+          T "Call stack"
+        F Frame 239×28 [H gap 6]
+          I NF2 Icon/16/exec-arrow 16×16
+          T "orbit : Frame 1 · line 18"
+        F Frame 239×28 [H gap 6]
+          I NF2 Icon/16/callstack 16×16
+          T "Animator.play() · 204"
+        F Frame 239×28 [H gap 6]
+          I NF2 Icon/16/callstack 16×16
+          T "MotionBase.update() · 88"
+        F Frame 239×28 [H gap 6]
+          I NF2 Icon/16/callstack 16×16
+          T "[global code]"
+      F Variables 380×227 [V gap 0]
+        F Title 379×30 [H gap 6]
+          T "Variables"
+        I NF2/Table Row {Value=Value, Property=Name, Kind=Header} 379×28 "Name" "Value"
+        I NF2/Table Row {Value=MovieClip "orbit", Property=▸ this, Kind=Row} 379×28 "▸ this" "MovieClip "orbit""
+        I NF2/Table Row {Value=Animator, Property=▾ animator, Kind=Row} 379×28 "▾ animator" "Animator"
+        I NF2/Table Row {Value=orbit_mc → null, Property=    target, Kind=Row} 379×28 "    target" "orbit_mc → null"
+        I NF2/Table Row {Value=2.5  (changed), Property=    speed, Kind=Selected} 379×28 "    speed" "2.5  (changed)"
+        I NF2/Table Row {Value=XML (14 nodes), Property=▸ orbitXML, Kind=Row} 379×28 "▸ orbitXML" "XML (14 nodes)"
+        I NF2/Table Row {Value=1, Property=  frame, Kind=Row} 379×28 "  frame" "1"
+      F Watch 340×253 [V gap 0]
+        F Title 339×30 [H gap 6]
+          T "Watch"
+        I NF2/Table Row {Value=Value, Property=Expression, Kind=Header} 339×28 "Expression" "Value"
+        I NF2/Table Row {Value=Error: null reference, Property=orbit_mc.rotation, Kind=Row} 339×28 "orbit_mc.rotation" "Error: null reference"
+        I NF2/Table Row {Value=0.75, Property=animator.time, Kind=Row} 339×28 "animator.time" "0.75"
+        I NF2/Table Row {Value=, Property=+ add expression, Kind=Row} 339×28 "+ add expression"
+        F Breakpoints 339×110 [V gap 4]
+          T "Breakpoints"
+          F Row 188×20 [H gap 8]
+            I NF2 Icon/16/breakpoint 16×16
+            I NF2/Checkbox {Label=orbit : Frame 1 · line 18, Checked=True} 164×20 "orbit : Frame 1 · line 18"
+          F Row 151×20 [H gap 8]
+            I NF2 Icon/16/breakpoint 16×16
+            I NF2/Checkbox {Label=Orbit.as · line 42, Checked=True} 127×20 "Orbit.as · line 42"
+          F Row 141×20 [H gap 8]
+            I NF2 Icon/16/breakpoint 16×16
+            I NF2/Checkbox {Label=Main.as · line 7, Checked=False} 117×20 "Main.as · line 7"
+  F Scripting — panels 2 672×634 [H gap 32]
+    F Panel / Project 300×484 [V gap 0]
+      I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 298×36 "Project" "Panel" "Panel"
+      F Body 298×446 [V gap 4]
+        I NF2/Select {Label=Ideas in motion (project), State=Default} 282×32 "Ideas in motion (project)"
+        I NF2/Search {Label=Find file, State=Empty} 282×32 "Find file"
+        I NF2/Tree Item {Label=src, Type=Folder Open, Selected=False} 282×28 "src"
+        F Indent 282×28 [H gap 0]
+          I NF2/Tree Item {Label=com/neoflash, Type=Folder Open, Selected=False} 266×28 "com/neoflash"
+        F Indent 282×28 [H gap 0]
+          I NF2/Tree Item {Label=Orbit.as  ●, Type=Symbol, Selected=True} 250×28 "Orbit.as  ●"
+        F Indent 282×28 [H gap 0]
+          I NF2/Tree Item {Label=Planet.as, Type=Symbol, Selected=False} 250×28 "Planet.as"
+        F Indent 282×28 [H gap 0]
+          I NF2/Tree Item {Label=Main.as, Type=Symbol, Selected=False} 250×28 "Main.as"
+        I NF2/Tree Item {Label=assets, Type=Folder Closed, Selected=False} 282×28 "assets"
+        I NF2/Tree Item {Label=publish, Type=Folder Closed, Selected=False} 282×28 "publish"
+        I NF2/Tree Item {Label=ideas.nfl, Type=Symbol, Selected=False} 282×28 "ideas.nfl"
+        I NF2/Tree Item {Label=project.json, Type=Symbol, Selected=False} 282×28 "project.json"
+        F Row 282×32 [H gap 8]
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          F Spacer 82×2
+          I NF2/Button {Icon=false, Label=Publish, Type=Secondary, State=Default} 72×32 "Publish"
+        T "● unsaved changes · Orbit.as is linked to symbol "orbit""
+    F Panel / Code snippets 340×634 [V gap 0]
+      I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 338×36 "Code snippets" "Panel" "Panel"
+      F Body 338×596 [V gap 4]
+        I NF2/Search {Label=Search snippets, State=Empty} 322×32 "Search snippets"
+        I NF2/Tree Item {Label=Actions, Type=Folder Open, Selected=False} 322×28 "Actions"
+        F Indent 322×28 [H gap 0]
+          I NF2/Tree Item {Label=Click to go to frame and stop, Type=Symbol, Selected=False} 302×28 "Click to go to frame and stop"
+        F Indent 322×28 [H gap 0]
+          I NF2/Tree Item {Label=Click to go to web page, Type=Symbol, Selected=False} 302×28 "Click to go to web page"
+        F Indent 322×28 [H gap 0]
+          I NF2/Tree Item {Label=Drag and drop, Type=Symbol, Selected=False} 302×28 "Drag and drop"
+        I NF2/Tree Item {Label=Timeline navigation, Type=Folder Closed, Selected=False} 322×28 "Timeline navigation"
+        I NF2/Tree Item {Label=Animation, Type=Folder Open, Selected=False} 322×28 "Animation"
+        F Indent 322×28 [H gap 0]
+          I NF2/Tree Item {Label=Rotate continuously, Type=Symbol, Selected=True} 302×28 "Rotate continuously"
+        F Indent 322×28 [H gap 0]
+          I NF2/Tree Item {Label=Fade in movie clip, Type=Symbol, Selected=False} 302×28 "Fade in movie clip"
+        I NF2/Tree Item {Label=Load and unload, Type=Folder Closed, Selected=False} 322×28 "Load and unload"
+        I NF2/Tree Item {Label=Audio and video, Type=Folder Closed, Selected=False} 322×28 "Audio and video"
+        I NF2/Tree Item {Label=Event handlers, Type=Folder Closed, Selected=False} 322×28 "Event handlers"
+        F Preview 322×154 [V gap 6]
+          T "Rotates the selected movie clip every frame. Change 10 to adjust speed."
+          T "orbit_mc.addEventListener("
+          T "  Event.ENTER_FRAME, spin);"
+          T "function spin(e:Event):void {"
+          T "  orbit_mc.rotation += 10;"
+          T "}"
+        F Row 322×32 [H gap 8]
+          I NF2/Button {Icon=false, Label=Copy, Type=Ghost, State=Default} 57×32 "Copy"
+          F Spacer 123×2
+          I NF2/Button {Icon=false, Label=Insert at frame 1, Type=Primary, State=Default} 126×32 "Insert at frame 1"

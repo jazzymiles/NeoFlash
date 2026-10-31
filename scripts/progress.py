@@ -8,6 +8,7 @@ import hashlib
 from pathlib import Path
 import re
 import subprocess
+import sys
 
 from progress_catalog import load_catalog
 from progress_as3 import load_priorities
@@ -368,6 +369,12 @@ def main():
             raise ValueError("Methodology version must be a positive integer")
         categories, features = read_inventory(ROOT)
         reports(ROOT, categories, features, write=args.write_reports)
+        # The Actions editor toolbox/code hints follow the declaration statuses.
+        index = [sys.executable, str(ROOT / "scripts/editor-api-index.py")]
+        if args.write_reports and (ROOT / "docs/actionscript-reference/as3.json").exists():
+            subprocess.run(index, check=True)
+        else:
+            subprocess.run([*index, "--check"], check=True)
         if version >= 2:
             catalog = load_catalog(ROOT)
             product = [f for f in features if f["category"] not in ("as2", "as3")]

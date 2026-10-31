@@ -1,23 +1,25 @@
-mod accessibility;
 mod app;
 mod authoring_modify;
 mod authoring_symbols;
 mod authoring_tools;
 mod bitmaps;
 mod clipboard;
+mod code_tools;
 mod detached;
 mod dock_grid;
 mod fonts;
 mod graphic_import;
 mod layer_controls;
-mod library;
 mod native_screens;
+mod native_windows;
 mod paint_controls;
 mod panels;
+pub(crate) use panels::library;
 mod preview;
-mod properties;
 mod resources;
+mod script_api;
 mod selection;
+mod shell;
 mod sources;
 mod stage;
 mod stage_clipping;
@@ -58,13 +60,17 @@ fn native_build_includes_metal_backend() {
 }
 
 fn main() -> eframe::Result {
+    // `NEOFLASH_WINDOW=1920x1080` fixes the window size (screenshots, design comparison) and stops
+    // eframe from restoring the last window geometry.
+    let fixed = shell::fixed_window_size();
     eframe::run_native(
         "NeoFlash",
         eframe::NativeOptions {
             viewport: eframe::egui::ViewportBuilder::default()
                 .with_title("NeoFlash — Classic workspace")
-                .with_inner_size([1440.0, 960.0])
+                .with_inner_size(fixed.unwrap_or([1440.0, 960.0]))
                 .with_min_inner_size([1024.0, 720.0]),
+            persist_window: fixed.is_none(),
             ..Default::default()
         },
         Box::new(|cc| Ok(Box::new(app::Editor::new(cc)))),

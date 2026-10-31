@@ -1,0 +1,28 @@
+F Spacing and radius 640×234 [V gap 14]
+  T "Spacing and radius"
+  F Spacing 546×52 [H gap 16]
+    F Space 73×24 [V gap 6]
+      T "space/1 · 4"
+    F Space 73×28 [V gap 6]
+      T "space/2 · 8"
+    F Space 80×32 [V gap 6]
+      T "space/3 · 12"
+    F Space 80×36 [V gap 6]
+      T "space/4 · 16"
+    F Space 80×44 [V gap 6]
+      T "space/5 · 24"
+    F Space 80×52 [V gap 6]
+      T "space/6 · 32"
+  F Radius 399×76 [H gap 16]
+    F Radius 86×76 [V gap 6]
+      F Box 56×56
+      T "radius/sm · 4"
+    F Radius 86×76 [V gap 6]
+      F Box 56×56
+      T "radius/md · 6"
+    F Radius 86×76 [V gap 6]
+      F Box 56×56
+      T "radius/lg · 8"
+    F Radius 93×76 [V gap 6]
+      F Box 56×56
+      T "radius/xl · 12"

@@ -441,7 +441,7 @@ AS2 private retains compile-time access, including subclasses, while runtime pro
 
 ## Video and local streams
 
-AS3 Video is a display leaf with authored or runtime-created identity, dimensions and smoothing. Native Insert → Video placeholder and Properties use the existing document/undo path; native preview renders an explicit placeholder, while HTML5 consumes decoded frames through the shared painter. AS2 has no ordinary Video constructor: a named authored placement accepts attachVideo. Parent containers own mouse input because Video is not an InteractiveObject.
+AS3 Video is a display leaf with authored or runtime-created identity, dimensions and smoothing. Native File → Import → Video placeholder and Properties use the existing document/undo path; native preview renders an explicit placeholder, while HTML5 consumes decoded frames through the shared painter. AS2 has no ordinary Video constructor: a named authored placement accepts attachVideo. Parent containers own mouse input because Video is not an InteractiveObject.
 
 Local NetConnection.connect(null) and NetStream support embedded media and browser HTTP(S)/CORS sources, metadata/status callbacks, play, pause/resume, second-based seek, close and publication cleanup. AS2 has its own onStatus/onMetaData and pause(flag?) adapter. The shared audio gesture/mute controls apply to video; SoundTransform volume is copied and unsupported pan/matrix behavior diagnoses. Browser codecs determine playback. The original example uses H.264 baseline/yuv420p and silent AAC.
 

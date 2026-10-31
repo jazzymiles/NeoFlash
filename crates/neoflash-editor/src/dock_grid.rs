@@ -13,6 +13,8 @@ use eframe::egui;
 const HEADER: f32 = crate::theme::HEADER_HEIGHT;
 const SPLITTER: f32 = 6.;
 const AREA_GRIP: f32 = 6.;
+/// Drag strip above the docked tools rail (the rail itself has no header in NF2).
+const TOOLS_GRIP: f32 = 14.;
 const MIN_STAGE_HEIGHT: f32 = 240.;
 const MIN_STAGE_WIDTH: f32 = 320.;
 
@@ -102,16 +104,16 @@ pub(crate) fn edge_targets(root: egui::Rect, zoom: f32) -> [(DockEdge, egui::Rec
 impl Editor {
     pub(crate) fn dock_grid(&mut self, ctx: &egui::Context) {
         let mut content = ctx.viewport_rect();
-        content.min.y += 32.;
+        content.min.y += neoflash_ui::metrics::TOP_BAR;
+        content.max.y -= neoflash_ui::metrics::STATUS_BAR;
         self.register_dock_viewport(ctx, DockSurface::Main, content);
         self.continue_panel_drag(ctx);
-        // Side columns span alongside the bottom editors so a Library preview
-        // and Properties remain usable together on smaller windows.
+        // NF2: the bottom dock spans the full window width; tools rail and inspector sit above it.
         for edge in [
             DockEdge::Top,
+            DockEdge::Bottom,
             DockEdge::Left,
             DockEdge::Right,
-            DockEdge::Bottom,
         ] {
             self.dock_edge(ctx, edge);
         }
@@ -262,6 +264,36 @@ impl Editor {
         };
         let space = (length - SPLITTER * groups.len().saturating_sub(1) as f32).max(1.);
         let weight: f32 = groups.iter().map(|g| g.weight).sum();
+        // Proportional split, but a stacked group never shrinks below its panel's working minimum
+        // (e.g. Library keeps search, three rows and its footer) while the others can give space.
+        let mut extents: Vec<f32> = groups.iter().map(|g| space * g.weight / weight).collect();
+        if vertical {
+            let minimums: Vec<f32> = groups
+                .iter()
+                .map(|g| g.active.min_stacked_height())
+                .collect();
+            for i in 0..extents.len() {
+                let lack = minimums[i] - extents[i];
+                if lack <= 0. {
+                    continue;
+                }
+                let spare: f32 = (0..extents.len())
+                    .filter(|j| *j != i)
+                    .map(|j| (extents[j] - minimums[j]).max(0.))
+                    .sum();
+                let take = lack.min(spare);
+                if take <= 0. {
+                    continue;
+                }
+                for j in 0..extents.len() {
+                    if j != i {
+                        let give = (extents[j] - minimums[j]).max(0.) / spare * take;
+                        extents[j] -= give;
+                    }
+                }
+                extents[i] += take;
+            }
+        }
         let mut cursor = if vertical { rect.top() } else { rect.left() };
         for (index, group) in groups.iter().enumerate() {
             let end = if index + 1 == groups.len() {
@@ -271,7 +303,7 @@ impl Editor {
                     rect.right()
                 }
             } else {
-                cursor + space * group.weight / weight
+                cursor + extents[index]
             };
             let group_rect = if vertical {
                 egui::Rect::from_min_max(
@@ -302,18 +334,16 @@ impl Editor {
                     ui.id().with(("dock-split", group.id, next.id)),
                     egui::Sense::drag(),
                 );
-                ui.painter().rect_filled(
+                // NF2 Splitter: panel surface with a 1 px separator, accent grip while hovered/dragged.
+                ui.painter()
+                    .rect_filled(separator, 0., neoflash_ui::palette(ui.ctx()).bg_panel);
+                neoflash_ui::components::surface::splitter(
+                    ui.painter(),
+                    ui.ctx(),
                     separator,
-                    0.,
-                    ui.visuals().widgets.noninteractive.bg_stroke.color,
+                    !vertical,
+                    &response,
                 );
-                if response.hovered() || response.dragged() {
-                    ui.ctx().set_cursor_icon(if vertical {
-                        egui::CursorIcon::ResizeVertical
-                    } else {
-                        egui::CursorIcon::ResizeHorizontal
-                    });
-                }
                 if response.dragged() {
                     let delta = ui.input(|i| {
                         if vertical {
@@ -458,34 +488,17 @@ impl Editor {
                 egui::CursorIcon::ResizeVertical
             });
         }
-        let visuals = ui.visuals();
-        let fill = if active {
-            visuals.selection.bg_fill.gamma_multiply(0.35)
-        } else {
-            visuals.widgets.noninteractive.bg_fill
-        };
-        ui.painter().rect_filled(grip, 0., fill);
-        let stroke = egui::Stroke::new(
-            1.0_f32,
-            if active {
-                visuals.text_color()
-            } else {
-                visuals.weak_text_color()
-            },
+        // NF2 Splitter between a dock and the canvas: 1 px separator, accent grip while active.
+        let p = neoflash_ui::palette(ui.ctx());
+        ui.painter().rect_filled(grip, 0., p.bg_panel);
+        let _ = active;
+        neoflash_ui::components::surface::splitter(
+            ui.painter(),
+            ui.ctx(),
+            grip,
+            edge.vertical(),
+            &response,
         );
-        if edge.vertical() {
-            ui.painter().vline(
-                grip.center().x,
-                grip.center().y - 15. ..=grip.center().y + 15.,
-                stroke,
-            );
-        } else {
-            ui.painter().hline(
-                grip.center().x - 15. ..=grip.center().x + 15.,
-                grip.center().y,
-                stroke,
-            );
-        }
         response.on_hover_text(if edge.vertical() {
             "Drag to change panel width"
         } else {
@@ -501,15 +514,26 @@ impl Editor {
         group: &DockGroup,
         rect: egui::Rect,
     ) {
+        // NF2: horizontal docks use `Dock Tab` (40, icon + label); side columns use `Panel Tab` (36).
+        // Side column with one panel = `Panel Header` (40, Title text, ghost ⋯); several panels =
+        // `Panel Tab`s (36). The docked tools rail only gets a slim drag strip, like the Figma rail.
+        let wide = matches!(edge, DockEdge::Top | DockEdge::Bottom);
+        let single = !wide && group.tabs.len() == 1;
+        let tools_only = group.tabs == [PanelId::Tools];
+        let header_h = if tools_only {
+            TOOLS_GRIP
+        } else if wide {
+            neoflash_ui::metrics::DOCK_TAB
+        } else if single {
+            neoflash_ui::metrics::PANEL_HEADER
+        } else {
+            HEADER
+        };
         let header = egui::Rect::from_min_max(
             rect.min,
-            egui::pos2(rect.right(), (rect.top() + HEADER).min(rect.bottom())),
+            egui::pos2(rect.right(), (rect.top() + header_h).min(rect.bottom())),
         );
-        let padding = if group.active == PanelId::Tools {
-            2.
-        } else {
-            crate::theme::PANEL_PADDING
-        };
+        let padding = group.active.body_padding();
         let body = egui::Rect::from_min_max(egui::pos2(rect.left(), header.bottom()), rect.max)
             .shrink(padding);
         let ctx = parent.ctx().clone();
@@ -530,9 +554,10 @@ impl Editor {
             header: global(header),
             tabs: Vec::new(),
         };
+        // Figma dock tabs start 8 pt in (first label at 24 pt with the 16 pt tab padding).
         let tabs_rect = egui::Rect::from_min_max(
-            header.min + egui::vec2(12., 0.),
-            header.max - egui::vec2(24., 0.),
+            header.min + egui::vec2(8., 0.),
+            header.max - egui::vec2(36., 0.),
         );
         let mut header_ui = parent.new_child(
             egui::UiBuilder::new()
@@ -544,9 +569,13 @@ impl Editor {
         if self.symbol_conversion.is_some() {
             header_ui.disable_semantic();
         }
-        header_ui
-            .painter()
-            .rect_filled(header, 0., header_ui.visuals().faint_bg_color);
+        let nf = neoflash_ui::palette(&ctx);
+        header_ui.painter().rect_filled(header, 0., nf.bg_panel);
+        header_ui.painter().hline(
+            header.x_range(),
+            header.bottom() - 0.5,
+            egui::Stroke::new(1.0_f32, nf.border_subtle),
+        );
         egui::ScrollArea::horizontal()
             .id_salt(("dock-tab-scroll", surface, group.id))
             .auto_shrink([false, false])
@@ -556,61 +585,75 @@ impl Editor {
                 // ui.horizontal starts with interact_size.y (24), centering its
                 // child two points down in this 28-point header. A 28-point tab
                 // then overflows the header and clips its active marker.
-                let row_size = egui::vec2(ui.available_width(), HEADER);
+                let row_size = egui::vec2(ui.available_width(), header_h);
                 ui.allocate_ui_with_layout(
                     row_size,
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        ui.spacing_mut().item_spacing.x = 4.;
+                        ui.spacing_mut().item_spacing.x = 0.;
                         for panel in &group.tabs {
                             let active = group.active == *panel;
-                            let palette = crate::theme::UiPalette::current(ui.ctx());
-                            let text =
-                                egui::RichText::new(panel.title()).size(crate::theme::PANEL_FONT);
-                            let galley = egui::WidgetText::from(text).into_galley(
-                                ui,
-                                Some(egui::TextWrapMode::Extend),
-                                f32::INFINITY,
-                                egui::TextStyle::Button,
-                            );
+                            let style = if wide {
+                                neoflash_ui::TextStyle::Body
+                            } else if single {
+                                neoflash_ui::TextStyle::Title
+                            } else {
+                                neoflash_ui::TextStyle::SmallStrong
+                            };
+                            let label_w = ui.fonts_mut(|f| {
+                                f.layout_no_wrap(
+                                    panel.title().into(),
+                                    neoflash_ui::typography::font(style),
+                                    nf.text_primary,
+                                )
+                                .size()
+                                .x
+                            });
+                            let pad = if wide { 16. } else { 12. };
+                            let icon_w = if wide { 16. + 8. } else { 0. };
                             let (tab_rect, response) = ui.allocate_exact_size(
-                                egui::vec2(galley.size().x + 16., HEADER),
+                                egui::vec2(label_w + icon_w + 2. * pad, header_h),
                                 egui::Sense::click_and_drag(),
                             );
                             let visible_rect =
                                 tab_rect.intersect(tabs_rect).intersect(ui.clip_rect());
                             if visible_rect.is_positive() {
                                 target.tabs.push((*panel, global(visible_rect)));
-                                if response.is_pointer_button_down_on() || response.hovered() {
-                                    ui.painter().rect_filled(
-                                        tab_rect,
-                                        0.,
-                                        if response.is_pointer_button_down_on() {
-                                            palette.pressed
-                                        } else {
-                                            palette.hover
-                                        },
+                                let hovered = !single
+                                    && (response.hovered() || response.is_pointer_button_down_on());
+                                if hovered && !active {
+                                    ui.painter().rect_filled(tab_rect, 0., nf.bg_hover);
+                                }
+                                let fg = if active || hovered {
+                                    nf.text_primary
+                                } else {
+                                    nf.text_secondary
+                                };
+                                let mut x = tab_rect.left() + pad;
+                                if wide {
+                                    let icon_rect = egui::Rect::from_center_size(
+                                        egui::pos2(x + 8., tab_rect.center().y),
+                                        egui::vec2(16., 16.),
+                                    );
+                                    neoflash_ui::icons::paint(
+                                        ui.painter(),
+                                        ui.ctx(),
+                                        icon_rect,
+                                        panel.icon(),
+                                        if active { nf.accent_default } else { fg },
+                                    );
+                                    x += icon_w;
+                                }
+                                if !tools_only {
+                                    ui.painter().text(
+                                        egui::pos2(x, tab_rect.center().y),
+                                        egui::Align2::LEFT_CENTER,
+                                        panel.title(),
+                                        neoflash_ui::typography::font(style),
+                                        fg,
                                     );
                                 }
-                                ui.painter().galley_with_override_text_color(
-                                    egui::pos2(
-                                        tab_rect.left() + 8.,
-                                        tab_rect.center().y - galley.size().y / 2.,
-                                    ),
-                                    galley,
-                                    if active {
-                                        palette.selection_stroke
-                                    } else {
-                                        palette.text
-                                    },
-                                );
-                                if active {
-                                    ui.painter().rect_stroke(
-                                        visible_rect.shrink(0.5),
-                                        0.,
-                                        egui::Stroke::new(1.0_f32, palette.selection_stroke),
-                                        egui::StrokeKind::Inside,
-                                    );
+                                if active && !single && !tools_only {
                                     // Keep the marker inside the tab's clip rect, not below it.
                                     ui.painter().rect_filled(
                                         egui::Rect::from_min_max(
@@ -621,16 +664,11 @@ impl Editor {
                                             visible_rect.max,
                                         ),
                                         0.,
-                                        palette.accent,
+                                        nf.accent_default,
                                     );
                                 }
-                                if response.has_focus() {
-                                    ui.painter().rect_stroke(
-                                        tab_rect.shrink(1.),
-                                        3.,
-                                        egui::Stroke::new(2.0_f32, palette.focus),
-                                        egui::StrokeKind::Inside,
-                                    );
+                                if neoflash_ui::theme::keyboard_focus(ui, &response) {
+                                    neoflash_ui::theme::focus_ring(ui, tab_rect.shrink(3.), 4.);
                                 }
                             }
                             response.widget_info(|| {
@@ -709,20 +747,33 @@ impl Editor {
             grip_ui.disable_semantic();
         }
         let response = grip_ui.interact(grip, grip_ui.id(), egui::Sense::click_and_drag());
-        for y in [-4., 0., 4.] {
-            grip_ui.painter().circle_filled(
-                grip.center() + egui::vec2(0., y),
-                1.,
-                parent.visuals().weak_text_color(),
+        // NF2 headers show no permanent grip; it appears on hover (the whole blank header drags too).
+        if response.hovered() || response.dragged() {
+            for y in [-4., 0., 4.] {
+                grip_ui.painter().circle_filled(
+                    grip.center() + egui::vec2(0., y),
+                    1.,
+                    nf.text_tertiary,
+                );
+            }
+        }
+        if tools_only {
+            neoflash_ui::icons::paint(
+                parent.painter(),
+                &ctx,
+                egui::Rect::from_center_size(header.center(), egui::vec2(16., 16.)),
+                neoflash_ui::icons::i16::GRIP_H,
+                nf.text_tertiary,
             );
         }
         self.panel_group_drag_handle(&grip_ui, group.active, (surface, edge, group.id), &response);
         response
             .on_hover_text("Drag panel group")
             .context_menu(|ui| self.dock_header_menu(ui, group.active, surface, &clipboard_target));
-        let menu_rect = egui::Rect::from_min_max(
-            egui::pos2(header.right() - 23., header.top() + 1.),
-            header.max - egui::vec2(1., 1.),
+        let menu_side = if tools_only { 0. } else { 28. };
+        let menu_rect = egui::Rect::from_center_size(
+            egui::pos2(header.right() - 6. - menu_side / 2., header.center().y),
+            egui::vec2(menu_side, menu_side.min(header.height())),
         );
         let mut menu_ui = parent.new_child(
             egui::UiBuilder::new()
@@ -733,12 +784,18 @@ impl Editor {
         if self.symbol_conversion.is_some() {
             menu_ui.disable_semantic();
         }
-        menu_ui.spacing_mut().button_padding = egui::vec2(3., 0.);
-        menu_ui
-            .menu_button("...", |ui| {
+        if !tools_only {
+            let more = menu_ui.add(
+                neoflash_ui::components::IconButton::new(
+                    neoflash_ui::icons::i16::MORE,
+                    "Panel commands and tabs",
+                )
+                .side(menu_side),
+            );
+            neoflash_ui::components::popup_below(&more, 240., |ui| {
                 crate::ui_icons::menu_contents(ui, 240., |ui| {
                     if group.tabs.len() > 1 {
-                        ui.label(egui::RichText::new("Panels in this group").small());
+                        neoflash_ui::components::menu_section(ui, "Panels in this group");
                         for panel in &group.tabs {
                             let mut active = group.active == *panel;
                             if crate::ui_icons::menu_toggle(ui, &mut active, panel.title(), "")
@@ -752,14 +809,15 @@ impl Editor {
                     }
                     self.dock_header_commands(ui, group.active, surface, &clipboard_target)
                 })
-            })
-            .response
-            .on_hover_text("Panel commands and tabs");
-        parent.painter().hline(
-            header.x_range(),
-            header.bottom(),
-            parent.visuals().widgets.noninteractive.bg_stroke,
-        );
+            });
+        }
+        if !tools_only {
+            parent.painter().hline(
+                header.x_range(),
+                header.bottom() - 0.5,
+                egui::Stroke::new(1.0_f32, nf.border_subtle),
+            );
+        }
         self.detached.dock_groups.push(target);
         // A tab drag may have moved this group during the header callback.
         // Its new owner renders it on the next frame, never a second copy here.
@@ -1049,6 +1107,10 @@ impl Editor {
         surface: DockSurface,
         target: &crate::clipboard::ClipboardTarget,
     ) {
+        if panel == PanelId::Color {
+            self.color_panel_menu(ui);
+            ui.separator();
+        }
         if let DockSurface::Floating(window) = surface {
             self.floating_panel_commands(ui, window, target);
         }

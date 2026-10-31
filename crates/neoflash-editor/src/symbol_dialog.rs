@@ -3,6 +3,15 @@ use crate::theme::DesignUi as _;
 use crate::{app::Editor, selection::Selection, stage};
 use eframe::egui::{self, Pos2, Rect};
 use neoflash_core::*;
+use neoflash_ui::{
+    TextStyle,
+    components::{
+        Button, Checkbox, DialogHeader, MenuItem, RegistrationPicker, RegistrationPoint,
+        SectionHeader, Select, Surface, TextField, surface::dialog_footer,
+    },
+    tokens::space,
+    typography::rich,
+};
 
 #[derive(Clone)]
 pub(crate) struct SymbolConversion {
@@ -144,53 +153,95 @@ impl Editor {
         };
         let mut accept = false;
         let mut cancel = false;
-        let response = egui::Modal::new(egui::Id::new("convert-to-symbol")).show(ctx, |ui| {
-            ui.set_width(440.);
-            ui.strong(if draft.new_symbol { "Create New Symbol" } else { "Convert to Symbol" });
-            ui.separator();
-            let name = crate::paint_controls::text_row(ui, "Name", &mut draft.name);
-            if std::mem::take(&mut draft.focus_name) {
-                name.request_focus();
-                if let Some(mut state) = egui::text_edit::TextEditState::load(ctx, name.id) {
-                    state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
-                        egui::text::CCursor::new(0), egui::text::CCursor::new(draft.name.chars().count()),
-                    )));
-                    state.store(ctx, name.id);
+        let p = neoflash_ui::palette(ctx);
+        let response = egui::Modal::new(egui::Id::new("convert-to-symbol"))
+            .frame(Surface::Dialog.frame(ctx))
+            .backdrop_color(p.overlay)
+            .show(ctx, |ui| {
+            ui.set_width(560.);
+            let title = if draft.new_symbol { "Create New Symbol" } else { "Convert to Symbol" };
+            cancel |= DialogHeader { title }.show(ui);
+            egui::Frame::new()
+                .inner_margin(egui::Margin { left: space::S5 as i8, right: space::S5 as i8, top: 0, bottom: space::S3 as i8 })
+                .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = space::S3;
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = space::S1;
+                field_caption(ui, "Name");
+                let name = ui.add(TextField::new(&mut draft.name, "Name"));
+                let edit_id = TextField::edit_id(name.id);
+                if std::mem::take(&mut draft.focus_name) {
+                    ctx.memory_mut(|memory| memory.request_focus(edit_id));
+                    if let Some(mut state) = egui::text_edit::TextEditState::load(ctx, edit_id) {
+                        state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+                            egui::text::CCursor::new(0), egui::text::CCursor::new(draft.name.chars().count()),
+                        )));
+                        state.store(ctx, edit_id);
+                    }
                 }
-            }
-            crate::paint_controls::property_row(ui, "Type", |ui| {
-                egui::ComboBox::from_id_salt("symbol-kind").width(ui.available_width()).selected_text(kind_name(draft.kind)).show_ui(ui, |ui| {
-                    for kind in [SymbolKind::MovieClip, SymbolKind::Graphic, SymbolKind::Button] { ui.selectable_value(&mut draft.kind, kind, kind_name(kind)); }
+            });
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = space::S3;
+                let column = (ui.available_width() - 2. * space::S3 - 110.) / 2.;
+                ui.allocate_ui_with_layout(egui::vec2(column, 52.), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.spacing_mut().item_spacing.y = space::S1;
+                    field_caption(ui, "Type");
+                    Select::new("symbol-kind", kind_label(draft.kind)).width(column).show(ui, |ui| {
+                        for kind in [SymbolKind::MovieClip, SymbolKind::Button, SymbolKind::Graphic] {
+                            if ui.add(MenuItem::new(kind_label(kind)).shortcut(kind_hint(kind)).checked(draft.kind == kind)).clicked() {
+                                draft.kind = kind;
+                            }
+                        }
+                    });
+                });
+                ui.allocate_ui_with_layout(egui::vec2(column, 52.), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.spacing_mut().item_spacing.y = space::S1;
+                    field_caption(ui, "Folder");
+                    crate::library::folder_picker(ui, "symbol-folder", &mut draft.folder, &self.project.library_folder_paths(), None);
+                });
+                ui.allocate_ui_with_layout(egui::vec2(110., 52.), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.spacing_mut().item_spacing.y = space::S1;
+                    field_caption(ui, "Registration");
+                    ui.add_enabled_ui_semantic(!draft.new_symbol, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = space::S2;
+                            let mut point = RegistrationPoint::ALL[draft.registration.min(8)];
+                            if ui.add(RegistrationPicker { point: &mut point }).changed() {
+                                draft.registration = point.index();
+                            }
+                            ui.label(rich(point.label(), TextStyle::Body).color(if ui.is_enabled() { p.text_secondary } else { p.text_disabled }));
+                        });
+                    })
+                    .response
+                    .on_disabled_hover_text("An empty symbol has no artwork bounds; its origin starts at 0, 0.");
                 });
             });
-            crate::paint_controls::property_row(ui, "Folder", |ui| {
-                crate::library::folder_picker(ui, "symbol-folder", &mut draft.folder, &self.project.library_folder_paths(), None);
-            });
-            crate::paint_controls::property_row(ui, "Registration", |ui| {
-                ui.add_enabled_ui_semantic(!draft.new_symbol, |ui| registration_selector(ui, &mut draft.registration))
-                    .response.on_disabled_hover_text("An empty symbol has no artwork bounds; its origin starts at 0, 0.");
-            });
-            ui.small(match draft.kind {
-                SymbolKind::MovieClip => "Movie Clips have an independent timeline.",
+            crate::panels::properties::hint(ui, match draft.kind {
+                SymbolKind::MovieClip => "Movie clips have an independent timeline and can be scripted.",
                 SymbolKind::Graphic => "Graphics follow the parent timeline in loop mode.",
                 SymbolKind::Button => "Buttons have Up, Over, Down and Hit frames. Add keyframes to customize each state.",
             });
-            egui::CollapsingHeader::new("ActionScript linkage").default_open(false).show(ui, |ui| {
+            SectionHeader::new("Advanced").id_salt("symbol-advanced").default_open(false).show(ui, |ui| {
                 ui.add_enabled_ui_semantic(draft.kind != SymbolKind::Graphic, |ui| {
-                    ui.checkbox(&mut draft.export_enabled, "Export for ActionScript");
+                    ui.spacing_mut().item_spacing.y = space::S2;
+                    ui.label(rich("ActionScript linkage", TextStyle::Overline).color(if ui.is_enabled() { p.text_secondary } else { p.text_disabled }));
+                    ui.add(Checkbox::new(&mut draft.export_enabled, "Export for ActionScript"));
                     ui.add_enabled_ui_semantic(draft.export_enabled, |ui| {
                         crate::paint_controls::text_row(ui, "Identifier", &mut draft.linkage_id);
                         crate::paint_controls::text_row(ui, "Class", &mut draft.class_name).on_hover_text("Optional existing class, such as app.Card");
                     });
-                    ui.small("Define the optional class and its base class in Project files.");
+                    crate::panels::properties::hint(ui, "Define the optional class and its base class in Project files.");
                 }).response.on_disabled_hover_text("Graphic symbols follow their parent timeline and have no runtime export linkage.");
             });
-            ui.separator();
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                accept = ui.add_enabled_semantic(!draft.name.trim().is_empty(), egui::Button::new(if draft.new_symbol { "Create" } else { "Convert" }).min_size(egui::vec2(80., crate::theme::CONTROL_HEIGHT))).clicked();
-                cancel = ui.add_sized([80., crate::theme::CONTROL_HEIGHT], egui::Button::new("Cancel")).clicked();
+            if let Some(error) = &draft.error {
+                ui.add(egui::Label::new(rich(error, TextStyle::Body).color(p.danger_default)).wrap());
+            }
+                });
+            dialog_footer(ui, |_| {}, |ui| {
+                let label = if draft.new_symbol { "Create" } else { "Convert" };
+                accept |= ui.add_enabled_semantic(!draft.name.trim().is_empty(), Button::primary(label).shortcut("↵")).clicked();
+                cancel |= ui.add(Button::new("Cancel").shortcut("Esc")).clicked();
             });
-            if let Some(error) = &draft.error { ui.colored_label(ui.visuals().error_fg_color, error); }
             if ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
                 accept = !draft.name.trim().is_empty();
             }
@@ -463,79 +514,27 @@ fn symbol_from_draft(
     })
 }
 
-fn registration_selector(ui: &mut egui::Ui, registration: &mut usize) {
-    // Reserve the complete matrix as one widget; nested Grid defaults must not
-    // stretch its columns or let later form rows overlap the lower cells.
-    let (matrix, _) = ui.allocate_exact_size(
-        egui::Vec2::splat(crate::theme::CONTROL_HEIGHT * 3. + 8.),
-        egui::Sense::hover(),
-    );
-    for (index, name) in REGISTRATION_NAMES.iter().enumerate() {
-        let cell = Rect::from_min_size(
-            matrix.min
-                + egui::vec2(
-                    (index % 3) as f32 * (crate::theme::CONTROL_HEIGHT + 4.),
-                    (index / 3) as f32 * (crate::theme::CONTROL_HEIGHT + 4.),
-                ),
-            egui::Vec2::splat(crate::theme::CONTROL_HEIGHT),
-        );
-        let response = ui.interact(
-            cell,
-            ui.id().with(("symbol-registration", index)),
-            egui::Sense::click(),
-        );
-        let selected = *registration == index;
-        let visuals = ui.style().interact_selectable(&response, selected);
-        ui.painter().rect(
-            cell,
-            1.,
-            visuals.weak_bg_fill,
-            visuals.bg_stroke,
-            egui::StrokeKind::Inside,
-        );
-        if response.has_focus() {
-            ui.painter().rect_stroke(
-                cell.shrink(1.),
-                3.,
-                egui::Stroke::new(2.0_f32, crate::theme::UiPalette::current(ui.ctx()).focus),
-                egui::StrokeKind::Inside,
-            );
-        }
-        let marker = Rect::from_center_size(cell.center(), egui::vec2(6., 6.));
-        if selected {
-            ui.painter().rect_filled(marker, 0., visuals.text_color());
-        } else {
-            ui.painter()
-                .rect_stroke(marker, 0., visuals.fg_stroke, egui::StrokeKind::Inside);
-        }
-        response.widget_info(|| {
-            egui::WidgetInfo::selected(
-                egui::WidgetType::Button,
-                ui.is_enabled(),
-                selected,
-                format!("Registration: {name}"),
-            )
-        });
-        let keyboard_select = response.has_focus()
-            && ui.is_enabled()
-            && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
-        if response.on_hover_text(*name).clicked() || keyboard_select {
-            *registration = index;
-        }
+/// Caption above a dialog field (`NF2/Small`, secondary).
+fn field_caption(ui: &mut egui::Ui, text: &str) {
+    let p = neoflash_ui::palette(ui.ctx());
+    ui.label(rich(text, TextStyle::Small).color(p.text_secondary));
+}
+
+fn kind_label(kind: SymbolKind) -> &'static str {
+    match kind {
+        SymbolKind::MovieClip => "Movie clip",
+        SymbolKind::Graphic => "Graphic",
+        SymbolKind::Button => "Button",
     }
 }
 
-const REGISTRATION_NAMES: [&str; 9] = [
-    "Top left",
-    "Top center",
-    "Top right",
-    "Middle left",
-    "Center",
-    "Middle right",
-    "Bottom left",
-    "Bottom center",
-    "Bottom right",
-];
+fn kind_hint(kind: SymbolKind) -> &'static str {
+    match kind {
+        SymbolKind::MovieClip => "own timeline",
+        SymbolKind::Graphic => "synced to parent",
+        SymbolKind::Button => "up · over · down · hit",
+    }
+}
 
 fn kind_name(kind: SymbolKind) -> &'static str {
     match kind {

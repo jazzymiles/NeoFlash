@@ -1,0 +1,22 @@
+F Shelf / Checkbox · Slider · Swatch · Badge 700×332 [V gap 12]
+  T "Checkbox · Slider · Swatch · Badge"
+  F NF2/Checkbox 660×54 [H gap 16]
+    F Checked=False 88×20 [H gap 8]
+      F Box 18×18 [H gap 0]
+      T "Checkbox"
+    F Checked=True 88×20 [H gap 8]
+      F Box 18×18 [H gap 0]
+        I NF2 Icon/16/check 16×16
+      T "Checkbox"
+  F NF2/Slider 140×20
+  F NF2/Swatch 22×22
+  F NF2/Registration Cell 660×62 [H gap 16]
+    F Selected=True 28×28 [H gap 0]
+    F Selected=False 28×28 [H gap 0]
+  F NF2/Badge 660×56 [H gap 16]
+    F Type=Neutral 65×22 [H gap 6]
+      T "Badge"
+    F Type=Accent 65×22 [H gap 6]
+      T "Badge"
+    F Type=Warning 65×22 [H gap 6]
+      T "Badge"

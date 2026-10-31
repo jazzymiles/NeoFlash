@@ -1,0 +1,4 @@
+F Panel / Tools (floating) 108×650 [V gap 0]
+  I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 106×36 "Tools" "Panel" "Panel"
+  F Body 106×612 [V gap 12]
+    I NF2/Tools Panel {Layout=2 Columns} 106×612 "Tools" "View" "Colors" "Options"

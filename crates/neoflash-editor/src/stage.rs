@@ -479,59 +479,20 @@ impl Editor {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(palette.pasteboard))
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.add_space(10.);
-                    ui.label(
-                        egui::RichText::new(&self.project.name)
-                            .strong()
-                            .color(palette.stage_title),
-                    );
-                    if self.dirty() {
-                        ui.label("•");
-                    }
-                    if self.onion {
-                        ui.label(
-                            egui::RichText::new("Onion skin")
-                                .small()
-                                .color(palette.onion_before),
-                        )
-                        .on_hover_text(
-                            "Tinted outlines or shapes show neighbouring frames. They are not content of the current frame; turn off Onion Skin to see this frame alone.",
-                        );
-                    }
-                    if self.vector.draft.is_some() {
-                        if ui.small_button("Finish · Enter").clicked() {
-                            self.finish_path(false);
-                        }
-                        if ui.small_button("Close path").clicked() {
-                            self.finish_path(true);
-                        }
-                        if ui.small_button("Cancel · Esc").clicked() {
-                            self.vector.draft = None;
-                        }
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add_space(10.);
-                        ui.label(format!("{}%", (self.zoom * 100.).round()));
-                        if ui.small_button("Fit stage").clicked() {
-                            self.end_vector_pointer_phase();
-                            self.cancel_selection_gesture();
-                            self.shape_draft = None;
-                            if self.vector.point_drag.is_some() {
-                                self.cancel_vector();
-                            }
-                            self.zoom = 0.;
-                            self.pan = Vec2::ZERO;
-                        }
-                    });
-                });
-                let avail = ui.available_size() - Vec2::new(0., 25.);
+                let avail = ui.available_size();
                 let (rect, response) =
                     ui.allocate_exact_size(avail.max(Vec2::splat(1.)), Sense::click_and_drag());
-                let stage_press = ui.input(|input| input.events.iter().find_map(|event| match event {
-                    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, .. } if rect.contains(*pos) => Some(*pos),
-                    _ => None,
-                }));
+                let stage_press = ui.input(|input| {
+                    input.events.iter().find_map(|event| match event {
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed: true,
+                            ..
+                        } if rect.contains(*pos) => Some(*pos),
+                        _ => None,
+                    })
+                });
                 if stage_press.is_some_and(|pos| ui.ctx().layer_id_at(pos) == Some(ui.layer_id())) {
                     self.timeline_edit.focused = false;
                 }
@@ -607,13 +568,45 @@ impl Editor {
                         } else {
                             palette.onion_after
                         };
-                        let ghost = evaluate_scene(&self.project, &id, frame, true, self.show_layer_masking(ctx));
-                        self.paint_authored_scene(&content, &ghost, DrawStyle { origin, zoom: self.zoom, opacity, tint: Some(tint), outlines: self.onion_outlines, bitmap_texture: None });
+                        let ghost = evaluate_scene(
+                            &self.project,
+                            &id,
+                            frame,
+                            true,
+                            self.show_layer_masking(ctx),
+                        );
+                        self.paint_authored_scene(
+                            &content,
+                            &ghost,
+                            DrawStyle {
+                                origin,
+                                zoom: self.zoom,
+                                opacity,
+                                tint: Some(tint),
+                                outlines: self.onion_outlines,
+                                bitmap_texture: None,
+                            },
+                        );
                     }
                 }
                 let authored_scene = self.current_authored_scene(self.show_layer_masking(ctx));
-                self.paint_authored_scene(&content, &authored_scene, DrawStyle { origin, zoom: self.zoom, opacity: 1., tint: None, outlines: false, bitmap_texture: None });
-                let scene: Vec<_> = authored_scene.draws.into_iter().map(|draw| draw.item).collect();
+                self.paint_authored_scene(
+                    &content,
+                    &authored_scene,
+                    DrawStyle {
+                        origin,
+                        zoom: self.zoom,
+                        opacity: 1.,
+                        tint: None,
+                        outlines: false,
+                        bitmap_texture: None,
+                    },
+                );
+                let scene: Vec<_> = authored_scene
+                    .draws
+                    .into_iter()
+                    .map(|draw| draw.item)
+                    .collect();
                 if let Some(warning) = self.bitmap_textures.take_warning() {
                     self.message(warning);
                 }
@@ -625,85 +618,160 @@ impl Editor {
                 );
                 let extended_tool = self.authoring_tool_stage(ui, &p, origin, page, rect, &scene);
                 if !extended_tool {
-                let zoom = self.zoom;
-                let to_local = |pos: Pos2| (pos - origin) / zoom;
-                let on_path_handle = self.tool == Tool::Subselect
-                    && self.selected_sampled().is_some_and(|e| {
-                        if let ElementKind::Path { commands, .. } | ElementKind::PaintedPath { commands, .. } = &e.kind {
-                            let matrix = transform_matrix(e.transform);
-                            response.interact_pointer_pos().is_some_and(|pos| {
-                                crate::vector::handles(commands).iter().any(|h| {
-                                    (origin + affine(matrix, h.point).to_vec2() * zoom)
-                                        .distance(pos)
-                                        < 8.
+                    let zoom = self.zoom;
+                    let to_local = |pos: Pos2| (pos - origin) / zoom;
+                    let on_path_handle = self.tool == Tool::Subselect
+                        && self.selected_sampled().is_some_and(|e| {
+                            if let ElementKind::Path { commands, .. }
+                            | ElementKind::PaintedPath { commands, .. } = &e.kind
+                            {
+                                let matrix = transform_matrix(e.transform);
+                                response.interact_pointer_pos().is_some_and(|pos| {
+                                    crate::vector::handles(commands).iter().any(|h| {
+                                        (origin + affine(matrix, h.point).to_vec2() * zoom)
+                                            .distance(pos)
+                                            < 8.
+                                    })
                                 })
-                            })
-                        } else {
-                            false
-                        }
-                    });
-                if response.clicked()
-                    && self.tool == Tool::Subselect
-                    && !on_path_handle
-                    && self.vector.point_drag.is_none()
-                    && let Some(pos) = response.interact_pointer_pos()
-                {
-                    if let Some(target) =
-                        self.pick_placement(&scene, &p, Pos2::ZERO + to_local(pos))
+                            } else {
+                                false
+                            }
+                        });
+                    if response.clicked()
+                        && self.tool == Tool::Subselect
+                        && !on_path_handle
+                        && self.vector.point_drag.is_none()
+                        && let Some(pos) = response.interact_pointer_pos()
                     {
-                        self.set_selection(vec![target]);
-                    } else {
-                        self.clear_selection();
+                        if let Some(target) =
+                            self.pick_placement(&scene, &p, Pos2::ZERO + to_local(pos))
+                        {
+                            self.set_selection(vec![target]);
+                        } else {
+                            self.clear_selection();
+                        }
                     }
-                }
-                self.selection_stage(ui, &p, origin, rect, &scene, &response);
-                self.shape_stage(ui, &p, origin, page, rect);
-                if response.clicked()
-                    && self.tool == Tool::Text
-                    && let Some(pos) = response.interact_pointer_pos()
-                    && page.contains(pos)
-                {
-                    let local = to_local(pos);
-                    let font = if self.fonts.families.iter().any(|s| s == "Arial") {
-                        "Arial"
-                    } else {
-                        "Helvetica"
-                    };
-                    let _ = self.fonts.load(ctx, font);
-                    self.add_element_transformed(
-                        ElementKind::TextBox {
-                            text: "Your text".into(),
-                            width: 240.,
-                            height: 100.,
-                            format: TextFormat {
-                                font: font.into(),
-                                size: 32.,
-                                color: u32::from_be_bytes([
-                                    0,
-                                    self.fill[0],
-                                    self.fill[1],
-                                    self.fill[2],
-                                ]),
+                    self.selection_stage(ui, &p, origin, rect, &scene, &response);
+                    self.shape_stage(ui, &p, origin, page, rect);
+                    if response.clicked()
+                        && self.tool == Tool::Text
+                        && let Some(pos) = response.interact_pointer_pos()
+                        && page.contains(pos)
+                    {
+                        let local = to_local(pos);
+                        let font = if self.fonts.families.iter().any(|s| s == "Arial") {
+                            "Arial"
+                        } else {
+                            "Helvetica"
+                        };
+                        let _ = self.fonts.load(ctx, font);
+                        self.add_element_transformed(
+                            ElementKind::TextBox {
+                                text: "Your text".into(),
+                                width: 240.,
+                                height: 100.,
+                                format: TextFormat {
+                                    font: font.into(),
+                                    size: 32.,
+                                    color: u32::from_be_bytes([
+                                        0,
+                                        self.fill[0],
+                                        self.fill[1],
+                                        self.fill[2],
+                                    ]),
+                                    ..Default::default()
+                                },
+                                multiline: true,
+                                word_wrap: true,
+                            },
+                            Transform {
+                                x: local.x as f64,
+                                y: local.y as f64,
+                                alpha: self.fill[3] as f64 / 255.,
                                 ..Default::default()
                             },
-                            multiline: true,
-                            word_wrap: true,
-                        },
-                        Transform {
-                            x: local.x as f64,
-                            y: local.y as f64,
-                            alpha: self.fill[3] as f64 / 255.,
-                            ..Default::default()
-                        },
-                    );
+                        );
+                    }
+                    self.vector_stage(ui, &content, origin, page, &response);
                 }
-                self.vector_stage(ui, &content, origin, page, &response);
-                }
-                ui.horizontal(|ui| {
-                    ui.add_space(8.);
-                    ui.label(egui::RichText::new(&self.status).size(11.));
-                });
+                self.stage_context_menu(&response, &scene, &p, origin);
+                self.stage_chrome(ui, rect);
             });
+    }
+
+    /// Stage object (right-click) menu, design §8. Right-clicking an unselected object selects it.
+    fn stage_context_menu(
+        &mut self,
+        response: &egui::Response,
+        scene: &[DrawItem],
+        p: &egui::Painter,
+        origin: Pos2,
+    ) {
+        if response.secondary_clicked()
+            && matches!(self.tool, Tool::Select | Tool::Transform | Tool::Subselect)
+            && let Some(pos) = response.interact_pointer_pos()
+            && let Some(target) =
+                self.pick_placement(scene, p, Pos2::ZERO + (pos - origin) / self.zoom)
+            && !self.selection.targets.contains(&target)
+        {
+            self.finish_edits();
+            self.set_selection(vec![target]);
+        }
+        response.context_menu(|ui| {
+            crate::ui_icons::menu_contents(ui, 260., |ui| self.stage_object_commands(ui));
+        });
+    }
+
+    fn stage_object_commands(&mut self, ui: &mut egui::Ui) {
+        use crate::clipboard::ClipboardCommand;
+        use crate::ui_icons::menu_item_enabled;
+        use neoflash_ui::components as nf;
+        let ctx = ui.ctx().clone();
+        let selected = !self.selection.is_empty();
+        for (label, shortcut, command, enabled) in [
+            ("Cut", "⌘X", ClipboardCommand::Cut, selected),
+            ("Copy", "⌘C", ClipboardCommand::Copy, selected),
+            (
+                "Paste in place",
+                "⇧⌘V",
+                ClipboardCommand::PasteInPlace,
+                self.layer_editable(),
+            ),
+        ] {
+            if menu_item_enabled(ui, enabled, label, shortcut).clicked() {
+                self.request_clipboard(&ctx, command);
+                ui.close();
+            }
+        }
+        nf::menu_separator(ui);
+        if menu_item_enabled(ui, self.can_convert_selection(), "Convert to symbol…", "F8").clicked()
+        {
+            self.convert_to_symbol();
+            ui.close();
+        }
+        let instance = self.selected_instance_symbol();
+        if menu_item_enabled(ui, instance.is_some(), "Edit in place", "").clicked() {
+            if let Some(id) = instance.clone() {
+                self.enter_symbol(id);
+            }
+            ui.close();
+        }
+        Self::unavailable_item(ui, "Edit in new window", "");
+        Self::unavailable_item(ui, "Swap symbol…", "");
+        Self::unavailable_item(ui, "Duplicate symbol…", "");
+        nf::menu_separator(ui);
+        Self::planned_menu_item(ui, "Stage menu ▸ Create motion tween", "");
+        Self::unavailable_item(ui, "Distribute to layers", "⇧⌘D");
+        nf::menu_separator(ui);
+        self.arrange_menu(ui);
+        self.align_menu(ui);
+        self.transform_menu(ui);
+        nf::menu_separator(ui);
+        if menu_item_enabled(ui, instance.is_some(), "Show in library", "").clicked() {
+            self.library_selected = instance;
+            self.show_panel(crate::workspace::PanelId::Library);
+            ui.close();
+        }
     }
 }
 

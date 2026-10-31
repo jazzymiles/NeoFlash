@@ -1,0 +1,34 @@
+F Color — type menu open 280×561
+  F Panel / Color — Type menu 280×561 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 278×36 "Color" "Swatches" "Panel"
+    F Body 278×523 [V gap 12]
+      F Row 254×34 [H gap 8]
+        I NF2/Segmented Control 160×34 "Selection" "Drawing"
+        T "1 object"
+      F Row 254×32 [H gap 6]
+        I NF2/Color Well {Target=Stroke, Active=False} 74×32
+        I NF2/Color Well {Target=Fill, Active=True} 74×32
+        F Frame 1×2
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 28×28
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 28×28
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 28×28
+      I NF2/Select {Label=Solid colour, State=Default} 254×32 "Solid colour"
+      I NF2/Color Picker 248×150
+      F Row 254×34 [H gap 8]
+        I NF2/Segmented Control 108×34 "RGB" "HSB"
+      F Row 254×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=R, Label=255, State=Default} 80×32 "R" "255"
+        I NF2/Field {Show prefix=true, Prefix=G, Label=204, State=Default} 80×32 "G" "204"
+        I NF2/Field {Show prefix=true, Prefix=B, Label=0, State=Default} 80×32 "B" "0"
+      I NF2/Color Field {Alpha=100 %, Hex=FFCC00} 254×32 "FFCC00" "100 %"
+      F Stroke 256×54 [V gap 6]
+        T "Stroke"
+        F Row 256×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=Width, Label=1.0 px, State=Default} 124×32 "Width" "1.0 px"
+          I NF2/Select {Label=Solid, State=Default} 124×32 "Solid"
+  F Menu 266×150 [V gap 0]
+    I NF2/Menu Item {Submenu=false, Shortcut= , Label=None, State=Default} 256×28 "None" " "
+    I NF2/Menu Item {Submenu=false, Shortcut= , Label=Solid colour, State=Checked} 256×28 "Solid colour" " "
+    I NF2/Menu Item {Submenu=false, Shortcut= , Label=Linear gradient, State=Default} 256×28 "Linear gradient" " "
+    I NF2/Menu Item {Submenu=false, Shortcut= , Label=Radial gradient, State=Hover} 256×28 "Radial gradient" " "
+    I NF2/Menu Item {Submenu=false, Shortcut= , Label=Bitmap fill, State=Default} 256×28 "Bitmap fill" " "

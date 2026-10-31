@@ -1,0 +1,113 @@
+F Dialog / Preferences — Code editor 920×774 [V gap 0]
+  I NF2/Dialog Header 918×60 "Preferences"
+  F Main 918×647 [H gap 0]
+    F Categories 220×308 [V gap 2]
+      I NF2/Tree Item {Label=General, Type=Symbol, Selected=False} 196×32 "General"
+      I NF2/Tree Item {Label=Code editor, Type=Symbol, Selected=True} 196×32 "Code editor"
+      I NF2/Tree Item {Label=Timeline, Type=Symbol, Selected=False} 196×32 "Timeline"
+      I NF2/Tree Item {Label=Drawing, Type=Symbol, Selected=False} 196×32 "Drawing"
+      I NF2/Tree Item {Label=Text, Type=Symbol, Selected=False} 196×32 "Text"
+      I NF2/Tree Item {Label=Clipboard, Type=Symbol, Selected=False} 196×32 "Clipboard"
+      I NF2/Tree Item {Label=Shortcuts, Type=Symbol, Selected=False} 196×32 "Shortcuts"
+      I NF2/Tree Item {Label=Publish, Type=Symbol, Selected=False} 196×32 "Publish"
+      I NF2/Tree Item {Label=Updates, Type=Symbol, Selected=False} 196×32 "Updates"
+    F Content 698×647 [V gap 16]
+      F Font 650×58 [V gap 10]
+        T "Font"
+        F Row 650×32 [H gap 8]
+          I NF2/Select {Label=Roboto Mono, State=Default} 260×32 "Roboto Mono"
+          I NF2/Stepper Field {Prefix=Size, Label=13 px, State=Default} 120×32 "Size" "13 px"
+          I NF2/Stepper Field {Prefix=Line, Label=1.6, State=Default} 110×32 "Line" "1.6"
+      F Editing 650×118 [V gap 10]
+        T "Editing"
+        F Row 650×20 [H gap 8]
+          I NF2/Switch {Label=Line numbers, On=True} 121×20 "Line numbers"
+          I NF2/Switch {Label=Word wrap, On=False} 105×20 "Word wrap"
+          I NF2/Switch {Label=Auto-close brackets, On=True} 163×20 "Auto-close brackets"
+        F Row 650×20 [H gap 8]
+          I NF2/Switch {Label=Code hints, On=True} 105×20 "Code hints"
+          T "Delay"
+          I NF2/Slider 160×20
+          T "300 ms"
+        F Row 650×32 [H gap 8]
+          I NF2/Select {Label=Tab: 4 spaces, State=Default} 180×32 "Tab: 4 spaces"
+          I NF2/Switch {Label=Format on save, On=True} 133×20 "Format on save"
+          I NF2/Switch {Label=Highlight current line, On=True} 166×20 "Highlight current line"
+      F Colour scheme 650×246 [V gap 10]
+        T "Colour scheme"
+        F Row 650×32 [H gap 8]
+          I NF2/Select {Label=Scheme: NF2 Night, State=Default} 220×32 "Scheme: NF2 Night"
+          I NF2/Button {Icon=false, Label=Duplicate, Type=Ghost, State=Default} 83×32 "Duplicate"
+          I NF2/Button {Icon=false, Label=Import…, Type=Ghost, State=Default} 76×32 "Import…"
+        F Colour table 650×152 [H gap 24]
+          F Token / Keyword 186×24 [H gap 8]
+            T "Keyword"
+            T "C6A0F6"
+          F Token / Type / class 186×24 [H gap 8]
+            T "Type / class"
+            T "8BD5CA"
+          F Token / Function 186×24 [H gap 8]
+            T "Function"
+            T "8AADF4"
+          F Token / String 186×24 [H gap 8]
+            T "String"
+            T "A6DA95"
+          F Token / Number 186×24 [H gap 8]
+            T "Number"
+            T "F5A97F"
+          F Token / Comment 186×24 [H gap 8]
+            T "Comment"
+            T "6E7891"
+          F Token / XML tag 186×24 [H gap 8]
+            T "XML tag"
+            T "7DC4E4"
+          F Token / Attribute 186×24 [H gap 8]
+            T "Attribute"
+            T "EED49F"
+          F Token / Error 186×24 [H gap 8]
+            T "Error"
+            T "FF6B6B"
+          F Token / Warning 186×24 [H gap 8]
+            T "Warning"
+            T "F5B94A"
+          F Token / Breakpoint 186×24 [H gap 8]
+            T "Breakpoint"
+            T "FF9A5C"
+          F Token / Selection 186×24 [H gap 8]
+            T "Selection"
+            T "2A3A63"
+          F Token / Current line 186×24 [H gap 8]
+            T "Current line"
+            T "171C27"
+        T "Red is reserved for errors only. Breakpoints use orange, warnings amber."
+      F Preview 650×118 [H gap 0]
+        F Gutter 54×116 [V gap 0]
+          F g 40×20 [H gap 4]
+            T "1"
+          F g 40×20 [H gap 4]
+            I NF2 Icon/16/breakpoint 12×12
+            T "2"
+          F g 40×20 [H gap 4]
+            T "3"
+          F g 40×20 [H gap 4]
+            I NF2 Icon/16/warning 12×12
+            T "4"
+          F g 40×20 [H gap 4]
+            I NF2 Icon/16/error 12×12
+            T "5"
+        F Code 594×116 [V gap 0]
+          F Line 594×20 [H gap 0]
+            T "// orbit setup"
+          F Line 594×20 [H gap 0]
+            T "var speed:Number = 2.5;"
+          F Line 594×20 [H gap 0]
+            T "animator.play();"
+          F Line 594×20 [H gap 0]
+            T "<Keyframe index="0"/>"
+          F Line 594×20 [H gap 0]
+            T "orbit_mc.rotation += speed;"
+  F Row 918×65 [H gap 8]
+    I NF2/Button {Icon=false, Label=Reset to defaults, Type=Ghost, State=Default} 130×32 "Reset to defaults"
+    F Spacer 592×2
+    I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+    I NF2/Button {Icon=false, Label=Save, Type=Primary, State=Default} 55×32 "Save"

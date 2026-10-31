@@ -1,0 +1,66 @@
+F Drawing tools — panels 560×1318 [V gap 32]
+  F Panel / Properties — Rectangle primitive 320×562 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 318×36 "Properties" "Filters" "Panel"
+    F Body 318×524 [V gap 10]
+      F Row 294×48 [H gap 8]
+        F Type icon 48×48 [H gap 0]
+          I NF2 Icon/20/tool-rect-primitive 20×20
+        F Title 188×38 [V gap 2]
+          T "Rectangle primitive"
+          T "Drawing object · editable corners"
+      I NF2/Section Header {Label=Position and size, State=Expanded} 294×32 "Position and size"
+      F Row 294×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=X, Label=140.0, State=Default} 140×32 "X" "140.0"
+        I NF2/Field {Show prefix=true, Prefix=Y, Label=96.0, State=Default} 140×32 "Y" "96.0"
+      F Row 294×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=W, Label=240.0, State=Default} 140×32 "W" "240.0"
+        I NF2/Field {Show prefix=true, Prefix=H, Label=120.0, State=Default} 140×32 "H" "120.0"
+      I NF2/Section Header {Label=Fill and stroke, State=Expanded} 294×32 "Fill and stroke"
+      F Row 294×32 [H gap 8]
+        I NF2/Color Well {Target=Fill, Active=False} 74×32
+        I NF2/Color Well {Target=Stroke, Active=False} 74×32
+      F Row 294×32 [H gap 8]
+        I NF2/Combo Field {Label=1} 80×32 "1"
+        I NF2/Line Style Select {Style=Solid} 208×32 "Solid"
+      I NF2/Section Header {Label=Rectangle options, State=Expanded} 294×32 "Rectangle options"
+      F Row 294×32 [H gap 8]
+        I NF2/Stepper Field {Prefix=↖, Label=12, State=Default} 128×32 "↖" "12"
+        I NF2/Stepper Field {Prefix=↗, Label=12, State=Default} 128×32 "↗" "12"
+        I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+      F Row 294×32 [H gap 8]
+        I NF2/Stepper Field {Prefix=↙, Label=12, State=Default} 128×32 "↙" "12"
+        I NF2/Stepper Field {Prefix=↘, Label=12, State=Default} 128×32 "↘" "12"
+      I NF2/Slider 294×20
+      I NF2/Button {Icon=false, Label=Reset, Type=Ghost, State=Default} 60×32 "Reset"
+  F Dialog / PolyStar tool settings 400×272 [V gap 0]
+    I NF2/Dialog Header 398×60 "PolyStar tool settings"
+    F Body 398×158 [H gap 20]
+      F Frame 110×110
+        F Frame 90×90
+      F Options 220×142 [V gap 10]
+        I NF2/Select {Label=Style: Star, State=Default} 220×32 "Style: Star"
+        I NF2/Stepper Field {Prefix=Sides, Label=5, State=Default} 220×32 "Sides" "5"
+        I NF2/Stepper Field {Prefix=Point size, Label=0.50, State=Default} 220×32 "Point size" "0.50"
+        T "Point size 0–1: smaller = sharper points"
+    F Footer 398×52 [H gap 8]
+      I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+      I NF2/Button {Icon=false, Label=OK, Type=Primary, State=Default} 43×32 "OK"
+  F Sample / Armature on stage + pose layer 560×420
+    F Frame 520×230
+      F Frame 520×230
+      F Frame 520×230
+      F Frame 520×230
+      F Frame 80×80
+    F Pose timeline 520×130
+      I NF2/TL Ruler 1440×32 "1" "5" "10" "15" "20" "25" "30" "35" "40" "45" "50" "55"
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=Armature_1, Type=Armature, Selected=True} 200×28 "Armature_1"
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Span {Type=Motion Tween} 300×27
+      I NF2/TL Marker {Kind=Property Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Property Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Property Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Property Keyframe, Tone=Default} 12×27
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=background, Type=Layer, Selected=False} 200×28 "background"
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Span {Type=Static} 320×27
+      T "Bone tool builds an armature; poses are keyframes (◆) on the Armature layer, joints honour rotation limits."

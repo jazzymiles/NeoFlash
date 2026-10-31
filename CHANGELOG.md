@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — NF2 design system
+
+- Actions gains the NF2 sidebar: a toolbox of the ActionScript 2.0/3.0 APIs NeoFlash runs (packages, classes, members with types; search; double-click inserts, adding the AS3 `import`) and a Script navigator that lists and opens every frame, object and project-file script. Project classes appear in the toolbox and in hints as soon as they are written.
+- Code hints after `.` and with ⌃Space or **Show code hint**: members of `this`, typed variables, stage instance names, classes and their statics, including inherited members; ↑↓ choose, Return/Tab insert, Esc closes.
+- Enable Auto-format (re-indents only, never moves code), Apply block/line comment and Remove comment. Scripts are checked automatically 0.6 s after typing stops; explicit Check still reports to Output. Debug, folding and Script assist remain unavailable.
+- Rebuild the editor chrome on the NF2 design system (`crates/neoflash-ui`, generated from the Figma export in `interface/design-system`): Dark by default, bundled Inter and Roboto Mono, 304 NF2 icons, 32-point controls and 28-point rows.
+- Use the NF2 window layout: top bar with menus, project title, Unsaved badge, Test Movie and Publish; tools rail; inspector with Properties over Library; one bottom dock with Timeline · Actions · Output · Accessibility; status bar with shortcut hints; breadcrumb, stage size and zoom control floating over the canvas. Saved layouts from earlier builds are replaced once.
+
 ## Unreleased — Shared native design system
 
 - Apply shared Light/Dark tokens, compact panel shells, fields and icon targets across the authoring workspace. Keep authored colors separate from editor chrome.

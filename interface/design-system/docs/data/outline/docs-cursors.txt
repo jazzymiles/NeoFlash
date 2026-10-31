@@ -1,0 +1,159 @@
+F Shelf / Cursors 1148×437 [V gap 16]
+  T "Cursors — 24 px, black with white outline (readable on any stage colour). Red dot = hotspot."
+  F Cursor grid 1100×354 [H gap 16]
+    F Cell / arrow 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/arrow 24×24
+      T "arrow"
+    F Cell / arrow-move 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/arrow-move 24×24
+      T "arrow-move"
+    F Cell / arrow-reshape-curve 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/arrow-reshape-curve 24×24
+      T "arrow-reshape-curve"
+    F Cell / arrow-reshape-corner 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/arrow-reshape-corner 24×24
+      T "arrow-reshape-corner"
+    F Cell / subselect 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/subselect 24×24
+      T "subselect"
+    F Cell / subselect-point 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/subselect-point 24×24
+      T "subselect-point"
+    F Cell / hand-open 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/hand-open 24×24
+      T "hand-open"
+    F Cell / hand-closed 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/hand-closed 24×24
+      T "hand-closed"
+    F Cell / zoom-in 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/zoom-in 24×24
+      T "zoom-in"
+    F Cell / zoom-out 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/zoom-out 24×24
+      T "zoom-out"
+    F Cell / text-ibeam 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/text-ibeam 24×24
+      T "text-ibeam"
+    F Cell / crosshair 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/crosshair 24×24
+      T "crosshair"
+    F Cell / pen 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/pen 24×24
+      T "pen"
+    F Cell / pen-add 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/pen-add 24×24
+      T "pen-add"
+    F Cell / pen-remove 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/pen-remove 24×24
+      T "pen-remove"
+    F Cell / pen-close 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/pen-close 24×24
+      T "pen-close"
+    F Cell / pen-convert 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/pen-convert 24×24
+      T "pen-convert"
+    F Cell / pencil 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/pencil 24×24
+      T "pencil"
+    F Cell / brush 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/brush 24×24
+      T "brush"
+    F Cell / brush-size 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/brush-size 24×24
+      T "brush-size"
+    F Cell / bucket 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/bucket 24×24
+      T "bucket"
+    F Cell / ink-bottle 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/ink-bottle 24×24
+      T "ink-bottle"
+    F Cell / eyedropper 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/eyedropper 24×24
+      T "eyedropper"
+    F Cell / eraser 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/eraser 24×24
+      T "eraser"
+    F Cell / lasso 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/lasso 24×24
+      T "lasso"
+    F Cell / resize-h 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/resize-h 24×24
+      T "resize-h"
+    F Cell / resize-v 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/resize-v 24×24
+      T "resize-v"
+    F Cell / resize-d1 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/resize-d1 24×24
+      T "resize-d1"
+    F Cell / resize-d2 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/resize-d2 24×24
+      T "resize-d2"
+    F Cell / rotate 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/rotate 24×24
+      T "rotate"
+    F Cell / skew-h 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/skew-h 24×24
+      T "skew-h"
+    F Cell / skew-v 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/skew-v 24×24
+      T "skew-v"
+    F Cell / move 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/move 24×24
+      T "move"
+    F Cell / drag-copy 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/drag-copy 24×24
+      T "drag-copy"
+    F Cell / drag-link 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/drag-link 24×24
+      T "drag-link"
+    F Cell / col-resize 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/col-resize 24×24
+      T "col-resize"
+    F Cell / row-resize 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/row-resize 24×24
+      T "row-resize"
+    F Cell / not-allowed 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/not-allowed 24×24
+      T "not-allowed"
+    F Cell / wait 96×58 [V gap 6]
+      F Holder 40×40
+        F NF2 Cursor/wait 24×24
+      T "wait"

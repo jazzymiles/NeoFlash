@@ -1,0 +1,40 @@
+F Dialog / Preferences — Clipboard 920×435 [V gap 0]
+  I NF2/Dialog Header 918×60 "Preferences"
+  F Main 918×308 [H gap 0]
+    F Categories 220×308 [V gap 2]
+      I NF2/Tree Item {Label=General, Type=Symbol, Selected=False} 196×32 "General"
+      I NF2/Tree Item {Label=Code editor, Type=Symbol, Selected=False} 196×32 "Code editor"
+      I NF2/Tree Item {Label=Timeline, Type=Symbol, Selected=False} 196×32 "Timeline"
+      I NF2/Tree Item {Label=Drawing, Type=Symbol, Selected=False} 196×32 "Drawing"
+      I NF2/Tree Item {Label=Text, Type=Symbol, Selected=False} 196×32 "Text"
+      I NF2/Tree Item {Label=Clipboard, Type=Symbol, Selected=True} 196×32 "Clipboard"
+      I NF2/Tree Item {Label=Shortcuts, Type=Symbol, Selected=False} 196×32 "Shortcuts"
+      I NF2/Tree Item {Label=Publish, Type=Symbol, Selected=False} 196×32 "Publish"
+      I NF2/Tree Item {Label=Updates, Type=Symbol, Selected=False} 196×32 "Updates"
+    F Content 698×278 [V gap 16]
+      F Copying 650×130 [V gap 10]
+        T "Copying"
+        F Row 650×32 [H gap 8]
+          T "Bitmaps"
+          I NF2/Select {Label=Match screen (144 ppi), State=Default} 220×32 "Match screen (144 ppi)"
+        F Row 650×32 [H gap 8]
+          T "Gradient quality"
+          I NF2/Select {Label=Normal, State=Default} 160×32 "Normal"
+        F Row 650×20 [H gap 8]
+          I NF2/Switch {Label=Copy as SVG to other apps, On=True} 204×20 "Copy as SVG to other apps"
+          I NF2/Switch {Label=Keep layer names, On=True} 147×20 "Keep layer names"
+      F Pasting 650×90 [V gap 10]
+        T "Pasting"
+        F Row 650×34 [H gap 8]
+          T "Default paste"
+          F Segments 154×34 [H gap 2]
+            I NF2/Segment {Label=In centre, Selected=True} 77×28 "In centre"
+            I NF2/Segment {Label=In place, Selected=False} 69×28 "In place"
+        F Row 650×20 [H gap 8]
+          I NF2/Switch {Label=Import vector paste as editable paths, On=True} 269×20 "Import vector paste as editable paths"
+          I NF2/Switch {Label=Ask before pasting large bitmaps, On=True} 241×20 "Ask before pasting large bitmaps"
+  F Row 918×65 [H gap 8]
+    I NF2/Button {Icon=false, Label=Reset to defaults, Type=Ghost, State=Default} 130×32 "Reset to defaults"
+    F Spacer 592×2
+    I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+    I NF2/Button {Icon=false, Label=Save, Type=Primary, State=Default} 55×32 "Save"

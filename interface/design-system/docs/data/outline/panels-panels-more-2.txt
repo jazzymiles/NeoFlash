@@ -1,0 +1,71 @@
+F Panels — more 2 560×1005 [V gap 32]
+  F Panel / Output 560×204 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 558×36 "Output" "Compiler errors" "Panel"
+    F Body 558×166 [V gap 8]
+      F Row 534×32 [H gap 8]
+        I NF2/Select {Label=Show: All, State=Default} 140×32 "Show: All"
+        I NF2/Search {Label=Filter output, State=Empty} 306×32 "Filter output"
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      F Log 534×102 [V gap 2]
+        F Row 514×20 [H gap 10]
+          I NF2 Icon/16/info 16×16
+          T "12:04:18"
+          T "Test Movie started · Rust/WebAssembly runtime 0.9"
+        F Row 514×20 [H gap 10]
+          I NF2 Icon/16/info 16×16
+          T "12:04:18"
+          T "trace: NeoFlash: the stage is ready"
+        F Row 514×20 [H gap 10]
+          I NF2 Icon/16/warning 16×16
+          T "12:04:19"
+          T "Font "Inter Regular" is not embedded — fallback used"
+        F Row 514×20 [H gap 10]
+          I NF2 Icon/16/error 16×16
+          T "12:04:21"
+          T "TypeError #1009: orbit_mc is null (Scene 1, frame 30)"
+  F Panel / Compiler errors 560×208 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 558×36 "Output" "Compiler errors" "Panel"
+    F Body 558×170 [V gap 8]
+      F Row 534×22 [H gap 8]
+        I NF2/Badge {Label=1 warning, Type=Warning} 83×22 "1 warning"
+        I NF2/Badge {Label=1 error, Type=Neutral} 65×22 "1 error"
+      F Error 534×54 [H gap 10]
+        I NF2 Icon/16/error 16×16
+        F Text 446×38 [V gap 2]
+          T "1120: Access of undefined property orbit_mc."
+          T "Scene 1 · layer "orbit" · frame 1 · Line 19"
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      F Error 534×54 [H gap 10]
+        I NF2 Icon/16/warning 16×16
+        F Text 446×38 [V gap 2]
+          T "1090: Migration issue — frameRate is read-only at runtime."
+          T "Scene 1 · layer "orbit" · frame 1 · Line 4"
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+  F Panel / Accessibility 300×298 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 298×36 "Accessibility" "Panel" "Panel"
+    F Body 298×260 [V gap 8]
+      I NF2/Switch {Label=Make object accessible, On=True} 182×20 "Make object accessible"
+      I NF2/Switch {Label=Make child objects accessible, On=True} 222×20 "Make child objects accessible"
+      I NF2/Switch {Label=Auto label, On=False} 100×20 "Auto label"
+      I NF2/Field {Show prefix=true, Prefix=Name, Label=Orbit animation, State=Default} 274×32 "Name" "Orbit animation"
+      F Description 274×72 [V gap 0]
+        T "An orange planet orbiting a blue core."
+      F Row 274×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=Shortcut, Label=⌥O, State=Default} 134×32 "Shortcut" "⌥O"
+        I NF2/Stepper Field {Prefix=Tab, Label=3, State=Default} 134×32 "Tab" "3"
+  F Panel / Info 300×199 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 298×36 "Info" "Panel" "Panel"
+    F Body 298×161 [V gap 8]
+      F Row 274×32 [H gap 8]
+        I NF2/Field {Prefix=W, Show prefix=true, Label=163.0, State=Disabled} 134×32 "W" "163.0"
+        I NF2/Field {Prefix=H, Show prefix=true, Label=163.0, State=Disabled} 134×32 "H" "163.0"
+      F Row 274×32 [H gap 8]
+        I NF2/Field {Prefix=X, Show prefix=true, Label=412.0, State=Disabled} 134×32 "X" "412.0"
+        I NF2/Field {Prefix=Y, Show prefix=true, Label=160.0, State=Disabled} 134×32 "Y" "160.0"
+      F Row 274×20 [H gap 8]
+        T "Cursor"
+        T "X 486   Y 233"
+      F Row 274×20 [H gap 8]
+        T "Colour"
+        T "R 91  G 140  B 255  A 100%"

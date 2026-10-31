@@ -1,0 +1,25 @@
+F Shelf / Kbd · Tooltip · Dialog header · Zoom control · Logo 700×298 [V gap 12]
+  T "Kbd · Tooltip · Dialog header · Zoom control · Logo"
+  F NF2/Kbd 28×20 [H gap 0]
+    T "F6"
+  F NF2/Tooltip 99×30 [H gap 8]
+    T "Selection"
+    F Key 17×18 [H gap 0]
+      T "V"
+  F NF2/Dialog Header 520×60 [H gap 0]
+    T "Dialog title"
+    I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+  F NF2/Zoom Control 365×42 [H gap 2]
+    I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+    I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+    T "75%"
+    I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+    I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+    F View toggles 168×32 [H gap 2]
+      I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+  F NF2/Logo 28×28 [H gap 0]
+    F Mark 18×18

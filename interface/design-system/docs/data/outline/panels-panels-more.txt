@@ -1,0 +1,57 @@
+F Panels — more 324×1711 [V gap 32]
+  F Panel / Library 300×555 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 298×36 "Library" "Panel" "Panel"
+    F Body 298×517 [V gap 8]
+      F Row 274×32 [H gap 8]
+        I NF2/Select {Label=Ideas in motion.nfl, State=Default} 236×32 "Ideas in motion.nfl"
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      F Preview 274×120
+      I NF2/Search {Label=Search library, State=Empty} 274×32 "Search library"
+      F Row 274×32 [H gap 8]
+        T "7 items"
+        F Spacer 184×2
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      F Items 274×196 [V gap 0]
+        I NF2/Tree Item {Label=Library root, Type=Folder Open, Selected=False} 274×28 "Library root"
+        I NF2/Tree Item {Label=orbit, Type=Symbol, Selected=True} 274×28 "orbit"
+        I NF2/Tree Item {Label=planet, Type=Symbol, Selected=False} 274×28 "planet"
+        I NF2/Tree Item {Label=cta_btn, Type=Symbol, Selected=False} 274×28 "cta_btn"
+        I NF2/Tree Item {Label=texture.png, Type=Symbol, Selected=False} 274×28 "texture.png"
+        I NF2/Tree Item {Label=music.mp3, Type=Symbol, Selected=False} 274×28 "music.mp3"
+        I NF2/Tree Item {Label=Inter Regular, Type=Symbol, Selected=False} 274×28 "Inter Regular"
+      F Row 274×32 [H gap 8]
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Spacer 114×2
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+  F Panel / Scene 260×287 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 258×36 "Scene" "Panel" "Panel"
+    F Body 258×249 [V gap 8]
+      I NF2/Search {Label=Find scene, State=Empty} 234×32 "Find scene"
+      I NF2/Tree Item {Label=Intro, Type=Symbol, Selected=False} 234×28 "Intro"
+      I NF2/Tree Item {Label=Scene 1, Type=Symbol, Selected=True} 234×28 "Scene 1"
+      I NF2/Tree Item {Label=Gallery, Type=Symbol, Selected=False} 234×28 "Gallery"
+      I NF2/Tree Item {Label=Outro, Type=Symbol, Selected=False} 234×28 "Outro"
+      F Row 234×32 [H gap 8]
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Spacer 114×2
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+  F Panel / History 260×283 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 258×36 "History" "Panel" "Panel"
+    F Body 258×245 [V gap 8]
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Oval, State=Default} 234×28 "Oval" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Move, State=Default} 234×28 "Move" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Fill colour, State=Checked} 234×28 "Fill colour" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Transform, State=Disabled} 234×28 "Transform" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Delete, State=Disabled} 234×28 "Delete" " "
+      F Row 234×32 [H gap 8]
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Spacer 114×2
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+  F Panel / Swatches 324×490 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 322×36 "Color" "Swatches" "Panel"
+    F Body 322×452 [V gap 8]
+      I NF2/Swatches Popover 300×428 "00FFCC" "100 %" "Recent" "Document" "Palette" "Gradients"

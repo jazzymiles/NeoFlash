@@ -1,0 +1,275 @@
+F Dialogs — Export 880×3540 [V gap 32]
+  F Dialog / Export image — PSD 760×601 [V gap 0]
+    I NF2/Dialog Header 758×60 "Export image"
+    F Main 758×474 [H gap 24]
+      F Left 300×212 [V gap 8]
+        F Preview 300×188
+        T "Frame 30 of 120 · 960 × 600"
+      F Options 386×458 [V gap 12]
+        F Row 386×34 [H gap 8]
+          F Segments 248×34 [H gap 2]
+            I NF2/Segment {Label=PNG, Selected=False} 50×28 "PNG"
+            I NF2/Segment {Label=SVG, Selected=False} 49×28 "SVG"
+            I NF2/Segment {Label=PSD, Selected=True} 51×28 "PSD"
+            I NF2/Segment {Label=AI, Selected=False} 36×28 "AI"
+            I NF2/Segment {Label=PDF, Selected=False} 48×28 "PDF"
+        T "Range"
+        F Row 386×32 [H gap 8]
+          I NF2/Select {Label=Current frame, State=Default} 200×32 "Current frame"
+          I NF2/Field {Prefix=Frames, Show prefix=true, Label=30, State=Disabled} 160×32 "Frames" "30"
+        T "Size"
+        F Row 386×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=W, Label=960, State=Default} 120×32 "W" "960"
+          I NF2/Field {Show prefix=true, Prefix=H, Label=600, State=Default} 120×32 "H" "600"
+          I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+          I NF2/Select {Label=1×, State=Default} 80×32 "1×"
+        T "Background"
+        F Row 386×16 [H gap 8]
+          I NF2/Radio {Label=Stage colour, Selected=True} 95×16 "Stage colour"
+          I NF2/Radio {Label=Transparent, Selected=False} 92×16 "Transparent"
+        T "PSD options"
+        I NF2/Radio {Label=Keep timeline layers as Photoshop layers, Selected=True} 256×16 "Keep timeline layers as Photoshop layers"
+        I NF2/Radio {Label=Flatten to one layer, Selected=False} 133×16 "Flatten to one layer"
+        I NF2/Checkbox {Label=Folders → layer groups, Checked=True} 167×20 "Folders → layer groups"
+        I NF2/Checkbox {Label=Symbols → smart objects, Checked=True} 183×20 "Symbols → smart objects"
+        I NF2/Checkbox {Label=Keep text editable, Checked=True} 138×20 "Keep text editable"
+        F Row 386×32 [H gap 8]
+          I NF2/Select {Label=Colour: sRGB 8-bit, State=Default} 200×32 "Colour: sRGB 8-bit"
+          I NF2/Select {Label=Resolution: 144 ppi, State=Default} 180×32 "Resolution: 144 ppi"
+    F Footer 758×65 [H gap 8]
+      T "~ 4.2 MB · 6 layers"
+      F Spacer 392×2
+      I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+      I NF2/Button {Icon=true, Label=Export PSD, Type=Primary, State=Default} 119×32 "Export PSD"
+  F Dialog / Export image — SVG 760×589 [V gap 0]
+    I NF2/Dialog Header 758×60 "Export image"
+    F Main 758×462 [H gap 24]
+      F Left 300×212 [V gap 8]
+        F Preview 300×188
+        T "Frame 30 of 120 · 960 × 600"
+      F Options 386×446 [V gap 12]
+        F Row 386×34 [H gap 8]
+          F Segments 248×34 [H gap 2]
+            I NF2/Segment {Label=PNG, Selected=False} 50×28 "PNG"
+            I NF2/Segment {Label=SVG, Selected=True} 51×28 "SVG"
+            I NF2/Segment {Label=PSD, Selected=False} 49×28 "PSD"
+            I NF2/Segment {Label=AI, Selected=False} 36×28 "AI"
+            I NF2/Segment {Label=PDF, Selected=False} 48×28 "PDF"
+        T "Range"
+        F Row 386×32 [H gap 8]
+          I NF2/Select {Label=Current frame, State=Default} 200×32 "Current frame"
+          I NF2/Field {Prefix=Frames, Show prefix=true, Label=30, State=Disabled} 160×32 "Frames" "30"
+        T "Size"
+        F Row 386×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=W, Label=960, State=Default} 120×32 "W" "960"
+          I NF2/Field {Show prefix=true, Prefix=H, Label=600, State=Default} 120×32 "H" "600"
+          I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+          I NF2/Select {Label=1×, State=Default} 80×32 "1×"
+        T "Background"
+        F Row 386×16 [H gap 8]
+          I NF2/Radio {Label=Stage colour, Selected=False} 95×16 "Stage colour"
+          I NF2/Radio {Label=Transparent, Selected=True} 92×16 "Transparent"
+        T "SVG options"
+        F Row 386×32 [H gap 8]
+          I NF2/Select {Label=Images: Embed, State=Default} 180×32 "Images: Embed"
+          I NF2/Select {Label=Text: Convert to outlines, State=Default} 200×32 "Text: Convert to outlines"
+        I NF2/Switch {Label=Minify output, On=True} 120×20 "Minify output"
+        I NF2/Switch {Label=Use CSS classes for styles, On=False} 202×20 "Use CSS classes for styles"
+        I NF2/Checkbox {Label=Include hidden & guide layers, Checked=False} 207×20 "Include hidden & guide layers"
+        F Row 386×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=Precision, Label=2, State=Default} 120×32 "Precision" "2"
+          I NF2/Field {Show prefix=true, Prefix=ID prefix, Label=nf-, State=Default} 180×32 "ID prefix" "nf-"
+    F Footer 758×65 [H gap 8]
+      T "~ 18 kB · 42 paths"
+      F Spacer 394×2
+      I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+      I NF2/Button {Icon=true, Label=Export SVG, Type=Primary, State=Default} 120×32 "Export SVG"
+  F Dialog / Export image — AI 760×569 [V gap 0]
+    I NF2/Dialog Header 758×60 "Export image"
+    F Main 758×442 [H gap 24]
+      F Left 300×212 [V gap 8]
+        F Preview 300×188
+        T "Frame 30 of 120 · 960 × 600"
+      F Options 386×426 [V gap 12]
+        F Row 386×34 [H gap 8]
+          F Segments 248×34 [H gap 2]
+            I NF2/Segment {Label=PNG, Selected=False} 50×28 "PNG"
+            I NF2/Segment {Label=SVG, Selected=False} 49×28 "SVG"
+            I NF2/Segment {Label=PSD, Selected=False} 49×28 "PSD"
+            I NF2/Segment {Label=AI, Selected=True} 38×28 "AI"
+            I NF2/Segment {Label=PDF, Selected=False} 48×28 "PDF"
+        T "Range"
+        F Row 386×32 [H gap 8]
+          I NF2/Select {Label=Current frame, State=Default} 200×32 "Current frame"
+          I NF2/Field {Prefix=Frames, Show prefix=true, Label=30, State=Disabled} 160×32 "Frames" "30"
+        T "Size"
+        F Row 386×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=W, Label=960, State=Default} 120×32 "W" "960"
+          I NF2/Field {Show prefix=true, Prefix=H, Label=600, State=Default} 120×32 "H" "600"
+          I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+          I NF2/Select {Label=1×, State=Default} 80×32 "1×"
+        T "Background"
+        F Row 386×16 [H gap 8]
+          I NF2/Radio {Label=Stage colour, Selected=True} 95×16 "Stage colour"
+          I NF2/Radio {Label=Transparent, Selected=False} 92×16 "Transparent"
+        T "AI options"
+        F Row 386×32 [H gap 8]
+          I NF2/Select {Label=Version: Illustrator CS6+, State=Default} 240×32 "Version: Illustrator CS6+"
+        I NF2/Radio {Label=Each layer → AI layer, Selected=True} 142×16 "Each layer → AI layer"
+        I NF2/Radio {Label=Each keyframe → artboard, Selected=False} 175×16 "Each keyframe → artboard"
+        I NF2/Checkbox {Label=Strokes as strokes (not outlines), Checked=True} 225×20 "Strokes as strokes (not outlines)"
+        I NF2/Checkbox {Label=Convert text to outlines, Checked=False} 171×20 "Convert text to outlines"
+    F Footer 758×65 [H gap 8]
+      T "~ 260 kB · 6 layers"
+      F Spacer 405×2
+      I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+      I NF2/Button {Icon=true, Label=Export AI, Type=Primary, State=Default} 106×32 "Export AI"
+  F Dialog / Export video 840×545 [V gap 0]
+    I NF2/Dialog Header 838×60 "Export video"
+    F Main 838×418 [H gap 24]
+      F Left 300×248 [V gap 8]
+        F Preview 300×188
+        I NF2/Progress {Mode=Determinate} 300×28 "Exporting frames 72 / 120" "60 %"
+        T "Preview while rendering · ⏸ to pause"
+      F Options 466×402 [V gap 12]
+        F Row 466×34 [H gap 8]
+          F Segments 302×34 [H gap 2]
+            I NF2/Segment {Label=MP4, Selected=True} 53×28 "MP4"
+            I NF2/Segment {Label=WebM, Selected=False} 61×28 "WebM"
+            I NF2/Segment {Label=MOV, Selected=False} 52×28 "MOV"
+            I NF2/Segment {Label=GIF, Selected=False} 44×28 "GIF"
+            I NF2/Segment {Label=PNG seq., Selected=False} 78×28 "PNG seq."
+        T "Range"
+        F Row 466×32 [H gap 8]
+          I NF2/Select {Label=Whole movie (all scenes), State=Default} 220×32 "Whole movie (all scenes)"
+          I NF2/Field {Prefix=From, Show prefix=true, Label=1, State=Disabled} 90×32 "From" "1"
+          I NF2/Field {Prefix=To, Show prefix=true, Label=120, State=Disabled} 90×32 "To" "120"
+        T "Video"
+        F Row 466×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=W, Label=1920, State=Default} 110×32 "W" "1920"
+          I NF2/Field {Show prefix=true, Prefix=H, Label=1200, State=Default} 110×32 "H" "1200"
+          I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+          I NF2/Select {Label=2×, State=Default} 76×32 "2×"
+        F Row 466×32 [H gap 8]
+          I NF2/Select {Label=24 fps (document), State=Default} 160×32 "24 fps (document)"
+          I NF2/Select {Label=Codec: H.264, State=Default} 160×32 "Codec: H.264"
+        F Row 466×20 [H gap 8]
+          T "Quality"
+          I NF2/Slider 180×20
+          T "High · ~8 Mbps"
+        T "Content"
+        I NF2/Checkbox {Label=Render nested movie clip animation and scripts (runtime capture), Checked=True} 427×20 "Render nested movie clip animation and scripts (runtime capture)"
+        F Row 466×32 [H gap 8]
+          I NF2/Radio {Label=Stop at last frame, Selected=True} 124×16 "Stop at last frame"
+          I NF2/Radio {Label=Stop after, Selected=False} 80×16 "Stop after"
+          I NF2/Field {Prefix=W, Show prefix=false, Label=10 s, State=Disabled} 72×32 "W" "10 s"
+        F Row 466×32 [H gap 8]
+          I NF2/Switch {Label=Include audio, On=True} 121×20 "Include audio"
+          I NF2/Select {Label=AAC 192 kbps, State=Default} 150×32 "AAC 192 kbps"
+          I NF2/Checkbox {Label=Transparent bg (MOV/WebM), Checked=False} 206×20 "Transparent bg (MOV/WebM)"
+    F Footer 838×65 [H gap 8]
+      T "~ 12.1 MB · 00:05 · 1920×1200"
+      F Spacer 436×2
+      I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+      I NF2/Button {Icon=true, Label=Export, Type=Primary, State=Default} 90×32 "Export"
+  F Dialog / Export audio 640×445 [V gap 0]
+    I NF2/Dialog Header 638×60 "Export audio"
+    F Main 638×318 [H gap 24]
+      F Options 590×302 [V gap 12]
+        F Row 590×34 [H gap 8]
+          F Segments 218×34 [H gap 2]
+            I NF2/Segment {Label=WAV, Selected=False} 51×28 "WAV"
+            I NF2/Segment {Label=MP3, Selected=True} 53×28 "MP3"
+            I NF2/Segment {Label=OGG, Selected=False} 52×28 "OGG"
+            I NF2/Segment {Label=AAC, Selected=False} 50×28 "AAC"
+        I NF2/TL Span {Type=Sound} 590×40
+        T "Source"
+        F Row 590×32 [H gap 8]
+          I NF2/Select {Label=Timeline mix (all sound layers), State=Default} 300×32 "Timeline mix (all sound layers)"
+          I NF2/Select {Label=Range: whole movie, State=Default} 280×32 "Range: whole movie"
+        T "Format"
+        F Row 590×32 [H gap 8]
+          I NF2/Select {Label=44.1 kHz, State=Default} 140×32 "44.1 kHz"
+          I NF2/Select {Label=16-bit, State=Default} 120×32 "16-bit"
+          I NF2/Select {Label=Stereo, State=Default} 120×32 "Stereo"
+          I NF2/Select {Label=192 kbps CBR, State=Default} 180×32 "192 kbps CBR"
+        T "Processing"
+        F Row 590×32 [H gap 8]
+          I NF2/Switch {Label=Normalize to −1 dB, On=True} 155×20 "Normalize to −1 dB"
+          I NF2/Stepper Field {Prefix=Fade out, Label=1.0 s, State=Default} 160×32 "Fade out" "1.0 s"
+          I NF2/Checkbox {Label=Trim silence, Checked=False} 100×20 "Trim silence"
+    F Footer 638×65 [H gap 8]
+      T "music.mp3 + sfx · 00:32.4 · ~ 760 kB"
+      F Spacer 198×2
+      I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+      I NF2/Button {Icon=true, Label=Export, Type=Primary, State=Default} 90×32 "Export"
+  F Dialog / Import PSD to library 880×631 [V gap 0]
+    I NF2/Dialog Header 878×60 "Import "Poster.psd" to library"
+    F Main 878×504 [H gap 24]
+      F Layers 380×324 [V gap 8]
+        T "Layers to import"
+        F List 380×260 [V gap 0]
+          F Layer / Title 378×43 [H gap 10]
+            I NF2/Checkbox {Label= , Checked=True} 26×20 " "
+            F Frame 44×30
+            T "Title"
+            I NF2 Icon/16/font 16×16
+          F Layer / Logo 378×43 [H gap 10]
+            I NF2/Checkbox {Label= , Checked=True} 26×20 " "
+            F Frame 44×30
+            T "Logo"
+            I NF2 Icon/16/folderopen 16×16
+          F Layer / Mark 378×43 [H gap 10]
+            I NF2/Checkbox {Label= , Checked=True} 26×20 " "
+            F Frame 44×30
+            T "Mark"
+            I NF2 Icon/16/bitmap 16×16
+          F Layer / Wordmark 378×43 [H gap 10]
+            I NF2/Checkbox {Label= , Checked=True} 26×20 " "
+            F Frame 44×30
+            T "Wordmark"
+            I NF2 Icon/16/pen 16×16
+          F Layer / Glow 378×43 [H gap 10]
+            I NF2/Checkbox {Label= , Checked=False} 26×20 " "
+            F Frame 44×30
+            T "Glow"
+            I NF2 Icon/16/bitmap 16×16
+          F Layer / Background 378×43 [H gap 10]
+            I NF2/Checkbox {Label= , Checked=True} 26×20 " "
+            F Frame 44×30
+            T "Background"
+            I NF2 Icon/16/bitmap 16×16
+        F Row 380×32 [H gap 8]
+          I NF2/Button {Icon=false, Label=Merge layers, Type=Secondary, State=Default} 107×32 "Merge layers"
+          I NF2/Button {Icon=false, Label=Select all, Type=Ghost, State=Default} 81×32 "Select all"
+      F Options 426×488 [V gap 12]
+        T "Options for "Mark""
+        T "Import this layer as"
+        I NF2/Radio {Label=Bitmap with editable layer styles, Selected=False} 208×16 "Bitmap with editable layer styles"
+        I NF2/Radio {Label=Flattened bitmap image, Selected=True} 158×16 "Flattened bitmap image"
+        I NF2/Radio {Label=Vector shapes (if possible), Selected=False} 176×16 "Vector shapes (if possible)"
+        T "Symbol"
+        I NF2/Checkbox {Label=Create movie clip for this layer, Checked=True} 213×20 "Create movie clip for this layer"
+        F Row 426×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=Instance, Label=mark_mc, State=Default} 260×32 "Instance" "mark_mc"
+          T "Reg."
+          I NF2/Registration Picker {Point=Center} 28×28
+        T "Publish settings"
+        F Row 426×32 [H gap 8]
+          I NF2/Select {Label=Compression: Lossy, State=Default} 200×32 "Compression: Lossy"
+          I NF2/Radio {Label=Use publish quality, Selected=True} 131×16 "Use publish quality"
+        F Row 426×32 [H gap 8]
+          I NF2/Radio {Label=Custom, Selected=False} 67×16 "Custom"
+          I NF2/Field {Prefix=W, Show prefix=false, Label=90, State=Disabled} 72×32 "W" "90"
+          I NF2/Button {Icon=false, Label=Calculate bitmap size, Type=Ghost, State=Default} 158×32 "Calculate bitmap size"
+        T "Placement"
+        F Row 426×32 [H gap 8]
+          I NF2/Select {Label=Convert layers to: Timeline layers, State=Default} 300×32 "Convert layers to: Timeline layers"
+        I NF2/Checkbox {Label=Place layers at original position, Checked=True} 216×20 "Place layers at original position"
+        I NF2/Checkbox {Label=Set stage size to canvas (1280 × 720), Checked=False} 258×20 "Set stage size to canvas (1280 × 720)"
+    F Footer 878×65 [H gap 8]
+      I NF2/Button {Icon=false, Label=AI options…, Type=Ghost, State=Default} 98×32 "AI options…"
+      T "5 of 6 layers · 3 bitmaps · 1 text · 1 vector"
+      F Spacer 332×2
+      I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+      I NF2/Button {Icon=false, Label=Import, Type=Primary, State=Default} 66×32 "Import"

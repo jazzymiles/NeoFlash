@@ -55,18 +55,13 @@ fn title(panel: PanelId) -> &'static str {
 
 impl Editor {
     /// Header titles and bottom tabs use the same bidirectional docking gesture.
+    /// Drawn as the NF2 `Floating Panel Header` grip + active `Panel Tab` (36 px) when a panel body is
+    /// shown outside a dock group header (the dock group draws its own tabs otherwise).
     pub(crate) fn panel_title(&mut self, ui: &mut egui::Ui, panel: PanelId, label: &str) {
         if self.detached.content_header == Some(panel) {
             return;
         }
-        let response = ui.add(
-            egui::Label::new(
-                egui::RichText::new(label)
-                    .strong()
-                    .size(crate::theme::PANEL_FONT),
-            )
-            .sense(egui::Sense::click_and_drag()),
-        );
+        let response = panel_title_tab(ui, label);
         self.panel_drag_handle(ui, panel, &response);
     }
 
@@ -316,47 +311,30 @@ impl Editor {
             return;
         };
         let local = |rect: egui::Rect| rect.translate(-view.inner.min.to_vec2()) / view.zoom;
-        let accent = ctx.style().visuals.selection.bg_fill;
         let painter = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Foreground,
             egui::Id::new(("panel-dock-target", surface)),
         ));
-        for (edge, global) in edge_targets(view.content, view.zoom) {
-            let rect = local(global);
-            painter.rect_filled(rect, 3., accent.gamma_multiply(0.12));
-            painter.rect_stroke(
-                rect.shrink(1.),
-                3.,
-                egui::Stroke::new(1.0_f32, accent),
-                egui::StrokeKind::Inside,
-            );
-            painter.text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                edge.title(),
-                egui::FontId::proportional(crate::theme::PANEL_FONT),
-                ctx.style().visuals.text_color(),
-            );
-        }
-        if let Some(hit) = self
+        let hit = self
             .dock_hit(drag.pointer, view.zoom)
-            .filter(|hit| hit.surface == surface)
-        {
-            let rect = local(hit.rect);
-            painter.rect_filled(rect, 3., accent.gamma_multiply(0.4));
-            painter.rect_stroke(
-                rect.shrink(1.),
-                3.,
-                egui::Stroke::new(2.0_f32, accent),
-                egui::StrokeKind::Inside,
+            .filter(|hit| hit.surface == surface);
+        for (edge, global) in edge_targets(view.content, view.zoom) {
+            neoflash_ui::components::dock_target(&painter, ctx, local(global), edge.title(), false);
+        }
+        if let Some(hit) = hit {
+            neoflash_ui::components::dock_target(
+                &painter,
+                ctx,
+                local(hit.rect),
+                &hit.caption,
+                true,
             );
             let pointer = (drag.pointer - view.inner.min).to_pos2() / view.zoom;
-            painter.text(
+            neoflash_ui::components::drag_ghost_at(
+                &painter,
+                ctx,
                 pointer + egui::vec2(12., 24.),
-                egui::Align2::LEFT_TOP,
-                format!("{} · {}", title(drag.panel), hit.caption),
-                egui::FontId::proportional(crate::theme::PANEL_FONT),
-                ctx.style().visuals.text_color(),
+                &format!("{} · {}", title(drag.panel), hit.caption),
             );
         }
     }
@@ -559,13 +537,9 @@ impl Editor {
                     ctx.request_repaint_of(egui::ViewportId::ROOT);
                 }
                 if class == egui::ViewportClass::Embedded {
-                    let mut open = true;
-                    egui::Window::new(&title)
-                        .id(egui::Id::new(("floating-dock", window_id)))
-                        .open(&mut open)
-                        .show(ctx, |ui| {
-                            self.floating_dock_contents(ui, window_id);
-                        });
+                    // Backends without native child windows: an in-window NF2 floating panel
+                    // (`bg/raised`, radius 12, border, popover shadow, `Floating Panel Header`).
+                    let open = self.embedded_floating_panel(ctx, window_id, &panels);
                     if !open {
                         for panel in &panels {
                             self.set_panel_visible(*panel, false);
@@ -703,6 +677,82 @@ impl Editor {
         ui.separator();
     }
 
+    /// Embedded fallback of a floating dock window. Returns `false` when the header's close was used.
+    fn embedded_floating_panel(
+        &mut self,
+        ctx: &egui::Context,
+        window_id: PanelId,
+        panels: &[PanelId],
+    ) -> bool {
+        let id = egui::Id::new(("floating-dock", window_id));
+        let collapsed_id = id.with("collapsed");
+        let collapsed = ctx
+            .data(|d| d.get_temp::<bool>(collapsed_id))
+            .unwrap_or(false);
+        let visible: Vec<PanelId> = panels
+            .iter()
+            .copied()
+            .filter(|panel| self.workspace.is_panel_visible(*panel))
+            .take(3)
+            .collect();
+        let titles: Vec<&str> = visible.iter().map(|panel| panel.title()).collect();
+        // The first visible panel that is the active tab of its group in this window.
+        let active = self
+            .workspace
+            .floating
+            .iter()
+            .find(|w| w.id == window_id)
+            .and_then(|w| {
+                visible
+                    .iter()
+                    .position(|panel| w.root.as_ref().is_some_and(|root| active_in(root, *panel)))
+            })
+            .unwrap_or(0);
+        let mut open = true;
+        let clipboard_target = self.clipboard_target(ctx);
+        // The header replaces egui's title bar, so it moves the window itself.
+        let position_id = id.with("position");
+        let mut window = egui::Window::new(titles.join(" + ")).id(id);
+        if let Some(position) = ctx.data(|d| d.get_temp::<egui::Pos2>(position_id)) {
+            window = window.current_pos(position);
+        }
+        window
+            .title_bar(false)
+            .frame(neoflash_ui::components::Surface::Floating.frame(ctx))
+            .resizable(!collapsed)
+            .show(ctx, |ui| {
+                let header = neoflash_ui::components::FloatingPanelHeader {
+                    tabs: &titles,
+                    active,
+                    collapsed,
+                }
+                .show(ui);
+                if let Some(tab) = header.tab.and_then(|tab| visible.get(tab)) {
+                    self.show_panel(*tab);
+                }
+                if header.drag.dragged() {
+                    let delta = header.drag.drag_delta();
+                    if let Some(rect) = ctx.memory(|m| m.area_rect(id)) {
+                        ctx.data_mut(|d| d.insert_temp(position_id, rect.min + delta));
+                        ctx.request_repaint();
+                    }
+                }
+                neoflash_ui::components::popup_below(&header.menu, 240., |ui| {
+                    self.floating_panel_commands(ui, window_id, &clipboard_target);
+                });
+                if header.collapse {
+                    ctx.data_mut(|d| d.insert_temp(collapsed_id, !collapsed));
+                }
+                if header.close {
+                    open = false;
+                }
+                if !collapsed {
+                    self.floating_dock_contents(ui, window_id);
+                }
+            });
+        open
+    }
+
     fn finish_floating_context_menu(&mut self, ctx: &egui::Context) {
         if !self.detached.context_menu_open
             && self.clipboard.menu_viewport == Some(ctx.viewport_id())
@@ -712,4 +762,68 @@ impl Editor {
             self.clipboard.menu_viewport = None;
         }
     }
+}
+
+/// `true` when `panel` is the active tab of its group in a floating window tree.
+fn active_in(node: &crate::workspace::FloatingNode, panel: PanelId) -> bool {
+    match node {
+        crate::workspace::FloatingNode::Group(group) => group.active == panel,
+        crate::workspace::FloatingNode::Split { first, second, .. } => {
+            active_in(first, panel) || active_in(second, panel)
+        }
+    }
+}
+
+/// NF2 `Floating Panel Header` look for a lone panel title: drag grip + active `Panel Tab`.
+/// The whole chip is the drag handle (same docking gesture as dock tabs).
+fn panel_title_tab(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    use neoflash_ui::tokens::{TextStyle, space};
+    let p = neoflash_ui::palette(ui.ctx());
+    let galley = ui.painter().layout_no_wrap(
+        label.to_owned(),
+        neoflash_ui::typography::font(TextStyle::SmallStrong),
+        p.text_primary,
+    );
+    let grip = neoflash_ui::metrics::ICON_UI;
+    let size = egui::vec2(
+        space::S2 + grip + space::S1 + space::S3 + galley.size().x + space::S3,
+        neoflash_ui::metrics::PANEL_TAB,
+    );
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+    if ui.is_rect_visible(rect) {
+        let grip_rect = egui::Rect::from_center_size(
+            egui::pos2(rect.left() + space::S2 + grip / 2., rect.center().y),
+            egui::vec2(grip, grip),
+        );
+        neoflash_ui::icons::paint(
+            ui.painter(),
+            ui.ctx(),
+            grip_rect,
+            neoflash_ui::icons::i16::GRIP,
+            p.text_tertiary,
+        );
+        let tab = egui::Rect::from_min_max(
+            egui::pos2(grip_rect.right() + space::S1, rect.top()),
+            rect.max,
+        );
+        ui.painter().galley(
+            egui::pos2(
+                tab.left() + space::S3,
+                tab.center().y - galley.size().y / 2.,
+            ),
+            galley,
+            p.text_primary,
+        );
+        ui.painter().rect_filled(
+            egui::Rect::from_min_max(egui::pos2(tab.left(), tab.bottom() - 2.), tab.max),
+            1.,
+            p.accent_default,
+        );
+        if neoflash_ui::theme::keyboard_focus(ui, &response) {
+            neoflash_ui::theme::focus_ring(ui, rect.shrink(2.), neoflash_ui::tokens::radius::SM);
+        }
+    }
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, ui.is_enabled(), label));
+    response
 }

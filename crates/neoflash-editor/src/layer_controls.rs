@@ -101,66 +101,44 @@ pub(crate) fn visible_layer_indices(timeline: &Timeline) -> Vec<usize> {
     }
     visible
 }
-/// Role icons are vector geometry, independent of installed glyph coverage.
-pub(crate) fn paint_layer_role(
-    p: &egui::Painter,
-    rect: egui::Rect,
-    layer: &Layer,
-    color: egui::Color32,
-) {
-    let center = rect.center();
-    let stroke = egui::Stroke::new(1.0_f32, color);
-    let line = |a, b| {
-        p.line_segment([a, b], stroke);
-    };
+/// NF2 `TL Layer` type of a document layer. Folders follow their collapsed state; a normal layer
+/// with a mask is Masked. The editor has no motion-guide, sound, video or armature layers yet.
+pub(crate) fn layer_kind(layer: &Layer) -> neoflash_ui::components::timeline::LayerKind {
+    use neoflash_ui::components::timeline::LayerKind;
     match layer.properties.role {
-        LayerRole::Normal => {
-            let back =
-                egui::Rect::from_center_size(center - egui::vec2(1.5, 1.5), egui::vec2(8., 8.));
-            p.rect_stroke(back, 0, stroke, egui::StrokeKind::Inside);
-            p.rect_stroke(
-                back.translate(egui::vec2(3., 3.)),
-                0,
-                stroke,
-                egui::StrokeKind::Inside,
-            );
-            if layer.properties.mask.is_some() {
-                line(
-                    rect.left_top() + egui::vec2(1., 2.),
-                    rect.left_bottom() - egui::vec2(-1., 3.),
-                );
-            }
-        }
-        LayerRole::Guide => {
-            line(center - egui::vec2(6., 0.), center + egui::vec2(6., 0.));
-            line(center - egui::vec2(0., 6.), center + egui::vec2(0., 6.));
-            p.circle_stroke(center, 3.5, stroke);
-        }
-        LayerRole::Mask => {
-            p.circle_stroke(center, 5., stroke);
-            p.circle_filled(center, 2.4, color);
-        }
-        LayerRole::Folder => {
-            let points = if layer.properties.collapsed {
-                vec![
-                    center + egui::vec2(-3., -5.),
-                    center + egui::vec2(3., 0.),
-                    center + egui::vec2(-3., 5.),
-                ]
-            } else {
-                vec![
-                    center + egui::vec2(-5., -3.),
-                    center + egui::vec2(5., -3.),
-                    center + egui::vec2(0., 3.),
-                ]
-            };
-            p.add(egui::Shape::convex_polygon(
-                points,
-                color,
-                egui::Stroke::NONE,
-            ));
-        }
+        LayerRole::Folder if layer.properties.collapsed => LayerKind::FolderClosed,
+        LayerRole::Folder => LayerKind::FolderOpen,
+        LayerRole::Guide => LayerKind::Guide,
+        LayerRole::Mask => LayerKind::Mask,
+        LayerRole::Normal if layer.properties.mask.is_some() => LayerKind::Masked,
+        LayerRole::Normal => LayerKind::Layer,
     }
+}
+/// Nesting depth under folders and masks (`Indent 1`, `Indent 2`, …), matching
+/// [`visible_layer_indices`]: a mask link wins over the folder parent.
+pub(crate) fn layer_depth(timeline: &Timeline, layer: &Layer) -> usize {
+    let mut depth = 0;
+    let mut seen = HashSet::from([layer.id.as_str()]);
+    let mut current = layer;
+    while let Some(parent) = current
+        .properties
+        .mask
+        .as_ref()
+        .or(current.properties.parent.as_ref())
+        .and_then(|id| timeline.layers.iter().find(|l| &l.id == id))
+    {
+        if !seen.insert(parent.id.as_str()) {
+            break;
+        }
+        depth += 1;
+        current = parent;
+    }
+    depth
+}
+/// Layer outline colour (document data) as an egui colour for the `TL Toggle` swatch.
+pub(crate) fn layer_color(layer: &Layer) -> egui::Color32 {
+    let color = layer_outline_color(layer);
+    egui::Color32::from_rgb(color[0], color[1], color[2])
 }
 
 #[derive(Clone)]
@@ -276,56 +254,70 @@ impl Editor {
             }
         });
     }
-    pub(crate) fn layer_outline_control(&mut self, ui: &mut egui::Ui, layer: &Layer) {
-        let (rect, response) = ui.allocate_exact_size(
-            egui::vec2(
-                crate::timeline_paint::LAYER_CONTROL_WIDTH,
-                crate::timeline_paint::ROW_HEIGHT,
-            ),
-            egui::Sense::click(),
-        );
-        response.widget_info(|| {
-            egui::WidgetInfo::selected(
-                egui::WidgetType::Button,
-                ui.is_enabled(),
-                layer.properties.outline,
-                format!("Outline layer {}", layer.name),
-            )
+    /// `TL Toggle` Kind=Outline: solid ↔ outline-only view of one layer (one undo step).
+    pub(crate) fn toggle_layer_outline(&mut self, layer: &Layer) {
+        let symbol_id = self.symbol_id().to_owned();
+        self.apply_layer_outline(&symbol_id, &layer.id, Some(!layer.properties.outline), None);
+    }
+    /// Right-click menu of the outline swatch: change the layer colour.
+    pub(crate) fn layer_outline_menu(&mut self, response: &egui::Response, layer: &Layer) {
+        response.context_menu(|ui| {
+            crate::ui_icons::menu_contents(ui, 240., |ui| {
+                neoflash_ui::components::menu_section(ui, &layer.name);
+                if ui
+                    .add(neoflash_ui::components::MenuItem::new("Outline color…"))
+                    .clicked()
+                {
+                    self.begin_layer_outline_color(ui.ctx(), layer);
+                }
+            })
         });
-        let color = layer_outline_color(layer);
-        let color = egui::Color32::from_rgb(color[0], color[1], color[2]);
-        let square = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(10.));
-        if response.hovered() || response.has_focus() {
-            ui.painter()
-                .rect_filled(rect.shrink(2.), 2., ui.visuals().widgets.hovered.bg_fill);
-        }
-        if layer.properties.outline {
-            ui.painter().rect_stroke(
-                square,
-                0,
-                egui::Stroke::new(2.0_f32, color),
-                egui::StrokeKind::Inside,
-            );
-        } else {
-            ui.painter().rect_filled(square, 0, color);
-        }
-        if response.clicked() {
-            let symbol_id = self.symbol_id().to_owned();
-            self.apply_layer_outline(&symbol_id, &layer.id, Some(!layer.properties.outline), None);
-        }
-        response
-            .on_hover_text(
-                "Click to toggle this layer's outlines. Right-click to change its color.",
-            )
-            .context_menu(|ui| {
-                crate::ui_icons::menu_contents(ui, 240., |ui| {
-                    ui.label(&layer.name);
-                    if ui.button("Outline color…").clicked() {
-                        self.begin_layer_outline_color(ui.ctx(), layer);
-                        ui.close();
+    }
+    /// `TL Layers Header` columns: toggle every row. When any row is in the default state the
+    /// click moves all rows to the other state (Flash behaviour), otherwise it restores them.
+    pub(crate) fn toggle_all_layers(
+        &mut self,
+        column: neoflash_ui::components::timeline::ToggleKind,
+    ) {
+        use neoflash_ui::components::timeline::ToggleKind;
+        let layers = &self.symbol().timeline.layers;
+        let target = match column {
+            ToggleKind::Visibility => !layers.iter().any(|l| !l.visible),
+            ToggleKind::Lock => layers
+                .iter()
+                .any(|l| !l.locked && l.properties.role != LayerRole::Folder),
+            ToggleKind::Outline => layers
+                .iter()
+                .any(|l| !l.properties.outline && l.properties.role != LayerRole::Folder),
+        };
+        self.layer_change(|p, id| {
+            for l in &mut p.symbol_mut(id).unwrap().timeline.layers {
+                match column {
+                    ToggleKind::Visibility => l.visible = !target,
+                    ToggleKind::Lock if l.properties.role != LayerRole::Folder => l.locked = target,
+                    ToggleKind::Outline if l.properties.role != LayerRole::Folder => {
+                        l.properties.outline = target
                     }
-                })
-            });
+                    _ => {}
+                }
+            }
+        });
+    }
+    /// Insert a folder above `index` holding that layer (the Layer menu ▸ Insert Folder command).
+    pub(crate) fn insert_layer_folder(&mut self, index: usize) {
+        let Some(layer) = self.symbol().timeline.layers.get(index).cloned() else {
+            return;
+        };
+        self.layer_change(|p, id| {
+            let t = &mut p.symbol_mut(id).unwrap().timeline;
+            let folder = blank_layer(
+                "Folder".into(),
+                LayerRole::Folder,
+                layer.properties.parent.clone(),
+            );
+            t.layers[index].properties.parent = Some(folder.id.clone());
+            t.layers.insert(index, folder);
+        });
     }
     pub(crate) fn layer_outline_color_dialog(&mut self, ctx: &egui::Context) {
         let id = self.outline_draft_id();
@@ -576,20 +568,25 @@ impl Editor {
     pub(crate) fn timeline_layer_menu(&mut self, ui: &mut egui::Ui, index: usize) -> bool {
         crate::ui_icons::menu_contents(ui, 280., |ui| self.timeline_layer_commands(ui, index))
     }
+    /// Layer (right-click) menu: the design §8 commands in order, then the editor's further layer
+    /// commands under "More".
     fn timeline_layer_commands(&mut self, ui: &mut egui::Ui, index: usize) -> bool {
+        use crate::ui_icons::{menu_item, menu_item_enabled, menu_toggle};
+        use neoflash_ui::components as nf;
         let mut rename = false;
         let layer = self.symbol().timeline.layers[index].clone();
+        let folder = layer.properties.role == LayerRole::Folder;
         let ctx = ui.ctx().clone();
         macro_rules! action {
             ($label:expr,$body:expr) => {
-                if ui.button($label).clicked() {
+                if menu_item(ui, $label, "").clicked() {
                     $body;
                     ui.close();
                 }
             };
         }
         action!(
-            "Show All",
+            "Show all",
             self.layer_change(
                 |p, id| for l in &mut p.symbol_mut(id).unwrap().timeline.layers {
                     l.visible = true;
@@ -597,15 +594,7 @@ impl Editor {
             )
         );
         action!(
-            "Unlock All",
-            self.layer_change(
-                |p, id| for l in &mut p.symbol_mut(id).unwrap().timeline.layers {
-                    l.locked = false;
-                }
-            )
-        );
-        action!(
-            "Lock Others",
+            "Lock others",
             self.layer_change(|p, id| {
                 for (i, l) in p
                     .symbol_mut(id)
@@ -620,7 +609,7 @@ impl Editor {
             })
         );
         action!(
-            "Hide Others",
+            "Hide others",
             self.layer_change(|p, id| {
                 for (i, l) in p
                     .symbol_mut(id)
@@ -636,32 +625,9 @@ impl Editor {
                 }
             })
         );
-        if ui.button("Outline color…").clicked() {
-            self.begin_layer_outline_color(&ctx, &layer);
-            ui.close();
-        }
+        nf::menu_separator(ui);
         action!(
-            "Others Transparent",
-            self.layer_change(|p, id| {
-                let layers = &mut p.symbol_mut(id).unwrap().timeline.layers;
-                let selected = group_indices(layers, index);
-                for (i, layer) in layers.iter_mut().enumerate() {
-                    layer.properties.outline =
-                        layer.properties.role != LayerRole::Folder && !selected.contains(&i);
-                }
-            })
-        );
-        action!(
-            "Show All as Solid",
-            self.layer_change(
-                |p, id| for l in &mut p.symbol_mut(id).unwrap().timeline.layers {
-                    l.properties.outline = false;
-                }
-            )
-        );
-        ui.separator();
-        action!(
-            "Insert Layer",
+            "Insert layer",
             self.layer_change(|p, id| {
                 let t = &mut p.symbol_mut(id).unwrap().timeline;
                 let parent = if layer.properties.role == LayerRole::Folder {
@@ -679,29 +645,150 @@ impl Editor {
                 );
             })
         );
-        action!("Delete Layer", self.delete_timeline_layer(index));
-        action!("Rename layer", rename = true);
-        ui.separator();
-        action!("Cut Layers", {
-            self.copy_timeline_layers(&ctx, index);
+        if menu_item_enabled(ui, !folder, "Delete layer", "").clicked() {
             self.delete_timeline_layer(index);
-        });
-        action!("Copy Layers", self.copy_timeline_layers(&ctx, index));
-        let clipboard = ctx.data(|data| data.get_temp::<LayerClipboard>(self.layer_clipboard_id()));
-        if ui
-            .add_enabled_semantic(clipboard.is_some(), egui::Button::new("Paste Layers"))
-            .clicked()
-        {
-            self.paste_timeline_layers(clipboard.unwrap(), index);
             ui.close();
         }
-        action!("Duplicate Layers", {
+        action!("Duplicate layers", {
             self.copy_timeline_layers(&ctx, index);
             let copy = ctx
                 .data(|data| data.get_temp::<LayerClipboard>(self.layer_clipboard_id()))
                 .unwrap();
             self.paste_timeline_layers(copy, index);
         });
+        action!("Cut layers", {
+            self.copy_timeline_layers(&ctx, index);
+            self.delete_timeline_layer(index);
+        });
+        action!("Copy layers", self.copy_timeline_layers(&ctx, index));
+        let clipboard = ctx.data(|data| data.get_temp::<LayerClipboard>(self.layer_clipboard_id()));
+        if menu_item_enabled(ui, clipboard.is_some(), "Paste layers", "").clicked() {
+            if let Some(clipboard) = clipboard {
+                self.paste_timeline_layers(clipboard, index);
+            }
+            ui.close();
+        }
+        nf::menu_separator(ui);
+        let mut guide = layer.properties.role == LayerRole::Guide;
+        if ui
+            .add_enabled_ui(!folder, |ui| menu_toggle(ui, &mut guide, "Guide", ""))
+            .inner
+            .changed()
+        {
+            let role = if guide {
+                LayerRole::Guide
+            } else {
+                LayerRole::Normal
+            };
+            self.set_layer_role(index, role);
+            ui.close();
+        }
+        Self::unavailable_item(ui, "Add classic motion guide", "");
+        let mut mask = layer.properties.role == LayerRole::Mask;
+        if ui
+            .add_enabled_ui(!folder, |ui| menu_toggle(ui, &mut mask, "Mask", ""))
+            .inner
+            .changed()
+        {
+            self.set_layer_role(
+                index,
+                if mask {
+                    LayerRole::Mask
+                } else {
+                    LayerRole::Normal
+                },
+            );
+            ui.close();
+        }
+        let mut masking = self.show_layer_masking(&ctx);
+        if menu_toggle(ui, &mut masking, "Show masking", "").changed() {
+            self.set_layer_masking(&ctx, masking);
+        }
+        nf::menu_separator(ui);
+        action!("Insert folder", self.insert_layer_folder(index));
+        if menu_item_enabled(ui, folder, "Delete folder", "").clicked() {
+            self.delete_timeline_layer(index);
+            ui.close();
+        }
+        if menu_item_enabled(
+            ui,
+            folder && layer.properties.collapsed,
+            "Expand folder",
+            "",
+        )
+        .clicked()
+        {
+            self.layer_change(|p, id| {
+                p.symbol_mut(id).unwrap().timeline.layers[index]
+                    .properties
+                    .collapsed = false
+            });
+            ui.close();
+        }
+        action!(
+            "Collapse all folders",
+            self.layer_change(
+                |p, id| for l in &mut p.symbol_mut(id).unwrap().timeline.layers {
+                    if l.properties.role == LayerRole::Folder {
+                        l.properties.collapsed = true;
+                    }
+                }
+            )
+        );
+        nf::menu_separator(ui);
+        Self::planned_menu_item(ui, "Layer menu ▸ Properties…", "");
+        nf::menu_separator(ui);
+        nf::menu_section(ui, "More");
+        action!("Rename layer", rename = true);
+        action!(
+            "Unlock all",
+            self.layer_change(
+                |p, id| for l in &mut p.symbol_mut(id).unwrap().timeline.layers {
+                    l.locked = false;
+                }
+            )
+        );
+        if menu_item(ui, "Outline color…", "").clicked() {
+            self.begin_layer_outline_color(&ctx, &layer);
+            ui.close();
+        }
+        action!(
+            "Others transparent",
+            self.layer_change(|p, id| {
+                let layers = &mut p.symbol_mut(id).unwrap().timeline.layers;
+                let selected = group_indices(layers, index);
+                for (i, layer) in layers.iter_mut().enumerate() {
+                    layer.properties.outline =
+                        layer.properties.role != LayerRole::Folder && !selected.contains(&i);
+                }
+            })
+        );
+        action!(
+            "Show all as solid",
+            self.layer_change(
+                |p, id| for l in &mut p.symbol_mut(id).unwrap().timeline.layers {
+                    l.properties.outline = false;
+                }
+            )
+        );
+        if folder
+            && menu_item_enabled(ui, !layer.properties.collapsed, "Collapse folder", "").clicked()
+        {
+            self.layer_change(|p, id| {
+                p.symbol_mut(id).unwrap().timeline.layers[index]
+                    .properties
+                    .collapsed = true
+            });
+            ui.close();
+        }
+        action!(
+            "Expand all folders",
+            self.layer_change(
+                |p, id| for l in &mut p.symbol_mut(id).unwrap().timeline.layers {
+                    l.properties.collapsed = false;
+                }
+            )
+        );
         let can_merge = layer.properties.role == LayerRole::Normal
             && !layer.locked
             && self.symbol().timeline.frame_count <= 10000
@@ -718,8 +805,7 @@ impl Editor {
                         && next.properties.parent == layer.properties.parent
                         && next.keyframes.iter().all(|key| key.label.is_empty())
                 });
-        if ui
-            .add_enabled_semantic(can_merge, egui::Button::new("Merge with Next Layer"))
+        if menu_item_enabled(ui, can_merge, "Merge with next layer", "")
             .on_hover_text("Preserve both layers’ animation; tweened frames are sampled into keys")
             .clicked()
         {
@@ -767,7 +853,7 @@ impl Editor {
         let group = group_indices(&self.symbol().timeline.layers, index);
         let contiguous = group.last().copied().unwrap_or(index) - index + 1 == group.len();
         ui.add_enabled_ui_semantic(contiguous, |ui| {
-            ui.menu_button("Convert Layers to Symbol…", |ui| {
+            crate::ui_icons::menu_submenu(ui, "Convert layers to symbol…", |ui| {
                 let name_id = ui.id().with("layer-symbol-name");
                 let mut name = ctx
                     .data(|data| data.get_temp::<String>(name_id))
@@ -785,75 +871,9 @@ impl Editor {
                     self.convert_timeline_layers(index, name.trim().to_owned());
                     ui.close();
                 }
-            })
-            .response
-            .on_hover_text("Convert a contiguous layer stack, preserving all authored frames");
+            });
         });
-        ui.separator();
-        if layer.properties.role != LayerRole::Folder {
-            for (role, label) in [
-                (LayerRole::Normal, "Normal"),
-                (LayerRole::Guide, "Guide"),
-                (LayerRole::Mask, "Mask"),
-            ] {
-                if ui
-                    .selectable_label(layer.properties.role == role, label)
-                    .clicked()
-                {
-                    self.set_layer_role(index, role);
-                    ui.close();
-                }
-            }
-        }
-        let mut masking = self.show_layer_masking(&ctx);
-        if ui.checkbox(&mut masking, "Show Masking").changed() {
-            self.set_layer_masking(&ctx, masking);
-        }
-        ui.separator();
-        action!(
-            "Insert Folder",
-            self.layer_change(|p, id| {
-                let t = &mut p.symbol_mut(id).unwrap().timeline;
-                let folder = blank_layer(
-                    "Folder".into(),
-                    LayerRole::Folder,
-                    layer.properties.parent.clone(),
-                );
-                t.layers[index].properties.parent = Some(folder.id.clone());
-                t.layers.insert(index, folder);
-            })
-        );
-        if layer.properties.role == LayerRole::Folder {
-            action!(
-                if layer.properties.collapsed {
-                    "Expand Folder"
-                } else {
-                    "Collapse Folder"
-                },
-                self.layer_change(|p, id| p.symbol_mut(id).unwrap().timeline.layers[index]
-                    .properties
-                    .collapsed = !layer.properties.collapsed)
-            );
-        }
-        action!(
-            "Expand All Folders",
-            self.layer_change(
-                |p, id| for l in &mut p.symbol_mut(id).unwrap().timeline.layers {
-                    l.properties.collapsed = false;
-                }
-            )
-        );
-        action!(
-            "Collapse All Folders",
-            self.layer_change(
-                |p, id| for l in &mut p.symbol_mut(id).unwrap().timeline.layers {
-                    if l.properties.role == LayerRole::Folder {
-                        l.properties.collapsed = true;
-                    }
-                }
-            )
-        );
-        ui.menu_button("Properties…", |ui| {
+        crate::ui_icons::menu_submenu(ui, "Folder and mask…", |ui| {
             let mut draft = layer.clone();
             ui.label("Layer name");
             ui.text_edit_singleline(&mut draft.name);

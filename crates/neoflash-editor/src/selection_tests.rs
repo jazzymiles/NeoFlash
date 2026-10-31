@@ -700,13 +700,14 @@ fn timeline_key_drop_uses_final_release_column_and_keeps_the_captured_layer() {
     };
     timeline_input(0.1, vec![]);
     let output = timeline_input(0.2, vec![]);
+    // NF2/TL Marker Kind=Keyframe: a filled dot on the row centre (radius = frame width / 4).
     let start = output
         .shapes
         .iter()
         .filter_map(|shape| match &shape.shape {
             egui::Shape::Circle(circle)
-                if circle.radius == 3.
-                    && circle.fill == crate::theme::UiPalette::current(&ctx).timeline_key
+                if (1.5..=3.5).contains(&circle.radius)
+                    && circle.fill == neoflash_ui::palette(&ctx).timeline_marker
                     && shape.clip_rect.contains(circle.center) =>
             {
                 Some(circle.center)
@@ -715,8 +716,10 @@ fn timeline_key_drop_uses_final_release_column_and_keeps_the_captured_layer() {
         })
         .min_by(|a, b| a.y.total_cmp(&b.y).then(a.x.total_cmp(&b.x)))
         .expect("timeline must paint the first authored key");
-    let third = start + egui::vec2(13. * 3., 0.);
-    let eighth_other_row = start + egui::vec2(13. * 8., crate::timeline_paint::ROW_HEIGHT);
+    // Normal frame view: 12 pt per frame (FrameView::Normal).
+    let cell = neoflash_ui::metrics::FrameView::Normal.frame_width();
+    let third = start + egui::vec2(cell * 3., 0.);
+    let eighth_other_row = start + egui::vec2(cell * 8., crate::timeline_paint::ROW_HEIGHT);
     timeline_input(
         1.,
         vec![Event::PointerMoved(start), primary_button(start, true)],

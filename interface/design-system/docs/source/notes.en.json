@@ -1,0 +1,257 @@
+{
+ "panel-tools-floating": {
+  "cat": "panels",
+  "title": "Tools",
+  "text": "`NF2/Tools Panel` in a floating window. Layout = **1 Column** (docked rail, 56 px: related tools behind flyouts — Selection/Subselection, Free/Gradient transform, Line/Pen, Rectangle/Oval/PolyStar/primitives, Pencil/Brush/Spray, Bucket/Ink, Eyedropper, Eraser, Bone, Deco, Hand/Zoom) or **2 Columns** (every tool visible, sections Tools · View · Colors · Options). Tool = `NF2/Tool Button` 32 × 32 with a 20 px monochrome icon, `Flyout` marks a group (long-press opens it), `State` Default / Hover / Selected (accent). Colours: `Fill Stroke Chip` (click → Swatches popover), default colours, no colour, swap. Options area shows the active tool's modifiers (snap, smooth / straighten). Tooltips show name + key."
+ },
+ "panel-align": {
+  "cat": "panels",
+  "title": "Align",
+  "text": "Align to **Selection / Stage** (segmented). Groups, each an `NF2/Icon Group`: **Align** (left, h-centre, right · top, v-middle, bottom), **Distribute** (left, h-centre, right edges · top, v-middle, bottom), **Spacing** (horizontal, vertical + `Gap` field, e.g. 16 px), **Match size** (width, height, both). Width 264."
+ },
+ "panel-transform": {
+  "cat": "panels",
+  "title": "Transform",
+  "text": "**Position and size** X, Y, W, H with link (constrain) toggle; **Scale** W % / H % (linked); **Rotate and skew** rotation ↻ and Skew fields; icon group: rotate 90° CCW / CW, flip horizontal / vertical, reset transform. Fields support scrubbing on the prefix, arrow keys step, ⇧ = ×10."
+ },
+ "panel-color-solid": {
+  "cat": "panels",
+  "title": "Color — Solid",
+  "text": "Tabs Color / Swatches. Scope **Selection / Drawing** + selection count (\"1 object\"). Stroke and Fill `NF2/Color Well`s (the active one is edited) + swap. Type select **Solid colour**. `NF2/Color Picker` (saturation/brightness area, hue strip, alpha strip), RGB / HSB segmented with R G B fields, `Color Field` hex + alpha. Stroke section: width, line style."
+ },
+ "panel-color-radial-gradient": {
+  "cat": "panels",
+  "title": "Color — Radial gradient",
+  "text": "Same as Solid plus: **Flow** (extend / reflect / repeat icon group), **Linear RGB** checkbox, `NF2/Gradient Bar` with draggable `Gradient Stop`s (click the bar to add, drag off to remove; the selected stop is edited by the picker). Linear gradient is identical with a linear preview. The gradient is edited on stage with `NF2/Gradient Transform`."
+ },
+ "color-type-menu-open": {
+  "cat": "panels",
+  "title": "Color — type menu",
+  "text": "Fill type menu: None · Solid colour · Linear gradient · Radial gradient · Bitmap fill."
+ },
+ "color-panel-menu-open": {
+  "cat": "panels",
+  "title": "Color — panel menu",
+  "text": "Panel ⋯ menu: Add swatch · Help (F1) · Close (⌘W) · Close group. Every floating panel has the same menu skeleton."
+ },
+ "swatches-popover": {
+  "cat": "panels",
+  "title": "Swatches popover (quick colours)",
+  "text": "Opens from the fill/stroke chip in Tools, from any colour well and colour field. Hex + alpha input, eyedropper, no colour, colour wheel (→ Color panel), then sections **Recent**, **Document**, **Palette** (`NF2/Swatch Cell` grid, selected cell ringed) and **Gradients**. Width 300."
+ },
+ "view-settings": {
+  "cat": "panels",
+  "title": "View settings (rulers, guides & grid)",
+  "text": "`NF2/View Settings` popover, opened from ⚙ in the canvas zoom control and from View ▸ Rulers, guides & grid…. **Rulers**: Show rulers, Units (Pixels), Labels **Auto / Every** N px (Auto picks 10 / 50 / 100 / 500 units so labels never overlap at the current zoom). **Guides**: Show, Snap, Lock, guide colour (#2EC4E6 · 100 %), snap accuracy. **Grid**: Show, Snap, Over objects, spacing ↔ / ↕ (20 px, linked), grid colour (white · 14 %), snap accuracy. Footer: Clear guides · Save as default."
+ },
+ "panel-properties-text": {
+  "cat": "panels",
+  "title": "Properties — Text",
+  "text": "Header: text engine (Classic text), type (**Static / Dynamic / Input**), orientation. **Position and size** X Y W H. **Character**: family, style, Embed…, size (pt), tracking, colour field, Auto kern, anti-alias (for readability / animation / device fonts), toggles: selectable, render as HTML, border around text, superscript, subscript. **Paragraph**: align left / centre / right / justify, indent, line spacing, left / right margins, behaviour (single line / multiline / no wrap / password). **Options**, **Filters** table (Drop shadow, Glow …) with add / remove / reset."
+ },
+ "panel-properties-oval-primitive": {
+  "cat": "panels",
+  "title": "Properties — Oval primitive",
+  "text": "Type header \"Oval primitive · Drawing object · layer ball\". **Position and size** (X Y, link, W H). **Fill and stroke**: colour wells, stroke size `Combo Field`, `Line Style Select` (Solid, Dashed, Dotted, Ragged, Stipple, Hatched) + Custom… (Stroke style dialog), Stroke hinting switch, Scale (Normal / Horizontal / Vertical / None), Miter, **Cap** (none / round / square) and **Join** (miter / round / bevel) icon groups. **Oval options**: Start angle, End angle, Inner radius %, Close path, Reset."
+ },
+ "panel-properties-movie-clip": {
+  "cat": "panels",
+  "title": "Properties — Movie clip",
+  "text": "Tabs Properties / Filters / Parameters. Instance name field (orbit_mc) + Swap…. **Position and size**. **Colour effect**: Style (None / Brightness / Tint / Advanced / Alpha) + value slider. **Display**: Visible, Cache as bitmap, Blending (Normal, Layer, Multiply, Screen, …), Render (Original / Export as bitmap). **Accessibility**, **Filters** collapsed."
+ },
+ "panel-properties-sound": {
+  "cat": "panels",
+  "title": "Properties — Sound (frame)",
+  "text": "Shown when a keyframe on a sound layer is selected. **Label** section (name, type). **Sound**: file select, Effect (None, Left/Right channel, Fade left→right, Fade in, Fade out, Custom) + Envelope…, Sync (Event / Start / Stop / **Stream**), Repeat / Loop + count, mini waveform, file info (\"44 kHz · Stereo · 16 bit · 32.4 s · 518.6 kB\"), Play, Sound properties…."
+ },
+ "panel-properties-video": {
+  "cat": "panels",
+  "title": "Properties — Video",
+  "text": "Tabs Properties / Cue points. Video preview with transport (00:07 / 00:24), instance name + Swap…, file info (intro.mp4 · H.264 · 1280×720 · 30 fps · 24.0 s). **Position and size**. **Playback**: Deployment (Embedded / External / Progressive), Autoplay, Loop, Muted, Skin, Scale (Fit / Fill / None), Volume slider. **Cue points** table (name, time, type Event / Navigation) + add / remove, Edit in timeline. On the timeline a video is a Video layer with a filmstrip span."
+ },
+ "panel-ease": {
+  "cat": "panels",
+  "title": "Ease",
+  "text": "Context line (\"Classic tween · ball · frames 1–40\"). Property select (All / Position / Rotation / Scale / Colour / Filters) + One curve for all. Presets `NF2/Ease Preset` (Linear, Ease In, Ease Out, Ease In-Out, Back, Bounce, Elastic, Custom). `NF2/Ease Graph` (Range 0–100 %) with bezier handles, numeric X1 Y1 X2 Y2, preview track with play and the current frame / progress, Reset · Cancel · **Apply**. Opens from the timeline ease button, the frame context menu (Ease…) and Edit curve… in motion tween properties."
+ },
+ "ease-range-states": {
+  "cat": "panels",
+  "title": "Ease — overshoot / undershoot",
+  "text": "When a handle goes above 100 % (Back out, overshoot to 112 %) or below 0 % (anticipation, dips to −8 %) the graph switches to `Range = Overshoot` / `Undershoot`: Y axis extends to −30…130 % and the out-of-range bands are tinted; Y1 / Y2 fields accept values outside 0–1."
+ },
+ "panels-more": {
+  "cat": "panels",
+  "title": "Library · Scene · History · Swatches",
+  "text": "**Library**: document select, panel actions (new symbol, new folder, properties, delete), preview of the selected item, search, item count (\"7 items\"), tree with type icons (folder, movie clip, graphic, button, bitmap, sound, font), pin. **Scene**: search (\"Find scene\"), list of scenes with the current one highlighted, add / duplicate / delete. **History**: list of steps (Oval, Move, Fill colour, Transform, Delete) with the current position, undo / redo, clear. **Swatches** as a panel tab (the same content as the Swatches popover)."
+ },
+ "panels-more-2": {
+  "cat": "panels",
+  "title": "Output · Compiler errors · Accessibility · Info",
+  "text": "**Output**: Show (All / Errors / Warnings / Trace), filter field, clear and copy; timestamped log with info, warning (amber) and error (red) lines. **Compiler errors**: badges \"1 warning\" \"1 error\", entries with code, message and location (scene · layer · frame · line); double-click jumps to the code. **Accessibility**: make object accessible, make child objects accessible, auto label, Name, Description, Shortcut, Tab index. **Info**: W H X Y of the selection, cursor position, colour under the cursor (R G B A)."
+ },
+ "drawing-tools-panels": {
+  "cat": "panels",
+  "title": "Rectangle primitive · PolyStar · Armature",
+  "text": "**Properties — Rectangle primitive**: position and size, fill and stroke, **Rectangle options**: four corner radii (linked by default, unlink to edit separately), radius slider, Reset. **PolyStar tool settings** dialog: Style (Polygon / Star), Sides, Star point size 0–1 (smaller = sharper). **Armature sample**: bone chain on stage + pose layer on the timeline; poses are property keyframes ◆ on the Armature layer; joints honour rotation limits."
+ },
+ "drawing-tools-panels-2": {
+  "cat": "panels",
+  "title": "Deco · Spray brush · IK bone",
+  "text": "**Deco tool**: Drawing effect (Vine fill, Grid fill, Symmetry brush, …), Leaf / Flower symbols (Edit… or default shape), Advanced: branch angle, pattern scale, segment length, step, Animate pattern. **Spray brush**: symbol or default dots, W/H scale, random scaling, rotate symbol, random rotation; Brush width, height, angle. **IK bone**: bone name, Position (X, Y, length, angle), Joint: rotation (enable, constrain, min, max), Joint: X / Y translation, Spring (strength, damping), Armature (type Authortime / Runtime, style, speed, enable spring)."
+ },
+ "symbols-panels": {
+  "cat": "panels",
+  "title": "Properties — Graphic · Layer properties",
+  "text": "**Graphic** instances have no instance name (timeline synced to the parent). Looping: Loop / Play once / Single frame / Loop reverse / Play once reverse, First and Last frame, thumbnail strip (click to set the first frame). **Layer properties** dialog: Name, Visible, Locked, Type (Normal, Guide, Guided, Mask, Masked, Folder, Armature), Outline colour swatch, View layer as outlines, Layer height (100 / 200 / 300 %)."
+ },
+ "scripting-panels": {
+  "cat": "panels",
+  "title": "Debugger · Project · Code snippets",
+  "text": "**Debugger**: toolbar continue / stop / step over / step into / step out, Remove all breakpoints, state badge (\"Paused · orbit : Frame 1 · line 18 (breakpoint)\"). **Call stack**, **Variables** (expandable tree, changed values marked), **Watch** (expressions, errors shown as values), **Breakpoints** list with checkboxes. **Project**: project select, find file, file tree (unsaved ● marker), Publish; footer explains linkage (\"Orbit.as is linked to symbol orbit\"). **Code snippets**: search, categories (Actions, Timeline navigation, Animation, Load and unload, Audio and video, Event handlers), preview of the code, Copy, Insert at frame 1."
+ },
+ "motion-panels": {
+  "cat": "panels",
+  "title": "Motion editor · Motion tween properties",
+  "text": "**Motion editor** (tab next to Timeline): columns Property · Value · Ease · Keyframe + frame ruler. Sections Basic motion (X, Y, Rotation Z), Transformation (Scale X/Y, skew), Colour effect (Alpha …), Filters; each property row has value field, ease select (No ease, Simple (slow), Bounce …), keyframe navigation (◀ ◆ ▶) and a curve. Footer: graph size slider, expanded height, visible frames. **Properties — Motion tween**: ease value (−100 in … +100 out) + Edit curve…, Rotation (count, direction CW / CCW, orient to path), Path X Y W H, show path / frame dots, Sync graphic symbols, Snap to motion guide."
+ },
+ "panel-actions-floating": {
+  "cat": "panels",
+  "title": "Actions (script editor)",
+  "text": "Floating 960 × 660 (also docked as a dock tab). Toolbar: language (ActionScript 3.0), target, Script assist, format, hints, debug, fold, comment, sidebar, help. Left sidebar: toolbox search + tree (Top level, Language elements, fl.* packages) and **Script navigator** (current selection, scenes, symbol definitions). Editor: gutter with line numbers and markers (error, warning, breakpoint, execution arrow, folds), syntax-coloured code, current line, code hint popover, inline error peek with Quick fix ⌘., overview ruler. Bottom: script tabs (pinned), status \"Line 19, Col 10 · 20 lines\", problems counter."
+ },
+ "dialogs-sound-stroke": {
+  "cat": "dialogs",
+  "title": "Edit envelope · Sound properties · Stroke style",
+  "text": "**Edit envelope**: effect select, Seconds / Frames units, left and right channel lanes with waveform and draggable volume handles (click a lane to add a point), time ruler, zoom, Cancel / OK. **Sound properties**: name, path, source info, Export compression (MP3 / ADPCM / Raw / Speech), bit rate, quality, convert stereo to mono, result size, Update / Import… / Test. **Stroke style**: preview, Type (Solid, Dashed, Dotted, Ragged, Stipple, Hatched), thickness, 4× zoom, dash / gap lengths, Sharp corners."
+ },
+ "dialogs-convert-to-symbol": {
+  "cat": "dialogs",
+  "title": "Convert to Symbol (F8)",
+  "text": "Three states. **Default**: Name, Type (Movie clip / Button / Graphic), Folder, Registration — compact 28 px `NF2/Registration Picker` 3 × 3 + caption (\"Centre\"), helper text for the chosen type, Advanced collapsed, Cancel / **Convert**. **Type menu**: each type with a hint (own timeline · up/over/down/hit · synced to parent). **Advanced**: 9-slice guides, ActionScript linkage (Export for ActionScript, Export in frame 1, Identifier, Class, Base class), Runtime shared library (export / import, URL), Authortime sharing (source file, symbol, update automatically)."
+ },
+ "dialog-import-video": {
+  "cat": "dialogs",
+  "title": "Import video",
+  "text": "Preview with a trim strip (In / Out handles and fields), File + Browse…, Deployment radio: **Embed in timeline** (frames sync with the timeline; short clips) · **Load external video** (player component, keeps .nfl small) · **Progressive download** (plays while downloading). Embedding: symbol type, codec, Place on stage, Expand timeline if needed, Include audio, Match document frame rate. Footer summary \"1280×720 · 30 fps → 24 fps · 24.0 s · ~6.1 MB\"."
+ },
+ "dialogs-export": {
+  "cat": "dialogs",
+  "title": "Export image / video / audio · Import PSD",
+  "text": "**Export image** with format segments PNG · SVG · PSD · AI · PDF and a live preview (\"Frame 30 of 120 · 960 × 600\"): range (current frame / frames), size W × H linked + scale, background (stage colour / transparent). PSD options: layers as Photoshop layers or flatten, folders → groups, symbols → smart objects, editable text, colour profile, resolution. SVG options: images embed/link, text as outlines or text, minify, CSS classes, include hidden & guide layers, precision, ID prefix. AI options: version, layers or keyframes → artboards, strokes as strokes, text to outlines. **Export video**: MP4 · WebM · MOV · GIF · PNG sequence, range (whole movie / scene / frames), size + scale, fps, codec, quality, render nested movie clips and scripts (runtime capture), stop at last frame / after N s, audio, transparent background, live render progress. **Export audio**: WAV · MP3 · OGG · AAC, source (timeline mix / layer), range, sample rate, bit depth, channels, bit rate, normalize, fade out, trim silence. **Import PSD to library**: layer list with checkboxes and per-layer options (bitmap with editable styles / flattened bitmap / vector shapes; create movie clip with instance name and registration; compression), placement (convert layers to timeline layers / keyframes / one layer), keep positions, set stage size to canvas."
+ },
+ "document-dialogs": {
+  "cat": "dialogs",
+  "title": "Document settings · Find and replace · Movie Explorer",
+  "text": "**Document settings (⌘J)**: stage size W × H linked, Match contents / Match printer, scale content with stage + anchor (registration picker), units, background colour, frame rate (fps → \"120 frames · 5.00 s\"), script version, Make default · Cancel · OK. **Find and replace (⌘F)**: search type segments (Text, Font, Colour, Symbol, Sound, Video, Bitmap), scope (current document / scene), find / replace fields, whole word, match case, regex, live edit, where to search (text fields, frames/layers/scenes, ActionScript), results table (location → found), Find all / Replace / Replace all. **Movie Explorer** panel: filter buttons, search, tree document ▸ scene ▸ layer ▸ frame ▸ instance / actions, path of the selection in the footer."
+ },
+ "publish-misc-dialogs": {
+  "cat": "dialogs",
+  "title": "Bitmap fill · Publish settings · Font embedding · Test Movie",
+  "text": "**Color — Bitmap fill**: bitmap grid + Import…, Lock fill. **Publish settings**: profile, targets with checkboxes (HTML5 · Rust / WebAssembly, Desktop app, Video MP4, Image sequence / sprite sheet, SVG animation); per target: output file, HTML wrapper + template, runtime (WASM optimisation), scale mode, loop, autoplay, preloader, source maps, JPEG quality, audio, sprite sheets, embed fonts (subset), scripts (strict, include trace(), minify); estimated size; Cancel · OK · **Publish**. **Font embedding**: font list + add/remove, name / family / style, character ranges with counts (Latin, Cyrillic, Greek, …), extra characters, Export for ActionScript + class, glyph count badge. **Test Movie window**: title + fps/memory badge, stage, transport (first, step, play/pause, last, loop, frame / time), speed select, Output drawer with trace lines."
+ },
+ "dialog-preferences-general": {
+  "cat": "prefs",
+  "title": "Preferences — General",
+  "text": "Interface: Theme Dark / Light (or follow system), UI scale, Accent colour, Language. Workspace: on launch (Welcome screen / New document / Last documents), undo levels, Autosave every N min, tooltips with shortcuts. Selection: Shift-select behaviour, highlight colour (layer colour / custom)."
+ },
+ "dialog-preferences-code-editor": {
+  "cat": "prefs",
+  "title": "Preferences — Code editor",
+  "text": "Font (Roboto Mono), size, line height. Editing: line numbers, word wrap, auto-close brackets, code hints + delay slider (300 ms), tab size, format on save, highlight current line. Colour scheme select (NF2 Night) + Duplicate / Import…, colour table for every syntax token (hex editable) with the note \"Red is reserved for errors only. Breakpoints use orange, warnings amber.\", live preview with gutter."
+ },
+ "dialog-preferences-timeline": {
+  "cat": "prefs",
+  "title": "Preferences — Timeline",
+  "text": "Selection & view: span-based selection, default frame view (Tiny … Large / Preview), row height, show seconds on ruler, snap playhead to keyframes, named anchor on each scene. Onion skin defaults: before / after range, tint colours before / after, opacity falloff (70 → 15 %). Animation: auto keyframe on transform, default ease, tween type on drag."
+ },
+ "dialog-preferences-drawing": {
+  "cat": "prefs",
+  "title": "Preferences — Drawing",
+  "text": "Default mode for new shapes: Merge drawing / Object drawing. Pen tool: show pen preview, show solid points, precise cursors. Recognition: connect lines, smooth curves, recognise lines, recognise shapes, click accuracy. Snapping: tolerance (px), snap to pixels, snap align."
+ },
+ "dialog-preferences-text": {
+  "cat": "prefs",
+  "title": "Preferences — Text",
+  "text": "Defaults: font, size, anti-alias, font substitution warning. Behaviour: embed used glyphs automatically, spell check, vertical text right-to-left, no kerning for vertical, input method."
+ },
+ "dialog-preferences-clipboard": {
+  "cat": "prefs",
+  "title": "Preferences — Clipboard",
+  "text": "Copying: bitmap resolution, gradient quality, copy as SVG to other apps, keep layer names. Pasting: default paste In centre / In place, import vector paste as editable paths, ask before pasting large bitmaps."
+ },
+ "dialog-preferences-shortcuts": {
+  "cat": "prefs",
+  "title": "Preferences — Shortcuts",
+  "text": "Shortcut set (NeoFlash default) + Duplicate / Rename / Delete, search, command filter, table command → keys (`NF2/Kbd` chips), recording state \"Press keys…\", conflict badge (\"Conflicts with Insert ▸ Keyframe\"), Reset command, Export as HTML…."
+ },
+ "dialog-preferences-publish": {
+  "cat": "prefs",
+  "title": "Preferences — Publish",
+  "text": "Default target (HTML5 · Rust / WebAssembly), output folder + Browse…, HTML wrapper, assets folder, source maps. Compression: image quality (JPEG 80), audio (MP3 128 kbps), acceleration (GPU WebGL). Scripts: strict mode, treat warnings as errors, publish on save."
+ },
+ "dialog-preferences-updates": {
+  "cat": "prefs",
+  "title": "Preferences — Updates",
+  "text": "Version (\"NeoFlash 2.0.0 · build 412 · up to date\") + Check now / Release notes, channel Stable / Beta, automatic checks, background download. Privacy: anonymous usage statistics, crash reports. Extensions: installed count + updates, Manage…."
+ },
+ "editor-main": {
+  "cat": "screens",
+  "title": "Editor — Main",
+  "text": "Default state. Guides and grid visible, tooltip on the Selection tool."
+ },
+ "editor-actions-tab": {
+  "cat": "screens",
+  "title": "Editor — Actions tab",
+  "text": "Bottom dock switched to the docked Actions editor (script of the selected frame)."
+ },
+ "editor-unsaved-changes-dialog": {
+  "cat": "screens",
+  "title": "Unsaved changes dialog",
+  "text": "Save (primary), Discard (danger ghost, left), Cancel; consequence text; Esc / Enter."
+ },
+ "editor-convert-to-symbol-dialog": {
+  "cat": "screens",
+  "title": "Convert to Symbol over the editor",
+  "text": "F8 dialog over the stage with the selection still visible."
+ },
+ "timeline-states-legend": {
+  "cat": "screens",
+  "title": "Timeline — states legend",
+  "text": "Every layer type, column toggle and frame state, built from NF2/TL components."
+ },
+ "editor-view-settings-open": {
+  "cat": "screens",
+  "title": "View settings open",
+  "text": "Rulers / guides / grid popover anchored to ⚙ in the zoom control."
+ },
+ "editor-swatches-open": {
+  "cat": "screens",
+  "title": "Swatches open",
+  "text": "Quick colour popover opened from the fill chip of the Tools rail."
+ },
+ "editor-ease-panel-open": {
+  "cat": "screens",
+  "title": "Ease panel open",
+  "text": "Floating Ease panel for the selected classic tween span."
+ },
+ "editor-edit-menu-open": {
+  "cat": "screens",
+  "title": "Edit menu open",
+  "text": "Main menu dropdown with the Timeline submenu and shortcuts."
+ },
+ "editor-editing-symbol-in-place": {
+  "cat": "screens",
+  "title": "Editing symbol in place",
+  "text": "Breadcrumb Scene 1 ▸ orbit ▸ planet; parent content faded; selection and transform boxes; Symbols & scenes popover for large projects (search, Scenes, Matches 3 of 248, Recent, Browse folders with counts)."
+ },
+ "editor-video-on-timeline": {
+  "cat": "screens",
+  "title": "Video on timeline",
+  "text": "Video layer intro.mp4 with filmstrip span, video object selected on stage, Properties — Video floating."
+ },
+ "editor-motion-tween-path": {
+  "cat": "screens",
+  "title": "Motion tween path",
+  "text": "Motion path with frame dots on stage; property keyframes ◆ on the hand layer; motion editor available as a dock tab."
+ }
+}

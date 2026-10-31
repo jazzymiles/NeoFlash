@@ -1,0 +1,190 @@
+F Shelf / Panels & Tools — components 688×1985 [V gap 16]
+  T "Panels & Tools — components"
+  F NF2/Tool Button 400×66 [H gap 12]
+    F State=Default 32×32 [H gap 0]
+      I NF2 Icon/20/tool-select 20×20
+      F Flyout 5×5
+    F State=Hover 32×32 [H gap 0]
+      I NF2 Icon/20/tool-select 20×20
+      F Flyout 5×5
+    F State=Selected 32×32 [H gap 0]
+      I NF2 Icon/20/tool-select 20×20
+      F Flyout 5×5
+  F NF2/Fill Stroke Chip 36×36
+  F NF2/Color Well 400×66 [H gap 12]
+    F Target=Stroke, Active=True 74×32 [H gap 6]
+      I NF2 Icon/16/pencil 16×16
+      I NF2 Icon/16/chevdown 16×16
+    F Target=Stroke, Active=False 74×32 [H gap 6]
+      I NF2 Icon/16/pencil 16×16
+      I NF2 Icon/16/chevdown 16×16
+    F Target=Fill, Active=True 74×32 [H gap 6]
+      I NF2 Icon/16/bucket 16×16
+      I NF2 Icon/16/chevdown 16×16
+    F Target=Fill, Active=False 74×32 [H gap 6]
+      I NF2 Icon/16/bucket 16×16
+      I NF2 Icon/16/chevdown 16×16
+  F NF2/Panel Tab 400×70 [H gap 12]
+    F State=Active 52×36 [H gap 0]
+      T "Panel"
+    F State=Inactive 52×36 [H gap 0]
+      T "Panel"
+  F NF2/Floating Panel Header 280×36 [H gap 0]
+    F Grip 20×36 [H gap 0]
+      I NF2 Icon/16/grip-h 16×16
+    I NF2/Panel Tab {Label=Panel, State=Active} 52×36 "Panel"
+    I NF2/Panel Tab {Label=Panel, State=Inactive} 52×36 "Panel"
+    I NF2/Panel Tab {Label=Panel, State=Inactive} 52×36 "Panel"
+    F Spacer 118×4
+    I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 28×28
+    I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 28×28
+    I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 28×28
+  F NF2/Icon Group 400×68 [H gap 12]
+    F Count=2 68×34 [H gap 2]
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 30×28
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 30×28
+    F Count=3 100×34 [H gap 2]
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 30×28
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 30×28
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 30×28
+    F Count=4 132×34 [H gap 2]
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 30×28
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 30×28
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 30×28
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 30×28
+  F NF2/Radio 300×50 [H gap 12]
+    F Selected=True 61×16 [H gap 6]
+      T "Option"
+    F Selected=False 61×16 [H gap 6]
+      T "Option"
+  F NF2/Color Field 200×32 [H gap 8]
+    T "233043"
+    T "100 %"
+  F NF2/Gradient Stop 300×50 [H gap 12]
+    F Selected=True 12×16
+      F Pointer 12×16
+    F Selected=False 12×16
+      F Pointer 12×16
+  F NF2/Gradient Bar 232×40
+    I NF2/Gradient Stop {Selected=False} 12×16
+    I NF2/Gradient Stop {Selected=True} 12×16
+    I NF2/Gradient Stop {Selected=False} 12×16
+  F NF2/Color Picker 248×150
+    F Saturation / Brightness 204×150
+  F NF2/Menu Item 480×102 [H gap 12]
+    F State=Default 200×28 [H gap 8]
+      F Check slot 16×16 [H gap 0]
+        I NF2 Icon/16/check 16×16
+      T "Menu item"
+      T " "
+      I NF2 Icon/16/submenu 16×16
+    F State=Hover 200×28 [H gap 8]
+      F Check slot 16×16 [H gap 0]
+        I NF2 Icon/16/check 16×16
+      T "Menu item"
+      T " "
+      I NF2 Icon/16/submenu 16×16
+    F State=Checked 200×28 [H gap 8]
+      F Check slot 16×16 [H gap 0]
+        I NF2 Icon/16/check 16×16
+      T "Menu item"
+      T " "
+      I NF2 Icon/16/submenu 16×16
+    F State=Disabled 200×28 [H gap 8]
+      F Check slot 16×16 [H gap 0]
+        I NF2 Icon/16/check 16×16
+      T "Menu item"
+      T " "
+      I NF2 Icon/16/submenu 16×16
+  F NF2/Menu Separator 200×9 [V gap 0]
+  F NF2/Script Tab 480×64 [H gap 12]
+    F State=Active 96×30 [H gap 6]
+      I NF2 Icon/16/frame 16×16
+      T "Script"
+      I NF2 Icon/16/pin 16×16
+    F State=Inactive 96×30 [H gap 6]
+      I NF2 Icon/16/frame 16×16
+      T "Script"
+      I NF2 Icon/16/pin 16×16
+  F NF2/Table Row 640×102 [H gap 12]
+    F Kind=Header 288×28 [H gap 8]
+      T "Property"
+      T "Value"
+    F Kind=Row 288×28 [H gap 8]
+      T "Property"
+      T "Value"
+    F Kind=Selected 288×28 [H gap 8]
+      T "Property"
+      T "Value"
+  F NF2/Divider 300×54 [H gap 12]
+    F Direction=Vertical 1×20
+    F Direction=Horizontal 200×1
+  F NF2/Tools Panel 194×646 [H gap 24]
+    F Layout=1 Column 56×588 [V gap 1]
+      I NF2/Tool Button {Flyout=true, State=Selected} 32×32
+      I NF2/Tool Button {Flyout=true, State=Default} 32×32
+      I NF2/Tool Button {Flyout=false, State=Default} 32×32
+      I NF2/Tool Button {Flyout=true, State=Default} 32×32
+      I NF2/Tool Button {Flyout=false, State=Default} 32×32
+      I NF2/Tool Button {Flyout=false, State=Default} 32×32
+      I NF2/Tool Button {Flyout=true, State=Default} 32×32
+      I NF2/Tool Button {Flyout=true, State=Default} 32×32
+      I NF2/Tool Button {Flyout=true, State=Default} 32×32
+      I NF2/Tool Button {Flyout=false, State=Default} 32×32
+      I NF2/Tool Button {Flyout=false, State=Default} 32×32
+      I NF2/Tool Button {Flyout=true, State=Default} 32×32
+      I NF2/Tool Button {Flyout=true, State=Default} 32×32
+      I NF2/Tool Button {Flyout=false, State=Default} 32×32
+      F Spacer 4×11
+      I NF2/Fill Stroke Chip 36×36
+      F Color actions 40×20 [H gap 0]
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 20×20
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 20×20
+      I NF2/Tool Button {Flyout=false, State=Selected} 32×32
+    F Layout=2 Columns 80×612 [V gap 6]
+      T "Tools"
+      F Tool grid 66×338 [V gap 2]
+        F Row 66×32 [H gap 2]
+          I NF2/Tool Button {Flyout=false, State=Selected} 32×32
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+        F Row 66×32 [H gap 2]
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+        F Row 66×32 [H gap 2]
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+        F Row 66×32 [H gap 2]
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+          I NF2/Tool Button {Flyout=true, State=Default} 32×32
+        F Row 66×32 [H gap 2]
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+        F Row 66×32 [H gap 2]
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+        F Row 66×32 [H gap 2]
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+        F Row 66×32 [H gap 2]
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+        F Row 66×32 [H gap 2]
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+        F Row 66×32 [H gap 2]
+          I NF2/Tool Button {Flyout=true, State=Default} 32×32
+          I NF2/Tool Button {Flyout=false, State=Default} 32×32
+      T "View"
+      F Row 66×32 [H gap 2]
+        I NF2/Tool Button {Flyout=false, State=Default} 32×32
+        I NF2/Tool Button {Flyout=false, State=Default} 32×32
+      T "Colors"
+      I NF2/Fill Stroke Chip 36×36
+      F Color actions 63×21 [H gap 0]
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 21×21
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 21×21
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 21×21
+      T "Options"
+      F Row 66×32 [H gap 2]
+        I NF2/Tool Button {Flyout=false, State=Selected} 32×32
+        I NF2/Tool Button {Flyout=true, State=Default} 32×32

@@ -1,0 +1,199 @@
+F Tools (20 px) 1880×572 [V gap 12]
+  T "Tools (20 px)  28"
+  F Grid 1880×544 [H gap 12]
+    F Card / NF2 Icon/20/color-default 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/color-default 20×20
+      F Text 218×70 [V gap 2]
+        T "color-default"
+        T "NF2 Icon/20/color-default"
+        T "Used in: Color panel, Editor screens, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/color-none 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/color-none 20×20
+      F Text 218×70 [V gap 2]
+        T "color-none"
+        T "NF2 Icon/20/color-none"
+        T "Used in: Color panel, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/color-swap 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/color-swap 20×20
+      F Text 218×70 [V gap 2]
+        T "color-swap"
+        T "NF2 Icon/20/color-swap"
+        T "Used in: Color panel, Editor screens, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-bone 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-bone 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-bone"
+        T "NF2 Icon/20/tool-bone"
+        T "Used in: Editor screens, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-brush 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-brush 20×20
+      F Text 218×54 [V gap 2]
+        T "tool-brush"
+        T "NF2 Icon/20/tool-brush"
+        T "Used in: NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-bucket 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-bucket 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-bucket"
+        T "NF2 Icon/20/tool-bucket"
+        T "Used in: Editor screens, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-deco 300×112 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-deco 20×20
+      F Text 218×86 [V gap 2]
+        T "tool-deco"
+        T "NF2 Icon/20/tool-deco"
+        T "Used in: Editor screens, NF2/Tools Panel, Properties: Deco tool, Tools panel"
+    F Card / NF2 Icon/20/tool-eraser 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-eraser 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-eraser"
+        T "NF2 Icon/20/tool-eraser"
+        T "Used in: Editor screens, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-eyedropper 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-eyedropper 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-eyedropper"
+        T "NF2 Icon/20/tool-eyedropper"
+        T "Used in: Editor screens, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-gradient 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-gradient 20×20
+      F Text 218×54 [V gap 2]
+        T "tool-gradient"
+        T "NF2 Icon/20/tool-gradient"
+        T "Used in: NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-hand 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-hand 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-hand"
+        T "NF2 Icon/20/tool-hand"
+        T "Used in: Editor screens, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-ink 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-ink 20×20
+      F Text 218×54 [V gap 2]
+        T "tool-ink"
+        T "NF2 Icon/20/tool-ink"
+        T "Used in: NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-lasso 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-lasso 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-lasso"
+        T "NF2 Icon/20/tool-lasso"
+        T "Used in: Editor screens, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-line 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-line 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-line"
+        T "NF2 Icon/20/tool-line"
+        T "Used in: Editor screens, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-oval 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-oval 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-oval"
+        T "NF2 Icon/20/tool-oval"
+        T "Used in: NF2/Tools Panel, Properties: Oval primitive, Tools panel"
+    F Card / NF2 Icon/20/tool-pen 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-pen 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-pen"
+        T "NF2 Icon/20/tool-pen"
+        T "Used in: Editor screens, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-pencil 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-pencil 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-pencil"
+        T "NF2 Icon/20/tool-pencil"
+        T "Used in: Editor screens, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-polystar 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-polystar 20×20
+      F Text 218×54 [V gap 2]
+        T "tool-polystar"
+        T "NF2 Icon/20/tool-polystar"
+        T "Used in: NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-rect 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-rect 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-rect"
+        T "NF2 Icon/20/tool-rect"
+        T "Used in: Editor screens, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-rect-primitive 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-rect-primitive 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-rect-primitive"
+        T "NF2 Icon/20/tool-rect-primitive"
+        T "Used in: Properties: Rectangle primitive"
+    F Card / NF2 Icon/20/tool-select 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-select 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-select"
+        T "NF2 Icon/20/tool-select"
+        T "Used in: Editor screens, NF2/Tool Button, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-smooth 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-smooth 20×20
+      F Text 218×54 [V gap 2]
+        T "tool-smooth"
+        T "NF2 Icon/20/tool-smooth"
+        T "Used in: NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-snap 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-snap 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-snap"
+        T "NF2 Icon/20/tool-snap"
+        T "Used in: Editor screens, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-spray 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-spray 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-spray"
+        T "NF2 Icon/20/tool-spray"
+        T "Used in: NF2/Tools Panel, Properties: Spray brush, Tools panel"
+    F Card / NF2 Icon/20/tool-subselect 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-subselect 20×20
+      F Text 218×54 [V gap 2]
+        T "tool-subselect"
+        T "NF2 Icon/20/tool-subselect"
+        T "Used in: NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-text 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-text 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-text"
+        T "NF2 Icon/20/tool-text"
+        T "Used in: Editor screens, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-transform 300×96 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-transform 20×20
+      F Text 218×70 [V gap 2]
+        T "tool-transform"
+        T "NF2 Icon/20/tool-transform"
+        T "Used in: Editor screens, NF2/Tools Panel, Tools panel"
+    F Card / NF2 Icon/20/tool-zoom 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Icon/20/tool-zoom 20×20
+      F Text 218×54 [V gap 2]
+        T "tool-zoom"
+        T "NF2 Icon/20/tool-zoom"
+        T "Used in: NF2/Tools Panel, Tools panel"

@@ -33,35 +33,11 @@ impl Fonts {
         }
     }
 
+    /// Editor chrome uses the bundled NF2 fonts (Inter, Roboto Mono) from `neoflash-ui`, so the
+    /// interface matches the design on every Mac. Authored font choices are never rewritten.
     pub(crate) fn install_ui(&mut self, ctx: &egui::Context) {
-        const UI_KEY: &str = "NeoFlash UI";
-        for family in [
-            "Helvetica Neue",
-            "SF Pro Text",
-            ".AppleSystemUIFont",
-            "Helvetica",
-        ] {
-            if !self.families.iter().any(|available| available == family) {
-                continue;
-            }
-            let Ok(data) = load_system_font(family, &Properties::new()) else {
-                continue;
-            };
-            self.definitions
-                .font_data
-                .insert(UI_KEY.to_owned(), data.into());
-            let proportional = self
-                .definitions
-                .families
-                .entry(FontFamily::Proportional)
-                .or_default();
-            proportional.retain(|key| key != UI_KEY);
-            proportional.insert(0, UI_KEY.to_owned());
-            ctx.set_fonts(self.definitions.clone());
-            return;
-        }
-        // Keep the bundled, validated proportional fallback on systems without
-        // a renderable native face. Authoring font choices are never rewritten.
+        neoflash_ui::typography::add_fonts(&mut self.definitions);
+        ctx.set_fonts(self.definitions.clone());
     }
 
     pub fn load(&mut self, ctx: &egui::Context, family: &str) -> Result<FontFamily, String> {
@@ -147,19 +123,18 @@ mod tests {
     fn system_collection_font_can_be_installed_without_panicking() {
         let mut fonts = Fonts::new();
         let ctx = egui::Context::default();
-        let code_fonts = fonts.definitions.families[&FontFamily::Monospace].clone();
         fonts.install_ui(&ctx);
+        // NF2: Inter for chrome, Roboto Mono for code, both bundled.
+        let first = |family: FontFamily| fonts.definitions.families[&family].first().cloned();
         assert_eq!(
-            fonts.definitions.families[&FontFamily::Monospace],
-            code_fonts
+            first(FontFamily::Proportional).as_deref(),
+            Some("nf2-inter-regular")
+        );
+        assert_eq!(
+            first(FontFamily::Monospace).as_deref(),
+            Some("nf2-roboto-mono")
         );
         if fonts.families.iter().any(|s| s == "Helvetica Neue") {
-            assert_eq!(
-                fonts.definitions.families[&FontFamily::Proportional]
-                    .first()
-                    .map(String::as_str),
-                Some("NeoFlash UI")
-            );
             let authored = fonts.load(&ctx, "Helvetica Neue").unwrap();
             assert_ne!(authored, FontFamily::Proportional);
             assert!(fonts.definitions.families.contains_key(&authored));

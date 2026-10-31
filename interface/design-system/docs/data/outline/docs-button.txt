@@ -1,0 +1,51 @@
+F Shelf / Button 700×184 [V gap 12]
+  T "Button"
+  F NF2/Button 660×114 [H gap 16]
+    F Type=Primary, State=Default 66×32 [H gap 8]
+      F Icon 16×16 [H gap 0]
+        I NF2 Icon/16/plus 16×16
+      T "Button"
+    F Type=Primary, State=Hover 66×32 [H gap 8]
+      F Icon 16×16 [H gap 0]
+        I NF2 Icon/16/plus 16×16
+      T "Button"
+    F Type=Primary, State=Disabled 66×32 [H gap 8]
+      F Icon 16×16 [H gap 0]
+        I NF2 Icon/16/plus 16×16
+      T "Button"
+    F Type=Secondary, State=Default 68×32 [H gap 8]
+      F Icon 16×16 [H gap 0]
+        I NF2 Icon/16/plus 16×16
+      T "Button"
+    F Type=Secondary, State=Hover 68×32 [H gap 8]
+      F Icon 16×16 [H gap 0]
+        I NF2 Icon/16/plus 16×16
+      T "Button"
+    F Type=Secondary, State=Disabled 68×32 [H gap 8]
+      F Icon 16×16 [H gap 0]
+        I NF2 Icon/16/plus 16×16
+      T "Button"
+    F Type=Ghost, State=Default 66×32 [H gap 8]
+      F Icon 16×16 [H gap 0]
+        I NF2 Icon/16/plus 16×16
+      T "Button"
+    F Type=Ghost, State=Hover 66×32 [H gap 8]
+      F Icon 16×16 [H gap 0]
+        I NF2 Icon/16/plus 16×16
+      T "Button"
+    F Type=Ghost, State=Disabled 66×32 [H gap 8]
+      F Icon 16×16 [H gap 0]
+        I NF2 Icon/16/plus 16×16
+      T "Button"
+    F Type=Danger, State=Default 66×32 [H gap 8]
+      F Icon 16×16 [H gap 0]
+        I NF2 Icon/16/plus 16×16
+      T "Button"
+    F Type=Danger, State=Hover 68×32 [H gap 8]
+      F Icon 16×16 [H gap 0]
+        I NF2 Icon/16/plus 16×16
+      T "Button"
+    F Type=Danger, State=Disabled 66×32 [H gap 8]
+      F Icon 16×16 [H gap 0]
+        I NF2 Icon/16/plus 16×16
+      T "Button"

@@ -1,0 +1,44 @@
+<style>
+  body { font: 12px/1.5 Inter, system-ui, sans-serif; margin: 12px; color: #171b26; }
+  .row { display: flex; gap: 12px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
+  button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid #cfd4e0; background: #fff; cursor: pointer; }
+  button.primary { background: #3c6bf0; color: #fff; border-color: #3c6bf0; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { font-family: "Roboto Mono", monospace; font-size: 11px; color: #5b6477; word-break: break-all; min-height: 32px; }
+  .bad { color: #d92d2d; } .ok { color: #168a57; }
+</style>
+<div class="row"><b>NeoFlash Export</b> <span id="recv">checking receiver…</span></div>
+<div class="row">
+  <label><input type="checkbox" id="g-interface" checked> Interfaces</label>
+  <label><input type="checkbox" id="g-panels" checked> Panels</label>
+  <label><input type="checkbox" id="g-docs" checked> Doc illustrations</label>
+  <label><input type="checkbox" id="icons" checked> Icons &amp; cursors (SVG)</label>
+</div>
+<div class="row">
+  <label><input type="checkbox" id="svg" checked> SVG</label>
+  <label><input type="checkbox" id="data" checked> JSON dump + outlines</label>
+  <label>PNG scale <select id="scale"><option>1</option><option selected>2</option><option>3</option></select></label>
+</div>
+<div class="row"><button class="primary" id="go" disabled>Export</button><button id="close">Close</button></div>
+<div id="status"></div>
+<script>
+  const URL_ = 'http://localhost:8765/';
+  const $ = id => document.getElementById(id);
+  fetch(URL_).then(r => { $('recv').textContent = 'receiver ready'; $('recv').className = 'ok'; $('go').disabled = false; })
+    .catch(() => { $('recv').textContent = 'receiver not running — start tools/receiver.py'; $('recv').className = 'bad'; });
+  $('go').onclick = () => {
+    $('go').disabled = true;
+    const groups = ['interface', 'panels', 'docs'].filter(g => $('g-' + g).checked);
+    parent.postMessage({ pluginMessage: { type: 'start', groups, svg: $('svg').checked, icons: $('icons').checked, data: $('data').checked, scale: +$('scale').value } }, '*');
+  };
+  $('close').onclick = () => parent.postMessage({ pluginMessage: { type: 'close' } }, '*');
+  onmessage = async e => {
+    const m = e.data.pluginMessage; if (!m) return;
+    if (m.type === 'status') $('status').textContent = m.text;
+    if (m.type === 'file') {
+      let ok = false;
+      try { const r = await fetch(URL_ + encodeURI(m.path), { method: 'POST', body: m.text != null ? new TextEncoder().encode(m.text) : m.bytes }); ok = r.ok; } catch (err) { ok = false; }
+      parent.postMessage({ pluginMessage: { type: 'ack', path: m.path, ok } }, '*');
+    }
+  };
+</script>

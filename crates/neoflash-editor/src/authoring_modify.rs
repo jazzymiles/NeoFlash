@@ -3,12 +3,22 @@
 use crate::theme::{DesignUi as _, ScrollTheme as _};
 use crate::{
     app::Editor,
-    paint_controls::{compact_number, numeric_pair, numeric_row, paint_row, property_row},
+    paint_controls::{number_field, numeric_row, paint_row},
     selection::SelectionTarget,
     workspace::PanelId,
 };
 use eframe::egui::{self, Pos2, Rect, Vec2};
 use neoflash_core::*;
+use neoflash_ui::{
+    Icon, TextStyle,
+    components::{
+        Button, ColorWell, ColorWellTarget, DragField, IconButton, IconGroup, MenuItem,
+        SectionHeader, Segmented, Select,
+    },
+    icons::i16,
+    tokens::space,
+    typography::rich,
+};
 use std::collections::{HashMap, HashSet};
 
 pub(crate) struct AuthoringModify {
@@ -568,56 +578,140 @@ impl Editor {
         });
     }
 
+    /// Modify (§8).
     pub(crate) fn modify_menu_ui(&mut self, ui: &mut egui::Ui) {
-        use crate::ui_icons::{menu_item, menu_item_enabled, menu_popup};
-        menu_popup(ui, "Modify", "Convert to Symbol…", "F8", |ui| {
+        use crate::ui_icons::{menu_item_enabled, menu_popup};
+        menu_popup(ui, "Modify", "Convert to symbol…", "F8", |ui| {
             let selected = !self.selection.is_empty();
-            if menu_item_enabled(ui, self.can_convert_selection(), "Convert to Symbol…", "F8")
+            Self::planned_menu_item(ui, "Modify ▸ Document…", "⌘J");
+            if menu_item_enabled(ui, self.can_convert_selection(), "Convert to symbol…", "F8")
                 .clicked()
             {
                 self.convert_to_symbol();
                 ui.close();
             }
-            if menu_item_enabled(ui, selected, "Break Apart", "").clicked() {
+            if menu_item_enabled(ui, selected, "Break apart", "⌘B").clicked() {
                 self.break_apart_selection();
                 ui.close();
             }
-            if menu_item_enabled(ui, self.selection.len() >= 2, "Group", "").clicked() {
+            neoflash_ui::components::menu_separator(ui);
+            for label in ["Bitmap", "Symbol", "Shape", "Combine objects"] {
+                Self::unavailable_submenu(ui, label);
+            }
+            neoflash_ui::components::menu_separator(ui);
+            menu_popup(
+                ui,
+                "Timeline",
+                "Convert to blank keyframes",
+                "⇧⌘D",
+                |ui| {
+                    Self::unavailable_item(ui, "Distribute to layers", "⇧⌘D");
+                    Self::planned_menu_item(ui, "Modify ▸ Timeline ▸ Layer properties…", "");
+                    Self::unavailable_item(ui, "Reverse frames", "");
+                    Self::unavailable_item(ui, "Synchronise symbols", "");
+                    neoflash_ui::components::menu_separator(ui);
+                    Self::unavailable_item(ui, "Convert to keyframes", "");
+                    Self::unavailable_item(ui, "Clear keyframe", "⇧F6");
+                    Self::unavailable_item(ui, "Convert to blank keyframes", "");
+                },
+            );
+            self.transform_menu(ui);
+            self.arrange_menu(ui);
+            self.align_menu(ui);
+            neoflash_ui::components::menu_separator(ui);
+            if menu_item_enabled(ui, self.selection.len() >= 2, "Group", "⌘G").clicked() {
                 self.group_selection();
                 ui.close();
             }
-            if menu_item_enabled(ui, selected, "Ungroup", "").clicked() {
+            if menu_item_enabled(ui, selected, "Ungroup", "⇧⌘G").clicked() {
                 self.ungroup_selection();
                 ui.close();
             }
-            ui.separator();
-            menu_popup(ui, "Arrange", "Bring Forward", "", |ui| {
-                for (label, direction) in [
-                    ("Bring to Front", Arrange::Front),
-                    ("Bring Forward", Arrange::Forward),
-                    ("Send Backward", Arrange::Backward),
-                    ("Send to Back", Arrange::Back),
-                ] {
-                    if menu_item_enabled(ui, selected, label, "").clicked() {
-                        self.arrange_selection(direction);
-                        ui.close();
-                    }
-                }
-            });
-            menu_popup(ui, "Transform", "Remove Transform", "", |ui| {
-                if menu_item(ui, "Transform panel", "").clicked() {
-                    self.show_panel(PanelId::Transform);
-                    ui.close();
-                }
-                ui.add_enabled_ui_semantic(selected, |ui| self.transform_commands(ui));
-            });
-            for (label, panel) in [("Align…", PanelId::Align), ("Color…", PanelId::Color)] {
-                if menu_item(ui, label, "").clicked() {
-                    self.show_panel(panel);
+        });
+    }
+
+    /// Transform ▸ (Modify and the stage object menu).
+    pub(crate) fn transform_menu(&mut self, ui: &mut egui::Ui) {
+        let selected = !self.selection.is_empty();
+        crate::ui_icons::menu_popup(ui, "Transform", "Remove Transform", "", |ui| {
+            if crate::ui_icons::menu_item(ui, "Transform panel", "⌘T").clicked() {
+                self.show_panel(PanelId::Transform);
+                ui.close();
+            }
+            ui.add_enabled_ui_semantic(selected, |ui| self.transform_commands(ui));
+        });
+    }
+
+    /// Arrange ▸ (Modify and the stage object menu).
+    pub(crate) fn arrange_menu(&mut self, ui: &mut egui::Ui) {
+        let selected = !self.selection.is_empty();
+        crate::ui_icons::menu_popup(ui, "Arrange", "Bring Forward", "", |ui| {
+            for (label, direction) in [
+                ("Bring to front", Arrange::Front),
+                ("Bring forward", Arrange::Forward),
+                ("Send backward", Arrange::Backward),
+                ("Send to back", Arrange::Back),
+            ] {
+                if crate::ui_icons::menu_item_enabled(ui, selected, label, "").clicked() {
+                    self.arrange_selection(direction);
                     ui.close();
                 }
             }
         });
+    }
+
+    /// Align ▸ (Modify and the stage object menu): the Align panel's edge commands.
+    pub(crate) fn align_menu(&mut self, ui: &mut egui::Ui) {
+        crate::ui_icons::menu_popup(ui, "Align", "Vertical middle", "", |ui| {
+            let ctx = ui.ctx().clone();
+            let count = self.modify_layout_units(&ctx).len();
+            let enabled = count >= 2 || (count > 0 && self.authoring_modify.to_stage);
+            for (axis, labels) in [
+                ["Left", "Horizontal centre", "Right"],
+                ["Top", "Vertical middle", "Bottom"],
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                for (edge, label) in labels.into_iter().enumerate() {
+                    if crate::ui_icons::menu_item_enabled(ui, enabled, label, "").clicked() {
+                        self.align_selection(&ctx, axis, edge);
+                        ui.close();
+                    }
+                }
+                neoflash_ui::components::menu_separator(ui);
+            }
+            crate::ui_icons::menu_toggle(ui, &mut self.authoring_modify.to_stage, "To stage", "");
+            if crate::ui_icons::menu_item(ui, "Align panel", "⌘K").clicked() {
+                self.show_panel(PanelId::Align);
+                ui.close();
+            }
+        });
+    }
+
+    /// Color panel ⋯ menu (§6 "Color — panel menu"): Add swatch · Help · Close · Close group.
+    pub(crate) fn color_panel_menu(&mut self, ui: &mut egui::Ui) {
+        Self::planned_menu_item(ui, "Color menu ▸ Add swatch", "");
+        Self::unavailable_item(ui, "Help", "F1");
+        if crate::ui_icons::menu_item(ui, "Close", "⌘W").clicked() {
+            self.set_panel_visible(PanelId::Color, false);
+            ui.close();
+        }
+        if crate::ui_icons::menu_item(ui, "Close group", "").clicked() {
+            let group = self.workspace.dock.location(PanelId::Color).and_then(|at| {
+                self.workspace
+                    .dock
+                    .area(at.edge)
+                    .groups
+                    .iter()
+                    .find(|g| g.id == at.group)
+                    .map(|g| g.tabs.clone())
+            });
+            for panel in group.unwrap_or_else(|| vec![PanelId::Color]) {
+                self.set_panel_visible(panel, false);
+            }
+            ui.close();
+        }
     }
 
     pub(crate) fn align_panel_ui(&mut self, ui: &mut egui::Ui) {
@@ -630,81 +724,106 @@ impl Editor {
     }
 
     fn align_panel_contents(&mut self, ui: &mut egui::Ui) {
-        ui.checkbox(&mut self.authoring_modify.to_stage, "To Stage");
+        ui.spacing_mut().item_spacing.y = space::S2;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = space::S2;
+            caption_label(ui, "Align to");
+            Segmented::show(
+                ui,
+                &mut self.authoring_modify.to_stage,
+                &[(false, "Selection"), (true, "Stage")],
+                false,
+            );
+        });
         let count = self.modify_layout_units(ui.ctx()).len();
         ui.add_enabled_ui_semantic(count > 0, |ui| {
-            ui.label("Align");
+            overline(ui, "Align");
             ui.add_enabled_ui_semantic(
                 count >= 2 || (count > 0 && self.authoring_modify.to_stage),
                 |ui| {
-                    align_buttons(ui, |ui, axis, edge| {
+                    alignment_groups(ui, "Align", ALIGN_ICONS, |ui, axis, edge| {
                         self.align_selection(ui.ctx(), axis, edge)
                     });
                 },
             )
             .response
-            .on_disabled_hover_text("Select two objects, or enable To Stage to align one object.");
-            ui.separator();
-            ui.label("Distribute positions");
+            .on_disabled_hover_text("Select two objects, or choose Stage to align one object.");
+            overline(ui, "Distribute");
             ui.add_enabled_ui_semantic(count >= 3, |ui| {
-                alignment_rows(ui, "Distribute", |ui, axis, edge| {
+                alignment_groups(ui, "Distribute", DISTRIBUTE_ICONS, |ui, axis, edge| {
                     self.distribute_selection(ui.ctx(), axis, edge)
                 })
             })
             .response
             .on_disabled_hover_text("Select at least three objects to distribute their positions.");
-            ui.separator();
-            ui.label("Spacing");
+            overline(ui, "Spacing");
             ui.add_enabled_ui_semantic(count >= 2, |ui| {
-                for axis in 0..2 {
-                    property_row(ui, if axis == 0 { "H gap" } else { "V gap" }, |ui| {
-                        let gap = if axis == 0 {
-                            &mut self.authoring_modify.horizontal_gap
-                        } else {
-                            &mut self.authoring_modify.vertical_gap
-                        };
-                        let width = (ui.available_width() - 54.).clamp(30., 96.);
-                        ui.allocate_ui_with_layout(
-                            Vec2::new(width, 24.),
-                            egui::Layout::left_to_right(egui::Align::Center),
-                            |ui| {
-                                compact_number(ui, gap, -100_000. ..=100_000., 1., "");
-                            },
-                        );
-                        let value = *gap;
-                        if ui.button("Apply").clicked() {
-                            self.space_selection(ui.ctx(), axis, Some(value));
-                        }
-                    });
-                }
                 ui.horizontal(|ui| {
-                    if ui
-                        .button("Even H")
-                        .on_hover_text("Equal horizontal gaps, retaining outer bounds")
-                        .clicked()
-                    {
-                        self.space_selection(ui.ctx(), 0, None);
+                    ui.spacing_mut().item_spacing.x = space::S2;
+                    let even = IconGroup {
+                        items: &[
+                            (
+                                i16::SPACE_H,
+                                "Space evenly horizontally (keeps outer bounds)",
+                            ),
+                            (i16::SPACE_V, "Space evenly vertically (keeps outer bounds)"),
+                        ],
+                        selected: None,
                     }
-                    if ui
-                        .button("Even V")
-                        .on_hover_text("Equal vertical gaps, retaining outer bounds")
-                        .clicked()
-                    {
-                        self.space_selection(ui.ctx(), 1, None);
+                    .show(ui);
+                    if let Some(axis) = even {
+                        self.space_selection(ui.ctx(), axis, None);
+                    }
+                    let gap = &mut self.authoring_modify.horizontal_gap;
+                    let before = *gap;
+                    ui.add(
+                        DragField::new(gap, "Spacing gap (px)")
+                            .prefix("Gap")
+                            .suffix(" px")
+                            .range(-100_000. ..=100_000.)
+                            .max_decimals(2)
+                            .width(ui.available_width().min(132.)),
+                    );
+                    if *gap != before {
+                        self.authoring_modify.vertical_gap = *gap;
                     }
                 });
-            });
-            ui.separator();
-            ui.label("Match size");
-            ui.add_enabled_ui_semantic(count >= 2, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.button("Width").clicked() {
-                        self.match_selection_size(ui.ctx(), 0);
+                    ui.spacing_mut().item_spacing.x = space::S2;
+                    let apply = IconGroup {
+                        items: &[
+                            (i16::SPACE_H, "Apply gap horizontally"),
+                            (i16::SPACE_V, "Apply gap vertically"),
+                        ],
+                        selected: None,
                     }
-                    if ui.button("Height").clicked() {
-                        self.match_selection_size(ui.ctx(), 1);
+                    .show(ui);
+                    caption_label(ui, "Apply the gap");
+                    if let Some(axis) = apply {
+                        let gap = if axis == 0 {
+                            self.authoring_modify.horizontal_gap
+                        } else {
+                            self.authoring_modify.vertical_gap
+                        };
+                        self.space_selection(ui.ctx(), axis, Some(gap));
                     }
-                })
+                });
+            })
+            .response
+            .on_disabled_hover_text("Select two or more objects to space them.");
+            overline(ui, "Match size");
+            ui.add_enabled_ui_semantic(count >= 2, |ui| {
+                let clicked = IconGroup {
+                    items: &[
+                        (i16::MATCH_W, "Match width"),
+                        (i16::MATCH_H, "Match height"),
+                    ],
+                    selected: None,
+                }
+                .show(ui);
+                if let Some(axis) = clicked {
+                    self.match_selection_size(ui.ctx(), axis);
+                }
             })
             .response
             .on_disabled_hover_text("Select two or more objects to match their size.");
@@ -721,19 +840,16 @@ impl Editor {
     }
 
     fn transform_panel_contents(&mut self, ui: &mut egui::Ui) {
+        ui.spacing_mut().item_spacing.y = space::S2;
         let placements = self.modify_placements(ui.ctx());
         if placements.is_empty() {
-            ui.weak("Select artwork on the Stage.");
+            crate::panels::properties::hint(ui, "Select artwork on the Stage.");
             return;
         }
         let scope = self.modify_scope();
         self.property_edit_scope(scope);
         ui.push_id(scope.with("transform"), |ui| {
             let bounds = combined_bounds(&placements);
-            ui.checkbox(
-                &mut self.authoring_modify.linked_scale,
-                "Constrain proportions",
-            );
             let mut fields = [
                 bounds.min.x as f64,
                 bounds.min.y as f64,
@@ -741,9 +857,18 @@ impl Editor {
                 bounds.height() as f64,
             ];
             let original = fields;
+            overline(ui, "Position and size");
             let [ref mut x, ref mut y, ref mut width, ref mut height] = fields;
-            let [rx, ry] = numeric_pair(ui, ["X", "Y"], [x, y], -1_000_000. ..=1_000_000., 1.);
-            let [rw, rh] = numeric_pair(ui, ["W", "H"], [width, height], 0.01..=1_000_000., 1.);
+            let [rx, ry] = field_pair(ui, ["X", "Y"], [x, y], -1_000_000. ..=1_000_000., "", None);
+            let linked = &mut self.authoring_modify.linked_scale;
+            let [rw, rh] = field_pair(
+                ui,
+                ["W", "H"],
+                [width, height],
+                0.01..=1_000_000.,
+                "",
+                Some(linked),
+            );
             for (index, response) in [rx, ry, rw, rh].into_iter().enumerate() {
                 if response.changed() {
                     let mut matrix = [1., 0., 0., 1., 0., 0.];
@@ -767,77 +892,100 @@ impl Editor {
                 }
             }
             if placements.len() == 1 {
-                ui.separator();
                 let item = &placements[0];
                 let old = item.element.transform;
-                for (label, value, range, speed) in [
-                    ("Scale X", old.scale_x * 100., -1_000_000. ..=1_000_000., 1.),
-                    ("Scale Y", old.scale_y * 100., -1_000_000. ..=1_000_000., 1.),
-                    ("Rotate", old.rotation, -360_000. ..=360_000., 1.),
-                    ("Skew", old.skew, -360_000. ..=360_000., 1.),
-                ] {
-                    let mut value = value;
-                    let response = property_row(ui, label, |ui| {
-                        compact_number(
-                            ui,
-                            &mut value,
-                            range,
-                            speed,
-                            if label.starts_with("Scale") {
-                                " %"
-                            } else {
-                                "°"
-                            },
-                        )
-                    });
-                    if response.changed() {
-                        let mut new = old;
-                        match label {
-                            "Scale X" => {
-                                new.scale_x = value / 100.;
-                                if self.authoring_modify.linked_scale && old.scale_x.abs() > 1e-9 {
-                                    new.scale_y *= new.scale_x / old.scale_x;
-                                }
+                let mut values = [
+                    old.scale_x * 100.,
+                    old.scale_y * 100.,
+                    old.rotation,
+                    old.skew,
+                ];
+                overline(ui, "Scale");
+                let [ref mut sx, ref mut sy, ref mut rotation, ref mut skew] = values;
+                let linked = &mut self.authoring_modify.linked_scale;
+                let [rsx, rsy] = field_pair(
+                    ui,
+                    ["W", "H"],
+                    [sx, sy],
+                    -1_000_000. ..=1_000_000.,
+                    " %",
+                    Some(linked),
+                );
+                overline(ui, "Rotate and skew");
+                let [rr, rk] = field_pair(
+                    ui,
+                    ["Rotate", "Skew"],
+                    [rotation, skew],
+                    -360_000. ..=360_000.,
+                    "°",
+                    None,
+                );
+                for (index, response) in [rsx, rsy, rr, rk].into_iter().enumerate() {
+                    if !response.changed() {
+                        continue;
+                    }
+                    let value = values[index];
+                    let mut new = old;
+                    match index {
+                        0 => {
+                            new.scale_x = value / 100.;
+                            if self.authoring_modify.linked_scale && old.scale_x.abs() > 1e-9 {
+                                new.scale_y *= new.scale_x / old.scale_x;
                             }
-                            "Scale Y" => {
-                                new.scale_y = value / 100.;
-                                if self.authoring_modify.linked_scale && old.scale_y.abs() > 1e-9 {
-                                    new.scale_x *= new.scale_y / old.scale_y;
-                                }
+                        }
+                        1 => {
+                            new.scale_y = value / 100.;
+                            if self.authoring_modify.linked_scale && old.scale_y.abs() > 1e-9 {
+                                new.scale_x *= new.scale_y / old.scale_y;
                             }
-                            "Rotate" => new.rotation = value,
-                            _ => new.skew = value,
                         }
-                        if new.scale_x.abs().max(new.scale_y.abs()) <= 1e4 {
-                            let mut element = item.element.clone();
-                            element.transform = retain_center(old, new, item.bounds.center());
-                            self.apply_modified(
-                                vec![(item.target.clone(), element)],
-                                Some(response.id),
-                            );
-                        }
+                        2 => new.rotation = value,
+                        _ => new.skew = value,
+                    }
+                    if new.scale_x.abs().max(new.scale_y.abs()) <= 1e4 {
+                        let mut element = item.element.clone();
+                        element.transform = retain_center(old, new, item.bounds.center());
+                        self.apply_modified(
+                            vec![(item.target.clone(), element)],
+                            Some(response.id),
+                        );
                     }
                 }
             }
-            ui.separator();
-            self.transform_commands(ui);
+            neoflash_ui::components::divider(ui, false);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = space::S2;
+                let clicked = IconGroup {
+                    items: &[
+                        (i16::ROTATE_CCW, "Rotate 90° CCW"),
+                        (i16::ROTATE_CW, "Rotate 90° CW"),
+                        (i16::FLIP_H, "Flip Horizontal"),
+                        (i16::FLIP_V, "Flip Vertical"),
+                    ],
+                    selected: None,
+                }
+                .show(ui);
+                if let Some(index) = clicked {
+                    self.affine_selection(ui.ctx(), TRANSFORM_COMMANDS[index].1);
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .add(IconButton::new(i16::RESET_TRANSFORM, "Remove Transform"))
+                        .clicked()
+                    {
+                        self.reset_selection_transform(ui.ctx());
+                    }
+                });
+            });
         });
     }
 
     fn transform_commands(&mut self, ui: &mut egui::Ui) {
-        for (label, matrix) in [
-            ("Rotate 90° CW", [0., 1., -1., 0., 0., 0.]),
-            ("Rotate 90° CCW", [0., -1., 1., 0., 0., 0.]),
-            ("Flip Horizontal", [-1., 0., 0., 1., 0., 0.]),
-            ("Flip Vertical", [1., 0., 0., -1., 0., 0.]),
-        ] {
+        for (label, matrix) in TRANSFORM_COMMANDS {
             let response = if egui::containers::menu::is_in_menu(ui) {
                 crate::ui_icons::menu_item(ui, label, "")
             } else {
-                ui.add_sized(
-                    [ui.available_width(), crate::theme::CONTROL_HEIGHT],
-                    egui::Button::new(label),
-                )
+                ui.add(neoflash_ui::components::Button::new(label).width(ui.available_width()))
             };
             if response.clicked() {
                 self.affine_selection(ui.ctx(), matrix);
@@ -846,9 +994,9 @@ impl Editor {
         let reset = if egui::containers::menu::is_in_menu(ui) {
             crate::ui_icons::menu_item(ui, "Remove Transform", "")
         } else {
-            ui.add_sized(
-                [ui.available_width(), crate::theme::CONTROL_HEIGHT],
-                egui::Button::new("Remove Transform"),
+            ui.add(
+                neoflash_ui::components::Button::new("Remove Transform")
+                    .width(ui.available_width()),
             )
         };
         if reset.clicked() {
@@ -866,31 +1014,58 @@ impl Editor {
     }
 
     fn color_panel_contents(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.selectable_value(
-                &mut self.authoring_modify.color_selection,
-                true,
-                "Selection",
-            );
-            ui.selectable_value(&mut self.authoring_modify.color_selection, false, "Drawing");
-        });
-        if !self.authoring_modify.color_selection {
-            paint_row(ui, "drawing-fill", "Fill", &mut self.fill);
-            paint_row(ui, "drawing-stroke", "Stroke", &mut self.stroke);
-            numeric_row(ui, "Width", &mut self.stroke_width, 0. ..=100., 0.25);
-            return;
-        }
+        ui.spacing_mut().item_spacing.y = space::S2;
+        let p = neoflash_ui::palette(ui.ctx());
         let targets = self
             .sampled_targets()
             .into_iter()
             .filter(|(t, _)| self.target_editable(t))
             .collect::<Vec<_>>();
+        ui.horizontal(|ui| {
+            Segmented::show(
+                ui,
+                &mut self.authoring_modify.color_selection,
+                &[(true, "Selection"), (false, "Drawing")],
+                false,
+            );
+            if self.authoring_modify.color_selection {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let n = targets.len();
+                    ui.label(
+                        rich(
+                            format!("{n} object{}", if n == 1 { "" } else { "s" }),
+                            TextStyle::Body,
+                        )
+                        .color(p.text_secondary),
+                    );
+                });
+            }
+        });
+        // Which paint the wells edit: remembered per panel, Fill by default.
+        let active_id = egui::Id::new("color-panel-active-stroke");
+        let mut stroke_active = ui.data(|d| d.get_temp::<bool>(active_id).unwrap_or(false));
+        if !self.authoring_modify.color_selection {
+            color_wells(ui, &mut stroke_active, self.fill, self.stroke, true);
+            ui.data_mut(|d| d.insert_temp(active_id, stroke_active));
+            fill_type_select(ui);
+            if stroke_active {
+                paint_row(ui, "drawing-stroke", "Stroke", &mut self.stroke);
+            } else {
+                paint_row(ui, "drawing-fill", "Fill", &mut self.fill);
+            }
+            overline(ui, "Stroke");
+            numeric_row(ui, "Width", &mut self.stroke_width, 0. ..=100., 0.25);
+            return;
+        }
         let values: Vec<_> = targets
             .iter()
             .filter_map(|(_, e)| paints(&e.kind))
             .collect();
         let Some(&(fill, mut stroke, mut width, _)) = values.first() else {
-            ui.weak("Select a shape, path or text object; use Drawing for tool colors.");
+            crate::panels::properties::hint(
+                ui,
+                "Select a shape, path or text object; use Drawing for tool colors.",
+            );
             return;
         };
         let supports_stroke = values.iter().any(|value| value.3);
@@ -907,42 +1082,46 @@ impl Editor {
             .iter()
             .filter(|value| value.3)
             .any(|value| value.2 != width);
-        ui.strong(format!(
-            "{} selected object{}",
-            targets.len(),
-            if targets.len() == 1 { "" } else { "s" }
-        ));
+        if !supports_stroke {
+            stroke_active = false;
+        }
         let scope = self.modify_scope();
         self.property_edit_scope(scope);
         ui.push_id(scope.with("color"), |ui| {
+            // Mixed paints show the first object's colour; the row below says "Mixed".
+            color_wells(ui, &mut stroke_active, fill, stroke, supports_stroke);
+            ui.data_mut(|d| d.insert_temp(active_id, stroke_active));
+            fill_type_select(ui);
             let (mut new_fill, mut new_stroke, mut new_width) = (fill, stroke, width);
             let (mut force_fill, mut force_stroke, mut force_width) = (false, false, false);
             let mut control = None;
-            if mixed_fill {
-                if let Some((value, id)) = mixed_color_edit(ui, "Fill") {
-                    new_fill = value;
-                    force_fill = true;
+            if !stroke_active {
+                if mixed_fill {
+                    if let Some((value, id)) = mixed_color_edit(ui, "Fill") {
+                        new_fill = value;
+                        force_fill = true;
+                        control = Some(id);
+                    }
+                } else {
+                    let r = paint_row(ui, "selected-fill", "Fill", &mut new_fill);
+                    if r.changed() {
+                        control = Some(r.id);
+                    }
+                }
+            } else if mixed_stroke {
+                if let Some((value, id)) = mixed_color_edit(ui, "Stroke") {
+                    new_stroke = value;
+                    force_stroke = true;
                     control = Some(id);
                 }
             } else {
-                let r = paint_row(ui, "selected-fill", "Fill", &mut new_fill);
+                let r = paint_row(ui, "selected-stroke", "Stroke", &mut new_stroke);
                 if r.changed() {
                     control = Some(r.id);
                 }
             }
             if supports_stroke {
-                if mixed_stroke {
-                    if let Some((value, id)) = mixed_color_edit(ui, "Stroke") {
-                        new_stroke = value;
-                        force_stroke = true;
-                        control = Some(id);
-                    }
-                } else {
-                    let r = paint_row(ui, "selected-stroke", "Stroke", &mut new_stroke);
-                    if r.changed() {
-                        control = Some(r.id);
-                    }
-                }
+                overline(ui, "Stroke");
                 if mixed_width {
                     if let Some((value, id)) = mixed_width_edit(ui) {
                         new_width = value;
@@ -968,7 +1147,10 @@ impl Editor {
                     }
                 )
             }) {
-                ui.small("Changing an RGB color replaces its gradient with a solid paint.");
+                crate::panels::properties::hint(
+                    ui,
+                    "Changing an RGB color replaces its gradient with a solid paint.",
+                );
             }
             if let Some(control) = control {
                 let changes = targets
@@ -993,6 +1175,68 @@ impl Editor {
     }
 }
 
+/// Stroke and Fill `NF2/Color Well`s; the active one is edited below.
+/// A fully transparent paint shows the "no colour" chip.
+fn color_wells(
+    ui: &mut egui::Ui,
+    stroke_active: &mut bool,
+    fill: Color,
+    stroke: Color,
+    stroke_enabled: bool,
+) {
+    let shown = |c: Color| {
+        (c[3] > 0).then(|| egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]))
+    };
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = space::S2;
+        let stroke_well = ui.add_enabled(
+            stroke_enabled,
+            ColorWell {
+                target: ColorWellTarget::Stroke,
+                color: shown(stroke),
+                active: *stroke_active,
+            },
+        );
+        if stroke_well.clicked() {
+            *stroke_active = true;
+        }
+        if ui
+            .add(ColorWell {
+                target: ColorWellTarget::Fill,
+                color: shown(fill),
+                active: !*stroke_active,
+            })
+            .clicked()
+        {
+            *stroke_active = false;
+        }
+    });
+}
+
+/// Fill type `NF2/Select` (§6 "Color — type menu"): the panel edits solid colours; gradient and
+/// bitmap fills open their planned previews and keep the authored paint unchanged.
+fn fill_type_select(ui: &mut egui::Ui) {
+    let width = ui.available_width();
+    Select::new("color-fill-type", "Solid colour")
+        .width(width)
+        .show(ui, |ui| {
+            ui.add_enabled(false, MenuItem::new("None"))
+                .on_disabled_hover_text("Not available yet");
+            ui.add(MenuItem::new("Solid colour").checked(true));
+            for path in [
+                "Color fill type ▸ Linear gradient",
+                "Color fill type ▸ Radial gradient",
+                "Color fill type ▸ Bitmap fill",
+            ] {
+                let label = path.rsplit(" ▸ ").next().unwrap_or(path);
+                if ui.add(MenuItem::new(label)).clicked() {
+                    Editor::open_planned(ui.ctx(), path);
+                    ui.close();
+                }
+            }
+        });
+}
+
 /// Mixed values are explicit. A new value is a deliberate draft, never an
 /// arbitrary selected object's paint; Apply changes only this named field.
 fn mixed_color_edit(ui: &mut egui::Ui, label: &str) -> Option<(Color, egui::Id)> {
@@ -1002,7 +1246,7 @@ fn mixed_color_edit(ui: &mut egui::Ui, label: &str) -> Option<(Color, egui::Id)>
             .unwrap_or(([0, 0, 0, 255], false))
     });
     let mut result = None;
-    egui::CollapsingHeader::new(format!("{label} · Mixed"))
+    SectionHeader::new(&format!("{label} · Mixed"))
         .id_salt(id)
         .default_open(false)
         .show(ui, |ui| {
@@ -1010,7 +1254,7 @@ fn mixed_color_edit(ui: &mut egui::Ui, label: &str) -> Option<(Color, egui::Id)>
             let apply = ui
                 .add_enabled_semantic(
                     edited,
-                    egui::Button::new(format!("Apply {} to selection", label.to_lowercase())),
+                    Button::new(&format!("Apply {} to selection", label.to_lowercase())),
                 )
                 .on_disabled_hover_text("Enter a new value before applying it to the selection.");
             if apply.clicked() {
@@ -1027,13 +1271,13 @@ fn mixed_width_edit(ui: &mut egui::Ui) -> Option<(f64, egui::Id)> {
         .ctx()
         .data(|data| data.get_temp::<(f64, bool)>(id).unwrap_or((1., false)));
     let mut result = None;
-    egui::CollapsingHeader::new("Width · Mixed")
+    SectionHeader::new("Width · Mixed")
         .id_salt(id)
         .default_open(false)
         .show(ui, |ui| {
             edited |= numeric_row(ui, "New value", &mut draft, 0. ..=100., 0.25).changed();
             let apply = ui
-                .add_enabled_semantic(edited, egui::Button::new("Apply width to selection"))
+                .add_enabled_semantic(edited, Button::new("Apply width to selection"))
                 .on_disabled_hover_text("Enter a new width before applying it to the selection.");
             if apply.clicked() {
                 result = Some((draft, apply.id));
@@ -1042,6 +1286,120 @@ fn mixed_width_edit(ui: &mut egui::Ui) -> Option<(f64, egui::Id)> {
     ui.ctx()
         .data_mut(|data| data.insert_temp(id, (draft, edited)));
     result
+}
+
+/// Rotate / flip commands in the order of the Transform panel icon group.
+const TRANSFORM_COMMANDS: [(&str, [f64; 6]); 4] = [
+    ("Rotate 90° CCW", [0., -1., 1., 0., 0., 0.]),
+    ("Rotate 90° CW", [0., 1., -1., 0., 0., 0.]),
+    ("Flip Horizontal", [-1., 0., 0., 1., 0., 0.]),
+    ("Flip Vertical", [1., 0., 0., -1., 0., 0.]),
+];
+
+type EdgeIcons = [[(Icon, &'static str); 3]; 2];
+const ALIGN_ICONS: EdgeIcons = [
+    [
+        (i16::ALIGN_LEFT, "Left"),
+        (i16::ALIGN_HCENTER, "Center"),
+        (i16::ALIGN_RIGHT, "Right"),
+    ],
+    [
+        (i16::ALIGN_TOP, "Top"),
+        (i16::ALIGN_VMIDDLE, "Middle"),
+        (i16::ALIGN_BOTTOM, "Bottom"),
+    ],
+];
+const DISTRIBUTE_ICONS: EdgeIcons = [
+    [
+        (i16::DIST_LEFT, "Left"),
+        (i16::DIST_HCENTER, "Center"),
+        (i16::DIST_RIGHT, "Right"),
+    ],
+    [
+        (i16::DIST_TOP, "Top"),
+        (i16::DIST_VMIDDLE, "Middle"),
+        (i16::DIST_BOTTOM, "Bottom"),
+    ],
+];
+
+/// Two `NF2/Icon Group`s (horizontal edges · vertical edges). Accessible names
+/// stay "Align Left", "Distribute Top", ….
+fn alignment_groups(
+    ui: &mut egui::Ui,
+    operation: &str,
+    icons: EdgeIcons,
+    mut action: impl FnMut(&mut egui::Ui, usize, usize),
+) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = space::S2;
+        for (axis, group) in icons.iter().enumerate() {
+            let names = group.map(|(_, label)| format!("{operation} {label}"));
+            let items: Vec<(Icon, &str)> = group
+                .iter()
+                .zip(&names)
+                .map(|((icon, _), name)| (*icon, name.as_str()))
+                .collect();
+            if let Some(edge) = (IconGroup {
+                items: &items,
+                selected: None,
+            })
+            .show(ui)
+            {
+                action(ui, axis, edge);
+            }
+        }
+    });
+}
+
+/// Uncollapsible group caption (`NF2/Overline`, secondary), as in Align and Transform.
+fn overline(ui: &mut egui::Ui, text: &str) {
+    let p = neoflash_ui::palette(ui.ctx());
+    let color = if ui.is_enabled() {
+        p.text_secondary
+    } else {
+        p.text_disabled
+    };
+    ui.add_space(space::S1);
+    ui.label(rich(text, TextStyle::Overline).color(color));
+}
+
+/// Inline row label (`NF2/Body`, secondary).
+fn caption_label(ui: &mut egui::Ui, text: &str) {
+    let p = neoflash_ui::palette(ui.ctx());
+    let color = if ui.is_enabled() {
+        p.text_secondary
+    } else {
+        p.text_disabled
+    };
+    ui.label(rich(text, TextStyle::Body).color(color));
+}
+
+/// Two prefixed fields side by side and an optional link (constrain) toggle.
+fn field_pair(
+    ui: &mut egui::Ui,
+    prefixes: [&str; 2],
+    values: [&mut f64; 2],
+    range: std::ops::RangeInclusive<f64>,
+    suffix: &str,
+    link: Option<&mut bool>,
+) -> [egui::Response; 2] {
+    let [a, b] = values;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = space::S2;
+        let link_width = crate::theme::CONTROL_HEIGHT + space::S2;
+        let width = ((ui.available_width() - link_width - space::S2) / 2.).max(64.);
+        let first = number_field(ui, prefixes[0], a, range.clone(), 1., suffix, Some(width));
+        let second = number_field(ui, prefixes[1], b, range, 1., suffix, Some(width));
+        if let Some(link) = link
+            && ui
+                .add(IconButton::new(i16::LINK, "Constrain proportions").selected(*link))
+                .clicked()
+        {
+            *link = !*link;
+        }
+        [first, second]
+    })
+    .inner
 }
 
 fn combined_bounds(items: &[Placement]) -> Rect {
@@ -1113,42 +1471,6 @@ fn retain_center(old: Transform, mut new: Transform, center: Pos2) -> Transform 
     }
     new
 }
-fn align_buttons(ui: &mut egui::Ui, action: impl FnMut(&mut egui::Ui, usize, usize)) {
-    alignment_rows(ui, "Align", action);
-}
-fn alignment_rows(
-    ui: &mut egui::Ui,
-    operation: &str,
-    mut action: impl FnMut(&mut egui::Ui, usize, usize),
-) {
-    for (axis, labels) in [
-        (0, ["Left", "Center", "Right"]),
-        (1, ["Top", "Middle", "Bottom"]),
-    ] {
-        ui.horizontal(|ui| {
-            let width = (ui.available_width() - ui.spacing().item_spacing.x * 2.) / 3.;
-            for (edge, label) in labels.into_iter().enumerate() {
-                let response = ui
-                    .add_sized(
-                        [width, crate::theme::CONTROL_HEIGHT],
-                        egui::Button::new(label),
-                    )
-                    .on_hover_text(format!("{operation} {label}"));
-                response.widget_info(|| {
-                    egui::WidgetInfo::labeled(
-                        egui::WidgetType::Button,
-                        ui.is_enabled(),
-                        format!("{operation} {label}"),
-                    )
-                });
-                if response.clicked() {
-                    action(ui, axis, edge);
-                }
-            }
-        });
-    }
-}
-
 fn contains_scripts(project: &Project, id: &str, seen: &mut HashSet<String>) -> bool {
     if !seen.insert(id.into()) {
         return false;

@@ -1,0 +1,44 @@
+F Panel / Properties — Oval primitive 320×704 [V gap 0]
+  I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 318×36 "Properties" "Filters" "Panel"
+  F Body 318×666 [V gap 10]
+    F Row 294×48 [H gap 8]
+      F Type icon 48×48 [H gap 0]
+        I NF2 Icon/20/tool-oval 20×20
+      F Title 156×38 [V gap 2]
+        T "Oval primitive"
+        T "Drawing object · layer "ball""
+    I NF2/Section Header {Label=Position and size, State=Expanded} 294×32 "Position and size"
+    F Row 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=X, Label=100.0, State=Default} 120×32 "X" "100.0"
+      I NF2/Field {Show prefix=true, Prefix=Y, Label=100.0, State=Default} 120×32 "Y" "100.0"
+      I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+    F Row 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=W, Label=50.0, State=Default} 120×32 "W" "50.0"
+      I NF2/Field {Show prefix=true, Prefix=H, Label=50.0, State=Default} 120×32 "H" "50.0"
+    I NF2/Section Header {Label=Fill and stroke, State=Expanded} 294×32 "Fill and stroke"
+    F Row 294×32 [H gap 8]
+      I NF2/Color Well {Target=Fill, Active=False} 74×32
+      I NF2/Color Well {Target=Stroke, Active=False} 74×32
+    F Row 294×32 [H gap 8]
+      I NF2/Combo Field {Label=2} 80×32 "2"
+      I NF2/Line Style Select {Style=Solid} 208×32 "Solid"
+    F Row 294×32 [H gap 8]
+      I NF2/Button {Icon=true, Label=Custom…, Type=Secondary, State=Default} 109×32 "Custom…"
+      I NF2/Switch {Label=Stroke hinting, On=False} 124×20 "Stroke hinting"
+    F Row 294×32 [H gap 8]
+      I NF2/Select {Label=Scale: Normal, State=Default} 144×32 "Scale: Normal"
+      I NF2/Field {Prefix=Miter, Show prefix=true, Label=3, State=Disabled} 144×32 "Miter" "3"
+    F Row 294×34 [H gap 8]
+      T "Cap"
+      I NF2/Icon Group {Count=3} 100×34
+    F Row 294×34 [H gap 8]
+      T "Join"
+      I NF2/Icon Group {Count=3} 100×34
+    I NF2/Section Header {Label=Oval options, State=Expanded} 294×32 "Oval options"
+    F Row 294×32 [H gap 8]
+      I NF2/Stepper Field {Prefix=Start, Label=90°, State=Default} 144×32 "Start" "90°"
+      I NF2/Stepper Field {Prefix=End, Label=0°, State=Default} 144×32 "End" "0°"
+    F Row 294×32 [H gap 8]
+      I NF2/Stepper Field {Prefix=Inner, Label=0 %, State=Default} 144×32 "Inner" "0 %"
+      I NF2/Checkbox {Label=Close path, Checked=True} 93×20 "Close path"
+    I NF2/Button {Icon=true, Label=Reset, Type=Ghost, State=Default} 84×32 "Reset"

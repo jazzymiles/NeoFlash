@@ -1,0 +1,99 @@
+F Document — dialogs 640×1424 [V gap 32]
+  F Dialog / Document settings 520×418 [V gap 0]
+    I NF2/Dialog Header 518×60 "Document settings"
+    F Body 518×356 [V gap 12]
+      F Row 470×32 [H gap 8]
+        T "Stage size"
+        I NF2/Field {Show prefix=true, Prefix=W, Label=960, State=Default} 120×32 "W" "960"
+        I NF2/Field {Show prefix=true, Prefix=H, Label=600, State=Default} 120×32 "H" "600"
+        I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+      F Row 470×32 [H gap 8]
+        T ""
+        I NF2/Button {Icon=false, Label=Match contents, Type=Ghost, State=Default} 122×32 "Match contents"
+        I NF2/Button {Icon=false, Label=Match printer, Type=Ghost, State=Default} 108×32 "Match printer"
+      F Row 470×28 [H gap 8]
+        T "Scale"
+        I NF2/Checkbox {Label=Scale content with stage, Checked=True} 179×20 "Scale content with stage"
+        I NF2/Registration Picker {Point=Top left} 28×28
+      F Row 470×32 [H gap 8]
+        T "Units"
+        I NF2/Select {Label=Pixels, State=Default} 160×32 "Pixels"
+      F Row 470×32 [H gap 8]
+        T "Background"
+        I NF2/Color Field {Alpha=100 %, Hex=131824} 200×32 "131824" "100 %"
+      F Row 470×32 [H gap 8]
+        T "Frame rate"
+        I NF2/Stepper Field {Prefix=fps, Label=24.00, State=Default} 140×32 "fps" "24.00"
+        T "120 frames · 5.00 s"
+      F Row 470×32 [H gap 8]
+        T "Script"
+        I NF2/Select {Label=ActionScript 3.0 · strict, State=Default} 220×32 "ActionScript 3.0 · strict"
+      F Row 470×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Make default, Type=Ghost, State=Default} 105×32 "Make default"
+        F Spacer 229×2
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+        I NF2/Button {Icon=false, Label=OK, Type=Primary, State=Default} 43×32 "OK"
+  F Dialog / Find and replace 640×510 [V gap 0]
+    I NF2/Dialog Header 638×60 "Find and replace"
+    F Body 638×448 [V gap 12]
+      F Row 590×34 [H gap 8]
+        F Segments 433×34 [H gap 2]
+          I NF2/Segment {Label=Text, Selected=True} 51×28 "Text"
+          I NF2/Segment {Label=Font, Selected=False} 50×28 "Font"
+          I NF2/Segment {Label=Colour, Selected=False} 63×28 "Colour"
+          I NF2/Segment {Label=Symbol, Selected=False} 67×28 "Symbol"
+          I NF2/Segment {Label=Sound, Selected=False} 61×28 "Sound"
+          I NF2/Segment {Label=Video, Selected=False} 58×28 "Video"
+          I NF2/Segment {Label=Bitmap, Selected=False} 65×28 "Bitmap"
+      F Row 590×32 [H gap 8]
+        I NF2/Select {Label=In: Current document, State=Default} 220×32 "In: Current document"
+        I NF2/Select {Label=Scene: All scenes, State=Default} 200×32 "Scene: All scenes"
+      I NF2/Field {Show prefix=true, Prefix=Find, Label=orbit_mc, State=Focus} 590×32 "Find" "orbit_mc"
+      I NF2/Field {Show prefix=true, Prefix=Replace, Label=orbitClip, State=Default} 590×32 "Replace" "orbitClip"
+      F Row 590×20 [H gap 8]
+        I NF2/Checkbox {Label=Whole word, Checked=True} 99×20 "Whole word"
+        I NF2/Checkbox {Label=Match case, Checked=False} 98×20 "Match case"
+        I NF2/Checkbox {Label=Regular expression, Checked=False} 143×20 "Regular expression"
+        I NF2/Checkbox {Label=Live edit, Checked=False} 79×20 "Live edit"
+      F Row 590×20 [H gap 8]
+        I NF2/Checkbox {Label=Text field contents, Checked=True} 141×20 "Text field contents"
+        I NF2/Checkbox {Label=Frames / layers / scenes, Checked=True} 176×20 "Frames / layers / scenes"
+        I NF2/Checkbox {Label=ActionScript, Checked=True} 102×20 "ActionScript"
+      F Results 590×142 [V gap 0]
+        I NF2/Table Row {Value=Found, Property=Location, Kind=Header} 588×28 "Location" "Found"
+        I NF2/Table Row {Value=new Animator(orbitXML, orbit_mc), Property=Scene 1 › orbit › Frame 1 · line 17, Kind=Selected} 588×28 "Scene 1 › orbit › Frame 1 · line 17" "new Animator(orbitXML, orbit_mc)"
+        I NF2/Table Row {Value=orbit_mc.rotation += speed, Property=Scene 1 › orbit › Frame 1 · line 18, Kind=Row} 588×28 "Scene 1 › orbit › Frame 1 · line 18" "orbit_mc.rotation += speed"
+        I NF2/Table Row {Value=public var orbit_mc:MovieClip, Property=Orbit.as · line 42, Kind=Row} 588×28 "Orbit.as · line 42" "public var orbit_mc:MovieClip"
+        I NF2/Table Row {Value=orbit_mc, Property=Library › orbit · instance name, Kind=Row} 588×28 "Library › orbit · instance name" "orbit_mc"
+      F Row 590×32 [H gap 8]
+        T "4 results in 3 places"
+        F Spacer 208×2
+        I NF2/Button {Icon=false, Label=Find all, Type=Ghost, State=Default} 69×32 "Find all"
+        I NF2/Button {Icon=false, Label=Replace, Type=Secondary, State=Default} 76×32 "Replace"
+        I NF2/Button {Icon=false, Label=Replace all, Type=Primary, State=Default} 91×32 "Replace all"
+  F Panel / Movie Explorer 340×432 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 338×36 "Movie Explorer" "Panel" "Panel"
+    F Body 338×394 [V gap 4]
+      F Row 322×34 [H gap 8]
+        I NF2/Icon Group {Count=4} 132×34
+        I NF2/Icon Group {Count=2} 68×34
+      I NF2/Search {Label=Find in movie, State=Empty} 322×32 "Find in movie"
+      F Indent 322×28 [H gap 0]
+        I NF2/Tree Item {Label=Ideas in motion.nfl, Type=Folder Open, Selected=False} 322×28 "Ideas in motion.nfl"
+      F Indent 322×28 [H gap 0]
+        I NF2/Tree Item {Label=Scene 1, Type=Folder Open, Selected=False} 308×28 "Scene 1"
+      F Indent 322×28 [H gap 0]
+        I NF2/Tree Item {Label=Layer "orbit", Type=Folder Open, Selected=False} 294×28 "Layer "orbit""
+      F Indent 322×28 [H gap 0]
+        I NF2/Tree Item {Label=Frame 1, Type=Folder Open, Selected=False} 280×28 "Frame 1"
+      F Indent 322×28 [H gap 0]
+        I NF2/Tree Item {Label=orbit_mc  ·  orbit, Type=Symbol, Selected=True} 266×28 "orbit_mc  ·  orbit"
+      F Indent 322×28 [H gap 0]
+        I NF2/Tree Item {Label=Actions for Frame 1, Type=Symbol, Selected=False} 266×28 "Actions for Frame 1"
+      F Indent 322×28 [H gap 0]
+        I NF2/Tree Item {Label=Layer "labels", Type=Folder Closed, Selected=False} 294×28 "Layer "labels""
+      F Indent 322×28 [H gap 0]
+        I NF2/Tree Item {Label=Layer "music.mp3", Type=Folder Closed, Selected=False} 294×28 "Layer "music.mp3""
+      F Indent 322×28 [H gap 0]
+        I NF2/Tree Item {Label=Symbol definitions, Type=Folder Closed, Selected=False} 308×28 "Symbol definitions"
+      T "Scene 1 › orbit › Frame 1 › orbit_mc"

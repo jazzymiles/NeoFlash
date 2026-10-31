@@ -1,6 +1,5 @@
 //! Transient frame selection and pointer gestures. Authored edits live in the core.
 use crate::app::{Editor, ScriptTarget};
-use crate::theme::DesignUi as _;
 use crate::timeline_paint::{ROW_HEIGHT, frame_at_x, timeline_cell_at};
 use eframe::egui::{self, Pos2, Rect, Vec2};
 use neoflash_core::{
@@ -43,6 +42,17 @@ enum Gesture {
     },
 }
 
+/// Frame-range commands shared by Edit ▸ Timeline, the frame context menu and their shortcuts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FrameCommand {
+    Cut,
+    Copy,
+    Paste,
+    Clear,
+    Remove,
+    SelectAll,
+}
+
 impl TimelineSelection {
     pub fn dragging(&self) -> bool {
         self.gesture.is_some()
@@ -58,7 +68,7 @@ impl Editor {
         Some((range.start, range.end, range.layers.len()))
     }
 
-    fn frame_range(&self) -> Option<FrameRange> {
+    pub(crate) fn frame_range(&self) -> Option<FrameRange> {
         (self.timeline_edit.symbol == self.symbol_id()).then_some(())?;
         let mut range = self.timeline_edit.range.clone()?;
         range
@@ -152,7 +162,7 @@ impl Editor {
         }
     }
 
-    fn copy_frames_to_system_clipboard(&mut self, ctx: &egui::Context, cut: bool) {
+    pub(crate) fn copy_frames_to_system_clipboard(&mut self, ctx: &egui::Context, cut: bool) {
         if self.copy_frame_range(cut) {
             // Native Paste emits a payload only when the system clipboard has
             // text. The actual frame data remains scoped to this live document.
@@ -166,7 +176,7 @@ impl Editor {
         }
     }
 
-    fn paste_frames_from_system_clipboard(&mut self, payload: Option<String>) {
+    pub(crate) fn paste_frames_from_system_clipboard(&mut self, payload: Option<String>) {
         let text = match payload.map(Ok).unwrap_or_else(|| {
             arboard::Clipboard::new()
                 .and_then(|mut clipboard| clipboard.get_text())
@@ -324,52 +334,45 @@ impl Editor {
             self.insert_frame_range();
         }
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::A)) {
-            let layers = self
-                .symbol()
-                .timeline
-                .layers
-                .iter()
-                .filter(|l| l.properties.role != LayerRole::Folder)
-                .map(|l| l.id.clone())
-                .collect();
-            self.select_frame_range(FrameRange {
-                layers,
-                start: 0,
-                end: self.symbol().timeline.frame_count.saturating_sub(1),
-            });
+            self.select_all_frames();
         }
     }
 
-    pub(crate) fn frame_range_menu(&mut self, ui: &mut egui::Ui) {
-        ui.checkbox(&mut self.timeline_edit.include_scripts, "Include frame scripts")
-            .on_hover_text("Frame scripts belong to this timeline, not to a layer. Include them once in frame copy, move, insert and remove operations. Script collisions are rejected.");
-        ui.separator();
-        for (label, shortcut, action) in [
-            ("Copy Frames", "⌘C", 0),
-            ("Cut Frames", "⌘X", 1),
-            ("Paste Frames", "⌘V", 2),
-            ("Insert Frames", "F5", 3),
-            ("Clear Frames", "Delete", 4),
-            ("Remove Frames", "", 5),
-        ] {
-            let enabled = self.frame_range().is_some()
-                && (action != 2 || self.timeline_edit.clipboard.is_some());
-            if ui
-                .add_enabled_semantic(enabled, egui::Button::new(label).shortcut_text(shortcut))
-                .clicked()
-            {
-                match action {
-                    0 => self.copy_frames_to_system_clipboard(ui.ctx(), false),
-                    1 => self.copy_frames_to_system_clipboard(ui.ctx(), true),
-                    2 => self.paste_frames_from_system_clipboard(None),
-                    3 => self.insert_frame_range(),
-                    4 => self.clear_frame_range(false),
-                    _ => self.clear_frame_range(true),
-                }
-                ui.close();
-            }
+    pub(crate) fn frame_command_enabled(&self, command: FrameCommand) -> bool {
+        command == FrameCommand::SelectAll
+            || (self.frame_range().is_some()
+                && (command != FrameCommand::Paste || self.timeline_edit.clipboard.is_some()))
+    }
+
+    pub(crate) fn run_frame_command(&mut self, ctx: &egui::Context, command: FrameCommand) {
+        if !self.frame_command_enabled(command) {
+            return;
         }
-        ui.separator();
+        match command {
+            FrameCommand::Cut => self.copy_frames_to_system_clipboard(ctx, true),
+            FrameCommand::Copy => self.copy_frames_to_system_clipboard(ctx, false),
+            FrameCommand::Paste => self.paste_frames_from_system_clipboard(None),
+            FrameCommand::Clear => self.clear_frame_range(false),
+            FrameCommand::Remove => self.clear_frame_range(true),
+            FrameCommand::SelectAll => self.select_all_frames(),
+        }
+    }
+
+    /// Every frame of every non-folder layer in the edited timeline.
+    pub(crate) fn select_all_frames(&mut self) {
+        let layers = self
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .filter(|l| l.properties.role != LayerRole::Folder)
+            .map(|l| l.id.clone())
+            .collect();
+        self.select_frame_range(FrameRange {
+            layers,
+            start: 0,
+            end: self.symbol().timeline.frame_count.saturating_sub(1),
+        });
     }
 
     // Shared viewport geometry is passed directly by the timeline painter.
@@ -662,6 +665,8 @@ impl Editor {
         cell: f32,
         rows: &[usize],
     ) {
+        // Selected frames are painted per row as `NF2/TL Span` Type=Selected (panels/timeline.rs)
+        // so markers on top can switch to Tone=On Selection. Here: cursor feedback only.
         let palette = crate::theme::UiPalette::current(ui.ctx());
         if let Some(range) = self.frame_range() {
             for (row, &i) in rows.iter().enumerate() {
@@ -672,17 +677,6 @@ impl Editor {
                             rect.top() + row as f32 * ROW_HEIGHT,
                         ),
                         Vec2::new((range.end - range.start + 1) as f32 * cell, ROW_HEIGHT),
-                    );
-                    ui.painter().rect_filled(
-                        selected,
-                        0,
-                        palette.selection_fill.linear_multiply(0.45),
-                    );
-                    ui.painter().rect_stroke(
-                        selected,
-                        0,
-                        egui::Stroke::new(1.5_f32, palette.selection_stroke),
-                        egui::StrokeKind::Inside,
                     );
                     if ui.rect_contains_pointer(selected) {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
@@ -743,10 +737,18 @@ impl Editor {
                     .unwrap_or(self.symbol().timeline.frame_count),
             };
             let handle = end_handle(rect, row, cell, end);
-            ui.painter()
-                .rect_filled(handle.shrink(1.), 1, palette.timeline_key);
-            if ui.rect_contains_pointer(handle) {
+            // The span end ▯ marks the layer end; the drag handle shows as an accent edge
+            // while hovered or dragged (drop-indicator role).
+            let dragging = matches!(&self.timeline_edit.gesture, Some(Gesture::End { layer: id, .. }) if id == &layer.id);
+            if ui.rect_contains_pointer(handle) || dragging {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                let x = rect.left() + end as f32 * cell;
+                let top = rect.top() + row as f32 * ROW_HEIGHT;
+                ui.painter().vline(
+                    x,
+                    top..=top + ROW_HEIGHT,
+                    egui::Stroke::new(2.0_f32, palette.accent),
+                );
             }
             ui.interact(handle, ui.id().with(("exposure-end", &layer.id)), egui::Sense::hover())
                 .on_hover_text(format!("Layer ends after frame {end} · drag to change duration. Shortening removes later keys."));

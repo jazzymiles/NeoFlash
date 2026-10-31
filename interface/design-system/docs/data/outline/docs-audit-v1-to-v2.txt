@@ -1,0 +1,398 @@
+F Audit / v1 → v2 2560×2345 [V gap 40]
+  T "Аудит интерфейса NeoFlash v1"
+  T "Что мешает работе в текущем интерфейсе и как это решается в версии 2. Номера на скриншоте совпадают с номерами в таблице."
+  F Summary 1660×98 [H gap 20]
+    F Stat 260×98 [V gap 4]
+      T "14"
+      T "находок всего"
+    F Stat 260×98 [V gap 4]
+      T "5"
+      T "критичных (High)"
+    F Stat 260×98 [V gap 4]
+      T "7"
+      T "средних (Med)"
+    F Stat 260×98 [V gap 4]
+      T "2"
+      T "низких (Low)"
+    F Stat 260×98 [V gap 4]
+      T "2.16:1"
+      T "контраст disabled-текста (норма 4.5:1)"
+    F Stat 260×98 [V gap 4]
+      T "20"
+      T "кнопок-инструментов без подписей и tooltip"
+  F Body 2428×1707 [H gap 48]
+    F Annotated v1 1280×792 [V gap 16]
+      T "v1 — карта проблем"
+      F v1 preview 1280×720
+        F v1 preview (clone, 50%) 1280×720
+          F Menu bar 1280×14 [H gap 2]
+            I NF1/Menu Item 40×14 "NeoFlash"
+            I NF1/Menu Item 20×14 "File"
+            I NF1/Menu Item 21×14 "Edit"
+            I NF1/Menu Item 31×14 "Modify"
+            I NF1/Menu Item 28×14 "Insert"
+            I NF1/Menu Item 33×14 "Control"
+            I NF1/Menu Item 35×14 "Window"
+            F Spacer 915×2
+            T "Classic workspace"
+            F gap 7×2
+            I NF1 Icon/16/external 8×8
+            I NF1/Menu Item 45×14 "Test Movie"
+          F Timeline panel 1280×149
+            I NF1/Panel Header 1280×15 "Timeline" "…"
+            F Timeline controls 310×14 [H gap 4]
+              I NF1/Button/Text {Label=Scene 1, Style=Accent} 41×14 "Scene 1"
+              I NF1/Button/Text {Label=24 fps, Style=Default} 37×14 "24 fps"
+              I NF1/Button/Text {Label=5.00 s, Style=Default} 38×14 "5.00 s"
+              T "1 / 120 F · 0.00 s"
+              I NF1/Button/Icon {State=Default} 12×12
+              I NF1/Slider 50×10
+              T "Zoom"
+              I NF1/Button/Icon {State=Default} 12×12
+              I NF1/Button/Text {Label=Fit, Style=Default} 24×14 "Fit"
+            F Layers header 106×15 [H gap 0]
+              T "Layers"
+              F Header icons 28×8 [H gap 3]
+                I NF1 Icon/16/lock 8×8
+                I NF1 Icon/16/eye 8×8
+            I NF1/Layer Row {Label=Orbit instances, Selected=False} 106×12 "Orbit instances"
+            I NF1/Layer Row {Label=Accents, Selected=False} 106×12 "Accents"
+            I NF1/Layer Row {Label=Typography, Selected=True} 106×12 "Typography"
+            F Layers empty 106×39
+            I NF1/Ruler 794×15 "5" "10" "15" "20" "25" "30" "35" "40" "45" "50" "55" "60"
+            I NF1/Frame Row {Selected=False} 774×12
+            I NF1/Frame Row {Selected=False} 774×12
+            I NF1/Frame Row {Selected=True} 774×12
+            I NF1/Frame Row {Selected=False} 774×12
+            I NF1/Frame Row {Selected=False} 774×12
+            I NF1/Frame Row {Selected=False} 774×12
+            I NF1/Playhead 6×87
+            I NF1/Scrollbar/H 1170×4
+            F Timeline options 435×15 [H gap 4]
+              I NF1/Button/Icon {State=Default} 14×14
+              I NF1/Button/Icon {State=Default} 14×14
+              F gap 2×2
+              I NF1/Button/Icon {State=Default} 14×14
+              I NF1/Button/Icon {State=Default} 14×14
+              I NF1/Button/Text {Label=Actions, Style=Default} 40×14 "Actions"
+              F gap 2×2
+              I NF1/Checkbox {Label=Onion Skin, Checked=False} 49×9 "Onion Skin"
+              I NF1/Checkbox {Label=Outlines, Checked=False} 41×9 "Outlines"
+              T "Before"
+              I NF1/Field {Label=3, Type=Focus} 17×13 "3"
+              T "After"
+              I NF1/Field {Label=3, Type=Text} 17×13 "3"
+              I NF1/Checkbox {Label=Anchor, Checked=True} 37×9 "Anchor"
+              I NF1/Slider 50×10
+              T "Opacity"
+          F Tools panel 68×555
+            I NF1/Panel Header 68×15 "Tools" "…"
+            F Tool groups 68×202 [V gap 3]
+              T "Select"
+              F Tools row 31×14 [H gap 3]
+                I NF1/Button/Icon {State=Selected} 14×14
+                I NF1/Button/Icon {State=Default} 14×14
+              F Tools row 31×14 [H gap 3]
+                I NF1/Button/Icon {State=Default} 14×14
+                I NF1/Button/Icon {State=Default} 14×14
+              T "Draw"
+              F Tools row 31×14 [H gap 3]
+                I NF1/Button/Icon {State=Default} 14×14
+                I NF1/Button/Icon {State=Default} 14×14
+              F Tools row 31×14 [H gap 3]
+                I NF1/Button/Icon {State=Default} 14×14
+                I NF1/Button/Icon {State=Default} 14×14
+              F Tools row 31×14 [H gap 3]
+                I NF1/Button/Icon {State=Default} 14×14
+                I NF1/Button/Icon {State=Default} 14×14
+              F Tools row 31×14 [H gap 3]
+                I NF1/Button/Icon {State=Default} 14×14
+                I NF1/Button/Icon {State=Default} 14×14
+              F Tools row 31×14 [H gap 3]
+                I NF1/Button/Icon {State=Default} 14×14
+                I NF1/Button/Icon {State=Default} 14×14
+              F Tools row 31×14 [H gap 3]
+                I NF1/Button/Icon {State=Default} 14×14
+                I NF1/Button/Icon {State=Default} 14×14
+              T "View"
+              F Tools row 31×14 [H gap 3]
+                I NF1/Button/Icon {State=Default} 14×14
+                I NF1/Button/Icon {State=Default} 14×14
+              F Tools row 31×14 [H gap 3]
+                I NF1/Button/Icon {State=Default} 14×14
+                I NF1/Button/Icon {State=Default} 14×14
+            F Fill / Stroke / Options 68×39 [V gap 3]
+              F Fill Stroke labels 37×7 [H gap 10]
+                T "Fill"
+                T "Stroke"
+              F Swatches 28×12 [H gap 4]
+                I NF1/Swatch 12×12
+                I NF1/Swatch 12×12
+              I NF1/Button/Text {Label=Options, Style=Default} 36×14 "Options"
+          F Stage panel 1070×461
+            T "Ideas in motion"
+            F Stage zoom 59×14 [H gap 3]
+              I NF1/Button/Text {Label=Fit stage, Style=Default} 44×14 "Fit stage"
+              T "75%"
+            F Stage — "Ideas in motion" (user content, vector) 360×226
+              T "NEOFLASH / MOTION STUDY 01"
+              T "Ideas in motion."
+              T "One symbol. Many possibilities."
+              T "A familiar timeline. A modern canvas."
+              T "BUILT TO BE INTERACTIVE"
+              T "CLICK THE ORBIT IN WEB PREVIEW"
+              T "EDIT A SYMBOL  ·  SCRUB THE TIMELINE  ·  EXPORT HTML5"
+            T "Ready · F5 frame · F6 keyframe · F7 blank keyframe · ⌘□ Test Movie"
+          F Bottom dock 1070×93
+            F Panel Header (tabs) 1070×15 [H gap 3]
+              I NF1 Icon/16/grip 8×8
+              I NF1/Panel Tab {Label=Actions, State=Inactive} 37×14 "Actions"
+              I NF1/Panel Tab {Label=Accessibility, State=Inactive} 54×14 "Accessibility"
+              I NF1/Panel Tab {Label=Output, State=Active} 36×14 "Output"
+              F Spacer 901×2
+              I NF1/Button/Overflow 12×13 "…"
+            T "NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser."
+          F Library panel 136×328
+            I NF1/Panel Header 136×15 "Library" "…"
+            F Library body 136×100 [V gap 5]
+              F Search row 136×14 [H gap 4]
+                I NF1/Field {Label=Search library, Type=Placeholder} 99×13 "Search library"
+                I NF1/Button/Text {Label=Clear, Style=Disabled} 33×14 "Clear"
+              F Sort row 131×14 [H gap 4]
+                I NF1/Select 99×14 "Sort: Name"
+                I NF1/Button/Text {Label=A–Z, Style=Default} 28×14 "A–Z"
+              F Tree 128×56 [V gap 0]
+                I NF1/Tree Item {Label=Library root, Type=Folder, Selected=True} 128×14 "Library root"
+                F indent 128×14 [H gap 0]
+                  I NF1/Tree Item {Label=Orbit, Type=Symbol, Selected=False} 130×14 "Orbit"
+                F indent 128×14 [H gap 0]
+                  I NF1/Tree Item {Label=Spark, Type=Symbol, Selected=False} 130×14 "Spark"
+                I NF1/Tree Item {Label=Resource files (0), Type=Folder Collapsed, Selected=False} 128×14 "Resource files (0)"
+            F Library actions 115×14 [H gap 4]
+              I NF1/Button/Icon {State=Default} 14×14
+              I NF1/Button/Icon {State=Default} 14×14
+              I NF1/Button/Text {Label=Import…, Style=Default} 43×14 "Import…"
+              I NF1/Button/Text {Label=More, Style=Default} 32×14 "More"
+          F Properties panel 136×221
+            I NF1/Panel Header 136×15 "Properties" "…"
+            F Properties body 136×217 [V gap 4]
+              F Selection / Tool 77×14 [H gap 5]
+                I NF1/Button/Text {Label=Selection, Style=Accent} 46×14 "Selection"
+                I NF1/Panel Tab {Label=Tool, State=Inactive} 26×14 "Tool"
+              T "Document"
+              I NF1/Section Header {Label=Stage, State=Expanded} 130×14 "Stage"
+              F indent 125×13 [H gap 0]
+                F Row / Name 114×13 [H gap 4]
+                  T "Name"
+                  I NF1/Field {Label=Ideas in motion, Type=Text} 80×13 "Ideas in motion"
+              F indent 149×13 [H gap 0]
+                F W H 138×13 [H gap 4]
+                  T "W"
+                  I NF1/Field {Label=960, Type=Text} 47×13 "960"
+                  T "H"
+                  I NF1/Field {Label=600, Type=Text} 47×13 "600"
+              F indent 98×12 [H gap 0]
+                F Background 87×12 [H gap 4]
+                  T "Background"
+                  I NF1/Swatch 12×12
+                  T "#131824"
+              F indent 104×13 [H gap 0]
+                F Row / Alpha 93×13 [H gap 4]
+                  T "Alpha"
+                  I NF1/Field {Label=100 %, Type=Number} 47×13 "100 %"
+              I NF1/Section Header {Label=Playback, State=Expanded} 130×14 "Playback"
+              F indent 104×13 [H gap 0]
+                F Row / FPS 93×13 [H gap 4]
+                  T "FPS"
+                  I NF1/Field {Label=24, Type=Number} 47×13 "24"
+              F indent 104×13 [H gap 0]
+                F Row / Frames 93×13 [H gap 4]
+                  T "Frames"
+                  I NF1/Field {Label=120, Type=Number} 47×13 "120"
+              I NF1/Section Header {Label=Publish, State=Expanded} 130×14 "Publish"
+              F indent 95×8 [H gap 0]
+                T "HTML5 · Rust / WebAssembly"
+              F indent 87×14 [H gap 0]
+                I NF1/Button/Text {Label=Publish HTML5…, Style=Default} 76×14 "Publish HTML5…"
+        F Marker 1 28×28 [H gap 0]
+          T "1"
+        F Marker 2 28×28 [H gap 0]
+          T "2"
+        F Marker 3 28×28 [H gap 0]
+          T "3"
+        F Marker 4 28×28 [H gap 0]
+          T "4"
+        F Marker 5 28×28 [H gap 0]
+          T "5"
+        F Marker 8 28×28 [H gap 0]
+          T "8"
+        F Marker 9 28×28 [H gap 0]
+          T "9"
+        F Marker 10 28×28 [H gap 0]
+          T "10"
+        F Marker 13 28×28 [H gap 0]
+          T "13"
+      T "Без маркера — проблема «сквозная» (типографика, рамки, диалоги, доступность)."
+    F Findings 1100×1707 [V gap 10]
+      T "Находки и решения"
+      F Finding 1 1100×98 [H gap 14]
+        F Badge 28×28 [H gap 0]
+          T "1"
+        F Text 1028×68 [V gap 6]
+          F Head 200×18 [H gap 10]
+            T "Иерархия действий"
+            F Severity 41×17 [H gap 0]
+              T "High"
+          T "Проблема: «Test Movie» — мелкая ссылка в углу, «Publish HTML5…» спрятан в самом низу панели Properties. Главного действия на экране нет."
+          T "v2: В верхней панели: «Test Movie» (вторичная) и «Publish» (главная, акцентная). Название проекта и признак несохранённых изменений — по центру."
+      F Finding 2 1100×117 [H gap 14]
+        F Badge 28×28 [H gap 0]
+          T "2"
+        F Text 1028×87 [V gap 6]
+          F Head 222×18 [H gap 10]
+            T "Таймлайн: управление"
+            F Severity 41×17 [H gap 0]
+              T "High"
+          T "Проблема: Сцена, FPS и длительность — вверху, Play и Onion Skin — в нижней строке, зум — в третьей. Транспорт (play) прижат к кнопкам «добавить/удалить слой»."
+          T "v2: Одна панель управления над сеткой: ⏮ ▶ ⏭ + таймкод + сцена / FPS / длительность + зум справа."
+      F Finding 3 1100×98 [H gap 14]
+        F Badge 28×28 [H gap 0]
+          T "3"
+        F Text 1028×68 [V gap 6]
+          F Head 161×18 [H gap 10]
+            T "Колонка слоёв"
+            F Severity 40×17 [H gap 0]
+              T "Med"
+          T "Проблема: Заголовки колонок — три иконки без подписей и тултипов; под тремя слоями ~60% пустого места; кнопки «+ / корзина» оторваны от списка."
+          T "v2: Кнопки «добавить / удалить слой» — в шапке колонки слоёв; строки 32px, цветная точка слоя, lock/eye с тултипами; ghost-строка «Add layer»."
+      F Finding 4 1100×117 [H gap 14]
+        F Badge 28×28 [H gap 0]
+          T "4"
+        F Text 1028×87 [V gap 6]
+          F Head 252×18 [H gap 10]
+            T "Нижняя строка таймлайна"
+            F Severity 41×17 [H gap 0]
+              T "High"
+          T "Проблема: «Onion Skin ☐ Outlines ☐ Before [3] After [3] ■ Anchor ──○── Opacity» — чекбоксы, поля и слайдер в одной линии без группировки; порядок «Anchor [слайдер] Opacity» читается двусмысленно."
+          T "v2: Onion skin — одна кнопка-переключатель с поповером: Before / After (степперы), Outlines, Anchor, Opacity (слайдер с подписью и значением)."
+      F Finding 5 1100×117 [H gap 14]
+        F Badge 28×28 [H gap 0]
+          T "5"
+        F Text 1028×87 [V gap 6]
+          F Head 226×18 [H gap 10]
+            T "Палитра инструментов"
+            F Severity 41×17 [H gap 0]
+              T "High"
+          T "Проблема: 20 иконок 28px подряд, без подписей и горячих клавиш; названия групп (Select / Draw / View) — мелкий серый текст; tooltip не предусмотрен."
+          T "v2: Рейл 56px: группы разделены линиями, активный инструмент — акцентный, tooltip «Название + клавиша». Zoom/Hand — в плавающей панели над сценой."
+      F Finding 6 1100×136 [H gap 14]
+        F Badge 28×28 [H gap 0]
+          T "6"
+        F Text 1028×106 [V gap 6]
+          F Head 234×18 [H gap 10]
+            T "Типографика и контраст"
+            F Severity 40×17 [H gap 0]
+              T "Med"
+          T "Проблема: Базовый текст 14px, вторичный 11–12px. Неактивный текст #9CA2B0 на #EAECF1 даёт контраст 2.16:1 (норма AA — 4.5:1); «muted» #666D80 — 4.58:1, на грани."
+          T "v2: Шкала 11/12/13/14/16/18, минимум 12px для текста. Токены text/primary, secondary, tertiary, disabled — все ≥ 4.5:1 (кроме disabled, он исключён нормой)."
+      F Finding 7 1100×117 [H gap 14]
+        F Badge 28×28 [H gap 0]
+          T "7"
+        F Text 1028×87 [V gap 6]
+          F Head 213×18 [H gap 10]
+            T "Поверхности и рамки"
+            F Severity 40×17 [H gap 0]
+              T "Med"
+          T "Проблема: Каждая кнопка, поле, вкладка и панель обведены рамкой 1px #6D7690. Панель, поле и кнопка выглядят одинаково — нет уровней глубины, много визуального шума."
+          T "v2: Уровни поверхностей bg/app → panel → raised → field; рамки только как разделители; радиусы 6 / 8 / 12 из токенов."
+      F Finding 8 1100×117 [H gap 14]
+        F Badge 28×28 [H gap 0]
+          T "8"
+        F Text 1028×87 [V gap 6]
+          F Head 153×18 [H gap 10]
+            T "Поля свойств"
+            F Severity 40×17 [H gap 0]
+              T "Med"
+          T "Проблема: FPS / Frames / Alpha выглядят как кнопки (серо-синий фон), Name / W / H — белые поля. Нет единиц измерения, степперов, scrub по лейблу. Подписи не выровнены."
+          T "v2: Единый Field: префикс-лейбл внутри (W, H, FPS), единицы в значении, состояния hover / focus / disabled. Размер — парой W × H со значком связи."
+      F Finding 9 1100×98 [H gap 14]
+        F Badge 28×28 [H gap 0]
+          T "9"
+        F Text 1028×68 [V gap 6]
+          F Head 139×18 [H gap 10]
+            T "Библиотека"
+            F Severity 40×17 [H gap 0]
+              T "Med"
+          T "Проблема: Поиск + Clear + Sort + A–Z занимают две строки; дерево — 4 строки; остальные ~500px пустые. Нет пустого состояния."
+          T "v2: Поиск со встроенным clear, сортировка — иконка-меню в шапке; футер с действиями; место под превью символа и empty state."
+      F Finding 10 1100×98 [H gap 14]
+        F Badge 28×28 [H gap 0]
+          T "10"
+        F Text 1028×68 [V gap 6]
+          F Head 140×18 [H gap 10]
+            T "Нижний док"
+            F Severity 38×17 [H gap 0]
+              T "Low"
+          T "Проблема: Actions / Accessibility / Output — отдельная панель 186px, постоянно открытая, при этом показывает одну строку текста."
+          T "v2: Один док с вкладками: Timeline · Actions · Output · Accessibility. Output открывается по требованию."
+      F Finding 11 1100×117 [H gap 14]
+        F Badge 28×28 [H gap 0]
+          T "11"
+        F Text 1028×87 [V gap 6]
+          F Head 257×18 [H gap 10]
+            T "Диалог «Unsaved changes»"
+            F Severity 41×17 [H gap 0]
+              T "High"
+          T "Проблема: Save / Discard / Cancel равнозначны: нет главной кнопки, деструктивное «Discard» не выделено; заголовок серый по центру, в другом диалоге — белый слева (два стиля одного компонента)."
+          T "v2: Единый Dialog: Save — primary, Discard — danger-ghost слева, Cancel — secondary. Подпись последствий, Esc / Enter."
+      F Finding 12 1100×117 [H gap 14]
+        F Badge 28×28 [H gap 0]
+          T "12"
+        F Text 1028×87 [V gap 6]
+          F Head 262×18 [H gap 10]
+            T "Диалог «Convert to Symbol»"
+            F Severity 40×17 [H gap 0]
+              T "Med"
+          T "Проблема: Восемь полей в одну колонку; ActionScript linkage раскрыт по умолчанию; disabled-поля (Identifier, Class) читаются как активные; Registration 3×3 без пояснения; Cancel и Convert одного веса."
+          T "v2: Основное сверху (Name, Type — сегменты, Folder), linkage свёрнут как Advanced, Registration с подписью, Convert — primary."
+      F Finding 13 1100×98 [H gap 14]
+        F Badge 28×28 [H gap 0]
+          T "13"
+        F Text 1028×68 [V gap 6]
+          F Head 160×18 [H gap 10]
+            T "Статус-строка"
+            F Severity 38×17 [H gap 0]
+              T "Low"
+          T "Проблема: Горячие клавиши и подсказки в одной серой строке 12px; в конце — битый глиф «⌘□ Test Movie»."
+          T "v2: Статус-бар 24px: подсказки состояния слева, горячие клавиши — чипами (F5 / F6 / F7) справа."
+      F Finding 14 1100×98 [H gap 14]
+        F Badge 28×28 [H gap 0]
+          T "14"
+        F Text 1028×68 [V gap 6]
+          F Head 206×18 [H gap 10]
+            T "Доступность и темы"
+            F Severity 40×17 [H gap 0]
+              T "Med"
+          T "Проблема: Выбор показан цветом и рамкой 1px, фокус едва заметен, зоны клика 24–28px, тёмной темы нет."
+          T "v2: Focus-ring 2px, hit-area ≥ 32px, две темы (Dark / Light) на переменных одной коллекции."
+  F Principles 2432×180 [V gap 12]
+    T "Принципы v2"
+    F Principles grid 2400×81 [H gap 24]
+      F Principle 380×62 [V gap 6]
+        T "Один главный путь"
+        T "На экране всегда ясно главное действие: Publish, Play, Save. Остальное — вторичное и не конкурирует по весу."
+      F Principle 380×62 [V gap 6]
+        T "Группировка по задаче"
+        T "Транспорт, onion skin, зум, слои — собраны в логические группы, а не разбросаны по строкам."
+      F Principle 380×62 [V gap 6]
+        T "Поверхности вместо рамок"
+        T "Глубину задают уровни фона, а не рамка у каждого контрола."
+      F Principle 380×62 [V gap 6]
+        T "Системность"
+        T "Свои переменные (цвет, отступ, радиус), текстовые стили и компоненты NF2; две темы на одной коллекции."
+      F Principle 380×62 [V gap 6]
+        T "Доступность"
+        T "Контраст ≥ 4.5:1, focus-ring 2px, зоны клика ≥ 32px, подсказки с горячими клавишами."
+      F Principle 380×81 [V gap 6]
+        T "Изоляция от v1"
+        T "Ни одна переменная, стиль или компонент v2 не ссылается на v1 — изменения в одной версии не затрагивают другую."

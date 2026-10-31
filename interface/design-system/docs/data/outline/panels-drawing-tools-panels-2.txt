@@ -1,0 +1,95 @@
+F Drawing tools — panels 2 320×1600 [V gap 32]
+  F Panel / Properties — Deco tool 320×436 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 318×36 "Properties" "Panel" "Panel"
+    F Body 318×398 [V gap 10]
+      F Row 294×48 [H gap 8]
+        F Type icon 48×48 [H gap 0]
+          I NF2 Icon/20/tool-deco 20×20
+        F Title 193×38 [V gap 2]
+          T "Deco tool"
+          T "Procedural patterns from symbols"
+      I NF2/Section Header {Label=Drawing effect, State=Expanded} 294×32 "Drawing effect"
+      F Row 294×32 [H gap 8]
+        I NF2/Select {Label=Vine fill, State=Default} 296×32 "Vine fill"
+      F Row 294×32 [H gap 8]
+        T "Leaf"
+        T "Default shape"
+        I NF2/Button {Icon=false, Label=Edit…, Type=Ghost, State=Default} 59×32 "Edit…"
+      F Row 294×32 [H gap 8]
+        T "Flower"
+        T "Default shape"
+        I NF2/Button {Icon=false, Label=Edit…, Type=Ghost, State=Default} 59×32 "Edit…"
+      I NF2/Section Header {Label=Advanced options, State=Expanded} 294×32 "Advanced options"
+      F Row 294×32 [H gap 8]
+        I NF2/Stepper Field {Prefix=Branch, Label=0°, State=Default} 144×32 "Branch" "0°"
+        I NF2/Stepper Field {Prefix=Scale, Label=100 %, State=Default} 144×32 "Scale" "100 %"
+      F Row 294×32 [H gap 8]
+        I NF2/Stepper Field {Prefix=Segment, Label=6 px, State=Default} 144×32 "Segment" "6 px"
+        I NF2/Stepper Field {Prefix=Step, Label=1 f, State=Default} 144×32 "Step" "1 f"
+      I NF2/Checkbox {Label=Animate pattern (one keyframe per step), Checked=True} 276×20 "Animate pattern (one keyframe per step)"
+  F Panel / Properties — Spray brush 320×454 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 318×36 "Properties" "Panel" "Panel"
+    F Body 318×416 [V gap 10]
+      F Row 294×48 [H gap 8]
+        F Type icon 48×48 [H gap 0]
+          I NF2 Icon/20/tool-spray 20×20
+        F Title 193×38 [V gap 2]
+          T "Spray brush"
+          T "Sprays copies of a symbol or dots"
+      I NF2/Section Header {Label=Symbol, State=Expanded} 294×32 "Symbol"
+      F Row 294×32 [H gap 8]
+        I NF2/Field {Show prefix=false, Prefix=W, Label=leaf_mc, State=Default} 200×32 "W" "leaf_mc"
+        I NF2/Button {Icon=false, Label=Edit…, Type=Secondary, State=Default} 61×32 "Edit…"
+      I NF2/Checkbox {Label=Use default shape (dots), Checked=False} 178×20 "Use default shape (dots)"
+      F Row 294×32 [H gap 8]
+        I NF2/Stepper Field {Prefix=W, Label=100 %, State=Default} 144×32 "W" "100 %"
+        I NF2/Stepper Field {Prefix=H, Label=100 %, State=Default} 144×32 "H" "100 %"
+      I NF2/Checkbox {Label=Random scaling, Checked=True} 124×20 "Random scaling"
+      F Row 294×20 [H gap 8]
+        I NF2/Checkbox {Label=Rotate symbol, Checked=True} 115×20 "Rotate symbol"
+        I NF2/Checkbox {Label=Random rotation, Checked=True} 128×20 "Random rotation"
+      I NF2/Section Header {Label=Brush, State=Expanded} 294×32 "Brush"
+      F Row 294×32 [H gap 8]
+        I NF2/Stepper Field {Prefix=Width, Label=24 px, State=Default} 144×32 "Width" "24 px"
+        I NF2/Stepper Field {Prefix=Height, Label=24 px, State=Default} 144×32 "Height" "24 px"
+      F Row 294×32 [H gap 8]
+        I NF2/Stepper Field {Prefix=Angle, Label=0°, State=Default} 144×32 "Angle" "0°"
+  F Panel / Properties — IK bone 320×646 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 318×36 "Properties" "Panel" "Panel"
+    F Body 318×608 [V gap 10]
+      F Row 294×48 [H gap 8]
+        F Type icon 48×48 [H gap 0]
+          I NF2 Icon/16/armature 16×16
+        F Title 163×38 [V gap 2]
+          T "IK bone"
+          T "Armature "arm" · bone 2 of 3"
+      F Row 294×32 [H gap 8]
+        I NF2/Field {Show prefix=false, Prefix=W, Label=arm_lower, State=Default} 200×32 "W" "arm_lower"
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Section Header {Label=Position, State=Expanded} 294×32 "Position"
+      F Row 294×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=X, Label=210.4, State=Default} 140×32 "X" "210.4"
+        I NF2/Field {Show prefix=true, Prefix=Y, Label=188.0, State=Default} 140×32 "Y" "188.0"
+      F Row 294×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=Length, Label=96 px, State=Default} 140×32 "Length" "96 px"
+        I NF2/Field {Show prefix=true, Prefix=Angle, Label=−32°, State=Default} 140×32 "Angle" "−32°"
+      I NF2/Section Header {Label=Joint: rotation, State=Expanded} 294×32 "Joint: rotation"
+      F Row 294×20 [H gap 8]
+        I NF2/Switch {Label=Enable, On=True} 80×20 "Enable"
+        I NF2/Switch {Label=Constrain, On=True} 98×20 "Constrain"
+      F Row 294×32 [H gap 8]
+        I NF2/Stepper Field {Prefix=Min, Label=−45°, State=Default} 144×32 "Min" "−45°"
+        I NF2/Stepper Field {Prefix=Max, Label=90°, State=Default} 144×32 "Max" "90°"
+      I NF2/Section Header {Label=Joint: X / Y translation, State=Collapsed} 294×32 "Joint: X / Y translation"
+      I NF2/Section Header {Label=Spring, State=Expanded} 294×32 "Spring"
+      F Row 294×32 [H gap 8]
+        I NF2/Stepper Field {Prefix=Strength, Label=20, State=Default} 144×32 "Strength" "20"
+        I NF2/Stepper Field {Prefix=Damping, Label=40, State=Default} 144×32 "Damping" "40"
+      I NF2/Section Header {Label=Armature, State=Expanded} 294×32 "Armature"
+      F Row 294×32 [H gap 8]
+        I NF2/Select {Label=Type: Authortime, State=Default} 144×32 "Type: Authortime"
+        I NF2/Select {Label=Style: Solid, State=Default} 144×32 "Style: Solid"
+      F Row 294×32 [H gap 8]
+        I NF2/Stepper Field {Prefix=Speed, Label=100 %, State=Default} 144×32 "Speed" "100 %"
+        I NF2/Switch {Label=Enable spring, On=True} 122×20 "Enable spring"

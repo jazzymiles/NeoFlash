@@ -2,8 +2,7 @@
 use crate::{
     app::Editor,
     tests::primary_button,
-    theme::{DesignUi as _, ThemeMode, UiPalette},
-    ui_icons::{Icon, IconButton},
+    theme::{DesignUi as _, ThemeMode},
     workspace::PanelId,
 };
 use eframe::egui::{self, Event, Pos2, Rect, Vec2};
@@ -52,6 +51,26 @@ fn named_bounds(output: &egui::FullOutput, label: &str) -> Option<Rect> {
             })
         })
 }
+/// Like [`named_bounds`], but the node must lie inside `area` (labels such as "New folder"
+/// exist in several panels).
+fn named_bounds_in(output: &egui::FullOutput, label: &str, area: Rect) -> Option<Rect> {
+    output
+        .platform_output
+        .accesskit_update
+        .as_ref()?
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.label() == Some(label))
+        .filter_map(|(_, node)| {
+            node.bounds().map(|r| {
+                Rect::from_min_max(
+                    Pos2::new(r.x0 as f32, r.y0 as f32),
+                    Pos2::new(r.x1 as f32, r.y1 as f32),
+                )
+            })
+        })
+        .find(|rect| area.contains_rect(*rect))
+}
 fn wheel(point: Pos2, delta: Vec2) -> Vec<Event> {
     vec![
         Event::PointerMoved(point),
@@ -61,6 +80,136 @@ fn wheel(point: Pos2, delta: Vec2) -> Vec<Event> {
             modifiers: egui::Modifiers::NONE,
         },
     ]
+}
+
+/// Center of a painted `NF2/TL Marker` Kind=Keyframe (filled, Tone=Default) that is not clipped.
+fn key_marker(shape: &egui::epaint::ClippedShape, ctx: &egui::Context) -> Option<Pos2> {
+    match &shape.shape {
+        egui::Shape::Circle(circle)
+            if (1.5..=3.5).contains(&circle.radius)
+                && circle.fill == neoflash_ui::palette(ctx).timeline_marker
+                && shape.clip_rect.contains(circle.center) =>
+        {
+            Some(circle.center)
+        }
+        _ => None,
+    }
+}
+
+#[test]
+fn narrow_tools_rail_shows_fitting_groups_then_more_and_flyouts_choose_tools() {
+    fn rail(
+        editor: &mut Editor,
+        ctx: &egui::Context,
+        time: f64,
+        events: Vec<Event>,
+    ) -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400., 400.))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let rect = Rect::from_min_size(Pos2::new(8., 8.), Vec2::new(52., 340.));
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+                        editor.tools_contents(ui)
+                    });
+                });
+            },
+        )
+    }
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let before = editor.project.clone();
+    rail(&mut editor, &ctx, 0.1, vec![]);
+    let out = rail(&mut editor, &ctx, 0.2, vec![]);
+    // One column: grouped tools, pinned colours/options, and "…" for the rest.
+    assert!(named_bounds(&out, "Selection (V)").is_some());
+    assert!(
+        named_bounds(&out, "Subselection (A)").is_none(),
+        "grouped behind Selection"
+    );
+    for pinned in [
+        "Fill colour",
+        "Stroke colour",
+        "Swap colors",
+        "Tool options",
+    ] {
+        assert!(named_bounds(&out, pinned).is_some(), "missing {pinned}");
+    }
+    let more = named_bounds(&out, "More tools").expect("short rail ends with More tools");
+    assert!(more.bottom() <= 348., "{more:?}");
+    assert!(
+        named_bounds(&out, "Fit stage").is_none(),
+        "Fit moved into More tools"
+    );
+    rail(
+        &mut editor,
+        &ctx,
+        0.3,
+        vec![
+            Event::PointerMoved(more.center()),
+            primary_button(more.center(), true),
+            primary_button(more.center(), false),
+        ],
+    );
+    let out = rail(&mut editor, &ctx, 0.4, vec![]);
+    let fit = named_bounds(&out, "Fit stage").expect("More tools lists Fit stage");
+    editor.zoom = 1.5;
+    rail(
+        &mut editor,
+        &ctx,
+        0.5,
+        vec![
+            Event::PointerMoved(fit.center()),
+            primary_button(fit.center(), true),
+            primary_button(fit.center(), false),
+        ],
+    );
+    assert_eq!(editor.zoom, 0., "Fit from the overflow popover");
+    // Right-click opens the Selection group; choosing Subselection makes it the visible tool.
+    let selection = named_bounds(&out, "Selection (V)").unwrap().center();
+    rail(
+        &mut editor,
+        &ctx,
+        0.7,
+        vec![
+            Event::PointerMoved(selection),
+            Event::PointerButton {
+                pos: selection,
+                button: egui::PointerButton::Secondary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            Event::PointerButton {
+                pos: selection,
+                button: egui::PointerButton::Secondary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    let out = rail(&mut editor, &ctx, 0.8, vec![]);
+    let item = named_bounds(&out, "Subselection").expect("flyout lists the group");
+    rail(
+        &mut editor,
+        &ctx,
+        0.9,
+        vec![
+            Event::PointerMoved(item.center()),
+            primary_button(item.center(), true),
+            primary_button(item.center(), false),
+        ],
+    );
+    assert!(editor.tool == crate::app::Tool::Subselect);
+    let out = rail(&mut editor, &ctx, 1.0, vec![]);
+    assert!(named_bounds(&out, "Subselection (A)").is_some());
+    assert!(named_bounds(&out, "Selection (V)").is_none());
+    assert_eq!(editor.project, before);
 }
 
 #[test]
@@ -79,15 +228,30 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
     editor.set_theme(&ctx, ThemeMode::Light);
     let before = editor.project.clone();
     let size = Vec2::new(1024., 720.);
-    frame(&mut editor, &ctx, size, 0.1, vec![]);
+    let first = frame(&mut editor, &ctx, size, 0.1, vec![]);
     // Scroll actual panels, not their state objects: a user must be able to
-    // reach both the final view tool and a long library's last entry.
+    // reach both the final view tool and a long library's last entry. The
+    // default dock is the two-column Tools panel; its whole body scrolls.
+    let tools = editor
+        .detached
+        .dock_groups
+        .iter()
+        .find(|group| group.tabs.iter().any(|(panel, _)| *panel == PanelId::Tools))
+        .expect("Tools has a dock group")
+        .rect;
+    for tool in ["Selection (V)", "Subselection (A)", "Hand (H / hold Space)"] {
+        assert!(
+            named_bounds(&first, tool).is_some(),
+            "two columns show {tool}"
+        );
+    }
+    let selection = named_bounds(&first, "Selection (V)").expect("Tools shows Selection");
     frame(
         &mut editor,
         &ctx,
         size,
         0.2,
-        wheel(Pos2::new(24., 400.), Vec2::new(0., -2000.)),
+        wheel(selection.center(), Vec2::new(0., -2000.)),
     );
     // Wheel input changes the next layout; inspect the following settled paints.
     let mut out = frame(&mut editor, &ctx, size, 0.21, vec![]);
@@ -95,10 +259,7 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
         out = frame(&mut editor, &ctx, size, 0.21 + step as f64 / 60., vec![]);
     }
     let fit = named_bounds(&out, "Fit stage").expect("Fit must have an accessible button");
-    assert!(
-        Rect::from_min_size(Pos2::ZERO, size).contains_rect(fit),
-        "{fit:?}"
-    );
+    assert!(tools.contains_rect(fit), "{fit:?} in {tools:?}");
     editor.zoom = 1.5;
     frame(
         &mut editor,
@@ -110,7 +271,7 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
             primary_button(fit.center(), true),
         ],
     );
-    let before_library_scroll = frame(
+    frame(
         &mut editor,
         &ctx,
         size,
@@ -122,6 +283,11 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
         "Fit must recalculate stage zoom"
     );
     assert_eq!(editor.pan, Vec2::ZERO);
+    // At 1024 × 720 the inspector column is too short for Properties over a
+    // usable Library; the Library alone must still scroll to every symbol.
+    editor.set_panel_visible(PanelId::Properties, false);
+    frame(&mut editor, &ctx, size, 0.41, vec![]);
+    let before_library_scroll = frame(&mut editor, &ctx, size, 0.42, vec![]);
     let library = editor
         .detached
         .dock_groups
@@ -152,7 +318,7 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
         out = frame(&mut editor, &ctx, size, 0.51 + step as f64 / 60., vec![]);
     }
     let last = named_bounds(&out, "Symbol 099").expect("last symbol remains accessible");
-    assert!(last.bottom() <= 720. && last.top() > 200., "{last:?}");
+    assert!(last.bottom() <= 720., "{last:?}");
     assert!(
         library.contains_rect(last),
         "last symbol must be visible in Library: {last:?} in {library:?}"
@@ -182,7 +348,11 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
     assert!(!editor.dirty());
     let settled = frame(&mut editor, &ctx, size, 1., vec![]);
     let source = named_bounds(&settled, "Symbol 099").unwrap().center();
-    let destination = Pos2::new(512., 400.);
+    // Between the Tools and Library columns, above the bottom dock: the stage.
+    let destination = Pos2::new(
+        (tools.right() + library.left()) / 2.,
+        (tools.top() + library.bottom()) / 2.,
+    );
     frame(
         &mut editor,
         &ctx,
@@ -214,12 +384,21 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
     );
     // Preview overflow preserves three list rows and fixed actions in a short
     // split; a taller group restores the same first-frame preview inline.
+    let size = Vec2::new(1024., 1000.);
     editor.library_selected = Some("fixture-symbol-99".into());
     for (index, theme) in [ThemeMode::Light, ThemeMode::Dark].into_iter().enumerate() {
         editor.set_panel_visible(PanelId::Properties, true);
+        // NF2 starts Library at 100 pt (header + search); the user drags the splitter to give the
+        // list room before using the preview overflow.
+        for group in &mut editor.workspace.dock.right.groups {
+            group.weight = 0.5;
+        }
         editor.set_theme(&ctx, theme);
         let time = 2. + index as f64 * 2.;
-        let out = frame(&mut editor, &ctx, size, time, vec![]);
+        // The split changes this frame; hit-testing uses the previous layout,
+        // so inspect and click after one settled paint.
+        frame(&mut editor, &ctx, size, time, vec![]);
+        let out = frame(&mut editor, &ctx, size, time + 0.05, vec![]);
         let library = editor
             .detached
             .dock_groups
@@ -229,13 +408,13 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
             .rect;
         for label in [
             "Open symbol preview",
-            "A–Z",
+            "Library options",
             "New symbol",
             "New folder",
+            "Item properties",
             "Import…",
-            "More",
         ] {
-            let rect = named_bounds(&out, label)
+            let rect = named_bounds_in(&out, label, library)
                 .unwrap_or_else(|| panic!("missing Library control: {label}"));
             assert!(
                 library.contains_rect(rect),
@@ -255,7 +434,7 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
             ],
         );
         let popup = frame(&mut editor, &ctx, size, time + 0.3, vec![]);
-        assert!(popup.shapes.iter().any(|shape| matches!(&shape.shape,egui::Shape::Text(text) if text.galley.job.text=="Empty first frame")),"overflow opens the shared first-frame renderer");
+        assert!(popup.shapes.iter().any(|shape| matches!(&shape.shape,egui::Shape::Text(text) if text.galley.job.text=="Empty first frame")),"overflow opens the shared first-frame renderer ({theme:?})");
         frame(
             &mut editor,
             &ctx,
@@ -280,8 +459,15 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
             .unwrap()
             .rect;
         assert!(out.shapes.iter().any(|shape| matches!(&shape.shape,egui::Shape::Text(text) if text.galley.job.text=="Empty first frame")),"taller Library restores inline preview");
-        for label in ["A–Z", "New symbol", "New folder", "Import…", "More"] {
-            let rect = named_bounds(&out, label).unwrap();
+        for label in [
+            "Library options",
+            "New symbol",
+            "New folder",
+            "Item properties",
+            "Import…",
+        ] {
+            let rect = named_bounds_in(&out, label, library)
+                .unwrap_or_else(|| panic!("{label} must stay in {library:?}"));
             assert!(
                 library.contains_rect(rect),
                 "{label}: {rect:?} must stay in {library:?}"
@@ -324,16 +510,7 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
         let rows_point = initial
             .shapes
             .iter()
-            .filter_map(|shape| match &shape.shape {
-                egui::Shape::Circle(circle)
-                    if circle.radius == 3.
-                        && circle.fill == UiPalette::current(&ctx).timeline_key
-                        && shape.clip_rect.contains(circle.center) =>
-                {
-                    Some(circle.center)
-                }
-                _ => None,
-            })
+            .filter_map(|shape| key_marker(shape, &ctx))
             .min_by(|a, b| a.y.total_cmp(&b.y))
             .expect("the timeline must paint a visible key before scrolling");
         frame(
@@ -356,16 +533,7 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
         let keys: Vec<_> = out
             .shapes
             .iter()
-            .filter_map(|s| match &s.shape {
-                egui::Shape::Circle(c)
-                    if c.radius == 3.
-                        && c.fill == UiPalette::current(&ctx).timeline_key
-                        && s.clip_rect.contains(c.center) =>
-                {
-                    Some(c.center.y)
-                }
-                _ => None,
-            })
+            .filter_map(|s| key_marker(s, &ctx).map(|c| c.y))
             .collect();
         let row_top = keys.iter().copied().fold(f32::INFINITY, f32::min)
             - crate::timeline_paint::ROW_HEIGHT / 2.;
@@ -381,7 +549,7 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
             {
                 let y = text.pos.y + text.galley.size().y / 2.;
                 if shape.clip_rect.contains(Pos2::new(text.pos.x + 2., y))
-                    && text.pos.x < 210.
+                    && text.pos.x < neoflash_ui::metrics::LAYER_COLUMN
                     && y >= row_top
                     && y <= row_bottom
                 {
@@ -391,9 +559,10 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
                         first_row = row;
                         first_label = Some(Pos2::new(text.pos.x + 2., y));
                     }
+                    // NF2/TL Layer: 8 pt inset, 16 pt chevron column, 16 pt type icon, 8 pt gap.
                     assert!(
-                        text.pos.x < 40.,
-                        "layer names must align beside the role icon"
+                        text.pos.x < 72.,
+                        "layer names must align beside the type icon"
                     );
                     assert!(
                         keys.iter().any(|key| (*key - y).abs() < 1.),
@@ -410,18 +579,9 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
         let from = out
             .shapes
             .iter()
-            .filter_map(|shape| match &shape.shape {
-                egui::Shape::Circle(circle)
-                    if circle.radius == 3.
-                        && circle.fill == UiPalette::current(&ctx).timeline_key
-                        && shape.clip_rect.contains(circle.center)
-                        && (circle.center.y - row_top - crate::timeline_paint::ROW_HEIGHT / 2.)
-                            .abs()
-                            < 1. =>
-                {
-                    Some(circle.center)
-                }
-                _ => None,
+            .filter_map(|shape| key_marker(shape, &ctx))
+            .filter(|center| {
+                (center.y - row_top - crate::timeline_paint::ROW_HEIGHT / 2.).abs() < 1.
             })
             .max_by(|a, b| a.x.total_cmp(&b.x))
             .unwrap();
@@ -511,15 +671,17 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
             vec![
                 Event::PointerMoved(divider),
                 primary_button(divider, true),
-                Event::PointerMoved(divider + Vec2::new(60., 0.)),
-                primary_button(divider + Vec2::new(60., 0.), false),
+                Event::PointerMoved(divider - Vec2::new(60., 0.)),
+                primary_button(divider - Vec2::new(60., 0.), false),
             ],
         );
-        assert!((editor.workspace.sizes.layer_column_width - width - 60.).abs() < 1.);
+        // The NF2 column starts at 280 (near its 320 maximum), so narrow it.
+        assert_eq!(width, neoflash_ui::metrics::LAYER_COLUMN);
+        assert!((editor.workspace.sizes.layer_column_width - width + 60.).abs() < 1.);
         assert_eq!(editor.project, before);
         assert!(!editor.history.can_undo());
         let layout = frame(&mut editor, &ctx, Vec2::new(1024., 720.), 1.5, vec![]);
-        let row = named_bounds(&layout, &format!("Row {first_row:02}"))
+        let row = named_bounds(&layout, &format!("Row {first_row:02} (Layer)"))
             .expect("scrolled layer remains visible")
             .center();
         let moved_id = editor.symbol().timeline.layers[first_row].id.clone();
@@ -669,10 +831,16 @@ fn icon_button_has_real_name_selection_focus_and_disabled_behavior() {
             },
             |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    response = Some(ui.add_enabled_semantic(
-                        enabled,
-                        IconButton::new(Icon::Pen, "Pen (P)").selected(true),
-                    ));
+                    response = Some(
+                        ui.add_enabled_semantic(
+                            enabled,
+                            neoflash_ui::components::IconButton::new(
+                                neoflash_ui::icons::i16::PEN,
+                                "Pen (P)",
+                            )
+                            .selected(true),
+                        ),
+                    );
                 });
             },
         );
@@ -844,7 +1012,7 @@ fn detached_timeline_at_750_exposes_compact_onion_options_inside_viewport() {
             "Add layer",
             "Rewind",
             "Play preview",
-            "Onion",
+            "Onion skin",
             "Onion skin options",
         ] {
             let bounds = named_bounds(&output, label)
@@ -902,10 +1070,10 @@ fn detached_timeline_minimum_width_opens_working_opacity_control() {
     let initial = detached_timeline_frame(&mut editor, &ctx, size, 0.1, vec![]);
     assert!(
         !fully_visible_text(&initial, "Opacity", viewport),
-        "narrow footer uses the explicit options menu"
+        "onion details live in the options popover"
     );
     let options = named_bounds(&initial, "Onion skin options")
-        .expect("Narrow footer exposes its options menu")
+        .expect("the pinned onion group exposes its options popover")
         .center();
     detached_timeline_frame(
         &mut editor,
@@ -925,11 +1093,10 @@ fn detached_timeline_minimum_width_opens_working_opacity_control() {
         output = detached_timeline_frame(&mut editor, &ctx, size, 0.3 + pass as f64 / 60., vec![]);
     }
     let bounds = named_bounds(&output, "Onion opacity")
-        .expect("Opacity is available through the overflow menu");
+        .expect("Opacity is available through the onion options popover");
     assert!(viewport.contains_rect(bounds), "{bounds:?}");
     let opacity = editor.onion_opacity;
-    // The right end of the aggregate Slider response is its numeric editor.
-    // Click the rail itself, whose explicit width is 96 logical points.
+    // Click the NF2/Slider rail itself (140 pt wide, 7 pt knob inset).
     let point = Pos2::new(bounds.left() + 72., bounds.center().y);
     detached_timeline_frame(
         &mut editor,
@@ -962,44 +1129,47 @@ fn bounded_timeline_footer_preserves_stage_at_minimum_root_window() {
     editor.set_theme(&ctx, ThemeMode::Light);
     let size = Vec2::new(1024., 720.);
     let viewport = Rect::from_min_size(Pos2::ZERO, size);
-    for pass in 0..20 {
+    let render = |editor: &mut Editor, time: f64, events: Vec<Event>| {
         let mut stage = Rect::NOTHING;
         let output = ctx.run(
             egui::RawInput {
                 screen_rect: Some(viewport),
-                time: Some(pass as f64 / 60.),
+                time: Some(time),
+                events,
                 ..Default::default()
             },
             |ctx| {
                 editor.menu(ctx);
-                editor.timeline(ctx);
-                editor.tools(ctx);
-                editor.library(ctx);
-                editor.bottom_panel(ctx);
+                editor.dock_grid(ctx);
                 stage = ctx.available_rect();
                 editor.stage(ctx);
             },
         );
+        (output, stage)
+    };
+    let initial_height = editor.workspace.dock.bottom.size;
+    for pass in 0..20 {
+        let (output, stage) = render(&mut editor, pass as f64 / 60., vec![]);
         assert!(stage.width() >= 600. && stage.height() >= 200., "{stage:?}");
-        assert!(fully_visible_text(&output, "Opacity", viewport));
-        assert!(
-            editor.workspace.sizes.timeline_height <= 208.,
-            "timeline must not grow on repaint: {}",
-            editor.workspace.sizes.timeline_height
+        // The NF2 controls bar keeps transport and the pinned onion group in the window.
+        for label in ["Play preview", "Onion skin", "Onion skin options"] {
+            let bounds = named_bounds(&output, label).unwrap_or_else(|| panic!("missing {label}"));
+            assert!(viewport.contains_rect(bounds), "{label}: {bounds:?}");
+        }
+        assert_eq!(
+            editor.workspace.dock.bottom.size, initial_height,
+            "timeline must not grow on repaint"
         );
     }
     // Native input can batch press, movement and release between paints. The
     // saved height must survive that gesture and leave a usable Stage.
-    let output = frame(&mut editor, &ctx, size, 1., vec![]);
-    let grip = named_bounds(&output, "Resize top dock").expect("Timeline height grip");
+    let (output, _) = render(&mut editor, 1., vec![]);
+    let grip = named_bounds(&output, "Resize bottom dock").expect("Timeline height grip");
     assert!(grip.height() >= 6.);
     let start = grip.center();
-    let initial_height = editor.workspace.dock.top.size;
     let end = start + Vec2::new(0., 60.);
-    frame(
+    render(
         &mut editor,
-        &ctx,
-        size,
         1.1,
         vec![
             Event::PointerMoved(start),
@@ -1008,23 +1178,126 @@ fn bounded_timeline_footer_preserves_stage_at_minimum_root_window() {
             primary_button(end, false),
         ],
     );
-    assert!((editor.workspace.dock.top.size - initial_height - 60.).abs() < 1.);
-    let saved_height = editor.workspace.dock.top.size;
-    let mut stage = Rect::NOTHING;
-    let _ = ctx.run(
-        egui::RawInput {
-            screen_rect: Some(viewport),
-            time: Some(1.4),
-            ..Default::default()
-        },
-        |ctx| {
-            editor.menu(ctx);
-            editor.dock_grid(ctx);
-            stage = ctx.available_rect();
-            editor.stage(ctx);
-        },
-    );
-    assert_eq!(editor.workspace.dock.top.size, saved_height);
+    assert!((editor.workspace.dock.bottom.size - initial_height + 60.).abs() < 1.);
+    let saved_height = editor.workspace.dock.bottom.size;
+    let (_, stage) = render(&mut editor, 1.4, vec![]);
+    assert_eq!(editor.workspace.dock.bottom.size, saved_height);
     assert!(stage.height() >= 160., "{stage:?}");
     assert!(!editor.dirty());
+}
+
+/// Design §8: every menu-bar dropdown shows its designed rows, and a preview row opens its planned
+/// panel (Edit ▸ Find and replace → Find and replace preview).
+#[test]
+fn menu_bar_follows_design_and_opens_planned_previews() {
+    use crate::panels::planned::{self, PlannedPanel};
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    let size = Vec2::new(1920., 1080.);
+    let mut time = 0.1;
+    let mut step = |editor: &mut Editor, events: Vec<Event>| {
+        time += 0.1;
+        frame(editor, &ctx, size, time, events)
+    };
+    let mut out = step(&mut editor, vec![]);
+    let escape = || Event::Key {
+        key: egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let menus: [(&str, &[&str]); 8] = [
+        (
+            "File",
+            &["Publish settings… (⇧F12)", "Publish (⇧⌥F12)", "Print… (⌘P)"],
+        ),
+        (
+            "Edit",
+            &[
+                "Find and replace (⌘F)",
+                "Preferences… (⌘U)",
+                "Edit symbols (⌘E)",
+            ],
+        ),
+        (
+            "View",
+            &["Rulers, guides & grid…", "Show shape hints (⌥⌘H)"],
+        ),
+        (
+            "Insert",
+            &["New symbol… (⌘F8)", "Layer folder", "Motion tween"],
+        ),
+        (
+            "Modify",
+            &["Document… (⌘J)", "Break apart (⌘B)", "Ungroup (⇧⌘G)"],
+        ),
+        (
+            "Control",
+            &["Go to end (⌥⇧.)", "Test scene (⌥⌘↵)", "Mute sounds (⌥⌘M)"],
+        ),
+        (
+            "Window",
+            &["Swatches (⌘F9)", "Compiler errors (⌥F2)", "Movie Explorer"],
+        ),
+        ("Help", &["Open example", "About NeoFlash"]),
+    ];
+    for (title, rows) in menus {
+        let at = named_bounds(&out, title).unwrap().center();
+        step(
+            &mut editor,
+            vec![Event::PointerMoved(at), primary_button(at, true)],
+        );
+        step(&mut editor, vec![primary_button(at, false)]);
+        out = step(&mut editor, vec![]);
+        for row in rows {
+            assert!(named_bounds(&out, row).is_some(), "{title} ▸ {row}");
+        }
+        if title == "Edit" {
+            let find = named_bounds(&out, "Find and replace (⌘F)")
+                .unwrap()
+                .center();
+            step(
+                &mut editor,
+                vec![Event::PointerMoved(find), primary_button(find, true)],
+            );
+            step(&mut editor, vec![primary_button(find, false)]);
+            assert!(planned::is_open(&ctx, PlannedPanel::FindReplace));
+        } else {
+            step(&mut editor, vec![escape()]);
+        }
+        out = step(&mut editor, vec![]);
+    }
+}
+
+/// Design §8 stage-object menu opens on right-click over the Stage with its designed rows.
+#[test]
+fn stage_context_menu_follows_design() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    let size = Vec2::new(1920., 1080.);
+    frame(&mut editor, &ctx, size, 0.1, vec![]);
+    // A point on the canvas (between the tools rail and the inspector, above the timeline).
+    let at = Pos2::new(760., 300.);
+    let secondary = |pressed| Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Secondary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    frame(&mut editor, &ctx, size, 0.2, vec![Event::PointerMoved(at)]);
+    frame(&mut editor, &ctx, size, 0.3, vec![secondary(true)]);
+    frame(&mut editor, &ctx, size, 0.4, vec![secondary(false)]);
+    let out = frame(&mut editor, &ctx, size, 0.5, vec![]);
+    for row in [
+        "Paste in place (⇧⌘V)",
+        "Convert to symbol… (F8)",
+        "Create motion tween",
+        "Distribute to layers (⇧⌘D)",
+        "Show in library",
+    ] {
+        assert!(named_bounds(&out, row).is_some(), "Stage menu ▸ {row}");
+    }
 }

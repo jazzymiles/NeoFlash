@@ -1,0 +1,227 @@
+F Menus — Dark 1438×2054 [V gap 24]
+  T "Main menu — dropdowns with shortcuts (⌘ macOS / Ctrl on Windows)"
+  F Menu bar 475×40 [H gap 2]
+    I NF2/Menu Bar Item {Label=File, State=Default} 42×28 "File"
+    I NF2/Menu Bar Item {Label=Edit, State=Open} 45×28 "Edit"
+    I NF2/Menu Bar Item {Label=View, State=Default} 51×28 "View"
+    I NF2/Menu Bar Item {Label=Insert, State=Default} 57×28 "Insert"
+    I NF2/Menu Bar Item {Label=Modify, State=Default} 64×28 "Modify"
+    I NF2/Menu Bar Item {Label=Control, State=Default} 66×28 "Control"
+    I NF2/Menu Bar Item {Label=Window, State=Default} 71×28 "Window"
+    I NF2/Menu Bar Item {Label=Help, State=Default} 49×28 "Help"
+  F Row 1358×579 [H gap 24]
+    F Edit + Timeline submenu 524×579
+      F Menu / Edit 262×531 [V gap 0]
+        I NF2/Menu Item {Submenu=false, Shortcut=⌘Z, Label=Undo Fill colour, State=Default} 252×28 "Undo Fill colour" "⌘Z"
+        I NF2/Menu Item {Submenu=false, Shortcut=⇧⌘Z, Label=Redo, State=Default} 252×28 "Redo" "⇧⌘Z"
+        I NF2/Menu Separator 252×9
+        I NF2/Menu Item {Submenu=false, Shortcut=⌘X, Label=Cut, State=Default} 252×28 "Cut" "⌘X"
+        I NF2/Menu Item {Submenu=false, Shortcut=⌘C, Label=Copy, State=Default} 252×28 "Copy" "⌘C"
+        I NF2/Menu Item {Submenu=false, Shortcut=⌘V, Label=Paste in centre, State=Default} 252×28 "Paste in centre" "⌘V"
+        I NF2/Menu Item {Submenu=false, Shortcut=⇧⌘V, Label=Paste in place, State=Default} 252×28 "Paste in place" "⇧⌘V"
+        I NF2/Menu Item {Submenu=false, Shortcut=⌫, Label=Clear, State=Default} 252×28 "Clear" "⌫"
+        I NF2/Menu Separator 252×9
+        I NF2/Menu Item {Submenu=false, Shortcut=⌘D, Label=Duplicate, State=Default} 252×28 "Duplicate" "⌘D"
+        I NF2/Menu Item {Submenu=false, Shortcut=⌘A, Label=Select all, State=Default} 252×28 "Select all" "⌘A"
+        I NF2/Menu Item {Submenu=false, Shortcut=⇧⌘A, Label=Deselect, State=Default} 252×28 "Deselect" "⇧⌘A"
+        I NF2/Menu Separator 252×9
+        I NF2/Menu Item {Submenu=false, Shortcut=⌘F, Label=Find and replace, State=Default} 252×28 "Find and replace" "⌘F"
+        I NF2/Menu Item {Submenu=true, Shortcut= , Label=Timeline, State=Hover} 252×28 "Timeline" " "
+        I NF2/Menu Separator 252×9
+        I NF2/Menu Item {Submenu=false, Shortcut=⌘E, Label=Edit symbols, State=Default} 252×28 "Edit symbols" "⌘E"
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Edit selected, State=Default} 252×28 "Edit selected" " "
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Edit in place, State=Default} 252×28 "Edit in place" " "
+        I NF2/Menu Separator 252×9
+        I NF2/Menu Item {Submenu=false, Shortcut=⌘U, Label=Preferences…, State=Default} 252×28 "Preferences…" "⌘U"
+        I NF2/Menu Item {Submenu=false, Shortcut=⌥⇧⌘K, Label=Keyboard shortcuts…, State=Default} 252×28 "Keyboard shortcuts…" "⌥⇧⌘K"
+      F Menu / Edit ▸ Timeline 262×243 [V gap 0]
+        I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘X, Label=Cut frames, State=Default} 252×28 "Cut frames" "⌥⌘X"
+        I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘C, Label=Copy frames, State=Default} 252×28 "Copy frames" "⌥⌘C"
+        I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘V, Label=Paste frames, State=Default} 252×28 "Paste frames" "⌥⌘V"
+        I NF2/Menu Item {Submenu=false, Shortcut=⌥⌫, Label=Clear frames, State=Default} 252×28 "Clear frames" "⌥⌫"
+        I NF2/Menu Item {Submenu=false, Shortcut=⇧F5, Label=Remove frames, State=Default} 252×28 "Remove frames" "⇧F5"
+        I NF2/Menu Separator 252×9
+        I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘A, Label=Select all frames, State=Default} 252×28 "Select all frames" "⌥⌘A"
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Reverse frames, State=Default} 252×28 "Reverse frames" " "
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Synchronise symbols, State=Disabled} 252×28 "Synchronise symbols" " "
+    F View + Grid submenu 524×345
+      F Menu / View 262×345 [V gap 0]
+        I NF2/Menu Item {Submenu=false, Shortcut=⌘=, Label=Zoom in, State=Default} 252×28 "Zoom in" "⌘="
+        I NF2/Menu Item {Submenu=false, Shortcut=⌘−, Label=Zoom out, State=Default} 252×28 "Zoom out" "⌘−"
+        I NF2/Menu Item {Submenu=true, Shortcut= , Label=Magnification, State=Default} 252×28 "Magnification" " "
+        I NF2/Menu Separator 252×9
+        I NF2/Menu Item {Submenu=true, Shortcut= , Label=Preview mode, State=Default} 252×28 "Preview mode" " "
+        I NF2/Menu Item {Submenu=false, Shortcut=⇧⌘W, Label=Pasteboard, State=Checked} 252×28 "Pasteboard" "⇧⌘W"
+        I NF2/Menu Separator 252×9
+        I NF2/Menu Item {Submenu=false, Shortcut=⌥⇧⌘R, Label=Rulers, State=Checked} 252×28 "Rulers" "⌥⇧⌘R"
+        I NF2/Menu Item {Submenu=true, Shortcut= , Label=Grid, State=Hover} 252×28 "Grid" " "
+        I NF2/Menu Item {Submenu=true, Shortcut= , Label=Guides, State=Default} 252×28 "Guides" " "
+        I NF2/Menu Item {Submenu=true, Shortcut= , Label=Snapping, State=Default} 252×28 "Snapping" " "
+        I NF2/Menu Separator 252×9
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Rulers, guides & grid…, State=Default} 252×28 "Rulers, guides & grid…" " "
+        I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘H, Label=Show shape hints, State=Default} 252×28 "Show shape hints" "⌥⌘H"
+      F Menu / View ▸ Grid 262×131 [V gap 0]
+        I NF2/Menu Item {Submenu=false, Shortcut=⌘', Label=Show grid, State=Checked} 252×28 "Show grid" "⌘'"
+        I NF2/Menu Item {Submenu=false, Shortcut=⇧⌘', Label=Snap to grid, State=Default} 252×28 "Snap to grid" "⇧⌘'"
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Show over objects, State=Default} 252×28 "Show over objects" " "
+        I NF2/Menu Separator 252×9
+        I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘G, Label=Edit grid…, State=Default} 252×28 "Edit grid…" "⌥⌘G"
+    F Menu / File 262×382 [V gap 0]
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘N, Label=New, State=Default} 252×28 "New" "⌘N"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘O, Label=Open…, State=Default} 252×28 "Open…" "⌘O"
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Open recent, State=Default} 252×28 "Open recent" " "
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘W, Label=Close, State=Default} 252×28 "Close" "⌘W"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘S, Label=Save, State=Default} 252×28 "Save" "⌘S"
+      I NF2/Menu Item {Submenu=false, Shortcut=⇧⌘S, Label=Save as…, State=Default} 252×28 "Save as…" "⇧⌘S"
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Revert, State=Default} 252×28 "Revert" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Import, State=Default} 252×28 "Import" " "
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Export, State=Default} 252×28 "Export" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⇧F12, Label=Publish settings…, State=Default} 252×28 "Publish settings…" "⇧F12"
+      I NF2/Menu Item {Submenu=false, Shortcut=⇧⌥F12, Label=Publish, State=Default} 252×28 "Publish" "⇧⌥F12"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘P, Label=Print…, State=Default} 252×28 "Print…" "⌘P"
+  F Row 1120×560 [H gap 24]
+    F Menu / Insert 262×354 [V gap 0]
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘F8, Label=New symbol…, State=Default} 252×28 "New symbol…" "⌘F8"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Layer, State=Default} 252×28 "Layer" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Layer folder, State=Default} 252×28 "Layer folder" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Motion guide, State=Default} 252×28 "Motion guide" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=F5, Label=Frame, State=Default} 252×28 "Frame" "F5"
+      I NF2/Menu Item {Submenu=false, Shortcut=F6, Label=Keyframe, State=Default} 252×28 "Keyframe" "F6"
+      I NF2/Menu Item {Submenu=false, Shortcut=F7, Label=Blank keyframe, State=Default} 252×28 "Blank keyframe" "F7"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Classic tween, State=Default} 252×28 "Classic tween" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Shape tween, State=Default} 252×28 "Shape tween" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Motion tween, State=Default} 252×28 "Motion tween" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Scene, State=Default} 252×28 "Scene" " "
+    F Menu / Modify 262×401 [V gap 0]
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘J, Label=Document…, State=Default} 252×28 "Document…" "⌘J"
+      I NF2/Menu Item {Submenu=false, Shortcut=F8, Label=Convert to symbol…, State=Default} 252×28 "Convert to symbol…" "F8"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘B, Label=Break apart, State=Default} 252×28 "Break apart" "⌘B"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Bitmap, State=Default} 252×28 "Bitmap" " "
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Symbol, State=Default} 252×28 "Symbol" " "
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Shape, State=Default} 252×28 "Shape" " "
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Combine objects, State=Default} 252×28 "Combine objects" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Timeline, State=Default} 252×28 "Timeline" " "
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Transform, State=Default} 252×28 "Transform" " "
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Arrange, State=Default} 252×28 "Arrange" " "
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Align, State=Default} 252×28 "Align" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘G, Label=Group, State=Default} 252×28 "Group" "⌘G"
+      I NF2/Menu Item {Submenu=false, Shortcut=⇧⌘G, Label=Ungroup, State=Default} 252×28 "Ungroup" "⇧⌘G"
+    F Menu / Control 262×345 [V gap 0]
+      I NF2/Menu Item {Submenu=false, Shortcut=↵, Label=Play, State=Default} 252×28 "Play" "↵"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⇧R, Label=Rewind, State=Default} 252×28 "Rewind" "⌥⇧R"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⇧., Label=Go to end, State=Default} 252×28 "Go to end" "⌥⇧."
+      I NF2/Menu Item {Submenu=false, Shortcut=., Label=Step forward one frame, State=Default} 252×28 "Step forward one frame" "."
+      I NF2/Menu Item {Submenu=false, Shortcut=,, Label=Step back one frame, State=Default} 252×28 "Step back one frame" ","
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘↵, Label=Test movie, State=Default} 252×28 "Test movie" "⌘↵"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘↵, Label=Test scene, State=Default} 252×28 "Test scene" "⌥⌘↵"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Loop playback, State=Checked} 252×28 "Loop playback" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Play all scenes, State=Default} 252×28 "Play all scenes" " "
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘M, Label=Mute sounds, State=Default} 252×28 "Mute sounds" "⌥⌘M"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘B, Label=Enable simple buttons, State=Default} 252×28 "Enable simple buttons" "⌥⌘B"
+    F Menu / Window 262×560 [V gap 0]
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘K, Label=Duplicate window, State=Default} 252×28 "Duplicate window" "⌥⌘K"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘T, Label=Timeline, State=Checked} 252×28 "Timeline" "⌥⌘T"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘F2, Label=Tools, State=Checked} 252×28 "Tools" "⌘F2"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘F3, Label=Properties, State=Checked} 252×28 "Properties" "⌘F3"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘L, Label=Library, State=Checked} 252×28 "Library" "⌘L"
+      I NF2/Menu Item {Submenu=false, Shortcut=F9, Label=Actions, State=Default} 252×28 "Actions" "F9"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘K, Label=Align, State=Default} 252×28 "Align" "⌘K"
+      I NF2/Menu Item {Submenu=false, Shortcut=⇧⌘F9, Label=Color, State=Default} 252×28 "Color" "⇧⌘F9"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘F9, Label=Swatches, State=Default} 252×28 "Swatches" "⌘F9"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘T, Label=Transform, State=Default} 252×28 "Transform" "⌘T"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘I, Label=Info, State=Default} 252×28 "Info" "⌘I"
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Ease, State=Default} 252×28 "Ease" " "
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘F10, Label=History, State=Default} 252×28 "History" "⌘F10"
+      I NF2/Menu Item {Submenu=false, Shortcut=⇧F2, Label=Scene, State=Default} 252×28 "Scene" "⇧F2"
+      I NF2/Menu Item {Submenu=false, Shortcut=F2, Label=Output, State=Default} 252×28 "Output" "F2"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥F2, Label=Compiler errors, State=Default} 252×28 "Compiler errors" "⌥F2"
+      I NF2/Menu Item {Submenu=false, Shortcut=⇧F11, Label=Accessibility, State=Default} 252×28 "Accessibility" "⇧F11"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Workspaces, State=Default} 252×28 "Workspaces" " "
+      I NF2/Menu Item {Submenu=false, Shortcut=F4, Label=Hide panels, State=Default} 252×28 "Hide panels" "F4"
+  F Context menus 834×671 [H gap 24]
+    F Menu / Frame (right-click) 262×671 [V gap 0]
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Create motion tween, State=Default} 252×28 "Create motion tween" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Create shape tween, State=Default} 252×28 "Create shape tween" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Create classic tween, State=Hover} 252×28 "Create classic tween" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=F5, Label=Insert frame, State=Default} 252×28 "Insert frame" "F5"
+      I NF2/Menu Item {Submenu=false, Shortcut=⇧F5, Label=Remove frames, State=Default} 252×28 "Remove frames" "⇧F5"
+      I NF2/Menu Item {Submenu=false, Shortcut=F6, Label=Insert keyframe, State=Default} 252×28 "Insert keyframe" "F6"
+      I NF2/Menu Item {Submenu=false, Shortcut=F7, Label=Insert blank keyframe, State=Default} 252×28 "Insert blank keyframe" "F7"
+      I NF2/Menu Item {Submenu=false, Shortcut=⇧F6, Label=Clear keyframe, State=Default} 252×28 "Clear keyframe" "⇧F6"
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Convert to keyframes, State=Default} 252×28 "Convert to keyframes" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Convert to blank keyframes, State=Default} 252×28 "Convert to blank keyframes" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘X, Label=Cut frames, State=Default} 252×28 "Cut frames" "⌥⌘X"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘C, Label=Copy frames, State=Default} 252×28 "Copy frames" "⌥⌘C"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘V, Label=Paste frames, State=Default} 252×28 "Paste frames" "⌥⌘V"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌫, Label=Clear frames, State=Default} 252×28 "Clear frames" "⌥⌫"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘A, Label=Select all frames, State=Default} 252×28 "Select all frames" "⌥⌘A"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Copy motion, State=Default} 252×28 "Copy motion" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Paste motion, State=Default} 252×28 "Paste motion" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Paste motion special…, State=Default} 252×28 "Paste motion special…" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Reverse frames, State=Default} 252×28 "Reverse frames" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Synchronise symbols, State=Disabled} 252×28 "Synchronise symbols" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=F9, Label=Actions, State=Default} 252×28 "Actions" "F9"
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Ease…, State=Default} 252×28 "Ease…" " "
+    F Menu / Layer (right-click) 262×550 [V gap 0]
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Show all, State=Default} 252×28 "Show all" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Lock others, State=Default} 252×28 "Lock others" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Hide others, State=Default} 252×28 "Hide others" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Insert layer, State=Default} 252×28 "Insert layer" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Delete layer, State=Default} 252×28 "Delete layer" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Duplicate layers, State=Default} 252×28 "Duplicate layers" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Cut layers, State=Default} 252×28 "Cut layers" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Copy layers, State=Default} 252×28 "Copy layers" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Paste layers, State=Default} 252×28 "Paste layers" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Guide, State=Default} 252×28 "Guide" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Add classic motion guide, State=Default} 252×28 "Add classic motion guide" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Mask, State=Checked} 252×28 "Mask" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Show masking, State=Default} 252×28 "Show masking" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Insert folder, State=Default} 252×28 "Insert folder" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Delete folder, State=Default} 252×28 "Delete folder" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Expand folder, State=Default} 252×28 "Expand folder" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Collapse all folders, State=Default} 252×28 "Collapse all folders" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Properties…, State=Hover} 252×28 "Properties…" " "
+    F Menu / Stage object (right-click) 262×438 [V gap 0]
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘X, Label=Cut, State=Default} 252×28 "Cut" "⌘X"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘C, Label=Copy, State=Default} 252×28 "Copy" "⌘C"
+      I NF2/Menu Item {Submenu=false, Shortcut=⇧⌘V, Label=Paste in place, State=Default} 252×28 "Paste in place" "⇧⌘V"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=F8, Label=Convert to symbol…, State=Default} 252×28 "Convert to symbol…" "F8"
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Edit in place, State=Default} 252×28 "Edit in place" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Edit in new window, State=Default} 252×28 "Edit in new window" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Swap symbol…, State=Default} 252×28 "Swap symbol…" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Duplicate symbol…, State=Default} 252×28 "Duplicate symbol…" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Create motion tween, State=Default} 252×28 "Create motion tween" " "
+      I NF2/Menu Item {Submenu=false, Shortcut=⇧⌘D, Label=Distribute to layers, State=Default} 252×28 "Distribute to layers" "⇧⌘D"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Arrange, State=Default} 252×28 "Arrange" " "
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Align, State=Default} 252×28 "Align" " "
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Transform, State=Default} 252×28 "Transform" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Show in library, State=Default} 252×28 "Show in library" " "

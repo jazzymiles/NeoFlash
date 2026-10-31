@@ -1,6 +1,7 @@
-//! Original, font-independent editor icons in logical point coordinates.
+//! Editor tool icon roles mapped onto NF2 SVG icons (`neoflash_ui::icons`) and the shared NF2 menu
+//! rows. Buttons use `neoflash_ui::components::IconButton` directly.
 use crate::theme::{DesignUi as _, ScrollTheme as _};
-use eframe::egui::{self, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, Vec2, Widget};
+use eframe::egui::{self, Painter, Pos2, Rect, Response, Sense, Stroke, Vec2};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Icon {
@@ -21,468 +22,59 @@ pub(crate) enum Icon {
     Rectangle,
     Ellipse,
     Text,
-    Plus,
-    Trash,
     ZoomIn,
     ZoomOut,
     Fit,
-    Symbol,
     ChevronRight,
-    External,
-    Rewind,
-    Play,
-    Pause,
-    Lock,
-    Unlock,
-    Visible,
-    Hidden,
 }
 
+impl Icon {
+    /// NF2 icon for this role. `tool` picks the 20 px tool glyph where one exists.
+    pub(crate) fn nf2(self, tool: bool) -> neoflash_ui::Icon {
+        use neoflash_ui::icons::{i16, i20};
+        let pick =
+            |small: neoflash_ui::Icon, large: neoflash_ui::Icon| if tool { large } else { small };
+        match self {
+            Self::Select => pick(i16::SELECT, i20::TOOL_SELECT),
+            Self::Subselect => pick(i16::SUBSELECT, i20::TOOL_SUBSELECT),
+            Self::Transform => pick(i16::TRANSFORM, i20::TOOL_TRANSFORM),
+            Self::Pen => pick(i16::PEN, i20::TOOL_PEN),
+            Self::Pencil => pick(i16::PENCIL, i20::TOOL_PENCIL),
+            Self::Line => pick(i16::LINE, i20::TOOL_LINE),
+            Self::Brush => pick(i16::BRUSH, i20::TOOL_BRUSH),
+            Self::Bucket => pick(i16::BUCKET, i20::TOOL_BUCKET),
+            Self::Ink => i20::TOOL_INK,
+            Self::Eyedropper => pick(i16::EYEDROPPER, i20::TOOL_EYEDROPPER),
+            Self::Eraser => pick(i16::ERASER, i20::TOOL_ERASER),
+            Self::Lasso => pick(i16::LASSO, i20::TOOL_LASSO),
+            Self::Hand => pick(i16::HAND, i20::TOOL_HAND),
+            Self::Gradient => pick(i16::GRADIENT, i20::TOOL_GRADIENT),
+            Self::Rectangle => pick(i16::RECT, i20::TOOL_RECT),
+            Self::Ellipse => pick(i16::OVAL, i20::TOOL_OVAL),
+            Self::Text => pick(i16::TEXT, i20::TOOL_TEXT),
+            Self::ZoomIn => pick(i16::ZOOMIN, i20::TOOL_ZOOM),
+            Self::ZoomOut => pick(i16::ZOOMOUT, i20::ZOOMOUT),
+            Self::Fit => pick(i16::FIT, i20::FIT),
+            Self::ChevronRight => pick(i16::CHEVRIGHT, i20::CHEVRIGHT),
+        }
+    }
+}
+
+/// Paint an NF2 icon centred in `rect`, tinted with `stroke.color`. Rects of 20 pt or more use the
+/// 20 px tool grid; smaller rects use the 16 px grid, scaled down only below 16.
 pub(crate) fn paint_icon(p: &Painter, rect: Rect, icon: Icon, stroke: Stroke) {
     let size = rect.width().min(rect.height());
     if !size.is_finite() || size <= 0. {
         return;
     }
-    let origin = rect.center() - Vec2::splat(size / 2.);
-    let point = |x: f32, y: f32| origin + Vec2::new(x, y) * (size / 24.);
-    let line = |a: (f32, f32), b: (f32, f32)| {
-        p.line_segment([point(a.0, a.1), point(b.0, b.1)], stroke);
-    };
-    let path = |points: &[(f32, f32)], closed: bool, filled: bool| {
-        let points = points.iter().map(|&(x, y)| point(x, y)).collect();
-        p.add(if filled {
-            Shape::convex_polygon(points, stroke.color, Stroke::NONE)
-        } else if closed {
-            Shape::closed_line(points, stroke)
-        } else {
-            Shape::line(points, stroke)
-        });
-    };
-    let box_at = |x: f32, y: f32, w: f32, h: f32| {
-        p.rect_stroke(
-            Rect::from_min_max(point(x, y), point(x + w, y + h)),
-            0,
-            stroke,
-            egui::StrokeKind::Inside,
-        );
-    };
-    match icon {
-        Icon::Select => {
-            path(&[(4., 3.), (5., 19.), (19., 12.)], true, true);
-            path(&[(8., 12.), (13., 21.), (16., 19.), (12., 12.)], true, true);
-        }
-        Icon::Subselect => path(
-            &[
-                (4., 3.),
-                (5., 19.),
-                (9., 15.),
-                (13., 21.),
-                (16., 19.),
-                (12., 13.),
-                (19., 12.),
-            ],
-            true,
-            false,
-        ),
-        Icon::Transform => {
-            box_at(6., 6., 12., 12.);
-            for (x, y) in [(3., 3.), (17., 3.), (3., 17.), (17., 17.)] {
-                box_at(x, y, 4., 4.);
-            }
-        }
-        Icon::Pen => {
-            path(
-                &[(12., 3.), (20., 14.), (15., 20.), (9., 20.), (4., 14.)],
-                true,
-                false,
-            );
-            line((12., 3.), (12., 12.));
-            p.circle_stroke(point(12., 14.), 2. * size / 24., stroke);
-            line((8., 22.), (16., 22.));
-        }
-        Icon::Pencil => {
-            path(
-                &[
-                    (4., 20.),
-                    (6., 13.),
-                    (16., 3.),
-                    (21., 8.),
-                    (11., 18.),
-                    (4., 20.),
-                ],
-                false,
-                false,
-            );
-            line((6., 13.), (11., 18.));
-            line((14., 5.), (19., 10.));
-            line((8., 15.), (17., 6.));
-        }
-        Icon::Line => line((4., 20.), (20., 4.)),
-        Icon::Brush => {
-            path(&[(11., 14.), (17., 3.), (21., 5.), (15., 16.)], true, false);
-            path(
-                &[
-                    (11., 14.),
-                    (7., 14.),
-                    (6., 18.),
-                    (3., 21.),
-                    (10., 21.),
-                    (14., 17.),
-                ],
-                true,
-                true,
-            );
-        }
-        Icon::Bucket => {
-            path(&[(4., 9.), (11., 3.), (18., 11.), (11., 19.)], true, false);
-            line((3., 9.), (17., 9.));
-            path(
-                &[(19., 13.), (16., 18.), (18., 21.), (21., 18.)],
-                true,
-                true,
-            );
-        }
-        Icon::Ink => {
-            box_at(8., 3., 8., 4.);
-            path(
-                &[
-                    (8., 8.),
-                    (5., 11.),
-                    (5., 20.),
-                    (19., 20.),
-                    (19., 11.),
-                    (16., 8.),
-                ],
-                true,
-                false,
-            );
-            line((7., 15.), (17., 15.));
-        }
-        Icon::Eyedropper => {
-            path(
-                &[(6., 15.), (15., 6.), (18., 9.), (9., 18.), (4., 20.)],
-                true,
-                false,
-            );
-            path(&[(12., 5.), (16., 2.), (22., 8.), (19., 12.)], true, true);
-        }
-        Icon::Eraser => {
-            path(
-                &[(3., 14.), (13., 4.), (21., 12.), (13., 20.), (9., 20.)],
-                true,
-                false,
-            );
-            line((8., 9.), (17., 17.));
-            line((9., 21.), (22., 21.));
-        }
-        Icon::Lasso => {
-            p.add(Shape::ellipse_stroke(
-                point(12., 10.),
-                Vec2::new(9., 6.) * size / 24.,
-                stroke,
-            ));
-            path(
-                &[(7., 15.), (5., 20.), (9., 22.), (12., 19.), (8., 15.)],
-                false,
-                false,
-            );
-        }
-        Icon::Hand => path(
-            &[
-                (5., 13.),
-                (3., 11.),
-                (2., 13.),
-                (7., 21.),
-                (17., 21.),
-                (21., 13.),
-                (21., 8.),
-                (18., 8.),
-                (17., 13.),
-                (17., 5.),
-                (14., 4.),
-                (13., 12.),
-                (13., 3.),
-                (10., 3.),
-                (9., 12.),
-                (9., 5.),
-                (6., 5.),
-                (6., 15.),
-            ],
-            false,
-            false,
-        ),
-        Icon::Gradient => {
-            box_at(3., 4., 18., 16.);
-            for x in [7., 10., 13., 16., 18.] {
-                line((x, 6.), (x, 18.));
-            }
-            p.circle(point(6., 12.), 2. * size / 24., stroke.color, Stroke::NONE);
-        }
-        Icon::Rectangle => box_at(3., 5., 18., 14.),
-        Icon::Ellipse => {
-            p.add(Shape::ellipse_stroke(
-                point(12., 12.),
-                Vec2::new(9., 7.) * size / 24.,
-                stroke,
-            ));
-        }
-        Icon::Text => {
-            line((4., 5.), (20., 5.));
-            line((12., 5.), (12., 21.));
-            line((8., 21.), (16., 21.));
-            line((4., 5.), (4., 8.));
-            line((20., 5.), (20., 8.));
-        }
-        Icon::Plus => {
-            line((4., 12.), (20., 12.));
-            line((12., 4.), (12., 20.));
-        }
-        Icon::Trash => {
-            line((4., 6.), (20., 6.));
-            box_at(9., 3., 6., 3.);
-            path(&[(6., 6.), (7., 21.), (17., 21.), (18., 6.)], false, false);
-            line((10., 10.), (10., 17.));
-            line((14., 10.), (14., 17.));
-        }
-        Icon::ZoomIn | Icon::ZoomOut => {
-            p.circle_stroke(point(10., 10.), 7. * size / 24., stroke);
-            line((15., 15.), (21., 21.));
-            line((6., 10.), (14., 10.));
-            if icon == Icon::ZoomIn {
-                line((10., 6.), (10., 14.));
-            }
-        }
-        Icon::Fit => {
-            for points in [
-                &[(9., 4.), (4., 4.), (4., 9.)][..],
-                &[(15., 4.), (20., 4.), (20., 9.)],
-                &[(4., 15.), (4., 20.), (9., 20.)],
-                &[(15., 20.), (20., 20.), (20., 15.)],
-            ] {
-                path(points, false, false);
-            }
-        }
-        Icon::Symbol => {
-            path(&[(12., 3.), (21., 12.), (12., 21.), (3., 12.)], true, false);
-            box_at(9., 9., 6., 6.);
-        }
-        Icon::ChevronRight => path(&[(8., 4.), (16., 12.), (8., 20.)], false, false),
-        Icon::External => {
-            path(&[(13., 4.), (20., 4.), (20., 11.)], false, false);
-            line((20., 4.), (10., 14.));
-            path(
-                &[(9., 5.), (4., 5.), (4., 20.), (19., 20.), (19., 15.)],
-                false,
-                false,
-            );
-        }
-        Icon::Rewind => {
-            line((5., 4.), (5., 20.));
-            path(&[(19., 4.), (8., 12.), (19., 20.)], true, true);
-        }
-        Icon::Play => path(&[(6., 3.), (21., 12.), (6., 21.)], true, true),
-        Icon::Pause => {
-            for x in [6., 15.] {
-                p.rect_filled(
-                    Rect::from_min_max(point(x, 4.), point(x + 3., 20.)),
-                    0,
-                    stroke.color,
-                );
-            }
-        }
-        Icon::Lock | Icon::Unlock => {
-            box_at(5., 11., 14., 10.);
-            if icon == Icon::Lock {
-                path(
-                    &[
-                        (8., 11.),
-                        (8., 6.),
-                        (10., 3.),
-                        (14., 3.),
-                        (16., 6.),
-                        (16., 11.),
-                    ],
-                    false,
-                    false,
-                );
-            } else {
-                path(
-                    &[(8., 11.), (8., 6.), (10., 3.), (14., 3.), (17., 6.)],
-                    false,
-                    false,
-                );
-            }
-            line((12., 15.), (12., 18.));
-        }
-        Icon::Visible | Icon::Hidden => {
-            path(
-                &[
-                    (2., 12.),
-                    (6., 7.),
-                    (12., 5.),
-                    (18., 7.),
-                    (22., 12.),
-                    (18., 17.),
-                    (12., 19.),
-                    (6., 17.),
-                ],
-                true,
-                false,
-            );
-            p.circle_stroke(point(12., 12.), 3. * size / 24., stroke);
-            if icon == Icon::Hidden {
-                line((3., 3.), (21., 21.));
-            }
-        }
-    }
+    let nf = icon.nf2(size >= neoflash_ui::metrics::ICON_TOOL);
+    let side = nf.side().min(size);
+    neoflash_ui::icons::paint_sized(p, p.ctx(), rect, nf, side, stroke.color);
 }
 
-pub(crate) struct IconButton<'a> {
-    icon: Icon,
-    label: &'a str,
-    selected: Option<bool>,
-    size: Vec2,
-    text: bool,
-    flat: bool,
-    fixed_width: bool,
-}
-impl<'a> IconButton<'a> {
-    pub fn new(icon: Icon, label: &'a str) -> Self {
-        Self {
-            icon,
-            label,
-            selected: None,
-            size: Vec2::splat(crate::theme::CONTROL_HEIGHT),
-            text: false,
-            flat: false,
-            fixed_width: false,
-        }
-    }
-    pub fn selected(mut self, value: bool) -> Self {
-        self.selected = Some(value);
-        self
-    }
-    pub fn size(mut self, value: Vec2) -> Self {
-        self.size = value;
-        self.fixed_width = true;
-        self
-    }
-    pub fn text(mut self) -> Self {
-        self.text = true;
-        self
-    }
-    pub fn flat(mut self) -> Self {
-        self.flat = true;
-        self
-    }
-}
-impl Widget for IconButton<'_> {
-    fn ui(self, ui: &mut egui::Ui) -> Response {
-        let galley = self.text.then(|| {
-            let width = if self.fixed_width {
-                (self.size.x - 32.).max(1.)
-            } else {
-                f32::INFINITY
-            };
-            let mut job = egui::text::LayoutJob::simple(
-                self.label.into(),
-                egui::TextStyle::Button.resolve(ui.style()),
-                ui.visuals().text_color(),
-                width,
-            );
-            job.wrap.max_rows = 1;
-            job.wrap.break_anywhere = true;
-            ui.painter().layout_job(job)
-        });
-        let size = Vec2::new(
-            self.size
-                .x
-                .max(galley.as_ref().map_or(0., |g| g.size().x + 32.)),
-            self.size
-                .y
-                .max(galley.as_ref().map_or(0., |g| g.size().y + 4.)),
-        );
-        let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-        response.widget_info(|| {
-            self.selected.map_or_else(
-                || egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), self.label),
-                |selected| {
-                    egui::WidgetInfo::selected(
-                        egui::WidgetType::Button,
-                        ui.is_enabled(),
-                        selected,
-                        self.label,
-                    )
-                },
-            )
-        });
-        if ui.is_rect_visible(rect) {
-            let visuals = ui
-                .style()
-                .interact_selectable(&response, self.selected.unwrap_or(false));
-            if !self.flat
-                || self.selected == Some(true)
-                || response.hovered()
-                || response.has_focus()
-            {
-                ui.painter().rect(
-                    rect,
-                    visuals.corner_radius,
-                    visuals.weak_bg_fill,
-                    visuals.bg_stroke,
-                    egui::StrokeKind::Inside,
-                );
-            }
-            if response.has_focus() {
-                ui.painter().rect_stroke(
-                    rect.shrink(1.),
-                    3,
-                    Stroke::new(2.0_f32, crate::theme::UiPalette::current(ui.ctx()).focus),
-                    egui::StrokeKind::Inside,
-                );
-            }
-            let icon_rect = if self.text {
-                Rect::from_center_size(
-                    Pos2::new(rect.left() + 12., rect.center().y),
-                    Vec2::splat(crate::theme::ICON_SIZE),
-                )
-            } else {
-                Rect::from_center_size(rect.center(), Vec2::splat(crate::theme::ICON_SIZE))
-            };
-            paint_icon(
-                ui.painter(),
-                icon_rect,
-                self.icon,
-                Stroke::new(crate::theme::ICON_STROKE, visuals.fg_stroke.color),
-            );
-            if let Some(galley) = galley {
-                ui.painter().galley_with_override_text_color(
-                    Pos2::new(rect.left() + 24., rect.center().y - galley.size().y / 2.),
-                    galley,
-                    visuals.fg_stroke.color,
-                );
-            }
-        }
-        response.on_hover_text(self.label)
-    }
-}
-
-pub(crate) fn inline_icon(ui: &mut egui::Ui, icon: Icon, size: f32) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
-    paint_icon(
-        ui.painter(),
-        rect,
-        icon,
-        Stroke::new(1.5_f32, ui.visuals().weak_text_color()),
-    );
-}
-
-/// Shared popup metrics. A popup never inherits the full dock/window width.
 pub(crate) fn menu_style(style: &mut egui::Style) {
     egui::containers::menu::menu_style(style);
-    style.spacing.button_padding = egui::vec2(8., 0.);
-    style.spacing.item_spacing = egui::vec2(8., 0.);
-    style.spacing.interact_size.y = crate::theme::CONTROL_HEIGHT;
+    neoflash_ui::components::menu::menu_style(style);
 }
 
 /// Size from actual labels/shortcuts, with the design-system compact bounds.
@@ -533,33 +125,43 @@ fn menu_row(
     checked: Option<bool>,
     submenu: bool,
 ) -> Response {
+    // NF2/Menu Item: 28 pt row, 24 pt check column, label, shortcut right-aligned, ▸ for submenus.
     let (rect, response) = ui.allocate_exact_size(
-        Vec2::new(ui.available_width().max(1.), crate::theme::CONTROL_HEIGHT),
+        Vec2::new(ui.available_width().max(1.), crate::theme::ROW_HEIGHT),
         Sense::click(),
     );
-    let palette = crate::theme::UiPalette::current(ui.ctx());
-    let visuals = ui.style().interact(&response);
+    let p = neoflash_ui::palette(ui.ctx());
     if ui.is_rect_visible(rect) {
-        if response.is_pointer_button_down_on() {
-            ui.painter().rect_filled(rect, 3., palette.pressed);
-        } else if response.hovered() {
-            ui.painter().rect_filled(rect, 3., palette.hover);
+        let enabled = ui.is_enabled();
+        if enabled && (response.hovered() || response.is_pointer_button_down_on()) {
+            ui.painter()
+                .rect_filled(rect, neoflash_ui::tokens::radius::MD, p.bg_hover);
         }
+        let text_color = if enabled {
+            p.text_primary
+        } else {
+            p.text_disabled
+        };
         let font = egui::TextStyle::Button.resolve(ui.style());
+        let small = egui::TextStyle::Small.resolve(ui.style());
         let shortcut_galley = ui.painter().layout_no_wrap(
             shortcut.to_owned(),
-            font.clone(),
-            ui.visuals().weak_text_color(),
+            small,
+            if enabled {
+                p.text_tertiary
+            } else {
+                p.text_disabled
+            },
         );
-        let shortcut_right = rect.right() - 32.;
+        let shortcut_right = rect.right() - if submenu { 28. } else { 8. };
         let label_right = if shortcut.is_empty() {
             shortcut_right
         } else {
-            shortcut_right - shortcut_galley.size().x - 16.
+            shortcut_right - shortcut_galley.size().x - 24.
         };
         let label_rect = Rect::from_min_max(
-            Pos2::new(rect.left() + 32., rect.top()),
-            Pos2::new(label_right.max(rect.left() + 32.), rect.bottom()),
+            Pos2::new(rect.left() + 28., rect.top()),
+            Pos2::new(label_right.max(rect.left() + 28.), rect.bottom()),
         );
         ui.painter()
             .with_clip_rect(ui.clip_rect().intersect(label_rect))
@@ -568,7 +170,7 @@ fn menu_row(
                 egui::Align2::LEFT_CENTER,
                 label,
                 font,
-                visuals.text_color(),
+                text_color,
             );
         ui.painter().galley(
             Pos2::new(
@@ -576,34 +178,35 @@ fn menu_row(
                 rect.center().y - shortcut_galley.size().y / 2.,
             ),
             shortcut_galley,
-            visuals.text_color(),
+            p.text_tertiary,
         );
         if checked == Some(true) {
-            let center = Pos2::new(rect.left() + 16., rect.center().y);
-            ui.painter().add(Shape::line(
-                vec![
-                    center + egui::vec2(-5., 0.),
-                    center + egui::vec2(-1., 4.),
-                    center + egui::vec2(6., -5.),
-                ],
-                Stroke::new(1.5_f32, visuals.text_color()),
-            ));
+            let check = Rect::from_center_size(
+                Pos2::new(rect.left() + 14., rect.center().y),
+                Vec2::splat(16.),
+            );
+            neoflash_ui::icons::paint(
+                ui.painter(),
+                ui.ctx(),
+                check,
+                neoflash_ui::icons::i16::CHECK,
+                if enabled {
+                    p.accent_default
+                } else {
+                    p.text_disabled
+                },
+            );
         }
         if submenu {
             paint_icon(
                 ui.painter(),
                 Rect::from_center_size(rect.right_center() - egui::vec2(16., 0.), Vec2::splat(16.)),
                 Icon::ChevronRight,
-                Stroke::new(1.5_f32, visuals.text_color()),
+                Stroke::new(1.5_f32, p.text_secondary),
             );
         }
-        if response.has_focus() {
-            ui.painter().rect_stroke(
-                rect.shrink(1.),
-                3.,
-                Stroke::new(2.0_f32, palette.focus),
-                egui::StrokeKind::Inside,
-            );
+        if neoflash_ui::theme::keyboard_focus(ui, &response) {
+            neoflash_ui::theme::focus_ring(ui, rect.shrink(2.), neoflash_ui::tokens::radius::MD);
         }
     }
     let accessible = if shortcut.is_empty() {
@@ -689,60 +292,50 @@ pub(crate) fn menu_submenu<R>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eframe::egui::Color32;
+    use eframe::egui::{Color32, Shape};
     #[test]
-    fn icons_are_finite_distinct_vector_geometry_without_font_glyphs() {
+    fn icon_roles_map_to_distinct_nf2_icons_and_paint_inside_their_rect() {
         let icons = [
             Icon::Select,
             Icon::Subselect,
             Icon::Transform,
             Icon::Pen,
             Icon::Pencil,
+            Icon::Line,
+            Icon::Brush,
+            Icon::Bucket,
+            Icon::Ink,
+            Icon::Eyedropper,
+            Icon::Eraser,
+            Icon::Lasso,
+            Icon::Hand,
+            Icon::Gradient,
             Icon::Rectangle,
             Icon::Ellipse,
             Icon::Text,
-            Icon::Plus,
-            Icon::Trash,
             Icon::ZoomIn,
             Icon::ZoomOut,
             Icon::Fit,
-            Icon::Symbol,
             Icon::ChevronRight,
-            Icon::External,
-            Icon::Rewind,
-            Icon::Play,
-            Icon::Pause,
-            Icon::Lock,
-            Icon::Unlock,
-            Icon::Visible,
-            Icon::Hidden,
         ];
+        let names: std::collections::HashSet<_> =
+            icons.iter().map(|i| i.nf2(false).path()).collect();
+        assert_eq!(names.len(), icons.len(), "every role has its own NF2 glyph");
         let ctx = egui::Context::default();
-        let mut signatures = std::collections::HashSet::new();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::splat(24.));
         for icon in icons {
             let output = ctx.run(Default::default(), |ctx| {
                 let p = ctx.layer_painter(egui::LayerId::background());
-                paint_icon(
-                    &p,
-                    Rect::from_min_size(Pos2::ZERO, Vec2::splat(24.)),
-                    icon,
-                    Stroke::new(1.5_f32, Color32::BLACK),
-                );
+                paint_icon(&p, rect, icon, Stroke::new(1.5_f32, Color32::BLACK));
             });
-            assert!(!output.shapes.is_empty());
+            assert!(!output.shapes.is_empty(), "{icon:?} paints");
             for shape in &output.shapes {
                 assert!(!matches!(shape.shape, Shape::Text(_)));
-                let bounds = shape.shape.visual_bounding_rect();
-                assert!(bounds.is_finite());
                 assert!(
-                    Rect::from_min_max(Pos2::new(-1., -1.), Pos2::new(25., 25.))
-                        .contains_rect(bounds)
+                    rect.expand(1.)
+                        .contains_rect(shape.shape.visual_bounding_rect())
                 );
             }
-            assert!(signatures.insert(format!(
-                "{:?}",
-                output.shapes.iter().map(|s| &s.shape).collect::<Vec<_>>()
-            )));
         }
     }
 }

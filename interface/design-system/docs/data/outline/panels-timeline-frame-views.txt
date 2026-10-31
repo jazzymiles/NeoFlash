@@ -1,0 +1,123 @@
+F Timeline frame views — Dark 1250×1348 [V gap 24]
+  T "Timeline — panel menu (⋯) and frame view modes"
+  F Row 1170×1216 [H gap 40]
+    F Timeline menu + Placement 470×447
+      F Menu / Timeline view 242×447 [V gap 0]
+        I NF2/Menu Item {Submenu=true, Shortcut= , Label=Placement, State=Hover} 232×28 "Placement" " "
+        I NF2/Menu Separator 232×9
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Tiny, State=Default} 232×28 "Tiny" " "
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Small, State=Default} 232×28 "Small" " "
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Normal, State=Checked} 232×28 "Normal" " "
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Medium, State=Default} 232×28 "Medium" " "
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Large, State=Default} 232×28 "Large" " "
+        I NF2/Menu Separator 232×9
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Preview, State=Default} 232×28 "Preview" " "
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Preview in context, State=Default} 232×28 "Preview in context" " "
+        I NF2/Menu Separator 232×9
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Short, State=Default} 232×28 "Short" " "
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Tinted frames, State=Checked} 232×28 "Tinted frames" " "
+        I NF2/Menu Separator 232×9
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Show seconds on ruler, State=Checked} 232×28 "Show seconds on ruler" " "
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Snap playhead to keyframes, State=Default} 232×28 "Snap playhead to keyframes" " "
+        I NF2/Menu Separator 232×9
+        I NF2/Menu Item {Submenu=false, Shortcut=F1, Label=Help, State=Default} 232×28 "Help" "F1"
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Close panel, State=Default} 232×28 "Close panel" " "
+      F Menu / Placement 242×159 [V gap 0]
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Bottom (docked), State=Checked} 232×28 "Bottom (docked)" " "
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Top, State=Default} 232×28 "Top" " "
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Left, State=Default} 232×28 "Left" " "
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Right, State=Default} 232×28 "Right" " "
+        I NF2/Menu Separator 232×9
+        I NF2/Menu Item {Submenu=false, Shortcut= , Label=Floating window, State=Default} 232×28 "Floating window" " "
+    F Modes 660×1216 [V gap 20]
+      F Mode / Tiny 180×110 [V gap 6]
+        F Head 172×20 [H gap 10]
+          T "Tiny"
+          T "6 px / frame · row 28 px"
+        F Frames 180×84
+      F Mode / Small 270×110 [V gap 6]
+        F Head 179×20 [H gap 10]
+          T "Small"
+          T "9 px / frame · row 28 px"
+        F Frames 270×84
+      F Mode / Normal (default) 360×110 [V gap 6]
+        F Head 252×20 [H gap 10]
+          T "Normal (default)"
+          T "12 px / frame · row 28 px"
+        F Frames 360×84
+      F Mode / Medium 480×110 [V gap 6]
+        F Head 200×20 [H gap 10]
+          T "Medium"
+          T "16 px / frame · row 28 px"
+        F Frames 480×84
+      F Mode / Large 660×110 [V gap 6]
+        F Head 188×20 [H gap 10]
+          T "Large"
+          T "22 px / frame · row 28 px"
+        F Frames 660×84
+      F Mode / Short 360×80 [V gap 6]
+        F Head 250×20 [H gap 10]
+          T "Short"
+          T "rows 18 px — more layers on screen"
+        F Frames 360×54
+      F Mode / Tinted frames off 364×110 [V gap 6]
+        F Head 364×20 [H gap 10]
+          T "Tinted frames off"
+          T "tween spans not colour-coded, only arrows"
+        F Frames 360×84
+      F Mode / Preview 660×158 [V gap 6]
+        F Head 329×20 [H gap 10]
+          T "Preview"
+          T "thumbnails of each keyframe span, scaled to fit"
+        F Frames 660×132
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+      F Mode / Preview in context 660×158 [V gap 6]
+        F Head 396×20 [H gap 10]
+          T "Preview in context"
+          T "thumbnails show the object inside the full stage"
+        F Frames 660×132
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38
+          F Frame 62×38

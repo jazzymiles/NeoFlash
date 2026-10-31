@@ -1,0 +1,276 @@
+F Cursors (24 px, all states of tools & transforms) 1880×660 [V gap 12]
+  T "Cursors (24 px, all states of tools & transforms)  39"
+  F Grid 1880×632 [H gap 12]
+    F Card / NF2 Cursor/arrow 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/arrow 24×24
+      F Text 218×54 [V gap 2]
+        T "arrow"
+        T "NF2 Cursor/arrow"
+        T "Hotspot  x 4, y 2"
+    F Card / NF2 Cursor/arrow-move 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/arrow-move 24×24
+      F Text 218×54 [V gap 2]
+        T "arrow-move"
+        T "NF2 Cursor/arrow-move"
+        T "Hotspot  x 4, y 2"
+    F Card / NF2 Cursor/arrow-reshape-corner 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/arrow-reshape-corner 24×24
+      F Text 218×54 [V gap 2]
+        T "arrow-reshape-corner"
+        T "NF2 Cursor/arrow-reshape-corner"
+        T "Hotspot  x 4, y 2"
+    F Card / NF2 Cursor/arrow-reshape-curve 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/arrow-reshape-curve 24×24
+      F Text 218×54 [V gap 2]
+        T "arrow-reshape-curve"
+        T "NF2 Cursor/arrow-reshape-curve"
+        T "Hotspot  x 4, y 2"
+    F Card / NF2 Cursor/brush 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/brush 24×24
+      F Text 218×54 [V gap 2]
+        T "brush"
+        T "NF2 Cursor/brush"
+        T "Hotspot  x 3, y 21"
+    F Card / NF2 Cursor/brush-size 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/brush-size 24×24
+      F Text 218×54 [V gap 2]
+        T "brush-size"
+        T "NF2 Cursor/brush-size"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/bucket 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/bucket 24×24
+      F Text 218×54 [V gap 2]
+        T "bucket"
+        T "NF2 Cursor/bucket"
+        T "Hotspot  x 19, y 20"
+    F Card / NF2 Cursor/col-resize 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/col-resize 24×24
+      F Text 218×54 [V gap 2]
+        T "col-resize"
+        T "NF2 Cursor/col-resize"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/crosshair 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/crosshair 24×24
+      F Text 218×54 [V gap 2]
+        T "crosshair"
+        T "NF2 Cursor/crosshair"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/drag-copy 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/drag-copy 24×24
+      F Text 218×54 [V gap 2]
+        T "drag-copy"
+        T "NF2 Cursor/drag-copy"
+        T "Hotspot  x 4, y 2"
+    F Card / NF2 Cursor/drag-link 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/drag-link 24×24
+      F Text 218×54 [V gap 2]
+        T "drag-link"
+        T "NF2 Cursor/drag-link"
+        T "Hotspot  x 4, y 2"
+    F Card / NF2 Cursor/eraser 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/eraser 24×24
+      F Text 218×54 [V gap 2]
+        T "eraser"
+        T "NF2 Cursor/eraser"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/eyedropper 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/eyedropper 24×24
+      F Text 218×54 [V gap 2]
+        T "eyedropper"
+        T "NF2 Cursor/eyedropper"
+        T "Hotspot  x 5, y 19"
+    F Card / NF2 Cursor/hand-closed 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/hand-closed 24×24
+      F Text 218×54 [V gap 2]
+        T "hand-closed"
+        T "NF2 Cursor/hand-closed"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/hand-open 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/hand-open 24×24
+      F Text 218×54 [V gap 2]
+        T "hand-open"
+        T "NF2 Cursor/hand-open"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/ink-bottle 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/ink-bottle 24×24
+      F Text 218×54 [V gap 2]
+        T "ink-bottle"
+        T "NF2 Cursor/ink-bottle"
+        T "Hotspot  x 15, y 3"
+    F Card / NF2 Cursor/lasso 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/lasso 24×24
+      F Text 218×54 [V gap 2]
+        T "lasso"
+        T "NF2 Cursor/lasso"
+        T "Hotspot  x 10, y 20"
+    F Card / NF2 Cursor/move 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/move 24×24
+      F Text 218×54 [V gap 2]
+        T "move"
+        T "NF2 Cursor/move"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/not-allowed 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/not-allowed 24×24
+      F Text 218×54 [V gap 2]
+        T "not-allowed"
+        T "NF2 Cursor/not-allowed"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/pen 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/pen 24×24
+      F Text 218×54 [V gap 2]
+        T "pen"
+        T "NF2 Cursor/pen"
+        T "Hotspot  x 6, y 21"
+    F Card / NF2 Cursor/pen-add 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/pen-add 24×24
+      F Text 218×54 [V gap 2]
+        T "pen-add"
+        T "NF2 Cursor/pen-add"
+        T "Hotspot  x 6, y 21"
+    F Card / NF2 Cursor/pen-close 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/pen-close 24×24
+      F Text 218×54 [V gap 2]
+        T "pen-close"
+        T "NF2 Cursor/pen-close"
+        T "Hotspot  x 6, y 21"
+    F Card / NF2 Cursor/pen-convert 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/pen-convert 24×24
+      F Text 218×54 [V gap 2]
+        T "pen-convert"
+        T "NF2 Cursor/pen-convert"
+        T "Hotspot  x 6, y 21"
+    F Card / NF2 Cursor/pen-remove 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/pen-remove 24×24
+      F Text 218×54 [V gap 2]
+        T "pen-remove"
+        T "NF2 Cursor/pen-remove"
+        T "Hotspot  x 6, y 21"
+    F Card / NF2 Cursor/pencil 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/pencil 24×24
+      F Text 218×54 [V gap 2]
+        T "pencil"
+        T "NF2 Cursor/pencil"
+        T "Hotspot  x 3, y 21"
+    F Card / NF2 Cursor/resize-d1 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/resize-d1 24×24
+      F Text 218×54 [V gap 2]
+        T "resize-d1"
+        T "NF2 Cursor/resize-d1"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/resize-d2 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/resize-d2 24×24
+      F Text 218×54 [V gap 2]
+        T "resize-d2"
+        T "NF2 Cursor/resize-d2"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/resize-h 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/resize-h 24×24
+      F Text 218×54 [V gap 2]
+        T "resize-h"
+        T "NF2 Cursor/resize-h"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/resize-v 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/resize-v 24×24
+      F Text 218×54 [V gap 2]
+        T "resize-v"
+        T "NF2 Cursor/resize-v"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/rotate 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/rotate 24×24
+      F Text 218×54 [V gap 2]
+        T "rotate"
+        T "NF2 Cursor/rotate"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/row-resize 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/row-resize 24×24
+      F Text 218×54 [V gap 2]
+        T "row-resize"
+        T "NF2 Cursor/row-resize"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/skew-h 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/skew-h 24×24
+      F Text 218×54 [V gap 2]
+        T "skew-h"
+        T "NF2 Cursor/skew-h"
+        T "Hotspot  x 12, y 9"
+    F Card / NF2 Cursor/skew-v 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/skew-v 24×24
+      F Text 218×54 [V gap 2]
+        T "skew-v"
+        T "NF2 Cursor/skew-v"
+        T "Hotspot  x 9, y 12"
+    F Card / NF2 Cursor/subselect 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/subselect 24×24
+      F Text 218×54 [V gap 2]
+        T "subselect"
+        T "NF2 Cursor/subselect"
+        T "Hotspot  x 4, y 2"
+    F Card / NF2 Cursor/subselect-point 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/subselect-point 24×24
+      F Text 218×54 [V gap 2]
+        T "subselect-point"
+        T "NF2 Cursor/subselect-point"
+        T "Hotspot  x 4, y 2"
+    F Card / NF2 Cursor/text-ibeam 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/text-ibeam 24×24
+      F Text 218×54 [V gap 2]
+        T "text-ibeam"
+        T "NF2 Cursor/text-ibeam"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/wait 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/wait 24×24
+      F Text 218×54 [V gap 2]
+        T "wait"
+        T "NF2 Cursor/wait"
+        T "Hotspot  x 12, y 12"
+    F Card / NF2 Cursor/zoom-in 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/zoom-in 24×24
+      F Text 218×54 [V gap 2]
+        T "zoom-in"
+        T "NF2 Cursor/zoom-in"
+        T "Hotspot  x 10, y 10"
+    F Card / NF2 Cursor/zoom-out 300×80 [H gap 12]
+      F Icon 44×44 [H gap 0]
+        I NF2 Cursor/zoom-out 24×24
+      F Text 218×54 [V gap 2]
+        T "zoom-out"
+        T "NF2 Cursor/zoom-out"
+        T "Hotspot  x 10, y 10"

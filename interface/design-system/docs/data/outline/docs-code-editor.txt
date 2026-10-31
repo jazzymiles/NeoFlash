@@ -1,0 +1,18 @@
+F Shelf / Code editor 700×270 [V gap 12]
+  T "Code editor"
+  F NF2/Code Editor 640×200 [H gap 0]
+    F Gutter 49×198 [V gap 0]
+      T "1"
+      T "2"
+      T "3"
+      T "4"
+      T "5"
+      T "6"
+      T "7"
+      T "8"
+    F Code 589×198 [V gap 0]
+      F Line 1 589×20 [H gap 0]
+        T "trace"
+        T "("
+        T ""NeoFlash: the stage is ready""
+        T ");"

@@ -1,0 +1,239 @@
+F Functional coverage — v2 1800×1992 [V gap 16]
+  T "Functional coverage — v2"
+  T "Checked against what a Flash-style animation editor needs: drawing, nested symbols, timeline animation, scripting, import / export of graphics, video and sound. 33 of 33 covered."
+  F Header 1730×33 [H gap 16]
+    T "AREA"
+    T "CAPABILITY"
+    T "STATUS"
+    T "WHERE IN THE FILE"
+  F Row 1688×52 [H gap 16]
+    T "Drawing"
+    T "Tools: selection, subselection, lasso, pen, text, line, oval, rectangle, pencil, brush, transform, gradient, ink, bucket, eyedropper, eraser, hand, zoom"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "NF2/Tools Panel · 1/2 columns"
+  F Row 1688×36 [H gap 16]
+    T "Drawing"
+    T "Tool options (snap, smooth/straighten), merge vs object drawing, recognition settings"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Tools panel · Preferences › Drawing"
+  F Row 1688×36 [H gap 16]
+    T "Drawing"
+    T "Stroke settings: size, style, custom dash, hinting, scale, caps, joins, miter"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Properties — Oval primitive · Stroke style dialog"
+  F Row 1688×36 [H gap 16]
+    T "Drawing"
+    T "Path editing: anchors, bezier handles, reshape cursors, shape selection mesh, marquee"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Canvas editing chrome · Cursors"
+  F Row 1688×52 [H gap 16]
+    T "Drawing"
+    T "Rectangle primitive (corner radii), PolyStar, Deco / spray brush, Bone / IK"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Tools panel · Properties — Rectangle primitive / Deco / Spray / IK bone · PolyStar settings · Armature sample"
+  F Row 1688×36 [H gap 16]
+    T "Drawing"
+    T "Bitmap fill & lock fill"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Panel / Color — Bitmap fill"
+  F Row 1688×36 [H gap 16]
+    T "Symbols & nesting"
+    T "Convert to symbol (types, folder, registration, 9-slice, linkage, sharing)"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Convert to Symbol (3 states)"
+  F Row 1688×36 [H gap 16]
+    T "Symbols & nesting"
+    T "Edit in place, nested breadcrumb, scene / symbol search for large projects"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Editor — Editing symbol in place"
+  F Row 1688×36 [H gap 16]
+    T "Symbols & nesting"
+    T "Library with types, preview, search, folders"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Library panel · Empty state"
+  F Row 1688×36 [H gap 16]
+    T "Symbols & nesting"
+    T "Movie clip instance props: name, swap, colour effect, blending, cache, filters"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Properties — Movie clip"
+  F Row 1688×36 [H gap 16]
+    T "Symbols & nesting"
+    T "Graphic instance looping (loop / play once / single frame, first frame)"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Properties — Graphic"
+  F Row 1688×36 [H gap 16]
+    T "Symbols & nesting"
+    T "Button symbol timeline (Up / Over / Down / Hit)"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Timeline — Button symbol (cta_btn)"
+  F Row 1688×36 [H gap 16]
+    T "Timeline"
+    T "Layer types: normal, folder, guide, motion guide, mask/masked, sound, video"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "NF2/TL Layer · legend"
+  F Row 1688×36 [H gap 16]
+    T "Timeline"
+    T "Frame states, tweens, labels/comments/anchors, onion skin, loop, frame view modes"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Timeline · legend · Frame views board"
+  F Row 1688×36 [H gap 16]
+    T "Timeline"
+    T "Frame / layer / stage context menus, copy & paste motion"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Menus — Context menus"
+  F Row 1688×36 [H gap 16]
+    T "Timeline"
+    T "Custom ease incl. overshoot / undershoot"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Ease panel (3 states)"
+  F Row 1688×36 [H gap 16]
+    T "Timeline"
+    T "Motion editor (per-property curves) and on-stage motion path for motion tweens"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Panel / Motion editor · Editor — Motion tween path · Properties — Motion tween"
+  F Row 1688×36 [H gap 16]
+    T "Timeline"
+    T "Layer properties dialog (name, type, colour, outline, height)"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Dialog / Layer properties"
+  F Row 1688×36 [H gap 16]
+    T "Scripting"
+    T "Actions panel: toolbox, navigator, hints, folding, errors, breakpoints, script tabs"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Actions (floating / docked)"
+  F Row 1688×36 [H gap 16]
+    T "Scripting"
+    T "Output, Compiler errors, syntax schemes, editor preferences"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Output · Compiler errors · Preferences › Code editor"
+  F Row 1688×36 [H gap 16]
+    T "Scripting"
+    T "Debugger: variables, call stack, step over/into/out"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Panel / Debugger"
+  F Row 1688×36 [H gap 16]
+    T "Scripting"
+    T "External class files / project panel, code snippets panel"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Panel / Project · Panel / Code snippets"
+  F Row 1688×36 [H gap 16]
+    T "Import / export"
+    T "Import PSD (layers, options), import video, sound properties"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Import PSD · Import video · Sound properties"
+  F Row 1688×36 [H gap 16]
+    T "Import / export"
+    T "Export image (PNG/SVG/PSD/AI/PDF), video (MP4/WebM/MOV/GIF), audio"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Dialogs — Export"
+  F Row 1688×36 [H gap 16]
+    T "Import / export"
+    T "Import AI options, Publish settings dialog, Test movie player window"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Dialog / Publish settings · Window / Test Movie · Import PSD (AI options)"
+  F Row 1688×36 [H gap 16]
+    T "Video & sound"
+    T "Video layer with filmstrip, video props & cue points, sound layer, envelope"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Editor — Video on timeline · Properties — Video / Sound"
+  F Row 1688×36 [H gap 16]
+    T "Text"
+    T "Text properties, text box handles, font defaults"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Properties — Text · Selection Box"
+  F Row 1688×36 [H gap 16]
+    T "Text"
+    T "Font embedding dialog"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Dialog / Font embedding"
+  F Row 1688×36 [H gap 16]
+    T "Colour"
+    T "Mixer, gradients, swatches, quick colours, gradient transform"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Color panel · Swatches · Gradient Transform"
+  F Row 1688×36 [H gap 16]
+    T "Workspace"
+    T "Floating panels, docking zones/compass, splitters, drag & drop, scrollbars"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Panels board · Technical shelf"
+  F Row 1688×36 [H gap 16]
+    T "Workspace"
+    T "Rulers, guides, grid, settings popover, cursors, toasts, progress, focus ring"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Editor screens · Technical shelf"
+  F Row 1688×36 [H gap 16]
+    T "Workspace"
+    T "Main menu with shortcuts, Preferences (9 pages), shortcuts editor, Dark/Light"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Menus · Preferences · Interface Dark/Light"
+  F Row 1688×36 [H gap 16]
+    T "Workspace"
+    T "Document settings dialog (⌘J), Find & replace, Movie explorer / outline"
+    F Status cell 110×10 [H gap 0]
+      F Status 69×21 [H gap 0]
+        T "Covered"
+    T "Dialog / Document settings · Find and replace · Panel / Movie Explorer"

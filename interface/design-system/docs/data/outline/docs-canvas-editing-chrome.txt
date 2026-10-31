@@ -1,0 +1,44 @@
+F Shelf / Canvas editing chrome 1048×1436 [V gap 20]
+  T "Canvas editing chrome — selection, transform, paths, gradients, snapping"
+  F NF2/Selection Box 1000×150 [H gap 32]
+    F Kind=Group 160×100
+    F Kind=Symbol 160×100
+      F Registration 11×11
+    F Kind=Text static 160×100
+    F Kind=Text dynamic 160×100
+    F Kind=Primitive 160×100
+  F NF2/Transform Box 600×150 [H gap 32]
+    F Mode=Scale 160×100
+    F Mode=Rotate & skew 160×100
+  F NF2/Anchor Point 300×62 [H gap 32]
+    F State=Unselected 12×12
+    F State=Selected 12×12
+    F State=Hover 12×12
+  F NF2/Bezier Handle 60×8
+  F NF2/Marquee 160×100
+  F NF2/Shape Selection 240×240
+    F Mesh 240×240
+  F NF2/Gradient Transform 200×200
+    F Focal point 10×9
+  F NF2/Snap Ring 14×14
+  F Sample / Path editing 520×260
+    F Paths 520×260
+    I NF2/Anchor Point {State=Selected} 12×12
+    I NF2/Anchor Point {State=Unselected} 12×12
+    I NF2/Anchor Point {State=Hover} 12×12
+    I NF2/Anchor Point {State=Unselected} 12×12
+    I NF2/Bezier Handle 46×8
+    I NF2/Bezier Handle 46×8
+    I NF2/Anchor Point {State=Selected} 12×12
+    I NF2/Anchor Point {State=Unselected} 12×12
+    I NF2/Anchor Point {State=Unselected} 12×12
+    I NF2/Anchor Point {State=Unselected} 12×12
+    I NF2/Anchor Point {State=Selected} 12×12
+    I NF2/Anchor Point {State=Unselected} 12×12
+    I NF2/Bezier Handle 40×8
+    I NF2/Bezier Handle 40×8
+    I NF2/Bezier Handle 40×8
+    I NF2/Bezier Handle 40×8
+    T "Endpoint selected · corner · hover · end"
+    T "Corner points (diamond)"
+    T "Smooth points with handles"

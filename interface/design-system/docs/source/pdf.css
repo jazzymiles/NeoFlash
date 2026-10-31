@@ -1,0 +1,75 @@
+/* Print stylesheet for the NeoFlash design-system PDFs (A4). */
+@page { size: A4; margin: 16mm 14mm 16mm 14mm; }
+@page :first { margin: 0; }
+:root {
+  --ink: #171b26; --ink-2: #4c5466; --ink-3: #667086; --line: #dfe3ea; --soft: #f4f6f9;
+  --accent: #3c6bf0; --accent-soft: #e8eeff; --dark: #0d1016; --orange: #e8731f;
+}
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font: 10pt/1.5 Inter, "SF Pro Text", -apple-system, "Helvetica Neue", Arial, sans-serif; color: var(--ink); margin: 0; background: #fff; }
+code, kbd, .mono, .mono-small { font-family: "Roboto Mono", "SF Mono", Menlo, monospace; }
+code { font-size: 8.5pt; background: var(--soft); padding: 0 3px; border-radius: 3px; }
+kbd { font-size: 8pt; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #fff; white-space: nowrap; }
+.mono-small { font-size: 7.5pt; color: var(--ink-2); }
+h1 { font-size: 22pt; line-height: 1.2; margin: 0 0 6mm; letter-spacing: -0.01em; break-before: page; }
+h1 .num { color: var(--accent); margin-right: 6px; }
+h2 { font-size: 14pt; margin: 8mm 0 3mm; break-after: avoid; }
+h3 { font-size: 11.5pt; margin: 6mm 0 2mm; break-after: avoid; }
+h4 { font-size: 9pt; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); margin: 5mm 0 2mm; break-after: avoid; }
+p { margin: 0 0 3mm; }
+.lead { font-size: 11.5pt; color: var(--ink-2); max-width: 165mm; }
+ul { margin: 0 0 3mm; padding-left: 5mm; } li { margin-bottom: 1mm; }
+table { width: 100%; border-collapse: collapse; margin: 2mm 0 5mm; font-size: 8.5pt; break-inside: auto; }
+th { text-align: left; font-weight: 600; color: var(--ink-3); font-size: 7.5pt; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--ink); padding: 1.5mm 2mm; }
+td { border-bottom: 1px solid var(--line); padding: 1.4mm 2mm; vertical-align: top; }
+tr { break-inside: avoid; }
+table.small td { font-size: 7.8pt; }
+table.narrow { width: auto; min-width: 80mm; }
+table.components td:nth-child(4) { font-size: 7.5pt; color: var(--ink-2); }
+table.components td:nth-child(5) { font-size: 7.5pt; color: var(--ink-2); }
+table.tokens { width: auto; min-width: 120mm; }
+.sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 5px; border: 1px solid rgba(0,0,0,.15); }
+figure { margin: 3mm 0 5mm; break-inside: avoid; text-align: center; }
+figure img { max-width: 100%; max-height: 225mm; border-radius: 6px; }
+figcaption { font-size: 8pt; color: var(--ink-3); margin-top: 1.5mm; }
+.missing { color: #d92d2d; }
+.cover { height: 297mm; background: var(--dark); color: #e7eaf2; padding: 26mm 20mm; display: flex; flex-direction: column; break-after: page; }
+.cover .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14pt; }
+.cover .logo { width: 30px; height: 30px; border-radius: 8px; background: #6c93ff; display: grid; place-items: center; }
+.cover .logo i { width: 12px; height: 12px; border-radius: 50%; border: 3px solid #0d1016; }
+.cover h1 { break-before: auto; font-size: 34pt; margin: 30mm 0 4mm; color: #fff; }
+.cover .sub { font-size: 13pt; color: #9aa3b6; max-width: 140mm; }
+.cover .hero { margin-top: auto; }
+.cover .hero img { width: 100%; border-radius: 8px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.cover .meta { margin-top: 8mm; font-size: 9pt; color: #8790a4; display: flex; justify-content: space-between; }
+.toc { columns: 2; column-gap: 10mm; font-size: 10pt; }
+.toc div { break-inside: avoid; padding: 1.2mm 0; border-bottom: 1px solid var(--line); }
+.toc b { color: var(--accent); display: inline-block; width: 8mm; }
+.cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4mm; margin: 3mm 0 6mm; }
+.card { background: var(--soft); border-radius: 8px; padding: 4mm; break-inside: avoid; }
+.card b { display: block; margin-bottom: 1mm; }
+.card span { font-size: 8.5pt; color: var(--ink-2); }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4mm; margin: 3mm 0 6mm; }
+.stat { border: 1px solid var(--line); border-radius: 8px; padding: 3mm 4mm; }
+.stat b { font-size: 18pt; display: block; color: var(--accent); }
+.stat span { font-size: 8pt; color: var(--ink-3); }
+.note { background: var(--accent-soft); border-left: 3px solid var(--accent); padding: 3mm 4mm; border-radius: 4px; margin: 3mm 0 5mm; font-size: 9pt; }
+.warn { background: #fff4e6; border-left-color: var(--orange); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; align-items: start; }
+.panel { break-inside: avoid; border-top: 1px solid var(--line); padding-top: 2mm; }
+.panel.wide { break-inside: auto; }
+.panel.wide p { font-size: 9pt; }
+.panel.wide img { max-height: 228mm; }
+.panel-row { display: grid; grid-template-columns: 70mm 1fr; gap: 6mm; align-items: start; }
+.panel-pic figure { margin: 0; }
+.panel-pic img { max-height: 150mm; }
+.panel-text p { font-size: 9pt; }
+.screen { break-inside: avoid; }
+.screen img { max-height: 120mm; }
+.menus { columns: 2; column-gap: 8mm; }
+.menu { break-inside: avoid; }
+.menu-table td { padding: 0.8mm 1.5mm; font-size: 7.8pt; }
+.menu-table th { padding: 1mm 1.5mm; }
+.tree { font-family: "Roboto Mono", Menlo, monospace; font-size: 8pt; background: var(--soft); padding: 4mm; border-radius: 6px; white-space: pre; line-height: 1.45; }
+.swatch-row { display: flex; gap: 3mm; flex-wrap: wrap; margin: 2mm 0 4mm; }

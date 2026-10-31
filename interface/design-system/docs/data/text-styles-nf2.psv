@@ -1,0 +1,12 @@
+# name|font|size|line-height|letter-spacing|case
+NF2/Heading|Inter Semi Bold|20|28px|0|ORIGINAL
+NF2/Title|Inter Semi Bold|16|24px|0|ORIGINAL
+NF2/Dialog Title|Inter Semi Bold|18|26px|0|ORIGINAL
+NF2/Dialog Body|Inter Regular|14|22px|0|ORIGINAL
+NF2/Body|Inter Regular|13|20px|0|ORIGINAL
+NF2/Body Strong|Inter Medium|13|20px|0|ORIGINAL
+NF2/Small|Inter Regular|12|16px|0|ORIGINAL
+NF2/Small Strong|Inter Medium|12|16px|0|ORIGINAL
+NF2/Overline|Inter Semi Bold|11|16px|6%|UPPER
+NF2/Mono|Roboto Mono Regular|12|20px|0|ORIGINAL
+NF2/Mono Small|Roboto Mono Regular|11|14px|0|ORIGINAL

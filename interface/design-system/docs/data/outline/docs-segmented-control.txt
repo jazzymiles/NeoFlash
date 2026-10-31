@@ -1,0 +1,10 @@
+F Shelf / Segmented control 700×178 [V gap 12]
+  T "Segmented control"
+  F NF2/Segment 660×62 [H gap 16]
+    F Selected=True 78×28 [H gap 0]
+      T "Segment"
+    F Selected=False 76×28 [H gap 0]
+      T "Segment"
+  F NF2/Segmented Control 162×34 [H gap 2]
+    I NF2/Segment {Label=Segment, Selected=True} 78×28 "Segment"
+    I NF2/Segment {Label=Segment, Selected=False} 76×28 "Segment"

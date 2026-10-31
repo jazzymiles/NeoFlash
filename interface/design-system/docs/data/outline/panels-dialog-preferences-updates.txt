@@ -1,0 +1,45 @@
+F Dialog / Preferences — Updates 920×484 [V gap 0]
+  I NF2/Dialog Header 918×60 "Preferences"
+  F Main 918×357 [H gap 0]
+    F Categories 220×308 [V gap 2]
+      I NF2/Tree Item {Label=General, Type=Symbol, Selected=False} 196×32 "General"
+      I NF2/Tree Item {Label=Code editor, Type=Symbol, Selected=False} 196×32 "Code editor"
+      I NF2/Tree Item {Label=Timeline, Type=Symbol, Selected=False} 196×32 "Timeline"
+      I NF2/Tree Item {Label=Drawing, Type=Symbol, Selected=False} 196×32 "Drawing"
+      I NF2/Tree Item {Label=Text, Type=Symbol, Selected=False} 196×32 "Text"
+      I NF2/Tree Item {Label=Clipboard, Type=Symbol, Selected=False} 196×32 "Clipboard"
+      I NF2/Tree Item {Label=Shortcuts, Type=Symbol, Selected=False} 196×32 "Shortcuts"
+      I NF2/Tree Item {Label=Publish, Type=Symbol, Selected=False} 196×32 "Publish"
+      I NF2/Tree Item {Label=Updates, Type=Symbol, Selected=True} 196×32 "Updates"
+    F Content 698×357 [V gap 16]
+      F Version 650×132 [V gap 10]
+        T "Version"
+        F Row 650×32 [H gap 8]
+          T "NeoFlash 2.0.0 · build 412 · up to date"
+          I NF2/Button {Icon=false, Label=Check now, Type=Secondary, State=Default} 96×32 "Check now"
+          I NF2/Button {Icon=false, Label=Release notes, Type=Ghost, State=Default} 112×32 "Release notes"
+        F Row 650×34 [H gap 8]
+          T "Channel"
+          F Segments 122×34 [H gap 2]
+            I NF2/Segment {Label=Stable, Selected=True} 63×28 "Stable"
+            I NF2/Segment {Label=Beta, Selected=False} 51×28 "Beta"
+        F Row 650×20 [H gap 8]
+          I NF2/Switch {Label=Check for updates automatically, On=True} 237×20 "Check for updates automatically"
+          I NF2/Switch {Label=Download in background, On=True} 191×20 "Download in background"
+      F Privacy 650×76 [V gap 10]
+        T "Privacy"
+        F Row 650×20 [H gap 8]
+          I NF2/Switch {Label=Send anonymous usage statistics, On=False} 244×20 "Send anonymous usage statistics"
+        F Row 650×20 [H gap 8]
+          I NF2/Switch {Label=Send crash reports, On=True} 156×20 "Send crash reports"
+      F Extensions 650×58 [V gap 10]
+        T "Extensions"
+        F Row 650×32 [H gap 8]
+          T "Installed"
+          T "3 extensions · 1 update available"
+          I NF2/Button {Icon=false, Label=Manage…, Type=Secondary, State=Default} 87×32 "Manage…"
+  F Row 918×65 [H gap 8]
+    I NF2/Button {Icon=false, Label=Reset to defaults, Type=Ghost, State=Default} 130×32 "Reset to defaults"
+    F Spacer 592×2
+    I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+    I NF2/Button {Icon=false, Label=Save, Type=Primary, State=Default} 55×32 "Save"

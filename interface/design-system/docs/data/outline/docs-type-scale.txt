@@ -1,0 +1,26 @@
+F Type scale 640×494 [V gap 14]
+  T "Typography — Inter"
+  F Sample 154×46 [V gap 2]
+    T "Ideas in motion"
+    T "Heading 20 / 28 · Semibold"
+  F Sample 144×42 [V gap 2]
+    T "Convert to Symbol"
+    T "Title 16 / 24 · Semibold"
+  F Sample 167×38 [V gap 2]
+    T "Test Movie"
+    T "Body strong 13 / 20 · Medium"
+  F Sample 293×38 [V gap 2]
+    T "Save changes to this project before continuing?"
+    T "Body 13 / 20 · Regular"
+  F Sample 167×34 [V gap 2]
+    T "Typography"
+    T "Small strong 12 / 16 · Medium"
+  F Sample 141×34 [V gap 2]
+    T "Ready · stage 960 × 600"
+    T "Small 12 / 16 · Regular"
+  F Sample 183×34 [V gap 2]
+    T "Playback"
+    T "Overline 11 / 16 · Semibold, caps"
+  F Sample 161×38 [V gap 2]
+    T "trace("NeoFlash");"
+    T "Mono 12 / 20 · Roboto Mono"

@@ -1,0 +1,8699 @@
+{
+ "generated": "2026-10-31T17:17:06.987Z",
+ "file": "Interface test",
+ "pages": [
+  {
+   "name": "v1 · Components",
+   "id": "1:2842",
+   "frames": [
+    {
+     "id": "1:2887",
+     "name": "Shelf / Icons · 16px",
+     "w": 560,
+     "h": 134
+    },
+    {
+     "id": "1:3094",
+     "name": "Shelf / Button · Text",
+     "w": 640,
+     "h": 132
+    },
+    {
+     "id": "1:3105",
+     "name": "Shelf / Button · Icon / Tool",
+     "w": 640,
+     "h": 170
+    },
+    {
+     "id": "1:3119",
+     "name": "Shelf / Checkbox",
+     "w": 640,
+     "h": 122
+    },
+    {
+     "id": "1:3130",
+     "name": "Shelf / Field · Text / Number / Select",
+     "w": 640,
+     "h": 212
+    },
+    {
+     "id": "1:3145",
+     "name": "Shelf / Slider",
+     "w": 640,
+     "h": 90
+    },
+    {
+     "id": "1:3151",
+     "name": "Shelf / Panel tab / header",
+     "w": 640,
+     "h": 174
+    },
+    {
+     "id": "1:3168",
+     "name": "Shelf / Section header",
+     "w": 640,
+     "h": 176
+    },
+    {
+     "id": "1:3179",
+     "name": "Shelf / Library tree item",
+     "w": 640,
+     "h": 264
+    },
+    {
+     "id": "1:3204",
+     "name": "Shelf / Timeline layer row",
+     "w": 640,
+     "h": 128
+    },
+    {
+     "id": "1:3229",
+     "name": "Shelf / Swatch · Registration cell · Scrollbar",
+     "w": 640,
+     "h": 190
+    },
+    {
+     "id": "1:3240",
+     "name": "Shelf / Menu item · Dialog header",
+     "w": 640,
+     "h": 248
+    },
+    {
+     "id": "1:3249",
+     "name": "Shelf / Code editor (Actions)",
+     "w": 640,
+     "h": 290
+    },
+    {
+     "id": "1:3254",
+     "name": "Shelf / Timeline · Frame cell / Row / Ruler / Playhead",
+     "w": 1760,
+     "h": 466
+    }
+   ]
+  },
+  {
+   "name": "v1 · Interface",
+   "id": "1:2843",
+   "frames": [
+    {
+     "id": "1:3542",
+     "name": "NF1 / Editor — Main window",
+     "w": 2560,
+     "h": 1440
+    },
+    {
+     "id": "1:4767",
+     "name": "NF1 / Panel — Actions",
+     "w": 645,
+     "h": 494
+    },
+    {
+     "id": "1:4805",
+     "name": "NF1 / Editor — Unsaved changes dialog",
+     "w": 2560,
+     "h": 1440
+    },
+    {
+     "id": "1:5078",
+     "name": "NF1 / Editor — Convert to Symbol dialog",
+     "w": 2560,
+     "h": 1440
+    }
+   ]
+  },
+  {
+   "name": "Audit · v1 → v2",
+   "id": "1:2844",
+   "frames": [
+    {
+     "id": "1:7272",
+     "name": "Audit / v1 → v2",
+     "w": 2560,
+     "h": 2345
+    },
+    {
+     "id": "61:1026",
+     "name": "Functional coverage — v2",
+     "w": 1800,
+     "h": 1992
+    }
+   ]
+  },
+  {
+   "name": "v2 · System & Components",
+   "id": "1:2845",
+   "frames": [
+    {
+     "id": "1:8742",
+     "name": "Colors / Dark",
+     "w": 700,
+     "h": 1766
+    },
+    {
+     "id": "1:8887",
+     "name": "Colors / Light",
+     "w": 700,
+     "h": 1766
+    },
+    {
+     "id": "1:9032",
+     "name": "Type scale",
+     "w": 640,
+     "h": 494
+    },
+    {
+     "id": "1:9058",
+     "name": "Spacing and radius",
+     "w": 640,
+     "h": 234
+    },
+    {
+     "id": "1:9092",
+     "name": "Shelf / Icons · 16 and 20 px",
+     "w": 700,
+     "h": 178
+    },
+    {
+     "id": "1:9503",
+     "name": "Shelf / Button",
+     "w": 700,
+     "h": 184
+    },
+    {
+     "id": "1:9566",
+     "name": "Shelf / Icon button",
+     "w": 700,
+     "h": 144
+    },
+    {
+     "id": "1:9605",
+     "name": "Shelf / Segmented control",
+     "w": 700,
+     "h": 178
+    },
+    {
+     "id": "1:9617",
+     "name": "Shelf / Field · Search · Select",
+     "w": 700,
+     "h": 388
+    },
+    {
+     "id": "1:9658",
+     "name": "Shelf / Checkbox · Slider · Swatch · Badge",
+     "w": 700,
+     "h": 332
+    },
+    {
+     "id": "1:9690",
+     "name": "Shelf / Dock tab · Section header · Panel header",
+     "w": 700,
+     "h": 274
+    },
+    {
+     "id": "1:9726",
+     "name": "Shelf / Tree item",
+     "w": 700,
+     "h": 232
+    },
+    {
+     "id": "1:9778",
+     "name": "Shelf / Kbd · Tooltip · Dialog header · Zoom control · Logo",
+     "w": 700,
+     "h": 298
+    },
+    {
+     "id": "1:9816",
+     "name": "Shelf / Code editor",
+     "w": 700,
+     "h": 270
+    },
+    {
+     "id": "8:94",
+     "name": "Shelf / Timeline 2.0 — layers",
+     "w": 974,
+     "h": 518
+    },
+    {
+     "id": "9:175",
+     "name": "Shelf / Timeline 2.0 — frames",
+     "w": 1530,
+     "h": 1129
+    },
+    {
+     "id": "17:177",
+     "name": "Shelf / Panels & Tools — icons",
+     "w": 948,
+     "h": 289
+    },
+    {
+     "id": "19:171",
+     "name": "Shelf / Panels & Tools — components",
+     "w": 688,
+     "h": 1985
+    },
+    {
+     "id": "30:429",
+     "name": "Shelf / Rulers, guides, grid",
+     "w": 1688,
+     "h": 2695
+    },
+    {
+     "id": "31:502",
+     "name": "Shelf / Quick colours & easing",
+     "w": 1148,
+     "h": 1050
+    },
+    {
+     "id": "39:654",
+     "name": "Shelf / Inputs, menus, breadcrumb",
+     "w": 748,
+     "h": 760
+    },
+    {
+     "id": "40:685",
+     "name": "Shelf / Canvas editing chrome",
+     "w": 1048,
+     "h": 1436
+    },
+    {
+     "id": "51:708",
+     "name": "Shelf / Cursors",
+     "w": 1148,
+     "h": 437
+    },
+    {
+     "id": "53:714",
+     "name": "Shelf / Technical",
+     "w": 868,
+     "h": 1370
+    }
+   ]
+  },
+  {
+   "name": "Icons",
+   "id": "35:31",
+   "frames": [
+    {
+     "id": "71:1407",
+     "name": "v2 · NF2 icons",
+     "w": 1960,
+     "h": 5948
+    },
+    {
+     "id": "71:4069",
+     "name": "v1 · NF1 icons (as built)",
+     "w": 1960,
+     "h": 1168
+    }
+   ]
+  },
+  {
+   "name": "v2 · Panels",
+   "id": "22:31",
+   "frames": [
+    {
+     "id": "22:431",
+     "name": "Panels — Dark",
+     "w": 16648,
+     "h": 3636
+    },
+    {
+     "id": "44:5714",
+     "name": "Menus — Dark",
+     "w": 1438,
+     "h": 2054
+    },
+    {
+     "id": "45:6580",
+     "name": "Preferences",
+     "w": 1880,
+     "h": 3034
+    },
+    {
+     "id": "55:6837",
+     "name": "Timeline frame views — Dark",
+     "w": 1250,
+     "h": 1348
+    },
+    {
+     "id": "60:10332",
+     "name": "Menus — Light",
+     "w": 1438,
+     "h": 2054
+    },
+    {
+     "id": "60:10559",
+     "name": "Preferences — Light",
+     "w": 1880,
+     "h": 3034
+    },
+    {
+     "id": "60:11121",
+     "name": "Timeline frame views — Light",
+     "w": 1250,
+     "h": 1348
+    },
+    {
+     "id": "69:15209",
+     "name": "Panels — Light",
+     "w": 16648,
+     "h": 3636
+    }
+   ]
+  },
+  {
+   "name": "v2 · Interface — Dark",
+   "id": "1:2846",
+   "frames": [
+    {
+     "id": "1:10114",
+     "name": "NF2 / Editor — Main",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "1:11378",
+     "name": "NF2 / Editor — Actions tab",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "1:11790",
+     "name": "NF2 / Editor — Unsaved changes dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "1:12024",
+     "name": "NF2 / Editor — Convert to Symbol dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "12:11901",
+     "name": "NF2 / Timeline — states legend",
+     "w": 1320,
+     "h": 804
+    },
+    {
+     "id": "33:26705",
+     "name": "NF2 / Editor — View settings open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "33:27679",
+     "name": "NF2 / Editor — Swatches open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "33:31667",
+     "name": "NF2 / Editor — Ease panel open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "46:36610",
+     "name": "NF2 / Editor — Edit menu open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "47:34191",
+     "name": "NF2 / Editor — Editing symbol in place",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "59:46641",
+     "name": "NF2 / Editor — Video on timeline",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "67:51373",
+     "name": "NF2 / Editor — Motion tween path",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "67:55259",
+     "name": "Frame 30",
+     "w": 0,
+     "h": 0
+    }
+   ]
+  },
+  {
+   "name": "v2 · Interface — Light",
+   "id": "59:50907",
+   "frames": [
+    {
+     "id": "59:50910",
+     "name": "NF2 / Editor — Main",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "59:51153",
+     "name": "NF2 / Editor — Actions tab",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "59:51375",
+     "name": "NF2 / Editor — Unsaved changes dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "59:51632",
+     "name": "NF2 / Editor — Convert to Symbol dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "59:51899",
+     "name": "NF2 / Timeline — states legend",
+     "w": 1320,
+     "h": 804
+    },
+    {
+     "id": "59:52051",
+     "name": "NF2 / Editor — View settings open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "59:52295",
+     "name": "NF2 / Editor — Swatches open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "59:52540",
+     "name": "NF2 / Editor — Ease panel open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "59:52828",
+     "name": "NF2 / Editor — Edit menu open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "59:53105",
+     "name": "NF2 / Editor — Editing symbol in place",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "59:53374",
+     "name": "NF2 / Editor — Video on timeline",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "67:55347",
+     "name": "NF2 / Editor — Motion tween path",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  }
+ ],
+ "collections": [
+  {
+   "name": "NF1 · Tokens",
+   "id": "VariableCollectionId:1:2847",
+   "modes": [
+    "Light"
+   ],
+   "variables": [
+    {
+     "name": "color/bg/panel",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#f0f1f4"
+     }
+    },
+    {
+     "name": "color/bg/header",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#eaecf1"
+     }
+    },
+    {
+     "name": "color/bg/canvas",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#c3c6d0"
+     }
+    },
+    {
+     "name": "color/bg/stage",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#131824"
+     }
+    },
+    {
+     "name": "color/bg/field",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#ffffff"
+     }
+    },
+    {
+     "name": "color/bg/field-number",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#e7eaf2"
+     }
+    },
+    {
+     "name": "color/bg/selected",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#d7e3f8"
+     }
+    },
+    {
+     "name": "color/bg/row-selected",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#dde2ee"
+     }
+    },
+    {
+     "name": "color/bg/dialog-header",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#dde1ea"
+     }
+    },
+    {
+     "name": "color/bg/shaded",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#e3e6ee"
+     }
+    },
+    {
+     "name": "color/border/default",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#b4baca"
+     }
+    },
+    {
+     "name": "color/border/strong",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#6d7690"
+     }
+    },
+    {
+     "name": "color/border/field",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#8890a5"
+     }
+    },
+    {
+     "name": "color/border/cell",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#cbcfd9"
+     }
+    },
+    {
+     "name": "color/accent/primary",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#2b4a98"
+     }
+    },
+    {
+     "name": "color/accent/selected-border",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#7e9bd6"
+     }
+    },
+    {
+     "name": "color/text/primary",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#1f2533"
+     }
+    },
+    {
+     "name": "color/text/muted",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#666d80"
+     }
+    },
+    {
+     "name": "color/text/disabled",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#9ca2b0"
+     }
+    },
+    {
+     "name": "color/text/on-dark",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#ffffff"
+     }
+    },
+    {
+     "name": "color/layer/green",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#3daa78"
+     }
+    },
+    {
+     "name": "color/layer/red",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#da5a57"
+     }
+    },
+    {
+     "name": "color/layer/blue",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#4c8fe3"
+     }
+    },
+    {
+     "name": "color/timeline/playhead",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#d3303a"
+     }
+    },
+    {
+     "name": "color/scrollbar",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#5e6579"
+     }
+    },
+    {
+     "name": "color/overlay",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": "#00000073"
+     }
+    },
+    {
+     "name": "radius/sm",
+     "type": "FLOAT",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": 3
+     }
+    },
+    {
+     "name": "radius/md",
+     "type": "FLOAT",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Light": 4
+     }
+    }
+   ]
+  },
+  {
+   "name": "NF2 · Tokens",
+   "id": "VariableCollectionId:1:8678",
+   "modes": [
+    "Dark",
+    "Light"
+   ],
+   "variables": [
+    {
+     "name": "color/bg/app",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#0d1016",
+      "Light": "#eef0f5"
+     }
+    },
+    {
+     "name": "color/bg/panel",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#12151c",
+      "Light": "#f6f7fa"
+     }
+    },
+    {
+     "name": "color/bg/raised",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#171b24",
+      "Light": "#ffffff"
+     }
+    },
+    {
+     "name": "color/bg/field",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#0d1016",
+      "Light": "#ffffff"
+     }
+    },
+    {
+     "name": "color/bg/hover",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#1e2330",
+      "Light": "#e9ecf3"
+     }
+    },
+    {
+     "name": "color/bg/selected",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#1f2a48",
+      "Light": "#e3ebff"
+     }
+    },
+    {
+     "name": "color/bg/canvas",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#0a0c11",
+      "Light": "#dadde6"
+     }
+    },
+    {
+     "name": "color/bg/stage",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#131824",
+      "Light": "#131824"
+     }
+    },
+    {
+     "name": "color/border/subtle",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#232938",
+      "Light": "#e1e4ec"
+     }
+    },
+    {
+     "name": "color/border/default",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#2e3547",
+      "Light": "#cfd4e0"
+     }
+    },
+    {
+     "name": "color/border/strong",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#444d63",
+      "Light": "#a9b0c2"
+     }
+    },
+    {
+     "name": "color/border/focus",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#6c93ff",
+      "Light": "#3c6bf0"
+     }
+    },
+    {
+     "name": "color/text/primary",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#e7eaf2",
+      "Light": "#171b26"
+     }
+    },
+    {
+     "name": "color/text/secondary",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#9aa3b6",
+      "Light": "#5b6477"
+     }
+    },
+    {
+     "name": "color/text/tertiary",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#8790a4",
+      "Light": "#667086"
+     }
+    },
+    {
+     "name": "color/text/disabled",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#566073",
+      "Light": "#a2a9b8"
+     }
+    },
+    {
+     "name": "color/text/on-accent",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#0b1020",
+      "Light": "#ffffff"
+     }
+    },
+    {
+     "name": "color/text/inverse",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#0d1016",
+      "Light": "#f6f7fa"
+     }
+    },
+    {
+     "name": "color/accent/default",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#6c93ff",
+      "Light": "#3c6bf0"
+     }
+    },
+    {
+     "name": "color/accent/hover",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#86a5ff",
+      "Light": "#2f59d6"
+     }
+    },
+    {
+     "name": "color/accent/subtle",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#1f2a48",
+      "Light": "#e3ebff"
+     }
+    },
+    {
+     "name": "color/brand/orange",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#ff9a5c",
+      "Light": "#e8731f"
+     }
+    },
+    {
+     "name": "color/danger/default",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#ff6b6b",
+      "Light": "#d92d2d"
+     }
+    },
+    {
+     "name": "color/danger/subtle",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#3a1d22",
+      "Light": "#fde8e8"
+     }
+    },
+    {
+     "name": "color/success/default",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#3dd68c",
+      "Light": "#168a57"
+     }
+    },
+    {
+     "name": "color/warning/default",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#f5b94a",
+      "Light": "#b26a00"
+     }
+    },
+    {
+     "name": "color/warning/subtle",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#38300f",
+      "Light": "#fef3d6"
+     }
+    },
+    {
+     "name": "color/layer/green",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#3dd68c",
+      "Light": "#168a57"
+     }
+    },
+    {
+     "name": "color/layer/red",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#ff6b6b",
+      "Light": "#d92d2d"
+     }
+    },
+    {
+     "name": "color/layer/blue",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#6c93ff",
+      "Light": "#3c6bf0"
+     }
+    },
+    {
+     "name": "color/timeline/cell",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#12151c",
+      "Light": "#ffffff"
+     }
+    },
+    {
+     "name": "color/timeline/cell-alt",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#151922",
+      "Light": "#f6f7fa"
+     }
+    },
+    {
+     "name": "color/timeline/line",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#1c2130",
+      "Light": "#e8ebf2"
+     }
+    },
+    {
+     "name": "color/timeline/row-selected",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#1a2236",
+      "Light": "#e8eeff"
+     }
+    },
+    {
+     "name": "color/timeline/playhead",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#ff5c6c",
+      "Light": "#e5334a"
+     }
+    },
+    {
+     "name": "color/syntax/function",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#8aadf4",
+      "Light": "#2f5bd8"
+     }
+    },
+    {
+     "name": "color/syntax/string",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#a6da95",
+      "Light": "#3d7a2a"
+     }
+    },
+    {
+     "name": "color/overlay",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#05070bb3",
+      "Light": "#10131a66"
+     }
+    },
+    {
+     "name": "color/tooltip/bg",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": "#e7eaf2",
+      "Light": "#171b26"
+     }
+    },
+    {
+     "name": "space/1",
+     "type": "FLOAT",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": 4,
+      "Light": 4
+     }
+    },
+    {
+     "name": "space/2",
+     "type": "FLOAT",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": 8,
+      "Light": 8
+     }
+    },
+    {
+     "name": "space/3",
+     "type": "FLOAT",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": 12,
+      "Light": 12
+     }
+    },
+    {
+     "name": "space/4",
+     "type": "FLOAT",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": 16,
+      "Light": 16
+     }
+    },
+    {
+     "name": "space/5",
+     "type": "FLOAT",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": 24,
+      "Light": 24
+     }
+    },
+    {
+     "name": "space/6",
+     "type": "FLOAT",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": 32,
+      "Light": 32
+     }
+    },
+    {
+     "name": "radius/sm",
+     "type": "FLOAT",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": 4,
+      "Light": 4
+     }
+    },
+    {
+     "name": "radius/md",
+     "type": "FLOAT",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": 6,
+      "Light": 6
+     }
+    },
+    {
+     "name": "radius/lg",
+     "type": "FLOAT",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": 8,
+      "Light": 8
+     }
+    },
+    {
+     "name": "radius/xl",
+     "type": "FLOAT",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": 12,
+      "Light": 12
+     }
+    },
+    {
+     "name": "radius/full",
+     "type": "FLOAT",
+     "description": "",
+     "scopes": [
+      "ALL_SCOPES"
+     ],
+     "values": {
+      "Dark": 999,
+      "Light": 999
+     }
+    },
+    {
+     "name": "color/timeline/empty",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#141820",
+      "Light": "#ffffff"
+     }
+    },
+    {
+     "name": "color/timeline/empty-5th",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#181d26",
+      "Light": "#edf0f5"
+     }
+    },
+    {
+     "name": "color/timeline/grid",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#222833",
+      "Light": "#d5dae4"
+     }
+    },
+    {
+     "name": "color/timeline/static",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#363d4b",
+      "Light": "#cbd0da"
+     }
+    },
+    {
+     "name": "color/timeline/classic-tween",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#4b3f92",
+      "Light": "#d9d2ff"
+     }
+    },
+    {
+     "name": "color/timeline/shape-tween",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#1d6a4c",
+      "Light": "#c8eed6"
+     }
+    },
+    {
+     "name": "color/timeline/motion-tween",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#2a5b9e",
+      "Light": "#cde0ff"
+     }
+    },
+    {
+     "name": "color/timeline/selected",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#3550b8",
+      "Light": "#3c6bf0"
+     }
+    },
+    {
+     "name": "color/timeline/marker",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#d9dee8",
+      "Light": "#171b26"
+     }
+    },
+    {
+     "name": "color/timeline/marker-inverse",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#ffffff",
+      "Light": "#ffffff"
+     }
+    },
+    {
+     "name": "color/timeline/label",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#ff6b6b",
+      "Light": "#d92d2d"
+     }
+    },
+    {
+     "name": "color/timeline/comment",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#3dd68c",
+      "Light": "#168a57"
+     }
+    },
+    {
+     "name": "color/timeline/folder",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#171b23",
+      "Light": "#e6e9f0"
+     }
+    },
+    {
+     "name": "color/timeline/onion",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#6c93ff",
+      "Light": "#3c6bf0"
+     }
+    },
+    {
+     "name": "color/syntax/keyword",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#c6a0f6",
+      "Light": "#7e3fc2"
+     }
+    },
+    {
+     "name": "color/syntax/type",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#8bd5ca",
+      "Light": "#0b7f72"
+     }
+    },
+    {
+     "name": "color/syntax/comment",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#6e7891",
+      "Light": "#8a93a6"
+     }
+    },
+    {
+     "name": "color/syntax/number",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#f5a97f",
+      "Light": "#b5521b"
+     }
+    },
+    {
+     "name": "color/syntax/tag",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#7dc4e4",
+      "Light": "#0b6e99"
+     }
+    },
+    {
+     "name": "color/syntax/attr",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#eed49f",
+      "Light": "#8a6500"
+     }
+    },
+    {
+     "name": "color/guide",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#2ec4e6",
+      "Light": "#0b93bf"
+     }
+    },
+    {
+     "name": "color/guide-selected",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#8be7fb",
+      "Light": "#05698a"
+     }
+    },
+    {
+     "name": "color/stage-grid",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#ffffff",
+      "Light": "#1b2233"
+     }
+    },
+    {
+     "name": "color/syntax/error",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#ff6b6b",
+      "Light": "#d92d2d"
+     }
+    },
+    {
+     "name": "color/syntax/warning",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#f5b94a",
+      "Light": "#b26a00"
+     }
+    },
+    {
+     "name": "color/syntax/breakpoint",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#ff9a5c",
+      "Light": "#e8731f"
+     }
+    },
+    {
+     "name": "color/syntax/selection",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#2a3a63",
+      "Light": "#d5e2ff"
+     }
+    },
+    {
+     "name": "color/syntax/current-line",
+     "type": "COLOR",
+     "description": "",
+     "scopes": [
+      "ALL_FILLS",
+      "STROKE_COLOR"
+     ],
+     "values": {
+      "Dark": "#171c27",
+      "Light": "#f2f5fb"
+     }
+    }
+   ]
+  }
+ ],
+ "textStyles": [
+  {
+   "name": "NF1/Label",
+   "family": "Inter",
+   "style": "Regular",
+   "size": 14,
+   "lineHeight": "18px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF1/Label Small",
+   "family": "Inter",
+   "style": "Regular",
+   "size": 12,
+   "lineHeight": "16px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF1/Caption",
+   "family": "Inter",
+   "style": "Regular",
+   "size": 12,
+   "lineHeight": "14px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF1/Caps",
+   "family": "Inter",
+   "style": "Regular",
+   "size": 11,
+   "lineHeight": "14px",
+   "letterSpacing": "4%",
+   "textCase": "UPPER",
+   "description": ""
+  },
+  {
+   "name": "NF1/Dialog Title",
+   "family": "Inter",
+   "style": "Regular",
+   "size": 16,
+   "lineHeight": "20px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF1/Dialog Body",
+   "family": "Inter",
+   "style": "Regular",
+   "size": 16,
+   "lineHeight": "22px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF1/Code",
+   "family": "Roboto Mono",
+   "style": "Regular",
+   "size": 14,
+   "lineHeight": "20px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF1/Ruler",
+   "family": "Inter",
+   "style": "Regular",
+   "size": 11,
+   "lineHeight": "12px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF1/Output",
+   "family": "Roboto Mono",
+   "style": "Regular",
+   "size": 13,
+   "lineHeight": "18px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF2/Heading",
+   "family": "Inter",
+   "style": "Semi Bold",
+   "size": 20,
+   "lineHeight": "28px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF2/Title",
+   "family": "Inter",
+   "style": "Semi Bold",
+   "size": 16,
+   "lineHeight": "24px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF2/Body",
+   "family": "Inter",
+   "style": "Regular",
+   "size": 13,
+   "lineHeight": "20px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF2/Body Strong",
+   "family": "Inter",
+   "style": "Medium",
+   "size": 13,
+   "lineHeight": "20px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF2/Small",
+   "family": "Inter",
+   "style": "Regular",
+   "size": 12,
+   "lineHeight": "16px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF2/Small Strong",
+   "family": "Inter",
+   "style": "Medium",
+   "size": 12,
+   "lineHeight": "16px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF2/Overline",
+   "family": "Inter",
+   "style": "Semi Bold",
+   "size": 11,
+   "lineHeight": "16px",
+   "letterSpacing": "6%",
+   "textCase": "UPPER",
+   "description": ""
+  },
+  {
+   "name": "NF2/Mono",
+   "family": "Roboto Mono",
+   "style": "Regular",
+   "size": 12,
+   "lineHeight": "20px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF2/Mono Small",
+   "family": "Roboto Mono",
+   "style": "Regular",
+   "size": 11,
+   "lineHeight": "14px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF2/Dialog Title",
+   "family": "Inter",
+   "style": "Semi Bold",
+   "size": 18,
+   "lineHeight": "26px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
+   "name": "NF2/Dialog Body",
+   "family": "Inter",
+   "style": "Regular",
+   "size": 14,
+   "lineHeight": "22px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  }
+ ],
+ "components": {
+  "v1 · Components": [
+   {
+    "name": "NF1 Icon/16/select",
+    "id": "1:2892",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/subselect",
+    "id": "1:2895",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/transform",
+    "id": "1:2902",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/lasso",
+    "id": "1:2906",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/pen",
+    "id": "1:2911",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/text",
+    "id": "1:2914",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/line",
+    "id": "1:2917",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/rect",
+    "id": "1:2920",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/oval",
+    "id": "1:2923",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/pencil",
+    "id": "1:2926",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/brush",
+    "id": "1:2930",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/stamp",
+    "id": "1:2933",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/bucket",
+    "id": "1:2937",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/eyedropper",
+    "id": "1:2941",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/eraser",
+    "id": "1:2944",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/gradient",
+    "id": "1:2947",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/hand",
+    "id": "1:2950",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/zoomin",
+    "id": "1:2954",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/zoomout",
+    "id": "1:2958",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/fit",
+    "id": "1:2961",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/lock",
+    "id": "1:2965",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/unlock",
+    "id": "1:2969",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/eye",
+    "id": "1:2973",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/eyeoff",
+    "id": "1:2977",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/layers",
+    "id": "1:2980",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/play",
+    "id": "1:2983",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/pause",
+    "id": "1:2987",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/first",
+    "id": "1:2991",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/last",
+    "id": "1:2995",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/stepback",
+    "id": "1:2998",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/stepfwd",
+    "id": "1:3001",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/plus",
+    "id": "1:3004",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/minus",
+    "id": "1:3007",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/trash",
+    "id": "1:3010",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/tridown",
+    "id": "1:3013",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/triright",
+    "id": "1:3016",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/folder",
+    "id": "1:3019",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/symbol",
+    "id": "1:3023",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/grip",
+    "id": "1:3028",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/external",
+    "id": "1:3031",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/check",
+    "id": "1:3034",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/chevdown",
+    "id": "1:3037",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/chevright",
+    "id": "1:3040",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/chevup",
+    "id": "1:3043",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/search",
+    "id": "1:3047",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/x",
+    "id": "1:3050",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/more",
+    "id": "1:3055",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/onion",
+    "id": "1:3059",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/code",
+    "id": "1:3062",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/terminal",
+    "id": "1:3066",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/access",
+    "id": "1:3070",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/upload",
+    "id": "1:3073",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/link",
+    "id": "1:3076",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/loop",
+    "id": "1:3079",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/film",
+    "id": "1:3083",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/save",
+    "id": "1:3086",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/undo",
+    "id": "1:3089",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1 Icon/16/settings",
+    "id": "1:3093",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1/Button/Text",
+    "id": "1:3104",
+    "kind": "set",
+    "variants": 4,
+    "w": 74,
+    "h": 28,
+    "shelf": "Shelf / Button · Text",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Button"
+     },
+     {
+      "name": "Style",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Accent",
+       "Pressed",
+       "Disabled"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF1/Button/Icon",
+    "id": "1:3116",
+    "kind": "set",
+    "variants": 3,
+    "w": 28,
+    "h": 28,
+    "shelf": "Shelf / Button · Icon / Tool",
+    "description": "",
+    "properties": [
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Selected",
+       "Active"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF1/Button/Overflow",
+    "id": "1:3117",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 26,
+    "shelf": "Shelf / Button · Icon / Tool",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1/Checkbox",
+    "id": "1:3129",
+    "kind": "set",
+    "variants": 2,
+    "w": 92,
+    "h": 18,
+    "shelf": "Shelf / Checkbox",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Checkbox"
+     },
+     {
+      "name": "Checked",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF1/Field",
+    "id": "1:3140",
+    "kind": "set",
+    "variants": 4,
+    "w": 150,
+    "h": 26,
+    "shelf": "Shelf / Field · Text / Number / Select",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Value"
+     },
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Text",
+      "options": [
+       "Text",
+       "Placeholder",
+       "Number",
+       "Focus"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF1/Select",
+    "id": "1:3141",
+    "kind": "component",
+    "variants": 1,
+    "w": 220,
+    "h": 28,
+    "shelf": "Shelf / Field · Text / Number / Select",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1/Slider",
+    "id": "1:3147",
+    "kind": "component",
+    "variants": 1,
+    "w": 100,
+    "h": 20,
+    "shelf": "Shelf / Slider",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1/Panel Tab",
+    "id": "1:3157",
+    "kind": "set",
+    "variants": 2,
+    "w": 82,
+    "h": 28,
+    "shelf": "Shelf / Panel tab / header",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Timeline"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Active",
+      "options": [
+       "Active",
+       "Inactive"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF1/Panel Header",
+    "id": "1:3158",
+    "kind": "component",
+    "variants": 1,
+    "w": 360,
+    "h": 30,
+    "shelf": "Shelf / Panel tab / header",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1/Section Header",
+    "id": "1:3178",
+    "kind": "set",
+    "variants": 2,
+    "w": 260,
+    "h": 28,
+    "shelf": "Shelf / Section header",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Section"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Expanded",
+      "options": [
+       "Expanded",
+       "Collapsed"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF1/Tree Item",
+    "id": "1:3203",
+    "kind": "set",
+    "variants": 4,
+    "w": 260,
+    "h": 28,
+    "shelf": "Shelf / Library tree item",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Item"
+     },
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Folder",
+      "options": [
+       "Folder",
+       "Folder Collapsed",
+       "Symbol"
+      ]
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF1/Layer Row",
+    "id": "1:3228",
+    "kind": "set",
+    "variants": 2,
+    "w": 212,
+    "h": 24,
+    "shelf": "Shelf / Timeline layer row",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Layer"
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF1/Swatch",
+    "id": "1:3231",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Swatch · Registration cell · Scrollbar",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1/Registration Cell",
+    "id": "1:3237",
+    "kind": "set",
+    "variants": 2,
+    "w": 30,
+    "h": 30,
+    "shelf": "Shelf / Swatch · Registration cell · Scrollbar",
+    "description": "",
+    "properties": [
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF1/Scrollbar/H",
+    "id": "1:3238",
+    "kind": "component",
+    "variants": 1,
+    "w": 300,
+    "h": 8,
+    "shelf": "Shelf / Swatch · Registration cell · Scrollbar",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1/Menu Item",
+    "id": "1:3242",
+    "kind": "component",
+    "variants": 1,
+    "w": 40,
+    "h": 28,
+    "shelf": "Shelf / Menu item · Dialog header",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1/Dialog Header",
+    "id": "1:3248",
+    "kind": "set",
+    "variants": 2,
+    "w": 480,
+    "h": 44,
+    "shelf": "Shelf / Menu item · Dialog header",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Title"
+     },
+     {
+      "name": "Style",
+      "type": "VARIANT",
+      "default": "Centered",
+      "options": [
+       "Centered",
+       "Plain"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF1/Code Editor",
+    "id": "1:3251",
+    "kind": "component",
+    "variants": 1,
+    "w": 560,
+    "h": 220,
+    "shelf": "Shelf / Code editor (Actions)",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1/Frame Cell",
+    "id": "1:3258",
+    "kind": "set",
+    "variants": 2,
+    "w": 13,
+    "h": 24,
+    "shelf": "Shelf / Timeline · Frame cell / Row / Ruler / Playhead",
+    "description": "",
+    "properties": [
+     {
+      "name": "Shaded",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF1/Frame Row",
+    "id": "1:3507",
+    "kind": "set",
+    "variants": 2,
+    "w": 1548,
+    "h": 24,
+    "shelf": "Shelf / Timeline · Frame cell / Row / Ruler / Playhead",
+    "description": "",
+    "properties": [
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF1/Ruler",
+    "id": "1:3508",
+    "kind": "component",
+    "variants": 1,
+    "w": 1588,
+    "h": 30,
+    "shelf": "Shelf / Timeline · Frame cell / Row / Ruler / Playhead",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF1/Playhead",
+    "id": "1:3537",
+    "kind": "component",
+    "variants": 1,
+    "w": 12,
+    "h": 174,
+    "shelf": "Shelf / Timeline · Frame cell / Row / Ruler / Playhead",
+    "description": "",
+    "properties": []
+   }
+  ],
+  "v2 · System & Components": [
+   {
+    "name": "NF2 Icon/16/select",
+    "id": "1:9097",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/subselect",
+    "id": "1:9100",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/transform",
+    "id": "1:9107",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/lasso",
+    "id": "1:9111",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/pen",
+    "id": "1:9116",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/text",
+    "id": "1:9119",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/line",
+    "id": "1:9122",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/rect",
+    "id": "1:9125",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/oval",
+    "id": "1:9128",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/pencil",
+    "id": "1:9131",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/brush",
+    "id": "1:9135",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/stamp",
+    "id": "1:9138",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/bucket",
+    "id": "1:9142",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/eyedropper",
+    "id": "1:9146",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/eraser",
+    "id": "1:9149",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/gradient",
+    "id": "1:9152",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/hand",
+    "id": "1:9155",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/zoomin",
+    "id": "1:9159",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/zoomout",
+    "id": "1:9163",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/fit",
+    "id": "1:9166",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/lock",
+    "id": "1:9170",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/unlock",
+    "id": "1:9174",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/eye",
+    "id": "1:9178",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/eyeoff",
+    "id": "1:9182",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/layers",
+    "id": "1:9185",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/play",
+    "id": "1:9188",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/pause",
+    "id": "1:9192",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/first",
+    "id": "1:9196",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/last",
+    "id": "1:9200",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/stepback",
+    "id": "1:9203",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/stepfwd",
+    "id": "1:9206",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/plus",
+    "id": "1:9209",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/minus",
+    "id": "1:9212",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/trash",
+    "id": "1:9215",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/tridown",
+    "id": "1:9218",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/triright",
+    "id": "1:9221",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/folder",
+    "id": "1:9224",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/symbol",
+    "id": "1:9228",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/grip",
+    "id": "1:9233",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/external",
+    "id": "1:9236",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/check",
+    "id": "1:9239",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/chevdown",
+    "id": "1:9242",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/chevright",
+    "id": "1:9245",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/chevup",
+    "id": "1:9248",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/search",
+    "id": "1:9252",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/x",
+    "id": "1:9255",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/more",
+    "id": "1:9260",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/onion",
+    "id": "1:9264",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/code",
+    "id": "1:9267",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/terminal",
+    "id": "1:9271",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/access",
+    "id": "1:9275",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/upload",
+    "id": "1:9278",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/link",
+    "id": "1:9281",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/loop",
+    "id": "1:9284",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/film",
+    "id": "1:9288",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/save",
+    "id": "1:9291",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/undo",
+    "id": "1:9294",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/settings",
+    "id": "1:9298",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/select",
+    "id": "1:9301",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/subselect",
+    "id": "1:9304",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/transform",
+    "id": "1:9311",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/lasso",
+    "id": "1:9315",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/pen",
+    "id": "1:9320",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/text",
+    "id": "1:9323",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/line",
+    "id": "1:9326",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/rect",
+    "id": "1:9329",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/oval",
+    "id": "1:9332",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/pencil",
+    "id": "1:9335",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/brush",
+    "id": "1:9339",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/stamp",
+    "id": "1:9342",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/bucket",
+    "id": "1:9346",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/eyedropper",
+    "id": "1:9350",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/eraser",
+    "id": "1:9353",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/gradient",
+    "id": "1:9356",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/hand",
+    "id": "1:9359",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/zoomin",
+    "id": "1:9363",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/zoomout",
+    "id": "1:9367",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/fit",
+    "id": "1:9370",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/lock",
+    "id": "1:9374",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/unlock",
+    "id": "1:9378",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/eye",
+    "id": "1:9382",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/eyeoff",
+    "id": "1:9386",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/layers",
+    "id": "1:9389",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/play",
+    "id": "1:9392",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/pause",
+    "id": "1:9396",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/first",
+    "id": "1:9400",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/last",
+    "id": "1:9404",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/stepback",
+    "id": "1:9407",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/stepfwd",
+    "id": "1:9410",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/plus",
+    "id": "1:9413",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/minus",
+    "id": "1:9416",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/trash",
+    "id": "1:9419",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tridown",
+    "id": "1:9422",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/triright",
+    "id": "1:9425",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/folder",
+    "id": "1:9428",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/symbol",
+    "id": "1:9432",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/grip",
+    "id": "1:9437",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/external",
+    "id": "1:9440",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/check",
+    "id": "1:9443",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/chevdown",
+    "id": "1:9446",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/chevright",
+    "id": "1:9449",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/chevup",
+    "id": "1:9452",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/search",
+    "id": "1:9456",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/x",
+    "id": "1:9459",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/more",
+    "id": "1:9464",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/onion",
+    "id": "1:9468",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/code",
+    "id": "1:9471",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/terminal",
+    "id": "1:9475",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/access",
+    "id": "1:9479",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/upload",
+    "id": "1:9482",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/link",
+    "id": "1:9485",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/loop",
+    "id": "1:9488",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/film",
+    "id": "1:9492",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/save",
+    "id": "1:9495",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/undo",
+    "id": "1:9498",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/settings",
+    "id": "1:9502",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/layer",
+    "id": "7:111",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/guide",
+    "id": "7:115",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/motionguide",
+    "id": "7:120",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/mask",
+    "id": "7:124",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/masked",
+    "id": "7:128",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/folderopen",
+    "id": "7:132",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/flag",
+    "id": "7:136",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/anchor",
+    "id": "7:140",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/onionoutline",
+    "id": "7:144",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/editmulti",
+    "id": "7:148",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/markers",
+    "id": "7:151",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/layerplus",
+    "id": "7:155",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/folderplus",
+    "id": "7:159",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/guideplus",
+    "id": "7:164",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/centerframe",
+    "id": "7:168",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Button",
+    "id": "1:9565",
+    "kind": "set",
+    "variants": 12,
+    "w": 66,
+    "h": 32,
+    "shelf": "Shelf / Button",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Button"
+     },
+     {
+      "name": "Icon",
+      "type": "BOOLEAN",
+      "default": false
+     },
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Primary",
+      "options": [
+       "Primary",
+       "Secondary",
+       "Ghost",
+       "Danger"
+      ]
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover",
+       "Disabled"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Icon Button",
+    "id": "1:9604",
+    "kind": "set",
+    "variants": 12,
+    "w": 32,
+    "h": 32,
+    "shelf": "Shelf / Icon button",
+    "description": "",
+    "properties": [
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Ghost",
+      "options": [
+       "Ghost",
+       "Selected",
+       "Primary"
+      ]
+     },
+     {
+      "name": "Size",
+      "type": "VARIANT",
+      "default": "SM",
+      "options": [
+       "SM",
+       "MD"
+      ]
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Segment",
+    "id": "1:9611",
+    "kind": "set",
+    "variants": 2,
+    "w": 78,
+    "h": 28,
+    "shelf": "Shelf / Segmented control",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Segment"
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Segmented Control",
+    "id": "1:9612",
+    "kind": "component",
+    "variants": 1,
+    "w": 162,
+    "h": 34,
+    "shelf": "Shelf / Segmented control",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Field",
+    "id": "1:9631",
+    "kind": "set",
+    "variants": 4,
+    "w": 160,
+    "h": 32,
+    "shelf": "Shelf / Field · Search · Select",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "960"
+     },
+     {
+      "name": "Prefix",
+      "type": "TEXT",
+      "default": "W"
+     },
+     {
+      "name": "Show prefix",
+      "type": "BOOLEAN",
+      "default": true
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover",
+       "Focus",
+       "Disabled"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Search",
+    "id": "1:9644",
+    "kind": "set",
+    "variants": 2,
+    "w": 240,
+    "h": 32,
+    "shelf": "Shelf / Field · Search · Select",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Search"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Empty",
+      "options": [
+       "Empty",
+       "Filled"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Select",
+    "id": "1:9657",
+    "kind": "set",
+    "variants": 3,
+    "w": 200,
+    "h": 32,
+    "shelf": "Shelf / Field · Search · Select",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Option"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover",
+       "Disabled"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Checkbox",
+    "id": "1:9668",
+    "kind": "set",
+    "variants": 2,
+    "w": 88,
+    "h": 20,
+    "shelf": "Shelf / Checkbox · Slider · Swatch · Badge",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Checkbox"
+     },
+     {
+      "name": "Checked",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Slider",
+    "id": "1:9669",
+    "kind": "component",
+    "variants": 1,
+    "w": 140,
+    "h": 20,
+    "shelf": "Shelf / Checkbox · Slider · Swatch · Badge",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Swatch",
+    "id": "1:9673",
+    "kind": "component",
+    "variants": 1,
+    "w": 22,
+    "h": 22,
+    "shelf": "Shelf / Checkbox · Slider · Swatch · Badge",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Registration Cell",
+    "id": "1:9679",
+    "kind": "set",
+    "variants": 2,
+    "w": 28,
+    "h": 28,
+    "shelf": "Shelf / Checkbox · Slider · Swatch · Badge",
+    "description": "",
+    "properties": [
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Badge",
+    "id": "1:9689",
+    "kind": "set",
+    "variants": 3,
+    "w": 65,
+    "h": 22,
+    "shelf": "Shelf / Checkbox · Slider · Swatch · Badge",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Badge"
+     },
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Neutral",
+      "options": [
+       "Neutral",
+       "Accent",
+       "Warning"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Dock Tab",
+    "id": "1:9707",
+    "kind": "set",
+    "variants": 3,
+    "w": 76,
+    "h": 40,
+    "shelf": "Shelf / Dock tab · Section header · Panel header",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Tab"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Active",
+      "options": [
+       "Active",
+       "Inactive",
+       "Hover"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Section Header",
+    "id": "1:9716",
+    "kind": "set",
+    "variants": 2,
+    "w": 288,
+    "h": 32,
+    "shelf": "Shelf / Dock tab · Section header · Panel header",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Section"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Expanded",
+      "options": [
+       "Expanded",
+       "Collapsed"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Panel Header",
+    "id": "1:9717",
+    "kind": "component",
+    "variants": 1,
+    "w": 320,
+    "h": 40,
+    "shelf": "Shelf / Dock tab · Section header · Panel header",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Tree Item",
+    "id": "1:9758",
+    "kind": "set",
+    "variants": 5,
+    "w": 288,
+    "h": 32,
+    "shelf": "Shelf / Tree item",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Item"
+     },
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Folder Open",
+      "options": [
+       "Folder Open",
+       "Folder Closed",
+       "Symbol"
+      ]
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Kbd",
+    "id": "1:9780",
+    "kind": "component",
+    "variants": 1,
+    "w": 28,
+    "h": 20,
+    "shelf": "Shelf / Kbd · Tooltip · Dialog header · Zoom control · Logo",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Tooltip",
+    "id": "1:9782",
+    "kind": "component",
+    "variants": 1,
+    "w": 99,
+    "h": 30,
+    "shelf": "Shelf / Kbd · Tooltip · Dialog header · Zoom control · Logo",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Dialog Header",
+    "id": "1:9786",
+    "kind": "component",
+    "variants": 1,
+    "w": 520,
+    "h": 60,
+    "shelf": "Shelf / Kbd · Tooltip · Dialog header · Zoom control · Logo",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Zoom Control",
+    "id": "1:9792",
+    "kind": "component",
+    "variants": 1,
+    "w": 365,
+    "h": 42,
+    "shelf": "Shelf / Kbd · Tooltip · Dialog header · Zoom control · Logo",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Logo",
+    "id": "1:9812",
+    "kind": "component",
+    "variants": 1,
+    "w": 28,
+    "h": 28,
+    "shelf": "Shelf / Kbd · Tooltip · Dialog header · Zoom control · Logo",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Code Editor",
+    "id": "1:9818",
+    "kind": "component",
+    "variants": 1,
+    "w": 640,
+    "h": 200,
+    "shelf": "Shelf / Code editor",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/TL Toggle",
+    "id": "8:111",
+    "kind": "set",
+    "variants": 6,
+    "w": 20,
+    "h": 28,
+    "shelf": "Shelf / Timeline 2.0 — layers",
+    "description": "Layer column toggle: Visibility (dot / red X), Lock (dot / lock), Outline (solid swatch / outline-only swatch, recolour Swatch per layer).",
+    "properties": [
+     {
+      "name": "Kind",
+      "type": "VARIANT",
+      "default": "Visibility",
+      "options": [
+       "Visibility",
+       "Lock",
+       "Outline"
+      ]
+     },
+     {
+      "name": "Value",
+      "type": "VARIANT",
+      "default": "Visible",
+      "options": [
+       "Visible",
+       "Hidden",
+       "Unlocked",
+       "Locked",
+       "Solid",
+       "Outline"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/TL Layer",
+    "id": "8:340",
+    "kind": "set",
+    "variants": 20,
+    "w": 280,
+    "h": 28,
+    "shelf": "Shelf / Timeline 2.0 — layers",
+    "description": "Timeline layer row. Type = Flash layer kinds (normal, masked, folder, guide, motion guide, mask). Indent 1/2 nest rows under folders, masks and motion guides. Editing shows the pencil on the current layer. Column toggles are nested NF2/TL Toggle instances: switch Value to hide / lock / outline the layer.",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Layer"
+     },
+     {
+      "name": "Indent 1",
+      "type": "BOOLEAN",
+      "default": false
+     },
+     {
+      "name": "Indent 2",
+      "type": "BOOLEAN",
+      "default": false
+     },
+     {
+      "name": "Editing",
+      "type": "BOOLEAN",
+      "default": false
+     },
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Layer",
+      "options": [
+       "Layer",
+       "Masked",
+       "Folder Open",
+       "Folder Closed",
+       "Guide",
+       "Motion Guide",
+       "Mask",
+       "Sound",
+       "Video",
+       "Armature"
+      ]
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/TL Layers Header",
+    "id": "8:341",
+    "kind": "component",
+    "variants": 1,
+    "w": 280,
+    "h": 32,
+    "shelf": "Shelf / Timeline 2.0 — layers",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/TL Grid",
+    "id": "9:325",
+    "kind": "set",
+    "variants": 2,
+    "w": 1440,
+    "h": 28,
+    "shelf": "Shelf / Timeline 2.0 — frames",
+    "description": "Empty-frame grid of one row: a cell per frame, every 5th frame shaded. Folder rows show a flat strip.",
+    "properties": [
+     {
+      "name": "Kind",
+      "type": "VARIANT",
+      "default": "Layer",
+      "options": [
+       "Layer",
+       "Folder"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/TL Grid Lines",
+    "id": "9:326",
+    "kind": "component",
+    "variants": 1,
+    "w": 1440,
+    "h": 28,
+    "shelf": "Shelf / Timeline 2.0 — frames",
+    "description": "Per-frame dividers drawn over spans, so filled frames stay countable.",
+    "properties": []
+   },
+   {
+    "name": "NF2/TL Span",
+    "id": "9:460",
+    "kind": "set",
+    "variants": 8,
+    "w": 120,
+    "h": 27,
+    "shelf": "Shelf / Timeline 2.0 — frames",
+    "description": "Frame span. Resize horizontally to frame count × 12 px. Static = frames holding content (grey), Classic / Shape tween = purple / green with arrow, Motion tween = blue (property keyframes as markers), Broken tween = dashed, Selected = frame selection.",
+    "properties": [
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Static",
+      "options": [
+       "Static",
+       "Classic Tween",
+       "Shape Tween",
+       "Motion Tween",
+       "Broken Tween",
+       "Selected",
+       "Sound",
+       "Video"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/TL Marker",
+    "id": "9:485",
+    "kind": "set",
+    "variants": 10,
+    "w": 12,
+    "h": 27,
+    "shelf": "Shelf / Timeline 2.0 — frames",
+    "description": "One-frame marker placed at x = (frame − 1) × 12. Keyframe ●, Blank keyframe ○, Span end ▯, Property keyframe ◆ (motion tween), Action keyframe (a over ●). Use Tone = On Selection over selected frames.",
+    "properties": [
+     {
+      "name": "Kind",
+      "type": "VARIANT",
+      "default": "Keyframe",
+      "options": [
+       "Keyframe",
+       "Blank Keyframe",
+       "Span End",
+       "Property Keyframe",
+       "Action Keyframe"
+      ]
+     },
+     {
+      "name": "Tone",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "On Selection"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/TL Frame Label",
+    "id": "9:499",
+    "kind": "set",
+    "variants": 3,
+    "w": 49,
+    "h": 27,
+    "shelf": "Shelf / Timeline 2.0 — frames",
+    "description": "Frame label (red flag), comment (green //) or anchor on a keyframe; sits on top of the span that starts at that keyframe.",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "intro"
+     },
+     {
+      "name": "Kind",
+      "type": "VARIANT",
+      "default": "Label",
+      "options": [
+       "Label",
+       "Comment",
+       "Anchor"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/TL Ruler",
+    "id": "9:500",
+    "kind": "component",
+    "variants": 1,
+    "w": 1440,
+    "h": 32,
+    "shelf": "Shelf / Timeline 2.0 — frames",
+    "description": "Two-row ruler at 24 fps: seconds on top, frame numbers + ticks below (12 px per frame).",
+    "properties": []
+   },
+   {
+    "name": "NF2/TL Onion Range",
+    "id": "9:647",
+    "kind": "component",
+    "variants": 1,
+    "w": 60,
+    "h": 24,
+    "shelf": "Shelf / Timeline 2.0 — frames",
+    "description": "Onion-skin range on the ruler: drag the handles to set frames before / after the playhead.",
+    "properties": []
+   },
+   {
+    "name": "NF2/TL Playhead",
+    "id": "9:651",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 480,
+    "shelf": "Shelf / Timeline 2.0 — frames",
+    "description": "Playhead: frame number on the frame row, current time (s) as a quiet chip on the seconds row; line through all layers.",
+    "properties": [
+     {
+      "name": "Frame",
+      "type": "TEXT",
+      "default": "1"
+     },
+     {
+      "name": "Time",
+      "type": "TEXT",
+      "default": "1.21s"
+     }
+    ]
+   },
+   {
+    "name": "NF2 Icon/20/tool-select",
+    "id": "17:183",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-subselect",
+    "id": "17:186",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-transform",
+    "id": "17:194",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-gradient",
+    "id": "17:200",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-lasso",
+    "id": "17:205",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-pen",
+    "id": "17:211",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-text",
+    "id": "17:214",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-line",
+    "id": "17:219",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-oval",
+    "id": "17:222",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-rect",
+    "id": "17:225",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-pencil",
+    "id": "17:229",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-brush",
+    "id": "17:233",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-ink",
+    "id": "17:238",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-bucket",
+    "id": "17:243",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-eyedropper",
+    "id": "17:247",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-eraser",
+    "id": "17:252",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-hand",
+    "id": "17:255",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-zoom",
+    "id": "17:259",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-snap",
+    "id": "17:263",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-smooth",
+    "id": "17:266",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-straighten",
+    "id": "17:269",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/color-default",
+    "id": "17:273",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/color-none",
+    "id": "17:277",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/color-swap",
+    "id": "17:281",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-rect-primitive",
+    "id": "62:747",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-oval-primitive",
+    "id": "62:752",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-polystar",
+    "id": "62:755",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-deco",
+    "id": "62:762",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-spray",
+    "id": "62:770",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-bone",
+    "id": "62:775",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-bind",
+    "id": "62:780",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/align-left",
+    "id": "17:286",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/align-hcenter",
+    "id": "17:291",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/align-right",
+    "id": "17:296",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/align-top",
+    "id": "17:301",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/align-vmiddle",
+    "id": "17:306",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/align-bottom",
+    "id": "17:311",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/dist-left",
+    "id": "17:317",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/dist-hcenter",
+    "id": "17:323",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/dist-right",
+    "id": "17:329",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/dist-top",
+    "id": "17:335",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/dist-vmiddle",
+    "id": "17:341",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/dist-bottom",
+    "id": "17:347",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/space-h",
+    "id": "17:352",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/space-v",
+    "id": "17:357",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/match-w",
+    "id": "17:361",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/match-h",
+    "id": "17:365",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/match-both",
+    "id": "17:369",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/to-stage",
+    "id": "17:373",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/rotate-cw",
+    "id": "17:377",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/rotate-ccw",
+    "id": "17:381",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/flip-h",
+    "id": "17:386",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/flip-v",
+    "id": "17:391",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/reset-transform",
+    "id": "17:396",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/skew",
+    "id": "17:399",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/angle",
+    "id": "17:403",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/scale",
+    "id": "17:407",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/talign-left",
+    "id": "17:410",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/talign-center",
+    "id": "17:413",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/talign-right",
+    "id": "17:416",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/talign-justify",
+    "id": "17:419",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/superscript",
+    "id": "17:423",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/subscript",
+    "id": "17:427",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/letter-spacing",
+    "id": "17:432",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/line-spacing",
+    "id": "17:436",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/indent",
+    "id": "17:440",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/margin-left",
+    "id": "17:444",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/margin-right",
+    "id": "17:448",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/selectable",
+    "id": "17:452",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/html",
+    "id": "17:455",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/text-border",
+    "id": "17:459",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/text-orientation",
+    "id": "17:463",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/embed",
+    "id": "17:466",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/flow-extend",
+    "id": "17:470",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/flow-reflect",
+    "id": "17:473",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/flow-repeat",
+    "id": "17:476",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/target",
+    "id": "17:481",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/autoformat",
+    "id": "17:484",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/codehint",
+    "id": "17:488",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/debug",
+    "id": "17:492",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/collapse",
+    "id": "17:495",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/expand",
+    "id": "17:498",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/comment-line",
+    "id": "17:501",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/comment-block",
+    "id": "17:505",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/uncomment",
+    "id": "17:509",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/wand",
+    "id": "17:513",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/help",
+    "id": "17:518",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/pin",
+    "id": "17:522",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/package",
+    "id": "17:526",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/class",
+    "id": "17:530",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/sidebar",
+    "id": "17:534",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/detach",
+    "id": "17:538",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/scene",
+    "id": "17:542",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/frame",
+    "id": "17:546",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/grip-h",
+    "id": "17:554",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/filter",
+    "id": "17:557",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/eyedropper16",
+    "id": "17:561",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/ruler",
+    "id": "29:435",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/guides",
+    "id": "29:438",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/grid",
+    "id": "29:442",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/snap-grid",
+    "id": "29:446",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/snap-guides",
+    "id": "29:450",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/lock-guides",
+    "id": "29:455",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/keyframe-add",
+    "id": "29:459",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/blankkey-add",
+    "id": "29:463",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/frame-add",
+    "id": "29:467",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/keyframe-remove",
+    "id": "29:471",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/tween-classic",
+    "id": "29:475",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/tween-shape",
+    "id": "29:480",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/tween-motion",
+    "id": "29:484",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/ease",
+    "id": "29:489",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/swatches",
+    "id": "29:495",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/mixer",
+    "id": "29:501",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/recent",
+    "id": "29:505",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/sound",
+    "id": "29:509",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/stop",
+    "id": "29:512",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/nocolor",
+    "id": "29:516",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/colorwheel",
+    "id": "29:520",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/origin",
+    "id": "29:524",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/view-settings",
+    "id": "29:529",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/error",
+    "id": "36:648",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/warning",
+    "id": "36:653",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/breakpoint",
+    "id": "36:656",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/bookmark",
+    "id": "36:659",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/info",
+    "id": "36:664",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/waveform",
+    "id": "36:667",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/sound-file",
+    "id": "36:673",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/cap-none",
+    "id": "36:677",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/cap-round",
+    "id": "36:681",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/cap-square",
+    "id": "36:685",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/join-miter",
+    "id": "36:688",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/join-round",
+    "id": "36:691",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/join-bevel",
+    "id": "36:694",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/movieclip",
+    "id": "36:698",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/graphic",
+    "id": "36:702",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/button-symbol",
+    "id": "36:706",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/bitmap",
+    "id": "36:711",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/font",
+    "id": "36:715",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/video",
+    "id": "36:719",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/keyboard",
+    "id": "36:723",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/submenu",
+    "id": "36:726",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/history",
+    "id": "36:731",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/info-panel",
+    "id": "36:735",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/scissors",
+    "id": "36:740",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/copy",
+    "id": "36:744",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/paste",
+    "id": "36:748",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/redo",
+    "id": "36:751",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/select-all",
+    "id": "36:755",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/publish",
+    "id": "36:759",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/open",
+    "id": "36:763",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/new-file",
+    "id": "36:767",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/fold-open",
+    "id": "36:771",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/fold-closed",
+    "id": "36:775",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/debug-continue",
+    "id": "62:784",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/step-over",
+    "id": "62:789",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/step-into",
+    "id": "62:793",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/step-out",
+    "id": "62:797",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/callstack",
+    "id": "62:802",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/variable",
+    "id": "62:805",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/exec-arrow",
+    "id": "62:808",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/file-code",
+    "id": "62:812",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/snippet",
+    "id": "62:816",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/motion-editor",
+    "id": "62:820",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/motion-path",
+    "id": "62:825",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/find-replace",
+    "id": "62:830",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/tree",
+    "id": "62:836",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/joint",
+    "id": "62:840",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/armature",
+    "id": "62:846",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/bitmap-fill",
+    "id": "62:851",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/lock-fill",
+    "id": "62:856",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/globe",
+    "id": "62:860",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/speed",
+    "id": "62:864",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/desktop",
+    "id": "62:868",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Tool Button",
+    "id": "19:188",
+    "kind": "set",
+    "variants": 3,
+    "w": 32,
+    "h": 32,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "Tool in the Tools panel: 32×32, 20 px monochrome icon. Flyout marks a tool group (long-press opens the group).",
+    "properties": [
+     {
+      "name": "Flyout",
+      "type": "BOOLEAN",
+      "default": false
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover",
+       "Selected"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Fill Stroke Chip",
+    "id": "19:189",
+    "kind": "component",
+    "variants": 1,
+    "w": 36,
+    "h": 36,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "Current fill (front) and stroke (back). Recolour Fill / Stroke per use.",
+    "properties": []
+   },
+   {
+    "name": "NF2/Color Well",
+    "id": "19:219",
+    "kind": "set",
+    "variants": 4,
+    "w": 74,
+    "h": 32,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "Stroke / fill colour target. Active = the target the colour mixer edits.",
+    "properties": [
+     {
+      "name": "Target",
+      "type": "VARIANT",
+      "default": "Stroke",
+      "options": [
+       "Stroke",
+       "Fill"
+      ]
+     },
+     {
+      "name": "Active",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Panel Tab",
+    "id": "19:224",
+    "kind": "set",
+    "variants": 2,
+    "w": 52,
+    "h": 36,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Panel"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Active",
+      "options": [
+       "Active",
+       "Inactive"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Floating Panel Header",
+    "id": "19:225",
+    "kind": "component",
+    "variants": 1,
+    "w": 280,
+    "h": 36,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "Header of a detached (floating) panel: drag grip, panel tabs, panel menu, collapse, close.",
+    "properties": [
+     {
+      "name": "Tab 2",
+      "type": "BOOLEAN",
+      "default": false
+     },
+     {
+      "name": "Tab 3",
+      "type": "BOOLEAN",
+      "default": false
+     }
+    ]
+   },
+   {
+    "name": "NF2/Icon Group",
+    "id": "19:308",
+    "kind": "set",
+    "variants": 3,
+    "w": 68,
+    "h": 34,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "Grouped icon buttons (align, distribute, transform, text align…). Swap nested icons; switch a nested item to Type=Selected for toggles.",
+    "properties": [
+     {
+      "name": "Count",
+      "type": "VARIANT",
+      "default": "2",
+      "options": [
+       "2",
+       "3",
+       "4"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Radio",
+    "id": "19:315",
+    "kind": "set",
+    "variants": 2,
+    "w": 61,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Option"
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Color Field",
+    "id": "19:316",
+    "kind": "component",
+    "variants": 1,
+    "w": 200,
+    "h": 32,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "Colour value: swatch, hex, alpha. Click swatch → colour popover.",
+    "properties": [
+     {
+      "name": "Hex",
+      "type": "TEXT",
+      "default": "233043"
+     },
+     {
+      "name": "Alpha",
+      "type": "TEXT",
+      "default": "100 %"
+     }
+    ]
+   },
+   {
+    "name": "NF2/Gradient Stop",
+    "id": "19:329",
+    "kind": "set",
+    "variants": 2,
+    "w": 12,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "",
+    "properties": [
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Gradient Bar",
+    "id": "19:330",
+    "kind": "component",
+    "variants": 1,
+    "w": 232,
+    "h": 40,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "Gradient preview with colour stops (drag to move, click the bar to add, drag off to remove).",
+    "properties": []
+   },
+   {
+    "name": "NF2/Color Picker",
+    "id": "19:344",
+    "kind": "component",
+    "variants": 1,
+    "w": 248,
+    "h": 150,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "Colour mixer: saturation/brightness area, hue strip, alpha strip.",
+    "properties": []
+   },
+   {
+    "name": "NF2/Menu Item",
+    "id": "19:377",
+    "kind": "set",
+    "variants": 4,
+    "w": 200,
+    "h": 28,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Menu item"
+     },
+     {
+      "name": "Shortcut",
+      "type": "TEXT",
+      "default": " "
+     },
+     {
+      "name": "Submenu",
+      "type": "BOOLEAN",
+      "default": false
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover",
+       "Checked",
+       "Disabled"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Menu Separator",
+    "id": "19:378",
+    "kind": "component",
+    "variants": 1,
+    "w": 200,
+    "h": 9,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Script Tab",
+    "id": "19:396",
+    "kind": "set",
+    "variants": 2,
+    "w": 96,
+    "h": 30,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Script"
+     },
+     {
+      "name": "Pinned",
+      "type": "BOOLEAN",
+      "default": true
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Active",
+      "options": [
+       "Active",
+       "Inactive"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Table Row",
+    "id": "19:406",
+    "kind": "set",
+    "variants": 3,
+    "w": 288,
+    "h": 28,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "",
+    "properties": [
+     {
+      "name": "Property",
+      "type": "TEXT",
+      "default": "Property"
+     },
+     {
+      "name": "Value",
+      "type": "TEXT",
+      "default": "Value"
+     },
+     {
+      "name": "Kind",
+      "type": "VARIANT",
+      "default": "Header",
+      "options": [
+       "Header",
+       "Row",
+       "Selected"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Divider",
+    "id": "19:409",
+    "kind": "set",
+    "variants": 2,
+    "w": 1,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "",
+    "properties": [
+     {
+      "name": "Direction",
+      "type": "VARIANT",
+      "default": "Vertical",
+      "options": [
+       "Vertical",
+       "Horizontal"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Tools Panel",
+    "id": "20:533",
+    "kind": "set",
+    "variants": 2,
+    "w": 56,
+    "h": 588,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "Tools panel. 1 Column (docked rail): related tools grouped behind flyouts — Selection/Subselection, Free/Gradient transform, Rectangle/Oval, Pencil/Brush, Paint bucket/Ink bottle. 2 Columns (floating, Flash layout): every tool visible, plus View, Colors (fill/stroke, default, none, swap) and Options (snap, tool options). Icons are monochrome 20 px.",
+    "properties": [
+     {
+      "name": "Layout",
+      "type": "VARIANT",
+      "default": "1 Column",
+      "options": [
+       "1 Column",
+       "2 Columns"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Stage Ruler",
+    "id": "30:813",
+    "kind": "set",
+    "variants": 2,
+    "w": 1600,
+    "h": 20,
+    "shelf": "Shelf / Rulers, guides, grid",
+    "description": "Stage ruler in stage units at 75 % zoom. The \"0\" mark sits 375 px from the start (horizontal) / 225 px from the top (vertical): place the instance so 0 meets the stage origin. Drag out of a ruler to create a guide.",
+    "properties": [
+     {
+      "name": "Orientation",
+      "type": "VARIANT",
+      "default": "Horizontal",
+      "options": [
+       "Horizontal",
+       "Vertical"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Ruler Corner",
+    "id": "30:814",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Rulers, guides, grid",
+    "description": "Ruler origin: drag to move the zero point, double-click to reset.",
+    "properties": []
+   },
+   {
+    "name": "NF2/Guide",
+    "id": "30:832",
+    "kind": "set",
+    "variants": 6,
+    "w": 400,
+    "h": 9,
+    "shelf": "Shelf / Rulers, guides, grid",
+    "description": "Ruler guide. Resize along its axis to span the canvas. Selected shows the drag handle; Locked guides are dashed and cannot be moved.",
+    "properties": [
+     {
+      "name": "Orientation",
+      "type": "VARIANT",
+      "default": "Horizontal",
+      "options": [
+       "Horizontal",
+       "Vertical"
+      ]
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Selected",
+       "Locked"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Stage Grid",
+    "id": "30:833",
+    "kind": "component",
+    "variants": 1,
+    "w": 720,
+    "h": 452,
+    "shelf": "Shelf / Rulers, guides, grid",
+    "description": "Stage grid overlay (20 px spacing, every 5th line stronger) drawn above the stage background, below content unless \"Show over objects\" is on.",
+    "properties": []
+   },
+   {
+    "name": "NF2/View Settings",
+    "id": "30:911",
+    "kind": "component",
+    "variants": 1,
+    "w": 320,
+    "h": 542,
+    "shelf": "Shelf / Rulers, guides, grid",
+    "description": "View settings popover for rulers, guides and grid. Opens from the settings button in the canvas view bar (next to the rulers / guides / grid / snap toggles) and from View ▸ Rulers, Guides & Grid…",
+    "properties": []
+   },
+   {
+    "name": "NF2/Swatch Cell",
+    "id": "31:509",
+    "kind": "set",
+    "variants": 2,
+    "w": 18,
+    "h": 18,
+    "shelf": "Shelf / Quick colours & easing",
+    "description": "",
+    "properties": [
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Swatches Popover",
+    "id": "31:510",
+    "kind": "component",
+    "variants": 1,
+    "w": 300,
+    "h": 430,
+    "shelf": "Shelf / Quick colours & easing",
+    "description": "Quick colour access. Opens from the fill/stroke chip in Tools, from any colour well and colour field. Hex + alpha, no colour, eyedropper, open full mixer; recent colours, document swatches (+ add), palette (switchable), gradient presets.",
+    "properties": []
+   },
+   {
+    "name": "NF2/Ease Preset",
+    "id": "31:866",
+    "kind": "set",
+    "variants": 16,
+    "w": 72,
+    "h": 64,
+    "shelf": "Shelf / Quick colours & easing",
+    "description": "",
+    "properties": [
+     {
+      "name": "Preset",
+      "type": "VARIANT",
+      "default": "Linear",
+      "options": [
+       "Linear",
+       "Ease In",
+       "Ease Out",
+       "Ease In-Out",
+       "Back",
+       "Bounce",
+       "Elastic",
+       "Custom"
+      ]
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Ease Graph",
+    "id": "52:1200",
+    "kind": "set",
+    "variants": 3,
+    "w": 336,
+    "h": 224,
+    "shelf": "Shelf / Quick colours & easing",
+    "description": "Ease curve graph. Overshoot / Undershoot variants extend the Y axis to −30…130 % and tint the out-of-range bands; handles outside 0–100 % turn amber (back / anticipation easing).",
+    "properties": [
+     {
+      "name": "Range",
+      "type": "VARIANT",
+      "default": "0–100%",
+      "options": [
+       "0–100%",
+       "Overshoot (above 100%)",
+       "Undershoot (below 0%)"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Stepper Field",
+    "id": "39:672",
+    "kind": "set",
+    "variants": 2,
+    "w": 120,
+    "h": 32,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "Numeric field with ▲▼ steppers; drag the prefix to scrub, ↑/↓ steps, ⇧ = ×10.",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "2.0"
+     },
+     {
+      "name": "Prefix",
+      "type": "TEXT",
+      "default": "Size"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Focus"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Combo Field",
+    "id": "39:673",
+    "kind": "component",
+    "variants": 1,
+    "w": 96,
+    "h": 32,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "Editable value + preset menu (stroke size, angles, inner radius…).",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "2"
+     }
+    ]
+   },
+   {
+    "name": "NF2/Switch",
+    "id": "39:687",
+    "kind": "set",
+    "variants": 2,
+    "w": 80,
+    "h": 20,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Switch"
+     },
+     {
+      "name": "On",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Line Style Select",
+    "id": "39:726",
+    "kind": "set",
+    "variants": 6,
+    "w": 200,
+    "h": 32,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "",
+    "properties": [
+     {
+      "name": "Style",
+      "type": "VARIANT",
+      "default": "Solid",
+      "options": [
+       "Solid",
+       "Dashed",
+       "Dotted",
+       "Ragged",
+       "Stipple",
+       "Hatched"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Menu Section",
+    "id": "39:784",
+    "kind": "component",
+    "variants": 1,
+    "w": 200,
+    "h": 24,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Section"
+     }
+    ]
+   },
+   {
+    "name": "NF2/Menu Bar Item",
+    "id": "39:790",
+    "kind": "set",
+    "variants": 2,
+    "w": 55,
+    "h": 28,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Menu"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Open"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Breadcrumb Item",
+    "id": "39:877",
+    "kind": "set",
+    "variants": 8,
+    "w": 61,
+    "h": 28,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "Editing path: Scene ▸ symbol ▸ nested symbol. Click an item to go back up; the ▾ menu lists siblings (scenes / symbols) with search.",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Item"
+     },
+     {
+      "name": "Menu",
+      "type": "BOOLEAN",
+      "default": false
+     },
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Scene",
+      "options": [
+       "Scene",
+       "Movie clip",
+       "Graphic",
+       "Button"
+      ]
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Link",
+      "options": [
+       "Link",
+       "Current"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Breadcrumb Overflow",
+    "id": "39:939",
+    "kind": "component",
+    "variants": 1,
+    "w": 28,
+    "h": 28,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Breadcrumb Separator",
+    "id": "39:944",
+    "kind": "component",
+    "variants": 1,
+    "w": 12,
+    "h": 28,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Registration Picker",
+    "id": "52:803",
+    "kind": "set",
+    "variants": 9,
+    "w": 28,
+    "h": 28,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "Compact 3×3 registration / transformation point picker (28 px). Click a dot; arrow keys move it.",
+    "properties": [
+     {
+      "name": "Point",
+      "type": "VARIANT",
+      "default": "Top left",
+      "options": [
+       "Top left",
+       "Top",
+       "Top right",
+       "Left",
+       "Center",
+       "Right",
+       "Bottom left",
+       "Bottom",
+       "Bottom right"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Selection Box",
+    "id": "40:705",
+    "kind": "set",
+    "variants": 5,
+    "w": 160,
+    "h": 100,
+    "shelf": "Shelf / Canvas editing chrome",
+    "description": "Object selection on stage: Group (thin), Symbol instance (registration + transformation point), Static text (round handle = auto width), Dynamic/input text (square handle = fixed size), Primitive (extra control points for angles / inner radius). Resize to the object bounds.",
+    "properties": [
+     {
+      "name": "Kind",
+      "type": "VARIANT",
+      "default": "Group",
+      "options": [
+       "Group",
+       "Symbol",
+       "Text static",
+       "Text dynamic",
+       "Primitive"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Transform Box",
+    "id": "40:728",
+    "kind": "set",
+    "variants": 2,
+    "w": 160,
+    "h": 100,
+    "shelf": "Shelf / Canvas editing chrome",
+    "description": "Free transform: Scale mode (8 square handles; ⇧ keeps proportions, ⌥ from centre), Rotate & skew (round corner handles rotate, edge bars skew). White circle = transformation point.",
+    "properties": [
+     {
+      "name": "Mode",
+      "type": "VARIANT",
+      "default": "Scale",
+      "options": [
+       "Scale",
+       "Rotate & skew"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Anchor Point",
+    "id": "40:736",
+    "kind": "set",
+    "variants": 3,
+    "w": 12,
+    "h": 12,
+    "shelf": "Shelf / Canvas editing chrome",
+    "description": "",
+    "properties": [
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Unselected",
+      "options": [
+       "Unselected",
+       "Selected",
+       "Hover"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Bezier Handle",
+    "id": "40:737",
+    "kind": "component",
+    "variants": 1,
+    "w": 60,
+    "h": 8,
+    "shelf": "Shelf / Canvas editing chrome",
+    "description": "Direction line from an anchor to its control point. Rotate/resize along the tangent.",
+    "properties": []
+   },
+   {
+    "name": "NF2/Marquee",
+    "id": "40:740",
+    "kind": "component",
+    "variants": 1,
+    "w": 160,
+    "h": 100,
+    "shelf": "Shelf / Canvas editing chrome",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Shape Selection",
+    "id": "40:742",
+    "kind": "component",
+    "variants": 1,
+    "w": 240,
+    "h": 240,
+    "shelf": "Shelf / Canvas editing chrome",
+    "description": "Raw (ungrouped) shape selected: hatch mesh over the selected fill / stroke. Place clipped inside the shape outline.",
+    "properties": []
+   },
+   {
+    "name": "NF2/Gradient Transform",
+    "id": "40:745",
+    "kind": "component",
+    "variants": 1,
+    "w": 200,
+    "h": 200,
+    "shelf": "Shelf / Canvas editing chrome",
+    "description": "Gradient transform tool: centre (move), focal triangle (radial focus), square (width / aspect), circle (size), filled circle (rotation).",
+    "properties": []
+   },
+   {
+    "name": "NF2/Snap Ring",
+    "id": "40:753",
+    "kind": "component",
+    "variants": 1,
+    "w": 14,
+    "h": 14,
+    "shelf": "Shelf / Canvas editing chrome",
+    "description": "Snap to objects indicator: thick ring at the registration point while dragging; it jumps to a larger ring when snapped.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/arrow",
+    "id": "51:713",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"arrow\". Hotspot at x 4, y 2.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/arrow-move",
+    "id": "51:722",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"arrow-move\". Hotspot at x 4, y 2.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/arrow-reshape-curve",
+    "id": "51:731",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"arrow-reshape-curve\". Hotspot at x 4, y 2.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/arrow-reshape-corner",
+    "id": "51:740",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"arrow-reshape-corner\". Hotspot at x 4, y 2.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/subselect",
+    "id": "51:746",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"subselect\". Hotspot at x 4, y 2.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/subselect-point",
+    "id": "51:752",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"subselect-point\". Hotspot at x 4, y 2.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/hand-open",
+    "id": "51:759",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"hand-open\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/hand-closed",
+    "id": "51:766",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"hand-closed\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/zoom-in",
+    "id": "51:774",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"zoom-in\". Hotspot at x 10, y 10.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/zoom-out",
+    "id": "51:782",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"zoom-out\". Hotspot at x 10, y 10.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/text-ibeam",
+    "id": "51:790",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"text-ibeam\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/crosshair",
+    "id": "51:798",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"crosshair\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/pen",
+    "id": "51:806",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"pen\". Hotspot at x 6, y 21.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/pen-add",
+    "id": "51:816",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"pen-add\". Hotspot at x 6, y 21.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/pen-remove",
+    "id": "51:826",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"pen-remove\". Hotspot at x 6, y 21.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/pen-close",
+    "id": "51:836",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"pen-close\". Hotspot at x 6, y 21.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/pen-convert",
+    "id": "51:846",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"pen-convert\". Hotspot at x 6, y 21.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/pencil",
+    "id": "51:854",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"pencil\". Hotspot at x 3, y 21.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/brush",
+    "id": "51:861",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"brush\". Hotspot at x 3, y 21.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/brush-size",
+    "id": "51:869",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"brush-size\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/bucket",
+    "id": "51:877",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"bucket\". Hotspot at x 19, y 20.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/ink-bottle",
+    "id": "51:885",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"ink-bottle\". Hotspot at x 15, y 3.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/eyedropper",
+    "id": "51:892",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"eyedropper\". Hotspot at x 5, y 19.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/eraser",
+    "id": "51:900",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"eraser\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/lasso",
+    "id": "51:908",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"lasso\". Hotspot at x 10, y 20.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/resize-h",
+    "id": "51:915",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"resize-h\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/resize-v",
+    "id": "51:922",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"resize-v\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/resize-d1",
+    "id": "51:929",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"resize-d1\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/resize-d2",
+    "id": "51:936",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"resize-d2\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/rotate",
+    "id": "51:943",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"rotate\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/skew-h",
+    "id": "51:952",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"skew-h\". Hotspot at x 12, y 9.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/skew-v",
+    "id": "51:961",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"skew-v\". Hotspot at x 9, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/move",
+    "id": "51:968",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"move\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/drag-copy",
+    "id": "51:978",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"drag-copy\". Hotspot at x 4, y 2.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/drag-link",
+    "id": "51:988",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"drag-link\". Hotspot at x 4, y 2.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/col-resize",
+    "id": "51:995",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"col-resize\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/row-resize",
+    "id": "51:1002",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"row-resize\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/not-allowed",
+    "id": "51:1010",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"not-allowed\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Cursor/wait",
+    "id": "51:1018",
+    "kind": "component",
+    "variants": 1,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Cursors",
+    "description": "Cursor \"wait\". Hotspot at x 12, y 12.",
+    "properties": []
+   },
+   {
+    "name": "NF2/Scrollbar",
+    "id": "53:726",
+    "kind": "set",
+    "variants": 4,
+    "w": 12,
+    "h": 160,
+    "shelf": "Shelf / Technical",
+    "description": "",
+    "properties": [
+     {
+      "name": "Orientation",
+      "type": "VARIANT",
+      "default": "Vertical",
+      "options": [
+       "Vertical",
+       "Horizontal"
+      ]
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Splitter",
+    "id": "53:743",
+    "kind": "set",
+    "variants": 6,
+    "w": 8,
+    "h": 120,
+    "shelf": "Shelf / Technical",
+    "description": "",
+    "properties": [
+     {
+      "name": "Orientation",
+      "type": "VARIANT",
+      "default": "Vertical",
+      "options": [
+       "Vertical",
+       "Horizontal"
+      ]
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover",
+       "Drag"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Dock Zone",
+    "id": "53:744",
+    "kind": "component",
+    "variants": 1,
+    "w": 240,
+    "h": 160,
+    "shelf": "Shelf / Technical",
+    "description": "Drop target shown while dragging a panel over a dock area.",
+    "properties": []
+   },
+   {
+    "name": "NF2/Dock Compass",
+    "id": "53:746",
+    "kind": "component",
+    "variants": 1,
+    "w": 112,
+    "h": 112,
+    "shelf": "Shelf / Technical",
+    "description": "Docking compass: drop on an edge to dock beside, centre to add as a tab.",
+    "properties": []
+   },
+   {
+    "name": "NF2/Drag Ghost",
+    "id": "53:764",
+    "kind": "component",
+    "variants": 1,
+    "w": 73,
+    "h": 30,
+    "shelf": "Shelf / Technical",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Align"
+     }
+    ]
+   },
+   {
+    "name": "NF2/Drop Indicator",
+    "id": "53:773",
+    "kind": "component",
+    "variants": 1,
+    "w": 240,
+    "h": 8,
+    "shelf": "Shelf / Technical",
+    "description": "Insertion line for reordering layers, library items, tabs.",
+    "properties": []
+   },
+   {
+    "name": "NF2/Toast",
+    "id": "53:817",
+    "kind": "set",
+    "variants": 4,
+    "w": 380,
+    "h": 46,
+    "shelf": "Shelf / Technical",
+    "description": "",
+    "properties": [
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Info",
+      "options": [
+       "Info",
+       "Success",
+       "Warning",
+       "Error"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Spinner",
+    "id": "53:818",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Technical",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Progress",
+    "id": "53:832",
+    "kind": "set",
+    "variants": 2,
+    "w": 280,
+    "h": 28,
+    "shelf": "Shelf / Technical",
+    "description": "",
+    "properties": [
+     {
+      "name": "Mode",
+      "type": "VARIANT",
+      "default": "Determinate",
+      "options": [
+       "Determinate",
+       "Indeterminate"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Focus Ring",
+    "id": "53:833",
+    "kind": "component",
+    "variants": 1,
+    "w": 120,
+    "h": 36,
+    "shelf": "Shelf / Technical",
+    "description": "Keyboard focus ring: 2 px, 2 px outside the control radius. Place over any control when focused via Tab.",
+    "properties": []
+   },
+   {
+    "name": "NF2/Empty State",
+    "id": "53:835",
+    "kind": "component",
+    "variants": 1,
+    "w": 280,
+    "h": 204,
+    "shelf": "Shelf / Technical",
+    "description": "",
+    "properties": []
+   }
+  ]
+ }
+}

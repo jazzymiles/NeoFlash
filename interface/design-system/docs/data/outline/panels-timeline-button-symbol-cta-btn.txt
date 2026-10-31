@@ -1,0 +1,56 @@
+F Timeline — Button symbol (cta_btn) 900×300
+  F Breadcrumb 172×28 [H gap 0]
+    I NF2/Breadcrumb Item {Menu=false, Label=Scene 1, Type=Scene, State=Link} 81×28 "Scene 1"
+    I NF2/Breadcrumb Separator 12×28
+    I NF2/Breadcrumb Item {Menu=false, Label=cta_btn, Type=Button, State=Current} 79×28 "cta_btn"
+  F Frame 336×30
+    T "Up"
+    T "Over"
+    T "Down"
+    T "Hit"
+  I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=label, Type=Layer, Selected=False} 208×28 "label"
+  R Rectangle 83×27
+  E Ellipse 8×8
+  R Rectangle 83×27
+  E Ellipse 8×8
+  R Rectangle 83×27
+  E Ellipse 8×8
+  R Rectangle 83×27
+  E Ellipse 8×8
+  I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=shape, Type=Layer, Selected=True} 208×28 "shape"
+  R Rectangle 83×27
+  E Ellipse 8×8
+  R Rectangle 83×27
+  E Ellipse 8×8
+  R Rectangle 83×27
+  E Ellipse 8×8
+  R Rectangle 83×27
+  E Ellipse 8×8
+  I NF2/TL Layer {Indent 2=false, Editing=false, Indent 1=false, Label=hit area, Type=Guide, Selected=False} 208×28 "hit area"
+  R Rectangle 83×27
+  E Ellipse 8×8
+  R Rectangle 83×27
+  E Ellipse 8×8
+  R Rectangle 83×27
+  E Ellipse 8×8
+  R Rectangle 83×27
+  E Ellipse 8×8
+  R Rectangle 2×114
+  F State previews 676×66 [H gap 12]
+    F State Up 160×66 [V gap 6]
+      F Button 160×44 [H gap 0]
+        T "BUILT TO BE INTERACTIVE"
+      T "Up"
+    F State Over 160×66 [V gap 6]
+      F Button 160×44 [H gap 0]
+        T "BUILT TO BE INTERACTIVE"
+      T "Over  ·  editing"
+    F State Down 160×66 [V gap 6]
+      F Button 160×44 [H gap 0]
+        T "BUILT TO BE INTERACTIVE"
+      T "Down"
+    F State Hit 160×66 [V gap 6]
+      F Button 160×44 [H gap 0]
+        T "hit area (invisible)"
+      T "Hit"
+  T "Button symbols get a 4-frame timeline: Up · Over · Down · Hit. Hit is never drawn — it only defines the clickable area."

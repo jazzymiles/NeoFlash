@@ -1,0 +1,11 @@
+{
+  "name": "NeoFlash UI Builder",
+  "id": "neoflash-ui-builder-local",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": ["figma"],
+  "capabilities": [],
+  "enableProposedApi": false,
+  "permissions": [],
+  "networkAccess": { "allowedDomains": ["none"] }
+}

@@ -1,0 +1,24 @@
+F Panel / Properties — Sound 320×427 [V gap 0]
+  I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 318×36 "Properties" "Panel" "Panel"
+  F Body 318×389 [V gap 10]
+    F Row 294×48 [H gap 8]
+      F Type icon 48×48 [H gap 0]
+        I NF2 Icon/16/frame 16×16
+      F Title 169×38 [V gap 2]
+        T "Frame 1"
+        T "Layer "music.mp3" · keyframe"
+    I NF2/Section Header {Label=Label, State=Collapsed} 294×32 "Label"
+    I NF2/Section Header {Label=Sound, State=Expanded} 294×32 "Sound"
+    I NF2/Select {Label=music.mp3, State=Default} 294×32 "music.mp3"
+    F Row 294×32 [H gap 8]
+      I NF2/Select {Label=Effect: Fade in, State=Default} 168×32 "Effect: Fade in"
+      I NF2/Button {Icon=true, Label=Envelope…, Type=Secondary, State=Default} 118×32 "Envelope…"
+    F Row 294×32 [H gap 8]
+      I NF2/Select {Label=Sync: Stream, State=Default} 144×32 "Sync: Stream"
+      I NF2/Select {Label=Repeat, State=Default} 92×32 "Repeat"
+      I NF2/Field {Show prefix=false, Prefix=W, Label=1, State=Default} 44×32 "W" "1"
+    I NF2/TL Span {Type=Sound} 294×27
+    T "44 kHz · Stereo · 16 bit · 32.4 s · 518.6 kB"
+    F Row 294×32 [H gap 8]
+      I NF2/Button {Icon=true, Label=Play, Type=Ghost, State=Default} 75×32 "Play"
+      I NF2/Button {Icon=true, Label=Sound properties…, Type=Ghost, State=Default} 167×32 "Sound properties…"

@@ -1,0 +1,1 @@
+I NF2/View Settings 320×542 "Rulers, guides & grid" "Rulers" "Show rulers" "Units: Pixels" "Labels" "Auto" "Every" "px" "100" "Auto picks 10 / 50 / 100 / 500 units so labels never overlap at the current zoom." "Guides" "Show"

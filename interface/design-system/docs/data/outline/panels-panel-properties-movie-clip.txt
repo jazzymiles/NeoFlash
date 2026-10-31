@@ -1,0 +1,33 @@
+F Panel / Properties — Movie clip 320×592 [V gap 0]
+  I NF2/Floating Panel Header {Tab 3=true, Tab 2=true} 318×36 "Properties" "Filters" "Parameters"
+  F Body 318×554 [V gap 10]
+    F Row 294×48 [H gap 8]
+      F Type icon 48×48 [H gap 0]
+        I NF2 Icon/16/movieclip 16×16
+      F Title 103×38 [V gap 2]
+        T "Movie clip"
+        T "Instance of "orbit""
+    F Row 294×32 [H gap 8]
+      I NF2/Field {Show prefix=false, Prefix=W, Label=orbit_mc, State=Default} 200×32 "W" "orbit_mc"
+      I NF2/Button {Icon=false, Label=Swap…, Type=Secondary, State=Default} 72×32 "Swap…"
+    I NF2/Section Header {Label=Position and size, State=Expanded} 294×32 "Position and size"
+    F Row 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=X, Label=412.0, State=Default} 120×32 "X" "412.0"
+      I NF2/Field {Show prefix=true, Prefix=Y, Label=160.0, State=Default} 120×32 "Y" "160.0"
+    F Row 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=W, Label=163.0, State=Default} 120×32 "W" "163.0"
+      I NF2/Field {Show prefix=true, Prefix=H, Label=163.0, State=Default} 120×32 "H" "163.0"
+    I NF2/Section Header {Label=Colour effect, State=Expanded} 294×32 "Colour effect"
+    F Row 294×32 [H gap 8]
+      I NF2/Select {Label=Style: Alpha, State=Default} 144×32 "Style: Alpha"
+      I NF2/Field {Show prefix=true, Prefix=α, Label=60 %, State=Default} 144×32 "α" "60 %"
+    I NF2/Slider 294×20
+    I NF2/Section Header {Label=Display, State=Expanded} 294×32 "Display"
+    F Row 294×20 [H gap 8]
+      I NF2/Switch {Label=Visible, On=True} 79×20 "Visible"
+      I NF2/Checkbox {Label=Cache as bitmap, Checked=False} 130×20 "Cache as bitmap"
+    F Row 294×32 [H gap 8]
+      I NF2/Select {Label=Blending: Normal, State=Default} 144×32 "Blending: Normal"
+      I NF2/Select {Label=Render: Original, State=Default} 144×32 "Render: Original"
+    I NF2/Section Header {Label=Accessibility, State=Collapsed} 294×32 "Accessibility"
+    I NF2/Section Header {Label=Filters, State=Collapsed} 294×32 "Filters"

@@ -1,0 +1,107 @@
+F Shelf / Inputs, menus, breadcrumb 748×760 [V gap 16]
+  T "Inputs, menus, breadcrumb"
+  F NF2/Stepper Field 400×66 [H gap 12]
+    F State=Default 120×32 [H gap 8]
+      T "Size"
+      T "2.0"
+      F Stepper 18×28 [V gap -4]
+        I NF2 Icon/16/chevup 16×16
+        I NF2 Icon/16/chevdown 16×16
+    F State=Focus 120×32 [H gap 8]
+      T "Size"
+      T "2.0"
+      F Stepper 18×28 [V gap -4]
+        I NF2 Icon/16/chevup 16×16
+        I NF2 Icon/16/chevdown 16×16
+  F NF2/Combo Field 96×32 [H gap 0]
+    T "2"
+    F Menu button 28×32 [H gap 0]
+      I NF2 Icon/16/chevdown 16×16
+  F NF2/Switch 400×54 [H gap 12]
+    F On=True 80×20 [H gap 8]
+      F Track 30×18 [H gap 0]
+      T "Switch"
+    F On=False 80×20 [H gap 8]
+      F Track 30×18 [H gap 0]
+      T "Switch"
+  F NF2/Line Style Select 660×110 [H gap 12]
+    F Style=Solid 200×32 [H gap 10]
+      T "Solid"
+      F Preview 115×16 [H gap 0]
+      I NF2 Icon/16/chevdown 16×16
+    F Style=Dashed 200×32 [H gap 10]
+      T "Dashed"
+      F Preview 99×16 [H gap 0]
+      I NF2 Icon/16/chevdown 16×16
+    F Style=Dotted 200×32 [H gap 10]
+      T "Dotted"
+      F Preview 103×16 [H gap 0]
+      I NF2 Icon/16/chevdown 16×16
+    F Style=Ragged 200×32 [H gap 10]
+      T "Ragged"
+      F Preview 98×16 [H gap 0]
+        F Line 78×16
+      I NF2 Icon/16/chevdown 16×16
+    F Style=Stipple 200×32 [H gap 10]
+      T "Stipple"
+      F Preview 103×16 [H gap 0]
+      I NF2 Icon/16/chevdown 16×16
+    F Style=Hatched 200×32 [H gap 10]
+      T "Hatched"
+      F Preview 93×16 [H gap 0]
+        F Line 78×16
+      I NF2 Icon/16/chevdown 16×16
+  F NF2/Menu Section 200×24 [H gap 0]
+    T "Section"
+  F NF2/Menu Bar Item 300×62 [H gap 12]
+    F State=Default 55×28 [H gap 0]
+      T "Menu"
+    F State=Open 55×28 [H gap 0]
+      T "Menu"
+  F NF2/Breadcrumb Item 700×62 [H gap 12]
+    F Type=Scene, State=Link 61×28 [H gap 6]
+      I NF2 Icon/16/scene 16×16
+      T "Item"
+      I NF2 Icon/16/chevdown 16×16
+    F Type=Scene, State=Current 62×28 [H gap 6]
+      I NF2 Icon/16/scene 16×16
+      T "Item"
+      I NF2 Icon/16/chevdown 16×16
+    F Type=Movie clip, State=Link 61×28 [H gap 6]
+      I NF2 Icon/16/movieclip 16×16
+      T "Item"
+      I NF2 Icon/16/chevdown 16×16
+    F Type=Movie clip, State=Current 62×28 [H gap 6]
+      I NF2 Icon/16/movieclip 16×16
+      T "Item"
+      I NF2 Icon/16/chevdown 16×16
+    F Type=Graphic, State=Link 61×28 [H gap 6]
+      I NF2 Icon/16/graphic 16×16
+      T "Item"
+      I NF2 Icon/16/chevdown 16×16
+    F Type=Graphic, State=Current 62×28 [H gap 6]
+      I NF2 Icon/16/graphic 16×16
+      T "Item"
+      I NF2 Icon/16/chevdown 16×16
+    F Type=Button, State=Link 61×28 [H gap 6]
+      I NF2 Icon/16/button-symbol 16×16
+      T "Item"
+      I NF2 Icon/16/chevdown 16×16
+    F Type=Button, State=Current 62×28 [H gap 6]
+      I NF2 Icon/16/button-symbol 16×16
+      T "Item"
+      I NF2 Icon/16/chevdown 16×16
+  F NF2/Breadcrumb Overflow 28×28 [H gap 0]
+    I NF2 Icon/16/more 16×16
+  F NF2/Breadcrumb Separator 12×28 [H gap 0]
+    I NF2 Icon/16/chevright 12×12
+  F NF2/Registration Picker 400×62 [H gap 12]
+    F Point=Top left 28×28
+    F Point=Top 28×28
+    F Point=Top right 28×28
+    F Point=Left 28×28
+    F Point=Center 28×28
+    F Point=Right 28×28
+    F Point=Bottom left 28×28
+    F Point=Bottom 28×28
+    F Point=Bottom right 28×28

@@ -1,0 +1,258 @@
+F Shelf / Quick colours & easing 1148×1050 [V gap 16]
+  T "Quick colours (swatches popover) and easing"
+  F NF2/Swatch Cell 300×52 [H gap 12]
+    F Selected=False 18×18
+    F Selected=True 18×18
+  F NF2/Swatches Popover 300×430 [V gap 10]
+    F Current 274×32 [H gap 6]
+      I NF2/Color Field {Alpha=100 %, Hex=00FFCC} 122×32 "00FFCC" "100 %"
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+    F Recent 274×16 [H gap 6]
+      T "Recent"
+    F Recent row 260×18 [H gap 4]
+      I NF2/Swatch Cell {Selected=True} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+    F Document 274×16 [H gap 6]
+      T "Document"
+    F Document row 154×18 [H gap 4]
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Swatch Cell {Selected=False} 18×18
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 22×18
+    F Palette 274×18 [H gap 6]
+      T "Palette"
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 22×18
+    F Palette 260×172 [V gap 4]
+      F Grays 260×18 [H gap 4]
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+      F Row 86 260×18 [H gap 4]
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+      F Row 74 260×18 [H gap 4]
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+      F Row 62 260×18 [H gap 4]
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+      F Row 52 260×18 [H gap 4]
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+      F Row 42 260×18 [H gap 4]
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+      F Row 32 260×18 [H gap 4]
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+      F Row 22 260×18 [H gap 4]
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+        I NF2/Swatch Cell {Selected=False} 18×18
+    F Gradients 274×16 [H gap 6]
+      T "Gradients"
+    F Gradients row 260×18 [H gap 4]
+      I NF2/Swatch Cell {Selected=False} 40×18
+      I NF2/Swatch Cell {Selected=False} 40×18
+      I NF2/Swatch Cell {Selected=False} 40×18
+      I NF2/Swatch Cell {Selected=False} 40×18
+      I NF2/Swatch Cell {Selected=False} 40×18
+      I NF2/Swatch Cell {Selected=False} 40×18
+  F NF2/Ease Preset 700×174 [H gap 12]
+    F Preset=Linear, Selected=False 72×64 [V gap 6]
+      F Curve 44×28
+      T "Linear"
+    F Preset=Linear, Selected=True 72×64 [V gap 6]
+      F Curve 44×28
+      T "Linear"
+    F Preset=Ease In, Selected=False 72×64 [V gap 6]
+      F Curve 44×28
+      T "Ease In"
+    F Preset=Ease In, Selected=True 72×64 [V gap 6]
+      F Curve 44×28
+      T "Ease In"
+    F Preset=Ease Out, Selected=False 72×64 [V gap 6]
+      F Curve 44×28
+      T "Ease Out"
+    F Preset=Ease Out, Selected=True 72×64 [V gap 6]
+      F Curve 44×28
+      T "Ease Out"
+    F Preset=Ease In-Out, Selected=False 72×64 [V gap 6]
+      F Curve 44×28
+      T "Ease In-Out"
+    F Preset=Ease In-Out, Selected=True 72×64 [V gap 6]
+      F Curve 44×28
+      T "Ease In-Out"
+    F Preset=Back, Selected=False 72×64 [V gap 6]
+      F Curve 44×28
+      T "Back"
+    F Preset=Back, Selected=True 72×64 [V gap 6]
+      F Curve 44×28
+      T "Back"
+    F Preset=Bounce, Selected=False 72×64 [V gap 6]
+      F Curve 44×28
+      T "Bounce"
+    F Preset=Bounce, Selected=True 72×64 [V gap 6]
+      F Curve 44×28
+      T "Bounce"
+    F Preset=Elastic, Selected=False 72×64 [V gap 6]
+      F Curve 44×28
+      T "Elastic"
+    F Preset=Elastic, Selected=True 72×64 [V gap 6]
+      F Curve 44×28
+      T "Elastic"
+    F Preset=Custom, Selected=False 72×64 [V gap 6]
+      F Curve 44×28
+      T "Custom"
+    F Preset=Custom, Selected=True 72×64 [V gap 6]
+      F Curve 44×28
+      T "Custom"
+  F NF2/Ease Graph 1100×258 [H gap 12]
+    F Range=0–100% 336×224
+      T "0%"
+      T "20%"
+      T "40%"
+      T "60%"
+      T "80%"
+      T "100%"
+      T "0"
+      T "5"
+      T "10"
+      T "15"
+      T "20"
+      T "25"
+      T "30"
+      T "35"
+      T "40"
+      F Curve 336×224
+    F Range=Overshoot (above 100%) 336×224
+      T "-20%"
+      T "0%"
+      T "20%"
+      T "40%"
+      T "60%"
+      T "80%"
+      T "100%"
+      T "120%"
+      T "0"
+      T "5"
+      T "10"
+      T "15"
+      T "20"
+      T "25"
+      T "30"
+      T "35"
+      T "40"
+      F Curve 336×224
+    F Range=Undershoot (below 0%) 336×224
+      T "-20%"
+      T "0%"
+      T "20%"
+      T "40%"
+      T "60%"
+      T "80%"
+      T "100%"
+      T "120%"
+      T "0"
+      T "5"
+      T "10"
+      T "15"
+      T "20"
+      T "25"
+      T "30"
+      T "35"
+      T "40"
+      F Curve 336×224

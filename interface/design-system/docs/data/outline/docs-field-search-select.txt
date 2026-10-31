@@ -1,0 +1,33 @@
+F Shelf / Field · Search · Select 700×388 [V gap 12]
+  T "Field · Search · Select"
+  F NF2/Field 660×114 [H gap 16]
+    F State=Default 160×32 [H gap 8]
+      T "W"
+      T "960"
+    F State=Hover 160×32 [H gap 8]
+      T "W"
+      T "960"
+    F State=Focus 160×32 [H gap 8]
+      T "W"
+      T "960"
+    F State=Disabled 160×32 [H gap 8]
+      T "W"
+      T "960"
+  F NF2/Search 660×66 [H gap 16]
+    F State=Empty 240×32 [H gap 8]
+      I NF2 Icon/16/search 16×16
+      T "Search"
+    F State=Filled 240×32 [H gap 8]
+      I NF2 Icon/16/search 16×16
+      T "Search"
+      I NF2 Icon/16/x 16×16
+  F NF2/Select 660×114 [H gap 16]
+    F State=Default 200×32 [H gap 0]
+      T "Option"
+      I NF2 Icon/16/chevdown 16×16
+    F State=Hover 200×32 [H gap 0]
+      T "Option"
+      I NF2 Icon/16/chevdown 16×16
+    F State=Disabled 200×32 [H gap 0]
+      T "Option"
+      I NF2 Icon/16/chevdown 16×16

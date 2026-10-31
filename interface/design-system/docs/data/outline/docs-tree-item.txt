@@ -1,0 +1,23 @@
+F Shelf / Tree item 700×232 [V gap 12]
+  T "Tree item"
+  F NF2/Tree Item 660×162 [H gap 16]
+    F Type=Folder Open, Selected=True 288×32 [H gap 8]
+      I NF2 Icon/16/chevdown 16×16
+      I NF2 Icon/16/folder 16×16
+      T "Item"
+    F Type=Folder Open, Selected=False 288×32 [H gap 8]
+      I NF2 Icon/16/chevdown 16×16
+      I NF2 Icon/16/folder 16×16
+      T "Item"
+    F Type=Folder Closed, Selected=False 288×32 [H gap 8]
+      I NF2 Icon/16/chevright 16×16
+      I NF2 Icon/16/folder 16×16
+      T "Item"
+    F Type=Symbol, Selected=False 288×32 [H gap 8]
+      F Indent 16×16
+      I NF2 Icon/16/symbol 16×16
+      T "Item"
+    F Type=Symbol, Selected=True 288×32 [H gap 8]
+      F Indent 16×16
+      I NF2 Icon/16/symbol 16×16
+      T "Item"

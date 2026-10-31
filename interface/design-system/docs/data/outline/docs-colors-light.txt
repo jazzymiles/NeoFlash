@@ -1,0 +1,106 @@
+F Colors / Light 700×1766 [V gap 20]
+  T "Color — Light"
+  T "bg"
+  F Row 650×128 [H gap 12]
+    F Token 100×64 [V gap 6]
+      T "app"
+    F Token 100×64 [V gap 6]
+      T "panel"
+    F Token 100×64 [V gap 6]
+      T "raised"
+    F Token 100×64 [V gap 6]
+      T "field"
+    F Token 100×64 [V gap 6]
+      T "hover"
+    F Token 100×64 [V gap 6]
+      T "selected"
+    F Token 100×64 [V gap 6]
+      T "canvas"
+    F Token 100×64 [V gap 6]
+      T "stage"
+  T "border"
+  F Row 650×64 [H gap 12]
+    F Token 100×64 [V gap 6]
+      T "subtle"
+    F Token 100×64 [V gap 6]
+      T "default"
+    F Token 100×64 [V gap 6]
+      T "strong"
+    F Token 100×64 [V gap 6]
+      T "focus"
+  T "text"
+  F Row 650×128 [H gap 12]
+    F Token 100×64 [V gap 6]
+      T "primary"
+    F Token 100×64 [V gap 6]
+      T "secondary"
+    F Token 100×64 [V gap 6]
+      T "tertiary"
+    F Token 100×64 [V gap 6]
+      T "disabled"
+    F Token 100×64 [V gap 6]
+      T "on-accent"
+    F Token 100×64 [V gap 6]
+      T "inverse"
+  T "accent"
+  F Row 650×64 [H gap 12]
+    F Token 100×64 [V gap 6]
+      T "default"
+    F Token 100×64 [V gap 6]
+      T "hover"
+    F Token 100×64 [V gap 6]
+      T "subtle"
+  T "brand"
+  F Row 650×64 [H gap 12]
+    F Token 100×64 [V gap 6]
+      T "orange"
+  T "danger"
+  F Row 650×64 [H gap 12]
+    F Token 100×64 [V gap 6]
+      T "default"
+    F Token 100×64 [V gap 6]
+      T "subtle"
+  T "success"
+  F Row 650×64 [H gap 12]
+    F Token 100×64 [V gap 6]
+      T "default"
+  T "warning"
+  F Row 650×64 [H gap 12]
+    F Token 100×64 [V gap 6]
+      T "default"
+    F Token 100×64 [V gap 6]
+      T "subtle"
+  T "layer"
+  F Row 650×64 [H gap 12]
+    F Token 100×64 [V gap 6]
+      T "green"
+    F Token 100×64 [V gap 6]
+      T "red"
+    F Token 100×64 [V gap 6]
+      T "blue"
+  T "timeline"
+  F Row 650×64 [H gap 12]
+    F Token 100×64 [V gap 6]
+      T "cell"
+    F Token 100×64 [V gap 6]
+      T "cell-alt"
+    F Token 100×64 [V gap 6]
+      T "line"
+    F Token 100×64 [V gap 6]
+      T "row-selected"
+    F Token 100×64 [V gap 6]
+      T "playhead"
+  T "syntax"
+  F Row 650×64 [H gap 12]
+    F Token 100×64 [V gap 6]
+      T "function"
+    F Token 100×64 [V gap 6]
+      T "string"
+  T "overlay"
+  F Row 650×64 [H gap 12]
+    F Token 100×64 [V gap 6]
+      T ""
+  T "tooltip"
+  F Row 650×64 [H gap 12]
+    F Token 100×64 [V gap 6]
+      T "bg"

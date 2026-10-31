@@ -1074,87 +1074,122 @@ fn paint_gradient_handles(
 }
 
 impl Editor {
+    /// Options of the active tool (NF2 fields), shared by the Tools popover and Properties › Tool.
     pub(crate) fn authoring_tool_options(&mut self, ui: &mut egui::Ui) {
+        use neoflash_ui::components as nf;
+        let p = neoflash_ui::palette(ui.ctx());
+        let note = |ui: &mut egui::Ui, text: &str, hint: Option<&str>| {
+            let response = ui.label(
+                neoflash_ui::typography::rich(text, neoflash_ui::TextStyle::Small)
+                    .color(p.text_tertiary),
+            );
+            if let Some(hint) = hint {
+                nf::tooltip(response, hint, None);
+            }
+        };
+        let width = ui.available_width();
         match self.tool {
             Tool::Brush => {
-                ui.small("Brush size");
-                ui.add_sized(
-                    [ui.available_width(), 24.],
-                    egui::DragValue::new(&mut self.authoring_tools.brush_size)
+                let mut size = f64::from(self.authoring_tools.brush_size);
+                ui.add(
+                    nf::Field::new(&mut size, "Brush size")
+                        .prefix("Size")
+                        .unit("px")
                         .range(1. ..=128.)
-                        .suffix(" px"),
+                        .stepper()
+                        .width(width),
                 );
-                ui.small("Round brush · uses Fill").on_hover_text("Size stays constant on screen for new strokes, as in classic Flash. Existing artwork is unchanged by zoom.");
+                self.authoring_tools.brush_size = size as f32;
+                note(
+                    ui,
+                    "Round brush · uses Fill",
+                    Some(
+                        "Size stays constant on screen for new strokes, as in classic Flash. Existing artwork is unchanged by zoom.",
+                    ),
+                );
             }
             Tool::Eraser => {
-                ui.small("Erase");
-                egui::ComboBox::from_id_salt("eraser_mode")
-                    .width(ui.available_width())
-                    .selected_text(match self.authoring_tools.eraser_mode {
-                        EraserMode::Objects => "Objects",
-                        EraserMode::Fills => "Fills",
-                        EraserMode::Strokes => "Strokes",
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut self.authoring_tools.eraser_mode,
-                            EraserMode::Objects,
-                            "Whole objects",
-                        );
-                        ui.selectable_value(
-                            &mut self.authoring_tools.eraser_mode,
-                            EraserMode::Fills,
-                            "Whole fills",
-                        );
-                        ui.selectable_value(
-                            &mut self.authoring_tools.eraser_mode,
-                            EraserMode::Strokes,
-                            "Whole strokes",
-                        );
-                    });
-                ui.small("Size");
-                ui.add_sized(
-                    [ui.available_width(), 24.],
-                    egui::DragValue::new(&mut self.authoring_tools.eraser_size)
-                        .range(1. ..=128.)
-                        .suffix(" px"),
+                nf::Select::options(
+                    ui,
+                    "eraser_mode",
+                    &mut self.authoring_tools.eraser_mode,
+                    &[
+                        (EraserMode::Objects, "Whole objects"),
+                        (EraserMode::Fills, "Whole fills"),
+                        (EraserMode::Strokes, "Whole strokes"),
+                    ],
+                    width,
                 );
-                ui.small("Drag over artwork").on_hover_text("Removes touched objects or their entire fill/stroke. This mode does not cut holes into vector geometry.");
+                let mut size = f64::from(self.authoring_tools.eraser_size);
+                ui.add(
+                    nf::Field::new(&mut size, "Eraser size")
+                        .prefix("Size")
+                        .unit("px")
+                        .range(1. ..=128.)
+                        .stepper()
+                        .width(width),
+                );
+                self.authoring_tools.eraser_size = size as f32;
+                note(
+                    ui,
+                    "Drag over artwork",
+                    Some(
+                        "Removes touched objects or their entire fill/stroke. This mode does not cut holes into vector geometry.",
+                    ),
+                );
             }
             Tool::Lasso => {
-                ui.checkbox(&mut self.authoring_tools.lasso_contact,"Touch selects").on_hover_text("Select whole placements whose bounds touch the freehand loop; turn off to require enclosure. Hold Shift to add.");
+                let response = ui.add(nf::Checkbox::new(
+                    &mut self.authoring_tools.lasso_contact,
+                    "Touch selects",
+                ));
+                nf::tooltip(
+                    response,
+                    "Select whole placements whose bounds touch the freehand loop; turn off to require enclosure. Hold Shift to add.",
+                    None,
+                );
             }
             Tool::Zoom => {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.authoring_tools.zoom_out, false, "+");
-                    ui.selectable_value(&mut self.authoring_tools.zoom_out, true, "−");
-                });
-                ui.small("Click or drag area").on_hover_text(
-                    "Option temporarily zooms out. Drag a rectangle to fit that area.",
+                nf::Segmented::show(
+                    ui,
+                    &mut self.authoring_tools.zoom_out,
+                    &[(false, "Zoom in"), (true, "Zoom out")],
+                    true,
+                );
+                note(
+                    ui,
+                    "Click or drag area",
+                    Some("Option temporarily zooms out. Drag a rectangle to fit that area."),
                 );
             }
             Tool::Gradient => {
-                ui.small("Existing fill");
-                ui.small("Center: move");
-                ui.small("Square: scale / rotate");
+                note(ui, "Existing fill", None);
+                note(ui, "Center: move", None);
+                note(ui, "Square: scale / rotate", None);
             }
-            Tool::Bucket => {
-                ui.small("Closed shapes").on_hover_text("Fills a closed authored vector shape. Open paths and pixel flood fill are not supported.");
-            }
-            Tool::Ink => {
-                ui.small("Apply stroke").on_hover_text(
-                    "Click vector artwork to apply the current stroke color and width.",
-                );
-            }
-            Tool::Eyedropper => {
-                ui.small("Sample color").on_hover_text("Click a stroke or fill, preserving alpha. Switches to Ink Bottle or Paint Bucket. Option chooses the stroke.");
-            }
-            Tool::Line => {
-                ui.small("Shift: 45°");
-            }
+            Tool::Bucket => note(
+                ui,
+                "Closed shapes",
+                Some(
+                    "Fills a closed authored vector shape. Open paths and pixel flood fill are not supported.",
+                ),
+            ),
+            Tool::Ink => note(
+                ui,
+                "Apply stroke",
+                Some("Click vector artwork to apply the current stroke color and width."),
+            ),
+            Tool::Eyedropper => note(
+                ui,
+                "Sample color",
+                Some(
+                    "Click a stroke or fill, preserving alpha. Switches to Ink Bottle or Paint Bucket. Option chooses the stroke.",
+                ),
+            ),
+            Tool::Line => note(ui, "Shift: 45°", None),
             Tool::Hand => {
-                ui.small("Drag to pan");
-                ui.small("Space: temporary");
+                note(ui, "Drag to pan", None);
+                note(ui, "Space: temporary", None);
             }
             _ => {}
         }

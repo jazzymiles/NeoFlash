@@ -1,0 +1,43 @@
+F Panel / Properties — Video 320×780 [V gap 0]
+  I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 318×36 "Properties" "Cue points" "Panel"
+  F Body 318×742 [V gap 10]
+    F Video preview 294×166
+      F Transport 296×32 [H gap 6]
+        I NF2 Icon/16/play 16×16
+        F Frame 166×4
+        T "00:07 / 00:24"
+    F Row 294×32 [H gap 8]
+      I NF2/Field {Show prefix=false, Prefix=W, Label=intro_vid, State=Default} 196×32 "W" "intro_vid"
+      I NF2/Button {Icon=false, Label=Swap…, Type=Secondary, State=Default} 72×32 "Swap…"
+    T "intro.mp4 · H.264 · 1280×720 · 30 fps · 24.0 s"
+    I NF2/Section Header {Label=Position and size, State=Expanded} 294×32 "Position and size"
+    F Row 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=X, Label=96.0, State=Default} 140×32 "X" "96.0"
+      I NF2/Field {Show prefix=true, Prefix=Y, Label=64.0, State=Default} 140×32 "Y" "64.0"
+    F Row 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=W, Label=640.0, State=Default} 140×32 "W" "640.0"
+      I NF2/Field {Show prefix=true, Prefix=H, Label=360.0, State=Default} 140×32 "H" "360.0"
+    I NF2/Section Header {Label=Playback, State=Expanded} 294×32 "Playback"
+    F Row 294×32 [H gap 8]
+      I NF2/Select {Label=Deployment: Embedded, State=Default} 296×32 "Deployment: Embedded"
+    F Row 294×20 [H gap 8]
+      I NF2/Switch {Label=Autoplay, On=True} 93×20 "Autoplay"
+      I NF2/Switch {Label=Loop, On=False} 69×20 "Loop"
+      I NF2/Switch {Label=Muted, On=False} 78×20 "Muted"
+    F Row 294×32 [H gap 8]
+      I NF2/Select {Label=Skin: Minimal overlay, State=Default} 196×32 "Skin: Minimal overlay"
+      I NF2/Select {Label=Scale: Fit, State=Default} 92×32 "Scale: Fit"
+    F Row 294×20 [H gap 8]
+      T "Volume"
+      I NF2/Slider 180×20
+      T "80 %"
+    I NF2/Section Header {Label=Cue points, State=Expanded} 294×32 "Cue points"
+    F Cue points 294×118 [V gap 0]
+      I NF2/Table Row {Value=Time · Type, Property=Name, Kind=Header} 292×28 "Name" "Time · Type"
+      I NF2/Table Row {Value=00:01.500 · Event, Property=titleIn, Kind=Selected} 292×28 "titleIn" "00:01.500 · Event"
+      I NF2/Table Row {Value=00:12.000 · Navigation, Property=logoHit, Kind=Row} 292×28 "logoHit" "00:12.000 · Navigation"
+      F Row 292×32 [H gap 8]
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Spacer 81×2
+        I NF2/Button {Icon=false, Label=Edit in timeline, Type=Ghost, State=Default} 115×32 "Edit in timeline"

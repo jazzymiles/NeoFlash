@@ -202,7 +202,7 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
         .textures_delta
         .set
         .iter()
-        .filter(|(_, delta)| delta.image.size() == [16, 16])
+        .filter(|(_, delta)| is_authored_16px(&delta.image))
         .map(|(id, _)| *id)
         .collect();
     assert_eq!(uploaded.len(), 1, "the authored PNG uploads once");
@@ -233,7 +233,7 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
             .textures_delta
             .set
             .iter()
-            .filter(|(_, delta)| delta.image.size() == [16, 16])
+            .filter(|(_, delta)| is_authored_16px(&delta.image))
             .count(),
         1,
         "nearest and smoothed instances have independent sampler textures"
@@ -272,6 +272,10 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
     let mut vertices = 0;
     for shape in output.shapes {
         if let egui::Shape::Mesh(mesh) = shape.shape {
+            // Floating NF2 stage chrome (breadcrumb, size badge, zoom control) sits outside the page.
+            if mesh.vertices.iter().all(|v| !page.contains(v.pos)) {
+                continue;
+            }
             for vertex in &mesh.vertices {
                 let world = (vertex.pos - page.min).to_pos2();
                 let local =
@@ -487,4 +491,193 @@ fn new_and_open_keep_workspace_preferences_and_save_only_preferences() {
     assert!(storage.0.contains_key(PREFS_KEY));
     assert!(!storage.0[PREFS_KEY].contains("scripts"));
     assert!(!editor.persist_egui_memory());
+}
+
+/// NF2 icons are also rasterised to 16 × 16 textures, but they are white-on-transparent (grey after
+/// premultiplication); authored bitmaps in these fixtures are coloured.
+fn is_authored_16px(image: &egui::ImageData) -> bool {
+    matches!(image, egui::ImageData::Color(img)
+        if img.size == [16, 16] && img.pixels.iter().any(|p| p.r() != p.g() || p.g() != p.b()))
+}
+
+#[test]
+fn nf2_actions_panel_reports_caret_planned_tools_and_jumps_to_diagnostics() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut project = Project::blank();
+    project.symbols[0]
+        .timeline
+        .scripts
+        .push(neoflash_core::FrameScript {
+            frame: 0,
+            script: neoflash_core::Script {
+                language: neoflash_core::ScriptLanguage::JavaScript,
+                source: "var a = 1;\nvar b = ;\n".into(),
+            },
+        });
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.show_panel(PanelId::Actions);
+    let original = editor.project.clone();
+    let render = |editor: &mut Editor| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1400., 420.),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.actions_contents(ui));
+            },
+        )
+    };
+    let labels = |output: egui::FullOutput| {
+        output
+            .platform_output
+            .accesskit_update
+            .unwrap()
+            .nodes
+            .into_iter()
+            .filter_map(|(_, node)| {
+                node.label()
+                    .or(node.value())
+                    .map(|label| (label.to_owned(), node.is_disabled()))
+            })
+            .collect::<Vec<_>>()
+    };
+    let found = labels(render(&mut editor));
+    let has = |label: &str| found.iter().find(|(l, _)| l == label).map(|(_, d)| *d);
+    assert!(
+        found.iter().any(|(l, _)| l.starts_with("Line 1, Col 1")),
+        "{found:?}"
+    );
+    // Working code tools are enabled; planned ones stay disabled, never working-looking fakes.
+    assert_eq!(has("Auto-format"), Some(false));
+    assert_eq!(has("Apply line comment"), Some(false));
+    assert_eq!(has("Debug options"), Some(true));
+    assert_eq!(has("Collapse between braces"), Some(true));
+    assert_eq!(has("Script assist"), Some(true));
+    // The sidebar shows the toolbox and Script navigator.
+    assert!(
+        has("Search toolbox").is_some() && has("Current selection").is_some(),
+        "{found:?}"
+    );
+    assert_eq!(has("Check script"), Some(false));
+
+    // A failed check lists diagnostics; clicking one moves the caret to its line.
+    let script = editor.symbol().timeline.scripts[0].script.clone();
+    editor.check_action_source(&script, true);
+    let id = editor.actions_editor_id();
+    let found = labels(render(&mut editor));
+    let message = found
+        .iter()
+        .find(|(l, _)| l.starts_with("Error:"))
+        .map(|(l, _)| l.clone());
+    let message = message.unwrap_or_else(|| panic!("no diagnostic row: {found:?}"));
+    let line: usize = message
+        .rsplit("Line ")
+        .next()
+        .and_then(|s| s.split(',').next())
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap();
+    // The row's click handler calls the same jump.
+    crate::sources::tests_jump(&ctx, id, &script.source, line, 1);
+    let state = egui::text_edit::TextEditState::load(&ctx, id).unwrap();
+    let index = state.cursor.char_range().unwrap().primary.index;
+    assert_eq!(
+        neoflash_ui::components::code::line_col(&script.source, index).0,
+        line
+    );
+    assert_eq!(editor.project, original);
+    assert!(!editor.history.can_undo());
+}
+
+#[test]
+fn actions_code_hints_toolbox_and_commands_edit_the_open_script() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut project = Project::blank();
+    project.symbols[0]
+        .timeline
+        .scripts
+        .push(neoflash_core::FrameScript {
+            frame: 0,
+            script: neoflash_core::Script {
+                language: neoflash_core::ScriptLanguage::ActionScript3,
+                source: "this.goto".into(),
+            },
+        });
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.show_panel(PanelId::Actions);
+    let render = |editor: &mut Editor| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1400., 420.),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.actions_contents(ui));
+            },
+        )
+    };
+    let labels = |output: egui::FullOutput| -> Vec<String> {
+        output
+            .platform_output
+            .accesskit_update
+            .unwrap()
+            .nodes
+            .into_iter()
+            .filter_map(|(_, node)| node.label().map(str::to_owned))
+            .collect()
+    };
+    let source = |editor: &Editor| editor.symbol().timeline.scripts[0].script.source.clone();
+    // The AS3 toolbox lists the supported API tree.
+    render(&mut editor);
+    let id = editor.actions_editor_id();
+    let found = labels(render(&mut editor));
+    assert!(found.iter().any(|l| l == "Top level"), "{found:?}");
+    // "Show code hint" opens hints for `this.goto…` at the caret: MovieClip navigation methods.
+    let mut state = egui::text_edit::TextEditState::default();
+    state
+        .cursor
+        .set_char_range(Some(egui::text::CCursorRange::one(
+            egui::text::CCursor::new(9),
+        )));
+    state.store(&ctx, id);
+    editor.actions_ui.pending = Some(crate::code_tools::CodeCommand::ShowHints);
+    render(&mut editor);
+    let found = labels(render(&mut editor));
+    assert!(found.iter().any(|l| l == "gotoAndPlay()"), "{found:?}");
+    assert!(found.iter().any(|l| l == "gotoAndStop()"), "{found:?}");
+    assert_eq!(
+        source(&editor),
+        "this.goto",
+        "hints never edit by themselves"
+    );
+    // Commands edit the script through normal history.
+    editor.actions_ui.pending = Some(crate::code_tools::CodeCommand::LineComment);
+    render(&mut editor);
+    assert_eq!(source(&editor), "// this.goto");
+    assert!(editor.history.can_undo());
+    // A toolbox insertion adds its AS3 import once.
+    let point = crate::script_api::api(neoflash_core::ScriptLanguage::ActionScript3)
+        .unwrap()
+        .classes
+        .contains_key("flash.geom.Point");
+    assert!(point);
+    editor.actions_ui.pending = Some(crate::code_tools::CodeCommand::Insert {
+        text: "Point".into(),
+        caret: 5,
+        import: Some("flash.geom.Point".into()),
+    });
+    render(&mut editor);
+    assert!(
+        source(&editor).starts_with("import flash.geom.Point;\n"),
+        "{}",
+        source(&editor)
+    );
 }

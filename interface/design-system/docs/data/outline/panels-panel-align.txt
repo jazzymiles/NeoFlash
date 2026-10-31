@@ -1,0 +1,25 @@
+F Panel / Align 264×370 [V gap 0]
+  I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 262×36 "Align" "Panel" "Panel"
+  F Body 262×332 [V gap 12]
+    F Row 238×34 [H gap 8]
+      T "Align to"
+      I NF2/Segmented Control 146×34 "Selection" "Stage"
+    F Align 208×56 [V gap 6]
+      T "Align"
+      F Row 208×34 [H gap 8]
+        I NF2/Icon Group {Count=3} 100×34
+        I NF2/Icon Group {Count=3} 100×34
+    F Distribute 208×56 [V gap 6]
+      T "Distribute"
+      F Row 208×34 [H gap 8]
+        I NF2/Icon Group {Count=3} 100×34
+        I NF2/Icon Group {Count=3} 100×34
+    F Spacing 208×56 [V gap 6]
+      T "Spacing"
+      F Row 208×34 [H gap 8]
+        I NF2/Icon Group {Count=2} 68×34
+        I NF2/Field {Show prefix=true, Prefix=Gap, Label=16 px, State=Default} 132×32 "Gap" "16 px"
+    F Match size 100×56 [V gap 6]
+      T "Match size"
+      F Row 100×34 [H gap 8]
+        I NF2/Icon Group {Count=3} 100×34

@@ -1,0 +1,258 @@
+F NF2 / Editor — Edit menu open 1920×1080
+  F Top bar 1920×48 [H gap 4]
+    I NF2/Logo 28×28
+    T "NeoFlash"
+    F gap 8×4
+    I NF2/Button {Icon=false, Label=File, Type=Ghost, State=Default} 46×32 "File"
+    I NF2/Button {Icon=false, Label=Edit, Type=Ghost, State=Hover} 49×32 "Edit"
+    I NF2/Button {Icon=false, Label=View, Type=Ghost, State=Default} 55×32 "View"
+    I NF2/Button {Icon=false, Label=Modify, Type=Ghost, State=Default} 68×32 "Modify"
+    I NF2/Button {Icon=false, Label=Insert, Type=Ghost, State=Default} 61×32 "Insert"
+    I NF2/Button {Icon=false, Label=Control, Type=Ghost, State=Default} 70×32 "Control"
+    I NF2/Button {Icon=false, Label=Window, Type=Ghost, State=Default} 75×32 "Window"
+    F Spacer 923×4
+    I NF2/Select {Label=Classic workspace, State=Default} 176×32 "Classic workspace"
+    I NF2/Button {Icon=true, Label=Test Movie, Type=Secondary, State=Default} 118×32 "Test Movie"
+    I NF2/Button {Icon=true, Label=Publish, Type=Primary, State=Default} 94×32 "Publish"
+    F Project title 182×22 [H gap 8]
+      T "Ideas in motion"
+      I NF2/Badge {Label=Unsaved, Type=Warning} 79×22 "Unsaved"
+  I NF2/Tools Panel {Layout=1 Column} 56×588
+  F Canvas 1544×588
+    F Stage — "Ideas in motion" (user content, vector) 720×452
+      T "NEOFLASH / MOTION STUDY 01"
+      T "Ideas in motion."
+      T "One symbol. Many possibilities."
+      T "A familiar timeline. A modern canvas."
+      T "BUILT TO BE INTERACTIVE"
+      T "CLICK THE ORBIT IN WEB PREVIEW"
+      T "EDIT A SYMBOL  ·  SCRUB THE TIMELINE  ·  EXPORT HTML5"
+    I NF2/Stage Grid 720×452
+    F Guides 1544×588
+      I NF2/Guide {Orientation=Vertical, State=Default} 9×568
+      I NF2/Guide {Orientation=Vertical, State=Default} 9×568
+      I NF2/Guide {Orientation=Horizontal, State=Selected} 1524×9
+    F Rulers 1544×588
+      I NF2/Stage Ruler {Orientation=Vertical} 20×1000 "-200" "-100" "0" "100" "200" "300" "400" "500" "600" "700" "800" "900"
+      I NF2/Stage Ruler {Orientation=Horizontal} 1600×20 "-500" "-400" "-300" "-200" "-100" "0" "100" "200" "300" "400" "500" "600"
+      I NF2/Ruler Corner 20×20
+    F Breadcrumb 183×34 [H gap 4]
+      T "Scene 1"
+      I NF2 Icon/16/chevright 16×16
+      T "Ideas in motion"
+    F Stage info 89×22 [H gap 8]
+      I NF2/Badge {Label=960 × 600, Type=Neutral} 89×22 "960 × 600"
+    I NF2/Zoom Control 365×42 "75%"
+  F Inspector 320×588 [V gap 0]
+    F Properties 319×488 [V gap 0]
+      I NF2/Panel Header 319×40 "Properties"
+      F Body 319×448 [V gap 12]
+        I NF2/Segmented Control 137×34 "Selection" "Tool"
+        I NF2/Section Header {Label=Stage, State=Expanded} 287×32 "Stage"
+        I NF2/Field {Show prefix=true, Prefix=Name, Label=Ideas in motion, State=Default} 287×32 "Name" "Ideas in motion"
+        F Size 288×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=W, Label=960, State=Default} 120×32 "W" "960"
+          I NF2/Field {Show prefix=true, Prefix=H, Label=600, State=Default} 120×32 "H" "600"
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Background 288×32 [H gap 8]
+          I NF2/Swatch 22×22
+          I NF2/Field {Show prefix=false, Prefix=W, Label=#131824, State=Default} 116×32 "W" "#131824"
+          I NF2/Field {Show prefix=true, Prefix=α, Label=100 %, State=Default} 134×32 "α" "100 %"
+        I NF2/Section Header {Label=Playback, State=Expanded} 287×32 "Playback"
+        F Playback row 288×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=FPS, Label=24, State=Default} 140×32 "FPS" "24"
+          I NF2/Field {Show prefix=true, Prefix=Frames, Label=120, State=Default} 140×32 "Frames" "120"
+        I NF2/Section Header {Label=Publish, State=Expanded} 287×32 "Publish"
+        F Publish row 198×62 [V gap 8]
+          I NF2/Badge {Label=HTML5 · Rust / WebAssembly, Type=Accent} 198×22 "HTML5 · Rust / WebAssembly"
+          I NF2/Button {Icon=false, Label=Publish settings…, Type=Secondary, State=Default} 136×32 "Publish settings…"
+    F Library 319×100 [V gap 0]
+      I NF2/Panel Header 319×40 "Library"
+      F Body 319×216 [V gap 8]
+        I NF2/Search {Label=Search library, State=Empty} 303×32 "Search library"
+        I NF2/Tree Item {Label=Library root, Type=Folder Open, Selected=True} 303×32 "Library root"
+        F indent 303×32 [H gap 0]
+          I NF2/Tree Item {Label=Orbit, Type=Symbol, Selected=False} 288×32 "Orbit"
+        F indent 303×32 [H gap 0]
+          I NF2/Tree Item {Label=Spark, Type=Symbol, Selected=False} 288×32 "Spark"
+        I NF2/Tree Item {Label=Resource files (0), Type=Folder Closed, Selected=False} 303×32 "Resource files (0)"
+  F Bottom dock 1920×420 [V gap 0]
+    F Dock tabs 1920×40 [H gap 0]
+      I NF2/Dock Tab {Label=Timeline, State=Active} 105×40 "Timeline"
+      I NF2/Dock Tab {Label=Actions, State=Inactive} 100×40 "Actions"
+      I NF2/Dock Tab {Label=Output, State=Inactive} 96×40 "Output"
+      I NF2/Dock Tab {Label=Accessibility, State=Inactive} 131×40 "Accessibility"
+      F Spacer 1408×4
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+    F Timeline controls 1920×44 [H gap 8]
+      F Layer actions 264×32 [H gap 2]
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Frame 128×4
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Primary, Size=MD, State=Default} 40×40
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+      F Timecode 145×20 [H gap 8]
+        T "00:01.21"
+        T "30 / 120 F"
+      I NF2/Select {Label=Scene 1, State=Default} 120×32 "Scene 1"
+      I NF2/Field {Show prefix=true, Prefix=FPS, Label=24, State=Default} 92×32 "FPS" "24"
+      I NF2/Field {Show prefix=true, Prefix=Duration, Label=5.00 s, State=Default} 140×32 "Duration" "5.00 s"
+      I NF2/Icon Group {Count=3} 100×34
+      I NF2/Icon Group {Count=3} 100×34
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      F Frame 100×4
+      F Onion skin 134×32 [H gap 2]
+        I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Slider 140×20
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+    F Timeline body 1920×336
+      I NF2/TL Layers Header 280×32 "Layers"
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=labels, Type=Layer, Selected=False} 280×28 "labels"
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Span {Type=Static} 468×27
+      I NF2/TL Span {Type=Static} 600×27
+      I NF2/TL Span {Type=Static} 372×27
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Marker {Kind=Action Keyframe, Tone=Default} 12×27 "a"
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      I NF2/TL Frame Label {Label=intro, Kind=Label} 49×27 "intro"
+      I NF2/TL Frame Label {Label=loop, Kind=Comment} 42×27 "loop"
+      I NF2/TL Frame Label {Label=outro, Kind=Label} 49×27 "outro"
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=character, Type=Folder Open, Selected=False} 280×28 "character"
+      I NF2/TL Grid {Kind=Folder} 1440×28
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=true, Label=Guide: path, Type=Motion Guide, Selected=False} 280×28 "Guide: path"
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Span {Type=Static} 1440×27
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      I NF2/TL Layer {Editing=false, Indent 2=true, Indent 1=true, Label=ball, Type=Layer, Selected=False} 280×28 "ball"
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Span {Type=Classic Tween} 348×27
+      I NF2/TL Span {Type=Classic Tween} 360×27
+      I NF2/TL Span {Type=Static} 192×27
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Blank Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=true, Label=mask, Type=Mask, Selected=False} 280×28 "mask"
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Span {Type=Static} 1440×27
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      I NF2/TL Layer {Indent 2=true, Editing=false, Indent 1=true, Label=arm, Type=Masked, Selected=False} 280×28 "arm"
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Span {Type=Shape Tween} 180×27
+      I NF2/TL Span {Type=Static} 252×27
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Marker {Kind=Blank Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      I NF2/TL Layer {Indent 2=true, Editing=true, Indent 1=true, Label=hand, Type=Masked, Selected=True} 280×28 "hand"
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Span {Type=Motion Tween} 720×27
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Span {Type=Selected} 180×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Property Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Property Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Property Keyframe, Tone=On Selection} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=true, Label=body, Type=Layer, Selected=False} 280×28 "body"
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Span {Type=Classic Tween} 228×27
+      I NF2/TL Span {Type=Broken Tween} 240×27
+      I NF2/TL Span {Type=Static} 972×27
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      I NF2/TL Layer {Indent 2=false, Editing=false, Indent 1=false, Label=background, Type=Folder Closed, Selected=False} 280×28 "background"
+      I NF2/TL Grid {Kind=Folder} 1440×28
+      I NF2/TL Layer {Indent 2=false, Editing=false, Indent 1=false, Label=Guide: sketch, Type=Guide, Selected=False} 280×28 "Guide: sketch"
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Span {Type=Static} 1440×27
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=music.mp3, Type=Sound, Selected=False} 280×28 "music.mp3"
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Span {Type=Sound} 1440×27
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      I NF2/TL Ruler 1440×32 "1" "5" "10" "15" "20" "25" "30" "35" "40" "45" "50" "55"
+      I NF2/TL Onion Range 84×24
+      I NF2/TL Playhead {Time=1.21s, Frame=30} 24×480 "30" "1.21s"
+  F Status bar 1920×24 [H gap 12]
+    T "Ready"
+    T "Stage 960 × 600 · 24 fps · 120 frames"
+    F Spacer 1165×4
+    F Hint 67×20 [H gap 6]
+      I NF2/Kbd 28×20 "F5"
+      T "frame"
+    F Hint 87×20 [H gap 6]
+      I NF2/Kbd 28×20 "F6"
+      T "keyframe"
+    F Hint 121×20 [H gap 6]
+      I NF2/Kbd 28×20 "F7"
+      T "blank keyframe"
+    F Hint 106×20 [H gap 6]
+      I NF2/Kbd 38×20 "⌘ ↵"
+      T "Test Movie"
+  I NF2/Tooltip 99×30 "Selection" "V"
+  F Edit + Timeline submenu 524×579
+    F Menu / Edit 262×531 [V gap 0]
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘Z, Label=Undo Fill colour, State=Default} 252×28 "Undo Fill colour" "⌘Z"
+      I NF2/Menu Item {Submenu=false, Shortcut=⇧⌘Z, Label=Redo, State=Default} 252×28 "Redo" "⇧⌘Z"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘X, Label=Cut, State=Default} 252×28 "Cut" "⌘X"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘C, Label=Copy, State=Default} 252×28 "Copy" "⌘C"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘V, Label=Paste in centre, State=Default} 252×28 "Paste in centre" "⌘V"
+      I NF2/Menu Item {Submenu=false, Shortcut=⇧⌘V, Label=Paste in place, State=Default} 252×28 "Paste in place" "⇧⌘V"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌫, Label=Clear, State=Default} 252×28 "Clear" "⌫"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘D, Label=Duplicate, State=Default} 252×28 "Duplicate" "⌘D"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘A, Label=Select all, State=Default} 252×28 "Select all" "⌘A"
+      I NF2/Menu Item {Submenu=false, Shortcut=⇧⌘A, Label=Deselect, State=Default} 252×28 "Deselect" "⇧⌘A"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘F, Label=Find and replace, State=Default} 252×28 "Find and replace" "⌘F"
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Timeline, State=Hover} 252×28 "Timeline" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘E, Label=Edit symbols, State=Default} 252×28 "Edit symbols" "⌘E"
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Edit selected, State=Default} 252×28 "Edit selected" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Edit in place, State=Default} 252×28 "Edit in place" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘U, Label=Preferences…, State=Default} 252×28 "Preferences…" "⌘U"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⇧⌘K, Label=Keyboard shortcuts…, State=Default} 252×28 "Keyboard shortcuts…" "⌥⇧⌘K"
+    F Menu / Edit ▸ Timeline 262×243 [V gap 0]
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘X, Label=Cut frames, State=Default} 252×28 "Cut frames" "⌥⌘X"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘C, Label=Copy frames, State=Default} 252×28 "Copy frames" "⌥⌘C"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘V, Label=Paste frames, State=Default} 252×28 "Paste frames" "⌥⌘V"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌫, Label=Clear frames, State=Default} 252×28 "Clear frames" "⌥⌫"
+      I NF2/Menu Item {Submenu=false, Shortcut=⇧F5, Label=Remove frames, State=Default} 252×28 "Remove frames" "⇧F5"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘A, Label=Select all frames, State=Default} 252×28 "Select all frames" "⌥⌘A"
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Reverse frames, State=Default} 252×28 "Reverse frames" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Synchronise symbols, State=Disabled} 252×28 "Synchronise symbols" " "

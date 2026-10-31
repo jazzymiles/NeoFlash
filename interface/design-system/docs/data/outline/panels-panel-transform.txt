@@ -1,0 +1,26 @@
+F Panel / Transform 264×360 [V gap 0]
+  I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 262×36 "Transform" "Panel" "Panel"
+  F Body 262×322 [V gap 12]
+    F Position and size 240×92 [V gap 6]
+      T "Position and size"
+      F Row 200×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=X, Label=64, State=Default} 96×32 "X" "64"
+        I NF2/Field {Show prefix=true, Prefix=Y, Label=337, State=Default} 96×32 "Y" "337"
+      F Row 240×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=W, Label=220, State=Default} 96×32 "W" "220"
+        I NF2/Field {Show prefix=true, Prefix=H, Label=48, State=Default} 96×32 "H" "48"
+        I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+    F Scale 240×54 [V gap 6]
+      T "Scale"
+      F Row 240×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=W, Label=100 %, State=Default} 96×32 "W" "100 %"
+        I NF2/Field {Show prefix=true, Prefix=H, Label=100 %, State=Default} 96×32 "H" "100 %"
+        I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+    F Rotate and skew 200×54 [V gap 6]
+      T "Rotate and skew"
+      F Row 200×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=↻, Label=0°, State=Default} 96×32 "↻" "0°"
+        I NF2/Field {Show prefix=true, Prefix=Skew, Label=0°, State=Default} 96×32 "Skew" "0°"
+    F Row 238×34 [H gap 8]
+      I NF2/Icon Group {Count=4} 132×34
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32

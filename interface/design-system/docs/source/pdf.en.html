@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NeoFlash Design System</title>
+<link rel="stylesheet" href="../pdf.css">
+</head>
+<body>
+
+<section class="cover">
+  <div class="brand"><span class="logo"><i></i></span> NeoFlash</div>
+  <h1>Design System&nbsp;2.0</h1>
+  <p class="sub">Foundations, components, screens, panels, dialogs and workflow of the NeoFlash animation editor — the redesign (v2) and how it was derived from the current interface (v1).</p>
+  <div class="hero">{{GEN:img:exports/interface/dark/png/editor-main.png|}}</div>
+  <div class="meta"><span>Figma file “{{FILE_NAME}}” · key BUz3pseopiuOg2Uiy3Fog7</span><span>Generated {{GENERATED}}</span></div>
+</section>
+
+<h1 style="break-before:auto">Contents</h1>
+<div class="toc">
+  <div><b>1</b>Overview and principles</div>
+  <div><b>2</b>Foundations: colour, spacing, type</div>
+  <div><b>3</b>Icons, cursors, states</div>
+  <div><b>4</b>Main window</div>
+  <div><b>5</b>Timeline</div>
+  <div><b>6</b>Panels</div>
+  <div><b>7</b>Code editor</div>
+  <div><b>8</b>Menus and shortcuts</div>
+  <div><b>9</b>Dialogs and preferences</div>
+  <div><b>10</b>Editor states</div>
+  <div><b>11</b>Components</div>
+  <div><b>12</b>Files and workflow</div>
+  <div><b>A</b>Functional coverage</div>
+</div>
+
+<h2>In short</h2>
+<p class="lead">NeoFlash is a desktop vector-animation editor in the tradition of Macromedia&nbsp;/ Adobe&nbsp;Flash: a stage, a timeline with layers and keyframes, nested symbols (movie clip, graphic, button), ActionScript-style scripting and publishing to HTML5 (Rust&nbsp;/ WebAssembly), video, images and audio.</p>
+<p>The design system <b>NF2</b> keeps the mental model Flash animators already have and modernises everything around it: one primary action per screen, task-grouped controls, surfaces instead of borders, two themes on one set of tokens, accessible contrast and focus. Every element is a real Figma component bound to variables — no bitmaps.</p>
+<div class="stats">
+  <div class="stat"><b>78</b><span>tokens · Dark + Light</span></div>
+  <div class="stat"><b>88</b><span>components &amp; sets</span></div>
+  <div class="stat"><b>304</b><span>icons · 39 cursors</span></div>
+  <div class="stat"><b>33/33</b><span>capabilities covered</span></div>
+</div>
+
+<!-- 1 -->
+<h1><span class="num">1</span>Overview and principles</h1>
+<p>The Figma file holds two independent versions. <b>v1</b> is a faithful vector reconstruction of the shipped interface (NF1 components and tokens). <b>v2</b> is the redesign with its own system (NF2). No variable, text style or component is shared, so changing one version never affects the other.</p>
+<div class="cards">
+  <div class="card"><b>One primary path</b><span>Every screen has one obvious primary action — Publish, Play, Save, Apply. The rest is secondary.</span></div>
+  <div class="card"><b>Group by task</b><span>Transport, onion skin, zoom and layer actions are grouped controls, not scattered rows.</span></div>
+  <div class="card"><b>Surfaces, not borders</b><span>Depth comes from background levels: app → panel → raised → field. Borders only separate.</span></div>
+  <div class="card"><b>Systematic</b><span>Own colour, spacing and radius variables, text styles and components; two themes on one collection.</span></div>
+  <div class="card"><b>Accessible</b><span>Text contrast ≥ 4.5:1, 2 px focus ring, hit areas ≥ 32 px, tooltips with shortcuts.</span></div>
+  <div class="card"><b>Flash-literate</b><span>Layer kinds, frame states, keyframe glyphs, symbol types, menus and shortcuts follow Flash.</span></div>
+</div>
+
+<h2>Audit of v1</h2>
+<p>14 findings — 5 high, 7 medium, 2 low. In v1 disabled text had 2.16:1 contrast (norm 4.5:1) and 20 tool buttons had neither labels nor tooltips. The most important changes:</p>
+<table>
+<thead><tr><th>Area</th><th>v1 problem</th><th>v2 solution</th></tr></thead>
+<tbody>
+<tr><td>Action hierarchy</td><td>Test Movie is a small link, Publish hidden at the bottom of Properties.</td><td>Top bar: Test Movie (secondary) and <b>Publish</b> (primary). Project title and unsaved badge centred.</td></tr>
+<tr><td>Timeline controls</td><td>Scene, FPS, play, onion skin and zoom spread over three rows.</td><td>One control bar: transport, timecode, scene / FPS / duration, frame tools, onion skin, zoom.</td></tr>
+<tr><td>Tools palette</td><td>20 icons without labels, shortcuts or tooltips.</td><td>56 px rail, grouped, flyouts, accent active tool, tooltip with shortcut; one- and two-column layouts.</td></tr>
+<tr><td>Typography &amp; contrast</td><td>Small secondary text, disabled at 2.16:1.</td><td>Scale 11–20 px, ≥ 12 px for text, all text tokens ≥ 4.5:1.</td></tr>
+<tr><td>Surfaces</td><td>Every control outlined; no depth.</td><td>Surface levels, borders as separators, radii from tokens.</td></tr>
+<tr><td>Fields</td><td>Fields look like buttons; no units, steppers or scrub.</td><td>One Field component: prefix label, units, steppers, scrub, states.</td></tr>
+<tr><td>Dialogs</td><td>Equal-weight buttons, two title styles, long single column.</td><td>One dialog pattern: primary last, destructive left, Advanced collapsed.</td></tr>
+<tr><td>Accessibility &amp; themes</td><td>Weak focus, 24–28 px targets, no dark theme.</td><td>Focus ring, ≥ 32 px targets, Dark and Light.</td></tr>
+</tbody></table>
+{{GEN:img:docs/illustrations/audit-v1-to-v2.png|Audit board in Figma: annotated v1 map, findings and principles}}
+
+<!-- 2 -->
+<h1><span class="num">2</span>Foundations</h1>
+<h2>Colour</h2>
+<p>All colours are variables of the collection <code>NF2 · Tokens</code> with two modes, <b>Dark</b> and <b>Light</b>. A theme is switched by setting the mode of a frame (in code: <code>data-theme="light"</code>); component structure never changes.</p>
+<ul>
+  <li><b>Surfaces</b> stack <code>bg/app → bg/panel → bg/raised → bg/field</code>; <code>bg/hover</code> and <code>bg/selected</code> for interaction. <code>bg/canvas</code> is the pasteboard, <code>bg/stage</code> the document background (user content, same in both themes).</li>
+  <li><b>Accent</b> is the only interactive colour: primary buttons, selection, active tool, toggles, focus.</li>
+  <li><b>Red is reserved for errors</b> and destructive actions (plus the Flash conventions: playhead and frame labels). Breakpoints are orange, warnings amber, strings green, XML tags blue.</li>
+</ul>
+{{GEN:colors}}
+<div class="two">{{GEN:img:docs/illustrations/colors-dark.png|Colour board — Dark}}{{GEN:img:docs/illustrations/colors-light.png|Colour board — Light}}</div>
+
+<h2>Spacing and radius</h2>
+<div class="two"><div>{{GEN:dimensions}}</div><div>
+<p>Panel padding 12, gap between field rows 8, dialog padding 24.</p>
+<p>Control heights: <b>32</b> fields, buttons, icon buttons · <b>28</b> tree rows, menu items, layer rows · <b>36</b> panel header and tabs · <b>40</b> dock tabs, main Play · <b>24</b> status bar.</p>
+<p>Radii: 4 chips and swatches, 6 fields and buttons, 8 cards and popovers, 12 dialogs and floating panels.</p>
+</div></div>
+{{GEN:img:docs/illustrations/spacing-and-radius.png|Spacing and radius board}}
+
+<h2>Typography</h2>
+<p><b>Inter</b> for the interface, <b>Roboto Mono</b> for code, timecode, ruler numbers and hex values. Minimum running-text size is 12 px; 11 px only for overlines and mono metadata.</p>
+{{GEN:type}}
+{{GEN:img:docs/illustrations/type-scale.png|Type scale}}
+
+<!-- 3 -->
+<h1><span class="num">3</span>Icons, cursors, states</h1>
+<h2>Icons</h2>
+<p>Monochrome stroke icons on two grids: <b>16 px</b> for the interface and <b>20 px</b> for tools. Icons have no colour of their own — each instance is recoloured by token (secondary text by default, primary on hover, accent when active). The <i>Icons</i> page in Figma shows every icon with where it is used; unused icons are listed separately as candidates for cleanup.</p>
+{{GEN:icons}}
+{{GEN:img:docs/illustrations/icons-page-tools-section.png|Icons page — tools section with “Used in”}}
+
+<h2>Cursors</h2>
+<p>39 cursors, 24 × 24, black glyph with a white outline so they read on any stage colour. The hotspot is stored in each component and must be used when implementing.</p>
+{{GEN:cursors}}
+{{GEN:img:docs/illustrations/icons-page-cursors-section.png|Cursors with hotspots}}
+
+<h2>Elevation, focus and states</h2>
+<ul>
+  <li>Floating panels and popovers: raised surface, radius 12, 1 px subtle border, shadow y 12 / blur 32 / 35 %. Dialogs: shadow y 16 / blur 48 / 45 % over a dimming overlay.</li>
+  <li>Focus: 2 px accent ring, 2 px outside the control, shown only for keyboard focus.</li>
+  <li>Hover: <code>bg/hover</code>; pressed / on uses the Selected variant; Disabled variants use disabled text and lose hover.</li>
+  <li>Tooltips: inverted surface, name + shortcut chip (“Selection&nbsp;&nbsp;V”).</li>
+</ul>
+{{GEN:img:docs/illustrations/technical.png|Technical shelf: scrollbars, splitters, docking, drag ghost, toasts, progress, focus ring, empty state}}
+
+<!-- 4 -->
+<h1><span class="num">4</span>Main window</h1>
+{{GEN:img:exports/interface/dark/png/editor-main.png|Editor — Main, Dark}}
+<table>
+<thead><tr><th>Region</th><th>Size</th><th>Content</th></tr></thead>
+<tbody>
+<tr><td>Top bar</td><td>1920 × 48</td><td>Logo, main menu (File · Edit · View · Modify · Insert · Control · Window), project title with Unsaved badge in the centre, workspace selector, <b>Test Movie</b> (secondary), <b>Publish</b> (primary).</td></tr>
+<tr><td>Tools rail</td><td>56 × 588</td><td>Tools panel, one column: tool groups behind flyouts, fill / stroke chip, default / swap colours, snap.</td></tr>
+<tr><td>Canvas</td><td>1544 × 588</td><td>Pasteboard, stage 960 × 600 at 75 %, stage grid, rulers 20 px with the corner origin, guides, breadcrumb (top-left), stage size badge (top-right), floating zoom control (hand, −, 75 %, +, fit, rulers, guides, grid, snap, view settings ⚙).</td></tr>
+<tr><td>Inspector</td><td>320 × 588</td><td>Properties (Selection / Tool; Stage name, size, background, FPS, frames, publish target) and Library.</td></tr>
+<tr><td>Bottom dock</td><td>1920 × 420</td><td>Tabs Timeline · Actions · Output · Accessibility (40), timeline controls (44), timeline (336).</td></tr>
+<tr><td>Status bar</td><td>1920 × 24</td><td>“Ready”, document summary; shortcut chips F5 frame, F6 keyframe, F7 blank keyframe, ⌘↵ Test Movie.</td></tr>
+</tbody></table>
+<p><b>Timeline controls</b>, left to right: new layer, new folder, motion guide, delete · first, step back, <b>Play</b>, step forward, last · loop · timecode <code>00:01.21</code> and <code>30 / 120 F</code> · scene · FPS · duration · insert frame / keyframe / blank keyframe · classic / shape / motion tween · ease · sound · onion skin, outlines, edit multiple frames, markers · centre playhead · frame view menu · zoom.</p>
+{{GEN:img:exports/interface/light/png/editor-main.png|Editor — Main, Light theme (the same frame with the Light mode)}}
+
+<!-- 5 -->
+<h1><span class="num">5</span>Timeline</h1>
+<p>The timeline follows Flash semantics exactly, so Flash users recognise every state at a glance.</p>
+{{GEN:img:exports/interface/dark/png/timeline-states-legend.png|Timeline legend: layer types, column toggles, frame states}}
+<h2>Geometry</h2>
+<ul>
+  <li><b>12 px per frame</b> in Normal view; Tiny 6, Small 9, Medium 16, Large 22 px. Rows 28 px (Short: 18 px).</li>
+  <li>Ruler 32 px: seconds on top (at 24 fps), frame numbers and ticks below. Layer column 280 px.</li>
+  <li>Grid: every 5th frame shaded; per-frame lines are drawn over spans so filled frames stay countable.</li>
+  <li>Frame <i>n</i> starts at <code>x = (n − 1) × 12</code>; a span of <i>k</i> frames is <code>k × 12</code> wide.</li>
+</ul>
+<h2>Layers</h2>
+<table>
+<thead><tr><th>Type</th><th>Rule</th></tr></thead>
+<tbody>
+<tr><td>Layer</td><td>Normal layer.</td></tr>
+<tr><td>Folder (open / closed)</td><td>Children indent one level; a closed folder shows a flat strip in the grid.</td></tr>
+<tr><td>Motion guide</td><td>Guided layers sit under it, indented.</td></tr>
+<tr><td>Guide</td><td>Reference only, not exported.</td></tr>
+<tr><td>Mask / Masked</td><td>Masked layers indent under the mask.</td></tr>
+<tr><td>Sound</td><td>The span shows the waveform.</td></tr>
+<tr><td>Video</td><td>The span shows a filmstrip of the clip.</td></tr>
+<tr><td>Armature</td><td>IK poses are property keyframes ◆.</td></tr>
+</tbody></table>
+<p>Columns: visibility (dot / red ✕), lock (dot / lock), outline (solid / outline-only layer colour). The pencil marks the current layer.</p>
+<h2>Frame states</h2>
+{{GEN:timeline-states}}
+<p>Markers: keyframe ●, blank keyframe ○, span end ▯, property keyframe ◆, action keyframe “a”. Labels: red flag (label), green // (comment), ⚓ (anchor). The playhead shows the frame number on the frame row and the current time on the seconds row.</p>
+<h2>Frame view modes</h2>
+<p>The ⋯ menu of the timeline sets placement (bottom, top, left, right, floating) and the frame view: Tiny, Small, Normal, Medium, Large, Preview, Preview in context, Short, Tinted frames; plus seconds on the ruler and snapping the playhead to keyframes.</p>
+{{GEN:img:exports/panels/dark/png/timeline-frame-views.png|Timeline view menu and every frame view mode}}
+<h2>Nesting and large projects</h2>
+<p>The breadcrumb shows the editing path (Scene ▸ symbol ▸ nested symbol); each item can go back up, its ▾ lists siblings, a long path collapses into “…”. The Symbols &amp; scenes popover handles hundreds of symbols: search, scenes, matches (“3 of 248”), recent, browse by folder, keyboard hints. Button symbols get the four-frame timeline Up · Over · Down · Hit.</p>
+{{GEN:img:exports/panels/dark/png/timeline-button-symbol-cta-btn.png|Button symbol timeline}}
+
+<!-- 6 -->
+<h1><span class="num">6</span>Panels</h1>
+<p>Detached panels share one header (drag grip, up to three tabs, panel menu, collapse, close), the raised surface, radius 12 and a shadow. Bodies use 12 px padding and collapsible section headers. Every panel exists in Dark and Light; the Light versions are in <code>exports/panels/light/</code>.</p>
+{{GEN:panels}}
+
+<!-- 7 -->
+<h1><span class="num">7</span>Code editor</h1>
+<p>Roboto Mono 13 px with line height 1.6. The gutter shows line numbers and markers: error, warning, breakpoint, execution arrow, folding. Errors also appear inline under the line with a quick fix, and on the overview ruler. Code hints, script tabs, a toolbox and a script navigator complete the Actions panel (see chapter 6).</p>
+<table>
+<thead><tr><th>Token</th><th>Dark</th><th>Light</th><th>Rule</th></tr></thead>
+<tbody>
+<tr><td>Keyword</td><td><span class="sw" style="background:#c6a0f6"></span><code>#c6a0f6</code></td><td><span class="sw" style="background:#7e3fc2"></span><code>#7e3fc2</code></td><td>violet</td></tr>
+<tr><td>Type / class</td><td><span class="sw" style="background:#8bd5ca"></span><code>#8bd5ca</code></td><td><span class="sw" style="background:#0b7f72"></span><code>#0b7f72</code></td><td>teal</td></tr>
+<tr><td>Function</td><td><span class="sw" style="background:#8aadf4"></span><code>#8aadf4</code></td><td><span class="sw" style="background:#2f5bd8"></span><code>#2f5bd8</code></td><td>blue</td></tr>
+<tr><td>String</td><td><span class="sw" style="background:#a6da95"></span><code>#a6da95</code></td><td><span class="sw" style="background:#3d7a2a"></span><code>#3d7a2a</code></td><td>green</td></tr>
+<tr><td>Number</td><td><span class="sw" style="background:#f5a97f"></span><code>#f5a97f</code></td><td><span class="sw" style="background:#b5521b"></span><code>#b5521b</code></td><td>peach</td></tr>
+<tr><td>Comment</td><td><span class="sw" style="background:#6e7891"></span><code>#6e7891</code></td><td><span class="sw" style="background:#8a93a6"></span><code>#8a93a6</code></td><td>grey</td></tr>
+<tr><td>XML tag</td><td><span class="sw" style="background:#7dc4e4"></span><code>#7dc4e4</code></td><td><span class="sw" style="background:#0b6e99"></span><code>#0b6e99</code></td><td>blue, never red</td></tr>
+<tr><td>Attribute</td><td><span class="sw" style="background:#eed49f"></span><code>#eed49f</code></td><td><span class="sw" style="background:#8a6500"></span><code>#8a6500</code></td><td>sand</td></tr>
+<tr><td>Error</td><td><span class="sw" style="background:#ff6b6b"></span><code>#ff6b6b</code></td><td><span class="sw" style="background:#d92d2d"></span><code>#d92d2d</code></td><td><b>the only red</b></td></tr>
+<tr><td>Warning</td><td><span class="sw" style="background:#f5b94a"></span><code>#f5b94a</code></td><td><span class="sw" style="background:#b26a00"></span><code>#b26a00</code></td><td>amber</td></tr>
+<tr><td>Breakpoint</td><td><span class="sw" style="background:#ff9a5c"></span><code>#ff9a5c</code></td><td><span class="sw" style="background:#e8731f"></span><code>#e8731f</code></td><td>orange</td></tr>
+</tbody></table>
+{{GEN:img:docs/illustrations/code-editor.png|Code editor component}}
+{{GEN:img:exports/interface/dark/png/editor-actions-tab.png|Docked Actions editor}}
+
+<!-- 8 -->
+<h1><span class="num">8</span>Menus and shortcuts</h1>
+<p>Shortcuts are shown for macOS (⌘ ⌥ ⇧); on Windows use Ctrl, Alt, Shift. Checked items show ✓, submenus ▸.</p>
+<div class="menus">{{GEN:menus}}</div>
+{{GEN:img:exports/panels/dark/png/menus.png|Menus board}}
+
+<!-- 9 -->
+<h1><span class="num">9</span>Dialogs and preferences</h1>
+<p>One dialog pattern: header with title and close, body with 24 px padding, buttons on the right with the primary last and destructive actions as a quiet red button on the left. Esc cancels, Enter confirms. Preferences use a category list on the left and grouped settings on the right.</p>
+{{GEN:dialogs}}
+
+<!-- 10 -->
+<h1><span class="num">10</span>Editor states</h1>
+<p>Full 1920 × 1080 screens, each in Dark and Light (<code>exports/interface/</code>).</p>
+{{GEN:interface-gallery}}
+
+<!-- 11 -->
+<h1><span class="num">11</span>Components</h1>
+<p>All components live on the page <i>v2 · System &amp; Components</i>, grouped in shelves. Variant properties are listed with their options; text and boolean properties with their defaults.</p>
+{{GEN:components}}
+<h2>Shelves</h2>
+{{GEN:shelf-gallery}}
+
+<!-- 12 -->
+<h1><span class="num">12</span>Files and workflow</h1>
+<div class="tree">design-system/
+  AGENTS.md                         brief for Codex and other coding agents
+  tokens/                           tokens.css · typography.css · tokens.json
+  docs/
+    NeoFlash-Design-System.md       full reference for Claude
+    NeoFlash-Design-System.codex.md full reference for Codex
+    pdf/                            this document (EN, RU)
+    illustrations/                  boards used in the docs
+    data/                           Figma dump, outlines of every frame
+    source/                         sources of the docs
+  exports/
+    interface/{dark,light}/{png,svg}
+    panels/{dark,light}/{png,svg}
+    icons/{16,20}/ · cursors/
+  tools/                            export plugin, receiver, build scripts</div>
+{{GEN:exports}}
+<h2>Updating</h2>
+<ol>
+  <li>Change the design in Figma (v2 pages only; bind colours to NF2 tokens, text to NF2 styles).</li>
+  <li>Start the receiver: <code>python3 tools/receiver.py</code>.</li>
+  <li>In Figma Desktop run <b>Plugins → Development → NeoFlash Export</b> → Export.</li>
+  <li>Rebuild: <code>python3 tools/build-docs.py &amp;&amp; tools/build-pdf.sh</code>.</li>
+</ol>
+<div class="note">The Figma MCP server is limited to 200 calls a day, so exports always go through the local plugin.</div>
+
+<!-- A -->
+<h1><span class="num">A</span>Functional coverage</h1>
+<p>v2 checked against what a Flash-style animation editor needs: drawing, nested symbols, timeline animation, scripting, import and export of graphics, video and sound. <b>33 of 33 covered.</b></p>
+{{GEN:coverage}}
+
+</body>
+</html>

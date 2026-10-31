@@ -1,0 +1,32 @@
+F Panel / Color — Radial gradient 280×659 [V gap 0]
+  I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 278×36 "Color" "Swatches" "Panel"
+  F Body 278×621 [V gap 12]
+    F Row 254×34 [H gap 8]
+      I NF2/Segmented Control 160×34 "Selection" "Drawing"
+      T "1 object"
+    F Row 254×32 [H gap 6]
+      I NF2/Color Well {Target=Stroke, Active=False} 74×32
+      I NF2/Color Well {Target=Fill, Active=True} 74×32
+      F Frame 1×2
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 28×28
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 28×28
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 28×28
+    I NF2/Select {Label=Radial gradient, State=Default} 254×32 "Radial gradient"
+    F Row 254×34 [H gap 8]
+      T "Flow"
+      I NF2/Icon Group {Count=3} 100×34
+      I NF2/Checkbox {Label=Linear RGB, Checked=False} 94×20 "Linear RGB"
+    I NF2/Color Picker 248×150
+    F Row 254×34 [H gap 8]
+      I NF2/Segmented Control 108×34 "RGB" "HSB"
+    F Row 254×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=R, Label=255, State=Default} 80×32 "R" "255"
+      I NF2/Field {Show prefix=true, Prefix=G, Label=153, State=Default} 80×32 "G" "153"
+      I NF2/Field {Show prefix=true, Prefix=B, Label=0, State=Default} 80×32 "B" "0"
+    I NF2/Color Field {Alpha=100 %, Hex=FF9900} 254×32 "FF9900" "100 %"
+    I NF2/Gradient Bar 232×40
+    F Stroke 256×54 [V gap 6]
+      T "Stroke"
+      F Row 256×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=Width, Label=1.0 px, State=Default} 124×32 "Width" "1.0 px"
+        I NF2/Select {Label=Solid, State=Default} 124×32 "Solid"

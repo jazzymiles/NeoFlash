@@ -1,0 +1,191 @@
+F NF1 / Editor — Main window 2560×1440
+  F Menu bar 2560×28 [H gap 4]
+    I NF1/Menu Item 79×28 "NeoFlash"
+    I NF1/Menu Item 40×28 "File"
+    I NF1/Menu Item 42×28 "Edit"
+    I NF1/Menu Item 62×28 "Modify"
+    I NF1/Menu Item 55×28 "Insert"
+    I NF1/Menu Item 65×28 "Control"
+    I NF1/Menu Item 69×28 "Window"
+    F Spacer 1835×4
+    T "Classic workspace"
+    F gap 14×4
+    I NF1 Icon/16/external 16×16
+    I NF1/Menu Item 89×28 "Test Movie"
+  F Timeline panel 2560×297
+    I NF1/Panel Header 2560×30 "Timeline" "…"
+    F Timeline controls 616×28 [H gap 8]
+      I NF1/Button/Text {Label=Scene 1, Style=Accent} 82×28 "Scene 1"
+      I NF1/Button/Text {Label=24 fps, Style=Default} 73×28 "24 fps"
+      I NF1/Button/Text {Label=5.00 s, Style=Default} 76×28 "5.00 s"
+      T "1 / 120 F · 0.00 s"
+      I NF1/Button/Icon {State=Default} 24×24
+      I NF1/Slider 100×20
+      T "Zoom"
+      I NF1/Button/Icon {State=Default} 24×24
+      I NF1/Button/Text {Label=Fit, Style=Default} 47×28 "Fit"
+    F Layers header 211×30 [H gap 0]
+      T "Layers"
+      F Header icons 56×16 [H gap 6]
+        I NF1 Icon/16/lock 16×16
+        I NF1 Icon/16/eye 16×16
+    I NF1/Layer Row {Label=Orbit instances, Selected=False} 212×24 "Orbit instances"
+    I NF1/Layer Row {Label=Accents, Selected=False} 212×24 "Accents"
+    I NF1/Layer Row {Label=Typography, Selected=True} 212×24 "Typography"
+    F Layers empty 211×78
+    I NF1/Ruler 1588×30 "5" "10" "15" "20" "25" "30" "35" "40" "45" "50" "55" "60"
+    I NF1/Frame Row {Selected=False} 1548×24
+    I NF1/Frame Row {Selected=False} 1548×24
+    I NF1/Frame Row {Selected=True} 1548×24
+    I NF1/Frame Row {Selected=False} 1548×24
+    I NF1/Frame Row {Selected=False} 1548×24
+    I NF1/Frame Row {Selected=False} 1548×24
+    I NF1/Playhead 12×174
+    I NF1/Scrollbar/H 2339×8
+    F Timeline options 866×30 [H gap 8]
+      I NF1/Button/Icon {State=Default} 28×28
+      I NF1/Button/Icon {State=Default} 28×28
+      F gap 4×4
+      I NF1/Button/Icon {State=Default} 28×28
+      I NF1/Button/Icon {State=Default} 28×28
+      I NF1/Button/Text {Label=Actions, Style=Default} 80×28 "Actions"
+      F gap 4×4
+      I NF1/Checkbox {Label=Onion Skin, Checked=False} 96×18 "Onion Skin"
+      I NF1/Checkbox {Label=Outlines, Checked=False} 80×18 "Outlines"
+      T "Before"
+      I NF1/Field {Label=3, Type=Focus} 34×26 "3"
+      T "After"
+      I NF1/Field {Label=3, Type=Text} 34×26 "3"
+      I NF1/Checkbox {Label=Anchor, Checked=True} 73×18 "Anchor"
+      I NF1/Slider 100×20
+      T "Opacity"
+  R Splitter grip 60×4
+  F Tools panel 136×1110
+    I NF1/Panel Header 136×30 "Tools" "…"
+    F Tool groups 136×404 [V gap 6]
+      T "Select"
+      F Tools row 62×28 [H gap 6]
+        I NF1/Button/Icon {State=Selected} 28×28
+        I NF1/Button/Icon {State=Default} 28×28
+      F Tools row 62×28 [H gap 6]
+        I NF1/Button/Icon {State=Default} 28×28
+        I NF1/Button/Icon {State=Default} 28×28
+      T "Draw"
+      F Tools row 62×28 [H gap 6]
+        I NF1/Button/Icon {State=Default} 28×28
+        I NF1/Button/Icon {State=Default} 28×28
+      F Tools row 62×28 [H gap 6]
+        I NF1/Button/Icon {State=Default} 28×28
+        I NF1/Button/Icon {State=Default} 28×28
+      F Tools row 62×28 [H gap 6]
+        I NF1/Button/Icon {State=Default} 28×28
+        I NF1/Button/Icon {State=Default} 28×28
+      F Tools row 62×28 [H gap 6]
+        I NF1/Button/Icon {State=Default} 28×28
+        I NF1/Button/Icon {State=Default} 28×28
+      F Tools row 62×28 [H gap 6]
+        I NF1/Button/Icon {State=Default} 28×28
+        I NF1/Button/Icon {State=Default} 28×28
+      F Tools row 62×28 [H gap 6]
+        I NF1/Button/Icon {State=Default} 28×28
+        I NF1/Button/Icon {State=Default} 28×28
+      T "View"
+      F Tools row 62×28 [H gap 6]
+        I NF1/Button/Icon {State=Default} 28×28
+        I NF1/Button/Icon {State=Default} 28×28
+      F Tools row 62×28 [H gap 6]
+        I NF1/Button/Icon {State=Default} 28×28
+        I NF1/Button/Icon {State=Default} 28×28
+    F Fill / Stroke / Options 136×78 [V gap 6]
+      F Fill Stroke labels 73×14 [H gap 20]
+        T "Fill"
+        T "Stroke"
+      F Swatches 56×24 [H gap 8]
+        I NF1/Swatch 24×24
+        I NF1/Swatch 24×24
+      I NF1/Button/Text {Label=Options, Style=Default} 72×28 "Options"
+  F Stage panel 2139×921
+    T "Ideas in motion"
+    F Stage zoom 118×28 [H gap 6]
+      I NF1/Button/Text {Label=Fit stage, Style=Default} 88×28 "Fit stage"
+      T "75%"
+    F Stage — "Ideas in motion" (user content, vector) 720×452
+      T "NEOFLASH / MOTION STUDY 01"
+      T "Ideas in motion."
+      T "One symbol. Many possibilities."
+      T "A familiar timeline. A modern canvas."
+      T "BUILT TO BE INTERACTIVE"
+      T "CLICK THE ORBIT IN WEB PREVIEW"
+      T "EDIT A SYMBOL  ·  SCRUB THE TIMELINE  ·  EXPORT HTML5"
+    T "Ready · F5 frame · F6 keyframe · F7 blank keyframe · ⌘□ Test Movie"
+  F Bottom dock 2139×186
+    F Panel Header (tabs) 2139×30 [H gap 6]
+      I NF1 Icon/16/grip 16×16
+      I NF1/Panel Tab {Label=Actions, State=Inactive} 74×28 "Actions"
+      I NF1/Panel Tab {Label=Accessibility, State=Inactive} 107×28 "Accessibility"
+      I NF1/Panel Tab {Label=Output, State=Active} 72×28 "Output"
+      F Spacer 1802×4
+      I NF1/Button/Overflow 24×26 "…"
+    T "NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser."
+  F Library panel 272×656
+    I NF1/Panel Header 272×30 "Library" "…"
+    F Library body 272×200 [V gap 10]
+      F Search row 271×28 [H gap 8]
+        I NF1/Field {Label=Search library, Type=Placeholder} 198×26 "Search library"
+        I NF1/Button/Text {Label=Clear, Style=Disabled} 65×28 "Clear"
+      F Sort row 262×28 [H gap 8]
+        I NF1/Select 198×28 "Sort: Name"
+        I NF1/Button/Text {Label=A–Z, Style=Default} 56×28 "A–Z"
+      F Tree 256×112 [V gap 0]
+        I NF1/Tree Item {Label=Library root, Type=Folder, Selected=True} 256×28 "Library root"
+        F indent 256×28 [H gap 0]
+          I NF1/Tree Item {Label=Orbit, Type=Symbol, Selected=False} 260×28 "Orbit"
+        F indent 256×28 [H gap 0]
+          I NF1/Tree Item {Label=Spark, Type=Symbol, Selected=False} 260×28 "Spark"
+        I NF1/Tree Item {Label=Resource files (0), Type=Folder Collapsed, Selected=False} 256×28 "Resource files (0)"
+    F Library actions 230×28 [H gap 8]
+      I NF1/Button/Icon {State=Default} 28×28
+      I NF1/Button/Icon {State=Default} 28×28
+      I NF1/Button/Text {Label=Import…, Style=Default} 86×28 "Import…"
+      I NF1/Button/Text {Label=More, Style=Default} 64×28 "More"
+  F Properties panel 272×442
+    I NF1/Panel Header 272×30 "Properties" "…"
+    F Properties body 272×434 [V gap 8]
+      F Selection / Tool 154×28 [H gap 10]
+        I NF1/Button/Text {Label=Selection, Style=Accent} 92×28 "Selection"
+        I NF1/Panel Tab {Label=Tool, State=Inactive} 52×28 "Tool"
+      T "Document"
+      I NF1/Section Header {Label=Stage, State=Expanded} 260×28 "Stage"
+      F indent 250×26 [H gap 0]
+        F Row / Name 228×26 [H gap 8]
+          T "Name"
+          I NF1/Field {Label=Ideas in motion, Type=Text} 160×26 "Ideas in motion"
+      F indent 297×26 [H gap 0]
+        F W H 275×26 [H gap 8]
+          T "W"
+          I NF1/Field {Label=960, Type=Text} 94×26 "960"
+          T "H"
+          I NF1/Field {Label=600, Type=Text} 94×26 "600"
+      F indent 195×24 [H gap 0]
+        F Background 173×24 [H gap 8]
+          T "Background"
+          I NF1/Swatch 24×24
+          T "#131824"
+      F indent 208×26 [H gap 0]
+        F Row / Alpha 186×26 [H gap 8]
+          T "Alpha"
+          I NF1/Field {Label=100 %, Type=Number} 94×26 "100 %"
+      I NF1/Section Header {Label=Playback, State=Expanded} 260×28 "Playback"
+      F indent 208×26 [H gap 0]
+        F Row / FPS 186×26 [H gap 8]
+          T "FPS"
+          I NF1/Field {Label=24, Type=Number} 94×26 "24"
+      F indent 208×26 [H gap 0]
+        F Row / Frames 186×26 [H gap 8]
+          T "Frames"
+          I NF1/Field {Label=120, Type=Number} 94×26 "120"
+      I NF1/Section Header {Label=Publish, State=Expanded} 260×28 "Publish"
+      F indent 190×16 [H gap 0]
+        T "HTML5 · Rust / WebAssembly"
+      F indent 174×28 [H gap 0]
+        I NF1/Button/Text {Label=Publish HTML5…, Style=Default} 152×28 "Publish HTML5…"
