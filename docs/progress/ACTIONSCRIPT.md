@@ -14,14 +14,14 @@ Both languages are counted against the same eight Flash Player areas. Areas 1–
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1. Mathematics and 2D geometry | 155 | 0 | 152 | 1 | 2 | 0.0% | 98.1% |
 | 2. Objects, language and collections | 582 | 16 | 361 | 112 | 93 | 2.7% | 64.8% |
-| 3. MovieClip and timeline | 37 | 2 | 28 | 7 | 0 | 5.4% | 81.1% |
+| 3. MovieClip and timeline | 37 | 10 | 22 | 5 | 0 | 27.0% | 86.5% |
 | 4. Display, events and basic input | 678 | 24 | 183 | 471 | 0 | 3.5% | 30.5% |
 | 5. Graphics, bitmaps and filters | 313 | 3 | 151 | 159 | 0 | 1.0% | 49.2% |
 | 6. Text and fonts | 174 | 3 | 58 | 113 | 0 | 1.7% | 35.1% |
 | 7. File audio and video playback | 91 | 0 | 35 | 54 | 2 | 0.0% | 38.5% |
 | 8. Services and advanced Player APIs | 2,134 | 0 | 359 | 1,775 | 0 | 0.0% | 16.8% |
-| **Now: areas 1–6** | 1,939 | 48 | 933 | 863 | 95 | 2.5% | 50.6% |
-| **All Flash Player areas** | 4,164 | 48 | 1,327 | 2,692 | 97 | 1.2% | 33.0% |
+| **Now: areas 1–6** | 1,939 | 56 | 927 | 861 | 95 | 2.9% | 50.7% |
+| **All Flash Player areas** | 4,164 | 56 | 1,321 | 2,690 | 97 | 1.3% | 33.1% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -31,14 +31,14 @@ Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, compo
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1. Mathematics and 2D geometry | 128 | 0 | 128 | 0 | 0 | 0.0% | 100.0% |
 | 2. Objects, language and collections | 281 | 14 | 255 | 3 | 9 | 5.0% | 95.7% |
-| 3. MovieClip and timeline | 123 | 1 | 109 | 7 | 6 | 0.8% | 89.4% |
+| 3. MovieClip and timeline | 123 | 1 | 111 | 7 | 4 | 0.8% | 91.1% |
 | 4. Display, events and basic input | 130 | 0 | 122 | 6 | 2 | 0.0% | 93.8% |
 | 5. Graphics, bitmaps and filters | 145 | 0 | 141 | 0 | 4 | 0.0% | 97.2% |
 | 6. Text and fonts | 118 | 0 | 103 | 13 | 2 | 0.0% | 87.3% |
 | 7. File audio and video playback | 83 | 0 | 66 | 16 | 1 | 0.0% | 79.5% |
 | 8. Services and advanced Player APIs | 230 | 0 | 163 | 54 | 13 | 0.0% | 70.9% |
-| **Now: areas 1–6** | 925 | 15 | 858 | 29 | 23 | 1.6% | 94.4% |
-| **All Flash Player areas** | 1,238 | 15 | 1,087 | 99 | 37 | 1.2% | 89.0% |
+| **Now: areas 1–6** | 925 | 15 | 860 | 29 | 21 | 1.6% | 94.6% |
+| **All Flash Player areas** | 1,238 | 15 | 1,089 | 99 | 35 | 1.2% | 89.2% |
 
 Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
 
@@ -51,7 +51,7 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | AS2 | component | 1,044 | 0 | 416 | 628 | 0 |
 | AS2 | core | 145 | 0 | 136 | 0 | 9 |
 | AS2 | framework | 15 | 0 | 15 | 0 | 0 |
-| AS2 | language | 185 | 14 | 141 | 3 | 27 |
+| AS2 | language | 185 | 14 | 143 | 3 | 25 |
 | AS2 | platform_extension | 10 | 0 | 0 | 10 | 0 |
 | AS2 | runtime | 908 | 1 | 810 | 96 | 1 |
 | AS3 | component | 2,039 | 0 | 124 | 1,915 | 0 |
@@ -59,7 +59,7 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | AS3 | framework | 35,790 | 0 | 0 | 35,790 | 0 |
 | AS3 | language | 124 | 14 | 94 | 13 | 3 |
 | AS3 | platform_extension | 161 | 0 | 0 | 161 | 0 |
-| AS3 | runtime | 5,250 | 32 | 989 | 4,227 | 2 |
+| AS3 | runtime | 5,250 | 40 | 983 | 4,225 | 2 |
 
 Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:00, baseline `f05cd2e35a34`) set the starting statuses; later reviews below change them.
 
@@ -67,6 +67,8 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS2-SCENES-20261101` | 2026-11-01 | `b2bd864fe2e3` | 2 → partial |
+| `AS3-SCENES-20261101` | 2026-11-01 | `b2bd864fe2e3` | 8 → working |
 | `AS3-CORE-SURFACE-20261101` | 2026-11-01 | `85bc957d8b6b` | 190 → partial, 33 → working |
 | `COORD-AS3-SCENE-LIFECYCLE-20261028` | 2026-10-28 | `08a3a250e208` | earlier format; see its rule |
 | `COORD-AS3-ARRAY-TIMELINE-20261028` | 2026-10-28 | `08a3a250e208` | earlier format; see its rule |
@@ -4005,3 +4007,31 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `AS3:property:flash/utils/Timer.html#repeatCount` — **partial**: Readable on a runtime instance (core-surface probe); writes, side effects and exact values are not verified.
 
 Evidence: [crates/neoflash-script/tests/core-surface.mjs](../../crates/neoflash-script/tests/core-surface.mjs), [crates/neoflash-script/tests/core-surface.json](../../crates/neoflash-script/tests/core-surface.json), [crates/neoflash-script/tests/project-execute.mjs](../../crates/neoflash-script/tests/project-execute.mjs)
+
+### AS3-SCENES-20261101 — Authored multiple scenes: navigation and Scene metadata
+
+Multiple authored scenes play as one main timeline. nextScene/prevScene move to the adjacent scene, currentScene/scenes report every scene with scene-local labels and frame counts, proven by the WASM timeline test and the Rust two-scene runtime test.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:method:flash/display/MovieClip.html#nextScene()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/MovieClip.html#prevScene()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/MovieClip.html#currentScene` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/MovieClip.html#scenes` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/Scene.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Scene.html#labels` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Scene.html#name` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Scene.html#numFrames` — **working**: Main contract covered by the listed tests.
+
+Evidence: [web/tests/as2-timeline.test.cjs](../../web/tests/as2-timeline.test.cjs), [crates/neoflash-core/tests/frame_labels.rs](../../crates/neoflash-core/tests/frame_labels.rs)
+
+### AS2-SCENES-20261101 — AS2 nextScene and prevScene
+
+nextScene() and prevScene() move to the adjacent authored scene and stop, as AVM1 GotoFrame does; proven by the WASM AS2 timeline test.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `as2:global_functions.html#nextScene()` — **partial**: Acts on the timeline it is called from, not always _root.
+- `as2:global_functions.html#prevScene()` — **partial**: Acts on the timeline it is called from, not always _root.
+
+Evidence: [web/tests/as2-timeline.test.cjs](../../web/tests/as2-timeline.test.cjs), [crates/neoflash-core/tests/frame_labels.rs](../../crates/neoflash-core/tests/frame_labels.rs)

@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "2015fe0cf4f2da479bf73f544dc2bc1af115e261703933ea165b0eaceac41915",
+  "reviews": [
+    {
+      "id": "AS3-SCENES-20261101",
+      "date": "2026-11-01",
+      "commit": "b2bd864fe2e30ecd3d2205f689322c5c34154bae",
+      "title": "Authored multiple scenes: navigation and Scene metadata",
+      "summary": "Multiple authored scenes play as one main timeline. nextScene/prevScene move to the adjacent scene, currentScene/scenes report every scene with scene-local labels and frame counts, proven by the WASM timeline test and the Rust two-scene runtime test.",
+      "tests": [
+        "web/tests/as2-timeline.test.cjs",
+        "crates/neoflash-core/tests/frame_labels.rs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:method:flash/display/MovieClip.html#nextScene()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/MovieClip.html#prevScene()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#currentScene",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#scenes",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Scene.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Scene.html#labels",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Scene.html#name",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Scene.html#numFrames",
+          "status": "working"
+        }
+      ]
+    },
+    {
+      "id": "AS2-SCENES-20261101",
+      "date": "2026-11-01",
+      "commit": "b2bd864fe2e30ecd3d2205f689322c5c34154bae",
+      "title": "AS2 nextScene and prevScene",
+      "summary": "nextScene() and prevScene() move to the adjacent authored scene and stop, as AVM1 GotoFrame does; proven by the WASM AS2 timeline test.",
+      "tests": [
+        "web/tests/as2-timeline.test.cjs",
+        "crates/neoflash-core/tests/frame_labels.rs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:global_functions.html#nextScene()",
+          "status": "partial",
+          "note": "Acts on the timeline it is called from, not always _root."
+        },
+        {
+          "catalogId": "as2:global_functions.html#prevScene()",
+          "status": "partial",
+          "note": "Acts on the timeline it is called from, not always _root."
+        }
+      ]
+    }
+  ]
+}

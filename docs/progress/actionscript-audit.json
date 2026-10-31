@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "2015fe0cf4f2da479bf73f544dc2bc1af115e261703933ea165b0eaceac41915",
+  "catalogSha256": "5952b06357f0411bed1d8047c3f760934acd5a9ceb830cb9dd29e24c3b003a74",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -1280,6 +1280,15 @@
         "reviewIds": [
           "AS3-CORE-SURFACE-20261101"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-01-timeline-scenes.json",
+        "sha256": "584480ac4fcb7dd63fe5f1e6701ed9753b210bb8853001d35115b83fdba6bf0d",
+        "baseCatalogSha256": "2015fe0cf4f2da479bf73f544dc2bc1af115e261703933ea165b0eaceac41915",
+        "reviewIds": [
+          "AS3-SCENES-20261101",
+          "AS2-SCENES-20261101"
+        ]
       }
     ],
     "statusReviews": [
@@ -1292,29 +1301,47 @@
           "partial": 190,
           "working": 33
         }
+      },
+      {
+        "id": "AS3-SCENES-20261101",
+        "date": "2026-11-01",
+        "commit": "b2bd864fe2e30ecd3d2205f689322c5c34154bae",
+        "path": "docs/progress/reviews/2026-11-01-timeline-scenes.json",
+        "changes": {
+          "working": 8
+        }
+      },
+      {
+        "id": "AS2-SCENES-20261101",
+        "date": "2026-11-01",
+        "commit": "b2bd864fe2e30ecd3d2205f689322c5c34154bae",
+        "path": "docs/progress/reviews/2026-11-01-timeline-scenes.json",
+        "changes": {
+          "partial": 2
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 63,
-      "partial": 3002,
-      "missing": 42847,
-      "needs_review": 135,
+      "implemented_subset": 71,
+      "partial": 2998,
+      "missing": 42845,
+      "needs_review": 133,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
         "implemented_subset": 15,
-        "partial": 1518,
+        "partial": 1520,
         "missing": 737,
-        "needs_review": 37,
+        "needs_review": 35,
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 48,
-        "partial": 1484,
-        "missing": 42110,
+        "implemented_subset": 56,
+        "partial": 1478,
+        "missing": 42108,
         "needs_review": 98,
         "total": 43740
       }
@@ -1343,9 +1370,9 @@
       },
       "language": {
         "implemented_subset": 28,
-        "partial": 235,
+        "partial": 237,
         "missing": 16,
-        "needs_review": 30,
+        "needs_review": 28,
         "total": 309
       },
       "platform_extension": {
@@ -1356,9 +1383,9 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 33,
-        "partial": 1799,
-        "missing": 4323,
+        "implemented_subset": 41,
+        "partial": 1793,
+        "missing": 4321,
         "needs_review": 3,
         "total": 6158
       }
@@ -1388,9 +1415,9 @@
         },
         "language": {
           "implemented_subset": 14,
-          "partial": 141,
+          "partial": 143,
           "missing": 3,
-          "needs_review": 27,
+          "needs_review": 25,
           "total": 185
         },
         "platform_extension": {
@@ -1445,9 +1472,9 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 32,
-          "partial": 989,
-          "missing": 4227,
+          "implemented_subset": 40,
+          "partial": 983,
+          "missing": 4225,
           "needs_review": 2,
           "total": 5250
         }
@@ -48750,6 +48777,156 @@
           "status": "missing",
           "ruleId": "B01",
           "evidenceKind": "architectural_absence_inference"
+        }
+      ]
+    },
+    {
+      "id": "AS3-SCENES-20261101",
+      "title": "Authored multiple scenes: navigation and Scene metadata",
+      "reason": "Multiple authored scenes play as one main timeline. nextScene/prevScene move to the adjacent scene, currentScene/scenes report every scene with scene-local labels and frame counts, proven by the WASM timeline test and the Rust two-scene runtime test.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "web/tests/as2-timeline.test.cjs",
+          "sha256": "6580d7f7ddc8af360463eaa0dc0faba09bd640100dab6219672124772e359a85"
+        },
+        {
+          "path": "crates/neoflash-core/tests/frame_labels.rs",
+          "sha256": "35227afd6a0785a35cda229d8c977c77e630f7c9eab16e4d2f0e3bcedaf94d8e"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:method:flash/display/MovieClip.html#nextScene()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/MovieClip.html#prevScene()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#currentScene",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#scenes",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Scene.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Scene.html#labels",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Scene.html#name",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Scene.html#numFrames",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:method:flash/display/MovieClip.html#nextScene()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/MovieClip.html#prevScene()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#currentScene",
+          "status": "partial",
+          "ruleId": "COORD-AS3-ARRAY-TIMELINE-20261028",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#scenes",
+          "status": "partial",
+          "ruleId": "COORD-AS3-ARRAY-TIMELINE-20261028",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Scene.html#",
+          "status": "partial",
+          "ruleId": "COORD-AS3-ARRAY-TIMELINE-20261028",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Scene.html#labels",
+          "status": "partial",
+          "ruleId": "COORD-AS3-ARRAY-TIMELINE-20261028",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Scene.html#name",
+          "status": "partial",
+          "ruleId": "COORD-AS3-ARRAY-TIMELINE-20261028",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Scene.html#numFrames",
+          "status": "partial",
+          "ruleId": "COORD-AS3-ARRAY-TIMELINE-20261028",
+          "evidenceKind": "coordinator_shared_wasm_and_browser_workflow"
+        }
+      ]
+    },
+    {
+      "id": "AS2-SCENES-20261101",
+      "title": "AS2 nextScene and prevScene",
+      "reason": "nextScene() and prevScene() move to the adjacent authored scene and stop, as AVM1 GotoFrame does; proven by the WASM AS2 timeline test.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "web/tests/as2-timeline.test.cjs",
+          "sha256": "6580d7f7ddc8af360463eaa0dc0faba09bd640100dab6219672124772e359a85"
+        },
+        {
+          "path": "crates/neoflash-core/tests/frame_labels.rs",
+          "sha256": "35227afd6a0785a35cda229d8c977c77e630f7c9eab16e4d2f0e3bcedaf94d8e"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:global_functions.html#nextScene()",
+          "status": "partial",
+          "scopeNote": "Acts on the timeline it is called from, not always _root."
+        },
+        {
+          "catalogId": "as2:global_functions.html#prevScene()",
+          "status": "partial",
+          "scopeNote": "Acts on the timeline it is called from, not always _root."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "as2:global_functions.html#nextScene()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:global_functions.html#prevScene()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
         }
       ]
     }
