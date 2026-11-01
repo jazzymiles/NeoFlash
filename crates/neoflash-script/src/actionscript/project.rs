@@ -117,6 +117,21 @@ const BUILTINS: &[&str] = &[
     "flash.display.PixelSnapping",
     "flash.display.PNGEncoderOptions",
     "flash.display.JPEGEncoderOptions",
+    "flash.display.BitmapEncodingColorSpace",
+    "flash.display.JPEGXREncoderOptions",
+    "flash.display.IBitmapDrawable",
+    "flash.display.IGraphicsData",
+    "flash.display.IGraphicsFill",
+    "flash.display.IGraphicsPath",
+    "flash.display.IGraphicsStroke",
+    "flash.display.TriangleCulling",
+    "flash.display.GraphicsSolidFill",
+    "flash.display.GraphicsGradientFill",
+    "flash.display.GraphicsBitmapFill",
+    "flash.display.GraphicsEndFill",
+    "flash.display.GraphicsStroke",
+    "flash.display.GraphicsPath",
+    "flash.display.GraphicsTrianglePath",
     "flash.display.Loader",
     "flash.display.LoaderInfo",
     "flash.display.Stage",
@@ -125,6 +140,8 @@ const BUILTINS: &[&str] = &[
     "flash.display.StageDisplayState",
     "flash.display.StageQuality",
     "flash.text.TextField",
+    "flash.text.StaticText",
+    "flash.text.TextSnapshot",
     "flash.text.TextFormat",
     "flash.text.TextFormatAlign",
     "flash.text.TextFieldType",
@@ -146,6 +163,7 @@ const BUILTINS: &[&str] = &[
     "flash.ui.KeyboardType",
     "flash.ui.Mouse",
     "flash.ui.MouseCursor",
+    "flash.ui.MouseCursorData",
     "flash.media.Video",
     "flash.net.NetConnection",
     "flash.net.NetStream",
@@ -201,9 +219,20 @@ const BUILTINS: &[&str] = &[
     "flash.geom.Matrix",
     "flash.geom.Vector3D",
     "flash.geom.Matrix3D",
+    "flash.geom.Orientation3D",
     "flash.geom.Utils3D",
     "flash.geom.PerspectiveProjection",
     "flash.geom.Transform",
+    "flash.errors.IOError",
+    "flash.errors.EOFError",
+    "flash.errors.IllegalOperationError",
+    "flash.errors.InvalidSWFError",
+    "flash.errors.MemoryError",
+    "flash.errors.ScriptTimeoutError",
+    "flash.errors.StackOverflowError",
+    "flash.xml.XMLNodeType",
+    "flash.xml.XMLNode",
+    "flash.xml.XMLDocument",
     "flash.globalization.DateTimeFormatter",
     "flash.globalization.DateTimeStyle",
     "flash.globalization.DateTimeNameStyle",
@@ -265,6 +294,108 @@ const BUILTINS: &[&str] = &[
     "flash.events.SoftKeyboardTrigger",
     "flash.events.EventPhase",
     "flash.external.ExternalInterface",
+    // AIR errors
+    "flash.errors.SQLErrorOperation",
+    "flash.errors.SQLError",
+    "flash.errors.PermissionError",
+    "flash.errors.DRMManagerError",
+    // AIR events
+    "flash.events.TouchEventIntent",
+    "flash.events.InvokeEvent",
+    "flash.events.BrowserInvokeEvent",
+    "flash.events.FileListEvent",
+    "flash.events.OutputProgressEvent",
+    "flash.events.NativeWindowBoundsEvent",
+    "flash.events.NativeWindowDisplayStateEvent",
+    "flash.events.NativeDragEvent",
+    "flash.events.ScreenMouseEvent",
+    "flash.events.SQLEvent",
+    "flash.events.SQLErrorEvent",
+    "flash.events.SQLUpdateEvent",
+    "flash.events.StorageVolumeChangeEvent",
+    "flash.events.NativeProcessExitEvent",
+    "flash.events.LocationChangeEvent",
+    "flash.events.HTMLUncaughtScriptExceptionEvent",
+    "flash.events.MediaEvent",
+    "flash.events.DatagramSocketDataEvent",
+    "flash.events.ServerSocketConnectEvent",
+    "flash.events.DNSResolverEvent",
+    "flash.events.DRMAuthenticateEvent",
+    "flash.events.DeviceRotationEvent",
+    "flash.events.PermissionEvent",
+    "flash.events.RemoteNotificationEvent",
+    "flash.events.GameInputEvent",
+    "flash.events.VsyncStateChangeAvailabilityEvent",
+    // AIR filesystem
+    "flash.filesystem.FileMode",
+    "flash.filesystem.File",
+    "flash.filesystem.FileStream",
+    "flash.filesystem.StorageVolume",
+    "flash.filesystem.StorageVolumeInfo",
+    // AIR desktop
+    "flash.desktop.ClipboardFormats",
+    "flash.desktop.ClipboardTransferMode",
+    "flash.desktop.Clipboard",
+    "flash.desktop.IFilePromise",
+    "flash.desktop.NativeDragActions",
+    "flash.desktop.NativeDragOptions",
+    "flash.desktop.NativeDragManager",
+    "flash.desktop.InvokeEventReason",
+    "flash.desktop.NotificationType",
+    "flash.desktop.SystemIdleMode",
+    "flash.desktop.Icon",
+    "flash.desktop.InteractiveIcon",
+    "flash.desktop.DockIcon",
+    "flash.desktop.SystemTrayIcon",
+    "flash.desktop.NativeApplication",
+    "flash.desktop.NativeProcessStartupInfo",
+    "flash.desktop.NativeProcess",
+    "flash.desktop.Updater",
+    // AIR display
+    "flash.display.FocusDirection",
+    "flash.display.StageAspectRatio",
+    "flash.display.StageOrientation",
+    "flash.display.ScreenMode",
+    "flash.display.Screen",
+    "flash.display.NativeMenuItem",
+    "flash.display.NativeMenu",
+    "flash.display.NativeWindowType",
+    "flash.display.NativeWindowSystemChrome",
+    "flash.display.NativeWindowDisplayState",
+    "flash.display.NativeWindowResize",
+    "flash.display.NativeWindowRenderMode",
+    "flash.display.NativeWindowInitOptions",
+    "flash.display.NativeWindow",
+    // AIR data
+    "flash.data.EncryptedLocalStore",
+    "flash.data.SQLMode",
+    "flash.data.SQLTransactionLockType",
+    "flash.data.SQLCollationType",
+    "flash.data.SQLColumnNameStyle",
+    "flash.data.SQLResult",
+    "flash.data.SQLColumnSchema",
+    "flash.data.SQLSchema",
+    "flash.data.SQLTableSchema",
+    "flash.data.SQLViewSchema",
+    "flash.data.SQLIndexSchema",
+    "flash.data.SQLTriggerSchema",
+    "flash.data.SQLSchemaResult",
+    "flash.data.SQLConnection",
+    "flash.data.SQLStatement",
+    // AIR permissions, dns, notifications, sensors
+    "flash.permissions.PermissionStatus",
+    "flash.net.dns.ResourceRecord",
+    "flash.net.dns.ARecord",
+    "flash.net.dns.AAAARecord",
+    "flash.net.dns.MXRecord",
+    "flash.net.dns.PTRRecord",
+    "flash.net.dns.SRVRecord",
+    "flash.net.dns.DNSResolver",
+    "flash.notifications.NotificationStyle",
+    "flash.notifications.RemoteNotifierSubscribeOptions",
+    "flash.notifications.RemoteNotifier",
+    "flash.sensors.DeviceRotation",
+    "flash.sensors.Geolocation",
 ];
 const BUILTIN_FUNCTIONS: &[&str] = &[
     "flash.utils.getQualifiedClassName",
@@ -280,6 +411,8 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "flash.utils.clearTimeout",
     "flash.net.navigateToURL",
     "flash.net.sendToURL",
+    "flash.net.registerClassAlias",
+    "flash.net.getClassByAlias",
 ];
 pub(super) fn is_graphics_constants(name: &str) -> bool {
     matches!(
@@ -289,6 +422,8 @@ pub(super) fn is_graphics_constants(name: &str) -> bool {
             | "flash.display.InterpolationMethod"
             | "flash.display.GraphicsPathCommand"
             | "flash.display.GraphicsPathWinding"
+            | "flash.display.TriangleCulling"
+            | "flash.display.BitmapEncodingColorSpace"
             | "flash.display.BlendMode"
             | "flash.display.CapsStyle"
             | "flash.display.JointStyle"
@@ -449,10 +584,16 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "perlinNoise"
                 | "paletteMap"
                 | "pixelDissolve"
+                | "loadBitmap"
                 | "hitTest"
                 | "appendText"
                 | "replaceText"
+                | "replaceSel"
                 | "replaceSelectedText"
+                | "removeTextField"
+                | "getDepth"
+                | "getTextExtent"
+                | "getStyleNames"
                 | "setSelection"
                 | "getLineText"
                 | "getLineLength"
@@ -512,6 +653,188 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "hasGlyphs"
                 | "setAdvancedAntiAliasingTable"
                 | "setAdvancedAntialiasingTable"
+                | "decompose"
+                | "recompose"
+                | "interpolate"
+                | "interpolateTo"
+                | "pointAt"
+                | "pointTowards"
+                | "projectVector"
+                | "projectVectors"
+                | "transformVector"
+                | "deltaTransformVector"
+                | "transformVectors"
+                | "append"
+                | "prepend"
+                | "appendRotation"
+                | "prependRotation"
+                | "appendScale"
+                | "prependScale"
+                | "appendTranslation"
+                | "prependTranslation"
+                | "copyColumnFrom"
+                | "copyColumnTo"
+                | "copyRowFrom"
+                | "copyRowTo"
+                | "copyRawDataFrom"
+                | "copyRawDataTo"
+                | "copyToMatrix3D"
+                | "transpose"
+                | "toMatrix3D"
+                | "addToOutput"
+                | "subtractToOutput"
+                | "crossProduct"
+                | "crossProductToOutput"
+                | "dotProduct"
+                | "incrementBy"
+                | "decrementBy"
+                | "nearEquals"
+                | "negate"
+                | "project"
+                | "scaleBy"
+                | "angleBetween"
+                | "distance"
+                | "appendChild"
+                | "cloneNode"
+                | "getNamespaceForPrefix"
+                | "getPrefixForNamespace"
+                | "hasChildNodes"
+                | "insertBefore"
+                | "removeNode"
+                | "createElement"
+                | "createTextNode"
+                | "parseXML"
+                | "getObjectsUnderPoint"
+                | "areInaccessibleObjectsUnderPoint"
+                | "startTouchDrag"
+                | "stopTouchDrag"
+                | "assignFocus"
+                | "isFocusInaccessible"
+                | "drawGraphicsData"
+                | "readGraphicsData"
+                | "lineBitmapStyle"
+                | "drawTriangles"
+                | "wideLineTo"
+                | "wideMoveTo"
+                | "histogram"
+                | "drawWithQuality"
+                | "isFontCompatible"
+                | "findText"
+                | "getSelected"
+                | "getSelectedText"
+                | "getText"
+                | "getTextRunInfo"
+                | "hitTestTextNearPos"
+                | "setSelectColor"
+                | "setSelected"
+                | "getStackTrace"
+                // AIR host methods
+                | "open"
+                | "openAsync"
+                | "truncate"
+                | "resolvePath"
+                | "getRelativePath"
+                | "canonicalize"
+                | "createDirectory"
+                | "createTempFile"
+                | "createTempDirectory"
+                | "getDirectoryListing"
+                | "getDirectoryListingAsync"
+                | "copyTo"
+                | "copyToAsync"
+                | "moveTo"
+                | "moveToAsync"
+                | "deleteFile"
+                | "deleteFileAsync"
+                | "deleteDirectory"
+                | "deleteDirectoryAsync"
+                | "moveToTrash"
+                | "moveToTrashAsync"
+                | "openWithDefaultApplication"
+                | "browseForOpen"
+                | "browseForOpenMultiple"
+                | "browseForSave"
+                | "browseForDirectory"
+                | "requestPermission"
+                | "getRootDirectories"
+                | "getStorageVolumes"
+                | "save"
+                | "browse"
+                | "cancel"
+                | "clearData"
+                | "getData"
+                | "setData"
+                | "setDataHandler"
+                | "hasFormat"
+                | "reportError"
+                | "acceptDragDrop"
+                | "doDrag"
+                | "bounce"
+                | "activate"
+                | "exit"
+                | "copy"
+                | "cut"
+                | "paste"
+                | "selectAll"
+                | "isSetAsDefaultApplication"
+                | "setAsDefaultApplication"
+                | "removeAsDefaultApplication"
+                | "getDefaultApplication"
+                | "closeInput"
+                | "isValidExecutable"
+                | "update"
+                | "getScreensForRectangle"
+                | "addItem"
+                | "addItemAt"
+                | "addSubmenu"
+                | "addSubmenuAt"
+                | "containsItem"
+                | "getItemAt"
+                | "getItemByName"
+                | "getItemIndex"
+                | "removeItem"
+                | "removeItemAt"
+                | "removeAllItems"
+                | "setItemIndex"
+                | "display"
+                | "globalToScreen"
+                | "listOwnedWindows"
+                | "maximize"
+                | "minimize"
+                | "restore"
+                | "notifyUser"
+                | "orderToFront"
+                | "orderToBack"
+                | "orderInFrontOf"
+                | "orderInBackOf"
+                | "startMove"
+                | "startResize"
+                | "setAspectRatio"
+                | "setOrientation"
+                | "getItem"
+                | "setItem"
+                | "attach"
+                | "detach"
+                | "begin"
+                | "commit"
+                | "rollback"
+                | "setSavepoint"
+                | "releaseSavepoint"
+                | "rollbackToSavepoint"
+                | "compact"
+                | "analyze"
+                | "deanalyze"
+                | "reencrypt"
+                | "loadSchema"
+                | "getSchemaResult"
+                | "clearParameters"
+                | "execute"
+                | "getResult"
+                | "next"
+                | "lookup"
+                | "subscribe"
+                | "unsubscribe"
+                | "setRequestedUpdateInterval"
         )
 }
 
@@ -630,7 +953,9 @@ fn visible_names(
                         || (language == ScriptLanguage::ActionScript2
                             && (name.starts_with("mx.transitions.")
                                 || AS2_BUILTINS.contains(&name.as_str())))
-                        || name.starts_with("flash.geom.")
+                        || (name.starts_with("flash.geom.")
+                            && (language == ScriptLanguage::ActionScript3
+                                || *name != "flash.geom.Orientation3D"))
                         || (name.starts_with("flash.filters.")
                             && !matches!(
                                 name.as_str(),
@@ -716,6 +1041,13 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
         language: source.language,
         source: source.source.clone(),
     };
+    if script.language == ScriptLanguage::ActionScript1 {
+        return Err(Diagnostic::at(
+            &script,
+            0,
+            "ActionScript 1.0 does not support AS2/AS3 class or interface source units; use timeline/object prototype functions or #include resource files.",
+        ));
+    }
     if !matches!(
         script.language,
         ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript3
@@ -901,6 +1233,8 @@ fn context(
             .insert("TextField".into(), "flash.text.TextField".into());
         c.types
             .insert("TextFormat".into(), "flash.text.TextFormat".into());
+        c.types
+            .insert("TextField.StyleSheet".into(), "TextField.StyleSheet".into());
         c.types.insert("Video".into(), "flash.media.Video".into());
     }
     for name in ["Object", "Array"] {
@@ -1114,6 +1448,7 @@ fn parse_class(
                 | "flash.geom.ColorTransform"
                 | "flash.geom.Vector3D"
                 | "flash.geom.Matrix3D"
+                | "flash.geom.Orientation3D"
                 | "flash.geom.Utils3D"
                 | "flash.geom.PerspectiveProjection"
                 | "fl.motion.MatrixTransformer"
@@ -1159,6 +1494,14 @@ fn parse_class(
                 | "flash.display.PixelSnapping"
                 | "flash.display.PNGEncoderOptions"
                 | "flash.display.JPEGEncoderOptions"
+                | "flash.display.JPEGXREncoderOptions"
+                | "flash.display.GraphicsSolidFill"
+                | "flash.display.GraphicsGradientFill"
+                | "flash.display.GraphicsBitmapFill"
+                | "flash.display.GraphicsEndFill"
+                | "flash.display.GraphicsStroke"
+                | "flash.display.GraphicsPath"
+                | "flash.display.GraphicsTrianglePath"
                 | "flash.display.Stage"
                 | "flash.display.StageScaleMode"
                 | "flash.display.StageAlign"
@@ -1169,7 +1512,17 @@ fn parse_class(
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "Bitmap, BitmapData and Stage native subclass initialization is outside this profile; construct or read the native facade and use composition. PixelSnapping, BitmapDataChannel and Stage enum classes provide constants; PNGEncoderOptions and JPEGEncoderOptions are final.",
+            "Bitmap, BitmapData and Stage native subclass initialization is outside this profile; construct or read the native facade and use composition. PixelSnapping, BitmapDataChannel and Stage enum classes provide constants; encoder options and IGraphicsData command classes are final.",
+        ));
+    }
+    if base
+        .as_ref()
+        .is_some_and(|base| base.starts_with("flash.xml."))
+    {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "flash.xml XMLNode, XMLDocument and XMLNodeType native subclass initialization is outside this profile; construct XMLNode or XMLDocument and use composition.",
         ));
     }
     if base
@@ -1269,12 +1622,70 @@ fn parse_class(
                 | "flash.events.SoftKeyboardEvent"
                 | "flash.events.ThrottleType"
                 | "flash.events.SoftKeyboardTrigger"
+                | "flash.events.TouchEventIntent"
+                | "flash.events.InvokeEvent"
+                | "flash.events.BrowserInvokeEvent"
+                | "flash.events.FileListEvent"
+                | "flash.events.OutputProgressEvent"
+                | "flash.events.NativeWindowBoundsEvent"
+                | "flash.events.NativeWindowDisplayStateEvent"
+                | "flash.events.NativeDragEvent"
+                | "flash.events.ScreenMouseEvent"
+                | "flash.events.SQLEvent"
+                | "flash.events.SQLErrorEvent"
+                | "flash.events.SQLUpdateEvent"
+                | "flash.events.StorageVolumeChangeEvent"
+                | "flash.events.NativeProcessExitEvent"
+                | "flash.events.LocationChangeEvent"
+                | "flash.events.HTMLUncaughtScriptExceptionEvent"
+                | "flash.events.MediaEvent"
+                | "flash.events.DatagramSocketDataEvent"
+                | "flash.events.ServerSocketConnectEvent"
+                | "flash.events.DNSResolverEvent"
+                | "flash.events.DRMAuthenticateEvent"
+                | "flash.events.DeviceRotationEvent"
+                | "flash.events.PermissionEvent"
+                | "flash.events.RemoteNotificationEvent"
+                | "flash.events.GameInputEvent"
+                | "flash.events.VsyncStateChangeAvailabilityEvent"
         )
     ) {
         return Err(Diagnostic::at(
             &header.script,
             0,
             "This native event family does not support subclass initialization; construct its event facade and use typed listeners through composition. GesturePhase supplies constants only.",
+        ));
+    }
+    if base.as_ref().is_some_and(|base| {
+        base.starts_with("flash.filesystem.")
+            || (base.starts_with("flash.desktop.") && base != "flash.desktop.IFilePromise")
+            || base.starts_with("flash.data.")
+            || base.starts_with("flash.errors.")
+            || base.starts_with("flash.permissions.")
+            || base.starts_with("flash.notifications.")
+            || base.starts_with("flash.sensors.")
+            || matches!(
+                base.as_str(),
+                "flash.display.FocusDirection"
+                    | "flash.display.StageAspectRatio"
+                    | "flash.display.StageOrientation"
+                    | "flash.display.ScreenMode"
+                    | "flash.display.Screen"
+                    | "flash.display.NativeMenuItem"
+                    | "flash.display.NativeMenu"
+                    | "flash.display.NativeWindowType"
+                    | "flash.display.NativeWindowSystemChrome"
+                    | "flash.display.NativeWindowDisplayState"
+                    | "flash.display.NativeWindowResize"
+                    | "flash.display.NativeWindowRenderMode"
+                    | "flash.display.NativeWindowInitOptions"
+                    | "flash.display.NativeWindow"
+            )
+    }) {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "AIR native runtime, window, filesystem, SQL, sensor and constant classes do not support native subclass initialization in this profile; construct or obtain the native facade and use composition.",
         ));
     }
     let as2 = header.script.language == ScriptLanguage::ActionScript2;
@@ -1775,6 +2186,7 @@ fn builtin_interface_contracts() -> BTreeMap<String, BTreeMap<(String, MethodKin
     let ev = "flash.events.IEventDispatcher";
     let di = "flash.utils.IDataInput";
     let do_ = "flash.utils.IDataOutput";
+    let fp = "flash.desktop.IFilePromise";
     BTreeMap::from([
         (
             ev.to_owned(),
@@ -1973,6 +2385,33 @@ fn builtin_interface_contracts() -> BTreeMap<String, BTreeMap<(String, MethodKin
                     "writeUTFBytes",
                     MethodKind::Method,
                     &[("String", false)],
+                    "void",
+                ),
+            ]),
+        ),
+        ("flash.display.IBitmapDrawable".to_owned(), BTreeMap::new()),
+        ("flash.display.IGraphicsData".to_owned(), BTreeMap::new()),
+        ("flash.display.IGraphicsFill".to_owned(), BTreeMap::new()),
+        ("flash.display.IGraphicsPath".to_owned(), BTreeMap::new()),
+        ("flash.display.IGraphicsStroke".to_owned(), BTreeMap::new()),
+        (
+            fp.to_owned(),
+            BTreeMap::from([
+                entry(fp, "relativePath", MethodKind::Get, &[], "String"),
+                entry(fp, "isAsync", MethodKind::Get, &[], "Boolean"),
+                entry(
+                    fp,
+                    "open",
+                    MethodKind::Method,
+                    &[],
+                    "flash.utils.IDataInput",
+                ),
+                entry(fp, "close", MethodKind::Method, &[], "void"),
+                entry(
+                    fp,
+                    "reportError",
+                    MethodKind::Method,
+                    &[("flash.events.ErrorEvent", false)],
                     "void",
                 ),
             ]),
@@ -2493,11 +2932,23 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         }
         for (script_idx, entry) in symbol.timeline.scripts.iter().enumerate() {
             if entry.frame != 0
-                || entry.script.language != ScriptLanguage::ActionScript2
+                || !matches!(
+                    entry.script.language,
+                    ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+                )
                 || !entry.script.source.contains("#initclip")
             {
                 continue;
             }
+            if entry.script.source.len() > 1_048_576 {
+                errors.push(Diagnostic::at(
+                    &entry.script,
+                    0,
+                    "A single script is limited to 1 MiB.",
+                ));
+                continue;
+            }
+            let is_as1 = entry.script.language == ScriptLanguage::ActionScript1;
             let expanded = if entry.script.source.contains("#include") {
                 match super::includes::expand(&entry.script, &includes) {
                     Ok(exp) => Some(exp),
@@ -2510,22 +2961,30 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                 None
             };
             let source_script = expanded.as_ref().map_or(&entry.script, |exp| &exp.script);
-            let map_err = |err: Diagnostic| {
+            let map_err = |mut err: Diagnostic| {
+                if is_as1 {
+                    err.language = ScriptLanguage::ActionScript1;
+                }
                 expanded
                     .as_ref()
                     .map_or(err.clone(), |exp| exp.diagnostic(err))
             };
-            let mut p = frontend(
-                source_script,
-                TokenCursor::default(),
-                CompileContext::default(),
-            );
-            let imported = match imports(&mut p) {
-                Ok(v) => v,
-                Err(e) => {
-                    errors.push(map_err(e));
-                    continue;
-                }
+            let (imported, end) = if is_as1 {
+                (Vec::new(), 0)
+            } else {
+                let mut p = frontend(
+                    source_script,
+                    TokenCursor::default(),
+                    CompileContext::default(),
+                );
+                let imported = match imports(&mut p) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        errors.push(map_err(e));
+                        continue;
+                    }
+                };
+                (imported, p.token().offset)
             };
             let mut c = match context(
                 &visible_names(
@@ -2546,9 +3005,10 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                     continue;
                 }
             };
+            c.legacy_case = is_as1;
             c.as2_private = as2_private.clone();
-            let end = p.token().offset;
             let mut replaced = source_script.clone();
+            replaced.language = ScriptLanguage::ActionScript2;
             replaced.source = source_script.source[..end]
                 .chars()
                 .map(|ch| if ch == '\n' || ch == '\r' { ch } else { ' ' })
@@ -2572,7 +3032,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             for (stmt_idx, stmt) in statements.iter().enumerate() {
                 if let Stmt::InitClip(order_num, body, id) = stmt {
                     let key = format!("{:016x}:{id}", super::fnv1a64(&replaced.source));
-                    let body_code = Emitter {
+                    let mut body_code = Emitter {
                         as3: false,
                         analysis: &analysis,
                         scope: 0,
@@ -2580,6 +3040,9 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                         tell_target: None,
                     }
                     .body(body);
+                    if is_as1 {
+                        body_code = format!("const __nfLegacyCase = true;\n{body_code}");
+                    }
                     init_clips.push((
                         (
                             order_num.is_some(),
@@ -2605,7 +3068,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         return Err(errors);
     }
     let code = format!(
-        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\nif(typeof __nfBuiltins.__nfBitmapUintVector==='function')__nfBuiltins.__nfBitmapUintVector(values=>__nfVectorType(__nfPrimitiveDescriptor('uint'))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
+        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfGeometryVector3DVector==='function')__nfBuiltins.__nfGeometryVector3DVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.geom.Vector3D'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\nif(typeof __nfBuiltins.__nfBitmapUintVector==='function')__nfBuiltins.__nfBitmapUintVector(values=>__nfVectorType(__nfPrimitiveDescriptor('uint'))(values));\nif(typeof __nfBuiltins.__nfBitmapHistogramVector==='function')__nfBuiltins.__nfBitmapHistogramVector(channels=>__nfVectorType(__nfVectorDescriptor(__nfPrimitiveDescriptor('Number')))(channels.map(ch=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(ch))));\nif(typeof __nfBuiltins.__nfGraphicsVectors==='function')__nfBuiltins.__nfGraphicsVectors({{intVector:values=>__nfVectorType(__nfPrimitiveDescriptor('int'))(values),numberVector:values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values),dataVector:values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.IGraphicsData'))(values)}});\nif(typeof __nfBuiltins.__nfMouseCursorVector==='function')__nfBuiltins.__nfMouseCursorVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.BitmapData'))(values));\nif(typeof __nfBuiltins.__nfAirVectorFactory==='function')__nfBuiltins.__nfAirVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
         embedded_helpers(),
         include_str!("project-runtime.js"),
         registrations
@@ -2638,7 +3101,18 @@ pub fn compile_with_program(
     script: &Script,
     program: &ProjectProgram,
 ) -> Result<String, Vec<Diagnostic>> {
-    if script.language == ScriptLanguage::ActionScript2 && script.source.contains("#include") {
+    if script.source.len() > 1_048_576 {
+        return Err(vec![Diagnostic::at(
+            script,
+            0,
+            "A single script is limited to 1 MiB.",
+        )]);
+    }
+    if matches!(
+        script.language,
+        ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+    ) && script.source.contains("#include")
+    {
         let expanded = super::includes::expand(script, &program.includes).map_err(|e| vec![e])?;
         compile_prepared(&expanded.script, program)
             .map_err(|errors| errors.into_iter().map(|e| expanded.diagnostic(e)).collect())
@@ -2681,41 +3155,54 @@ fn apply_as3_timeline_auto_imports(
 fn compile_prepared(script: &Script, program: &ProjectProgram) -> Result<String, Vec<Diagnostic>> {
     if !matches!(
         script.language,
-        ScriptLanguage::ActionScript3 | ScriptLanguage::ActionScript2
+        ScriptLanguage::ActionScript1
+            | ScriptLanguage::ActionScript2
+            | ScriptLanguage::ActionScript3
     ) {
         return crate::compile(script);
     }
-    let tokens = TokenCursor::default();
-    let mut p = frontend(script, tokens, CompileContext::default());
-    let imported = imports(&mut p).map_err(|e| vec![e])?;
+    let is_as1 = script.language == ScriptLanguage::ActionScript1;
+    let dialect = if is_as1 {
+        ScriptLanguage::ActionScript2
+    } else {
+        script.language
+    };
+    let (imported, end) = if is_as1 {
+        (Vec::new(), 0)
+    } else {
+        let tokens = TokenCursor::default();
+        let mut p = frontend(script, tokens, CompileContext::default());
+        let imported = imports(&mut p).map_err(|e| vec![e])?;
+        (imported, p.token().offset)
+    };
     let visible = visible_names(
         &program.names,
         &program.languages,
-        script.language,
+        dialect,
         &program.public_types,
         "",
     );
-    let mut c = context(
-        &visible,
-        "",
-        &imported,
-        script.language,
-        &program.interfaces,
-    )
-    .map_err(|m| vec![Diagnostic::at(script, 0, m)])?;
-    if script.language == ScriptLanguage::ActionScript3 {
+    let mut c = context(&visible, "", &imported, dialect, &program.interfaces)
+        .map_err(|m| vec![Diagnostic::at(script, 0, m)])?;
+    if dialect == ScriptLanguage::ActionScript3 {
         apply_as3_timeline_auto_imports(&mut c, &visible, &program.languages);
     }
+    c.legacy_case = is_as1;
     c.as2_private = program.as2_private.clone();
     // Keep original byte positions/line numbers when removing import statements.
-    let end = p.token().offset;
     let mut replaced = script.clone();
+    replaced.language = dialect;
     replaced.source = script.source[..end]
         .chars()
         .map(|c| if c == '\n' || c == '\r' { c } else { ' ' })
         .collect::<String>()
         + &script.source[end..];
-    super::compile_context(&replaced, c).map_err(|e| vec![e])
+    super::compile_context(&replaced, c).map_err(|mut e| {
+        if is_as1 {
+            e.language = ScriptLanguage::ActionScript1;
+        }
+        vec![e]
+    })
 }
 
 fn reflection_metadata(c: &Class) -> serde_json::Value {

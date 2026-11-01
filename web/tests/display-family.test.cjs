@@ -159,7 +159,9 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     title.text = 'A😀\nB'; assert.equal(title.length, 5);
     assert.throws(() => title.replaceText(1, 2, 'X'), /Unicode/);
     assert.equal(title.text, 'A😀\rB', 'rejected range must not corrupt text');
-    assert.throws(() => { title.htmlText = '<b>pending</b>'; }, /plain-text profile/);
+    title.htmlText = '<b>pending</b>';
+    assert.equal(title.text, 'pending');
+    assert.ok(title.htmlText.includes('<b>pending</b>'));
     widget.text = 'custom'; widget.htmlText = 'custom html';
     assert.equal(widget.text, 'custom'); assert.equal(widget.htmlText, 'custom html');
     const survivor=new MovieClip();survivor.name='survivor';assert.equal(survivor.totalFrames,1);widget.addChild(survivor);right.addChild(widget);

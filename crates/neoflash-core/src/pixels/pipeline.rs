@@ -24,6 +24,28 @@ pub struct PixelWrite {
     pub complete: bool,
 }
 impl PixelArena {
+    pub(crate) fn histogram(
+        &self,
+        r: &PixelRef,
+        rect: Option<BitmapRect>,
+    ) -> Result<Vec<Vec<u32>>, BitmapError> {
+        let b = self.live(r)?;
+        let (x0, y0, x1, y1) = rect.map_or((0, 0, b.width as usize, b.height as usize), |r| {
+            r.clipped(b)
+        });
+        let mut counts = vec![vec![0u32; 256]; 4];
+        let pixels = b.pixels.as_ref().unwrap();
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let i = (y * b.width as usize + x) * 4;
+                let p = straight(&pixels[i..i + 4]);
+                for c in 0..4 {
+                    counts[c][usize::from(p[c])] += 1;
+                }
+            }
+        }
+        Ok(counts)
+    }
     pub(crate) fn get_pixels(
         &self,
         r: &PixelRef,

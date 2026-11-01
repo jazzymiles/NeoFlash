@@ -84,6 +84,81 @@ impl RuntimeGraph {
         BitmapState::default()
     }
 }
+fn symbol_first_bitmap_resource<'a>(
+    project: &'a Project,
+    symbol: &crate::Symbol,
+) -> Option<&'a crate::ResourceUnit> {
+    for layer in &symbol.timeline.layers {
+        for keyframe in &layer.keyframes {
+            for element in &keyframe.elements {
+                if let crate::ElementKind::Bitmap { resource_id, .. } = &element.kind
+                    && let Some(resource) = project
+                        .resources
+                        .iter()
+                        .find(|resource| resource.id == *resource_id)
+                {
+                    return Some(resource);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn is_image_resource(resource: &crate::ResourceUnit) -> bool {
+    resource
+        .media_type
+        .get(..6)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("image/"))
+}
+
+fn strip_extension(name: &str) -> Option<&str> {
+    let (stem, ext) = name.rsplit_once('.')?;
+    (!stem.is_empty() && !ext.is_empty() && !ext.contains('/')).then_some(stem)
+}
+
+fn resolve_as2_bitmap_resource<'a>(
+    project: &'a Project,
+    id: &str,
+) -> Option<&'a crate::ResourceUnit> {
+    if let Some(resource) = project.resources.iter().find(|resource| resource.id == id) {
+        return Some(resource);
+    }
+    if let Some(resource) = project
+        .symbols
+        .iter()
+        .filter(|symbol| {
+            symbol.linkage_id.as_deref() == Some(id) || symbol.class_name.as_deref() == Some(id)
+        })
+        .find_map(|symbol| symbol_first_bitmap_resource(project, symbol))
+    {
+        return Some(resource);
+    }
+    if let Some(resource) = project
+        .resources
+        .iter()
+        .filter(|resource| is_image_resource(resource))
+        .find(|resource| {
+            let normalized = resource
+                .path
+                .trim_start_matches("./")
+                .trim_start_matches('/');
+            let basename = normalized.rsplit('/').next().unwrap_or(normalized);
+            normalized == id
+                || basename == id
+                || strip_extension(normalized) == Some(id)
+                || strip_extension(basename) == Some(id)
+        })
+    {
+        return Some(resource);
+    }
+    project
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.name == id)
+        .find_map(|symbol| symbol_first_bitmap_resource(project, symbol))
+}
+
 impl Player {
     pub fn bitmap_error(&self) -> Option<&BitmapError> {
         self.graph.bitmap_error.as_ref()
@@ -101,10 +176,10 @@ impl Player {
     ) -> Result<Option<PixelRef>, BitmapError> {
         if id.is_empty() || id.len() > 1024 {
             return Err(BitmapError(
-                "loadBitmap requires a resource ID of 1 through 1024 bytes".into(),
+                "loadBitmap requires a resource or linkage ID of 1 through 1024 bytes".into(),
             ));
         }
-        let Some(resource) = project.resources.iter().find(|resource| resource.id == id) else {
+        let Some(resource) = resolve_as2_bitmap_resource(project, id) else {
             return Ok(None);
         };
         let (width, height) = resource
@@ -130,6 +205,13 @@ impl Player {
     }
     pub fn bitmap_pixels(&self, reference: &PixelRef) -> Result<Vec<u8>, BitmapError> {
         self.graph.pixels.pixels(reference)
+    }
+    pub fn bitmap_histogram(
+        &self,
+        reference: &PixelRef,
+        rect: Option<crate::BitmapRect>,
+    ) -> Result<Vec<Vec<u32>>, BitmapError> {
+        self.graph.pixels.histogram(reference, rect)
     }
     pub fn bitmap_get_pixels(
         &self,

@@ -185,7 +185,11 @@
     Object.defineProperties(MovieClipLoader,{__nfIs:{value:value=>legacy.has(value)},__nfInitialize:{value:()=>unsupported('MovieClipLoader native subclassing')}});
     let simpleReceiver=null;
     function simpleLoader(){
-      if(!simpleReceiver){simpleReceiver=new MovieClipLoader();simpleReceiver.onLoadError=(target,message)=>report(new TypeError('MovieClip.loadMovie failed: '+message));}
+      if(!simpleReceiver){
+        simpleReceiver=new MovieClipLoader();
+        simpleReceiver.onLoadInit=target=>{if(display.alive(target))display.notifyData?.(target);};
+        simpleReceiver.onLoadError=(target,message)=>report(new TypeError('MovieClip.loadMovie failed: '+message));
+      }
       return simpleReceiver;
     }
     function trackedMovie(target){

@@ -115,6 +115,8 @@ impl RuntimeGraph {
         }
         if owner != "button" {
             state.button_enabled = true;
+        }
+        if !matches!(owner, "button" | "movie_clip") {
             state.track_as_menu = false;
         }
         Some(state)
@@ -195,9 +197,12 @@ impl Player {
         if owner != "movie_clip" && !state.movieclip_enabled {
             return Err(error("MovieClip enabled requires a MovieClip instance"));
         }
-        if owner != "button" && (!state.button_enabled || state.track_as_menu) {
+        if owner != "button" && !state.button_enabled {
+            return Err(error("SimpleButton enabled requires a button instance"));
+        }
+        if !matches!(owner, "button" | "movie_clip") && state.track_as_menu {
             return Err(error(
-                "SimpleButton enabled/trackAsMenu require a button instance",
+                "trackAsMenu requires a SimpleButton or MovieClip instance",
             ));
         }
         if !container(owner) && state.mouse_children != defaults.mouse_children {
@@ -338,6 +343,17 @@ impl Player {
                 }
             }
         };
+        let menu_track = |reference: &Option<ObjectRef>| {
+            reference.as_ref().is_some_and(|reference| {
+                snapshot
+                    .objects
+                    .iter()
+                    .find(|node| &node.object_ref == reference)
+                    .and_then(|node| node.input.as_ref())
+                    .is_some_and(|input| input.track_as_menu)
+            })
+        };
+        let shared_menu = menu_track(&state.pressed) && menu_track(&next);
         // Semantic reference: Ruffle fe6cfc545405b888ebb478ce1c211d63147ca49b,
         // display_object/movie_clip.rs::event_dispatch. DragOut uses _over;
         // ReleaseOutside/RollOut use _up, while Press/DragOver use _down.
@@ -368,7 +384,9 @@ impl Player {
                         "_up"
                     },
                 );
-                if state.pressed != next && (state.pressed.is_some() || state.over != next) {
+                if state.pressed != next
+                    && (state.pressed.is_some() || state.over != next || shared_menu)
+                {
                     transition(&next, "_over");
                 }
                 state.over = next;
@@ -378,16 +396,16 @@ impl Player {
                 if state.over != next {
                     transition(
                         &state.over,
-                        if state.over == state.pressed {
+                        if state.over == state.pressed && !menu_track(&state.pressed) {
                             "_over"
                         } else {
                             "_up"
                         },
                     );
-                    if state.pressed.is_none() || next == state.pressed {
+                    if state.pressed.is_none() || next == state.pressed || shared_menu {
                         transition(
                             &next,
-                            if next == state.pressed {
+                            if next == state.pressed || shared_menu {
                                 "_down"
                             } else {
                                 "_over"

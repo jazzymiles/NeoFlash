@@ -76,12 +76,10 @@ pub fn compile(script: &Script) -> Result<String, Vec<Diagnostic>> {
                 language: ScriptLanguage::ActionScript2,
                 source: script.source.clone(),
             };
-            actionscript::compile_legacy(&legacy)
-                .map(|body| format!("const __nfLegacyCase = true;\n{body}"))
-                .map_err(|mut error| {
-                    error.language = ScriptLanguage::ActionScript1;
-                    vec![error]
-                })
+            actionscript::compile_legacy(&legacy).map_err(|mut error| {
+                error.language = ScriptLanguage::ActionScript1;
+                vec![error]
+            })
         }
         ScriptLanguage::JavaScript => compile_web(script, false),
         ScriptLanguage::TypeScript => compile_web(script, true),

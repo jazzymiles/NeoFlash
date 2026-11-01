@@ -19,6 +19,7 @@ pub mod as2_transitions;
 pub mod as2_variables;
 pub mod as2_xml;
 pub mod as2d_geom;
+pub mod as3_air;
 pub mod as3_collections;
 pub mod as3_geom;
 pub mod as3_object;
@@ -97,7 +98,7 @@ pub use runtime_graph::{
     DisplayInputState, DisplayMutation, DynamicKind, LoaderMutation, MAX_DYNAMIC_OBJECTS,
     MutationResult, ObjectRef, RuntimeAccessibleNode, RuntimeClip, RuntimeDrawItem,
     RuntimeDrawKind, RuntimeFilterGroup, RuntimeObject, RuntimeScriptDispatch, RuntimeSnapshot,
-    ScrollRect, VideoState,
+    ScrollRect, StageMutation, VideoState,
 };
 pub use runtime_graphics::{
     BitmapFillSpec, BitmapPaint, GradientKind, GradientPaint, GradientSpec, GradientStop,

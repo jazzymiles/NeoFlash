@@ -498,6 +498,13 @@ impl Expr {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LegacyTrigger {
+    clip_event: bool,
+    event: &'static str,
+    key_press: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 enum Stmt {
     Empty,
@@ -510,6 +517,7 @@ enum Stmt {
     TellTarget(Expr, Box<Stmt>, usize),
     IfFrameLoaded(Vec<Expr>, Box<Stmt>),
     InitClip(Option<u32>, Vec<Stmt>, usize),
+    LegacyEvent(Vec<LegacyTrigger>, Box<Function>),
     For(Box<Stmt>, Option<Expr>, Option<Expr>, Box<Stmt>),
     ForIn(Box<Stmt>, Expr, bool, Box<Stmt>),
     DoWhile(Box<Stmt>, Expr),
@@ -678,8 +686,8 @@ impl<'a> Frontend<'a> {
         self.with_depth += 1;
         let body = self.statement()?;
         self.with_depth -= 1;
-        if !scope::with_body_supported(&body) {
-            return Err(self.error("Function definitions and eval/set calls inside tellTarget require captured/dynamic scope-chain semantics outside this profile."));
+        if !scope::tell_target_body_supported(&body) {
+            return Err(self.error("Function definitions and legacy event blocks inside tellTarget require captured scope-chain semantics outside this profile."));
         }
         Ok(Stmt::TellTarget(target, Box::new(body), offset))
     }
@@ -752,7 +760,7 @@ impl<'a> Frontend<'a> {
                 || self.in_initclip
             {
                 return Err(self.error(
-                    "Legacy on/onClipEvent blocks belong at the top level of an AS2 object script.",
+                    "Legacy on/onClipEvent blocks belong at the top level of an AS1/AS2 object script.",
                 ));
             }
             let clip_event = self.eat("onClipEvent");
@@ -761,28 +769,45 @@ impl<'a> Frontend<'a> {
             }
             let offset = self.token().offset;
             self.expect("(")?;
-            let mut handlers = Vec::new();
+            let mut triggers = Vec::new();
             loop {
                 let name = self.ident()?;
-                let callback = match (clip_event, name.as_str()) {
-                    (false, "press") => "onPress",
-                    (false, "release") => "onRelease",
-                    (false, "releaseOutside") => "onReleaseOutside",
-                    (false, "rollOver") => "onRollOver",
-                    (false, "rollOut") => "onRollOut",
-                    (false, "dragOver") => "onDragOver",
-                    (false, "dragOut") => "onDragOut",
-                    (true, "mouseDown") => "onMouseDown",
-                    (true, "mouseMove") => "onMouseMove",
-                    (true, "mouseUp") => "onMouseUp",
-                    (true, "unload") => "onUnload",
-                    (true, "enterFrame") => "onEnterFrame",
-                    _ => return Err(self.error(format!(
-                        "Legacy event '{name}' is not connected to the browser event bridge yet."
-                    ))),
+                let Some(event) =
+                    resolve_legacy_event_name(clip_event, &name, self.context.legacy_case)
+                else {
+                    return Err(self.error(format!(
+                        "Legacy event '{name}' is not a supported {} event.",
+                        if clip_event { "onClipEvent" } else { "on" }
+                    )));
                 };
-                if !handlers.contains(&callback) {
-                    handlers.push(callback);
+                let key_press = if !clip_event && event == "keyPress" {
+                    let Kind::String(raw) = self.token().kind.clone() else {
+                        return Err(self.error(
+                            "Legacy on(keyPress \"<key>\") requires a key string literal immediately after keyPress without a comma (for example on(keyPress \"<Enter>\") or on(keyPress \"a\")).",
+                        ));
+                    };
+                    self.pos += 1;
+                    let Some(decoded) = literal_property_name(&Expr::Literal(raw)) else {
+                        return Err(self.error("Invalid string literal in on(keyPress)."));
+                    };
+                    let Some(valid_key) =
+                        validate_flash_key_press(&decoded, self.context.legacy_case)
+                    else {
+                        return Err(self.error(format!(
+                            "Invalid on(keyPress) key specifier {decoded:?}; expected a single character or a Flash key token (<Left>, <Right>, <Up>, <Down>, <Enter>, <Space>, <Tab>, <Escape>, <Backspace>, <Delete>, <Home>, <End>, <PageUp>, <PageDown>, <Insert>)."
+                        )));
+                    };
+                    Some(valid_key)
+                } else {
+                    None
+                };
+                let trigger = LegacyTrigger {
+                    clip_event,
+                    event,
+                    key_press,
+                };
+                if !triggers.contains(&trigger) {
+                    triggers.push(trigger);
                 }
                 if !self.eat(",") {
                     break;
@@ -800,7 +825,7 @@ impl<'a> Frontend<'a> {
             self.function_depth -= 1;
             self.controls = outer_controls;
             self.no_in = outer_no_in;
-            let mut expression = Expr::Function(Box::new(Function {
+            let func = Function {
                 id,
                 offset,
                 name: None,
@@ -810,18 +835,8 @@ impl<'a> Frontend<'a> {
                 returns: None,
                 body,
                 declaration: false,
-            }));
-            for handler in handlers.into_iter().rev() {
-                expression = Expr::Assign(
-                    "=".into(),
-                    Box::new(Expr::Member(
-                        Box::new(Expr::Name("this".into())),
-                        handler.into(),
-                    )),
-                    Box::new(expression),
-                );
-            }
-            return Ok(Stmt::Expr(expression));
+            };
+            return Ok(Stmt::LegacyEvent(triggers, Box::new(func)));
         }
         if matches!(self.token().kind, Kind::Ident(_))
             && self
@@ -892,7 +907,13 @@ impl<'a> Frontend<'a> {
                     let ty = if self.eat("*") {
                         "*".into()
                     } else {
-                        self.ident()?
+                        let mut name = self.ident()?;
+                        while self.script.language == ScriptLanguage::ActionScript3 && self.eat(".")
+                        {
+                            name.push('.');
+                            name.push_str(&self.ident()?);
+                        }
+                        name
                     };
                     let supported = if self.script.language == ScriptLanguage::ActionScript3 {
                         is_error_type(&ty)
@@ -906,6 +927,7 @@ impl<'a> Frontend<'a> {
                                     | "int"
                                     | "uint"
                             )
+                            || (self.context.project && self.context.types.contains_key(&ty))
                     } else {
                         ty == "Error"
                     };
@@ -1153,10 +1175,23 @@ impl<'a> Frontend<'a> {
             });
         }
         if let Kind::Ident(word) = &self.token().kind
+            && self.context.legacy_case
+            && matches!(
+                word.as_str(),
+                "class" | "interface" | "extends" | "implements" | "package" | "import"
+            )
+        {
+            return Err(self.error(format!(
+                "ActionScript 1.0 does not support '{word}' declarations; use ActionScript 2.0/3.0 for classes and interfaces, or prototype functions in AS1."
+            )));
+        }
+        if let Kind::Ident(word) = &self.token().kind
             && is_unsupported_keyword(word)
             && !(word == "set" && self.script.language == ScriptLanguage::ActionScript2)
             && !matches!(word.as_str(), "new" | "delete" | "void")
-            && !(self.context.project && word == "super" && self.context.class_name.is_some())
+            && !(((self.context.project && self.context.class_name.is_some())
+                || self.context.legacy_case)
+                && word == "super")
         {
             return Err(self.error(format!("ActionScript '{word}' is not implemented yet. See docs/COMPATIBILITY.md; use a JavaScript/TypeScript handler for this feature.")));
         }
@@ -1213,6 +1248,8 @@ impl<'a> Frontend<'a> {
         };
         while self.is(".")
             && (self.context.project
+                || self.context.legacy_case
+                || (self.script.language == ScriptLanguage::ActionScript2 && name == "TextField")
                 || matches!(
                     self.peek(self.pos + 1).map(|t| t.kind),
                     Some(Kind::Punct("<"))
@@ -1274,7 +1311,12 @@ impl<'a> Frontend<'a> {
             || (!as3
                 && matches!(
                     name,
-                    "LoadVars"
+                    "MovieClip"
+                        | "Button"
+                        | "TextField"
+                        | "TextField.StyleSheet"
+                        | "TextSnapshot"
+                        | "LoadVars"
                         | "Color"
                         | "TextFormat"
                         | "Sound"
@@ -1721,7 +1763,8 @@ impl<'a> Frontend<'a> {
                 let offset = self.token().offset;
                 self.pos += 1;
                 let name = self.type_name()?;
-                if !self.context.core_type(&name)
+                if !self.context.legacy_case
+                    && !self.context.core_type(&name)
                     && !self.context.intrinsic_type(&name, false)
                     && !self.context.types.contains_key(&name)
                     && !is_as2_legacy_instanceof_type(&name)
@@ -1812,6 +1855,7 @@ impl<'a> Frontend<'a> {
                     && matches!(
                         name.as_str(),
                         "MovieClipLoader"
+                            | "TextField.StyleSheet"
                             | "Color"
                             | "SharedObject"
                             | "Selection"
@@ -1831,6 +1875,7 @@ impl<'a> Frontend<'a> {
                 && class.is_none()
                 && (!is_error_type(&name)
                     || (self.script.language == ScriptLanguage::ActionScript2 && name != "Error"))
+                && !self.context.legacy_case
                 && (self.script.language != ScriptLanguage::ActionScript3 || name.contains('.'))
             {
                 return Err(self.error("This constructor is not a supported native type in this language/profile; user classes require project type resolution."));
@@ -1878,7 +1923,7 @@ impl<'a> Frontend<'a> {
         match token.kind {
             Kind::Number(value) | Kind::String(value) => { self.pos += 1; Ok(Expr::Literal(value)) }
             Kind::Ident(name) => {
-                if (is_unsupported_keyword(&name) && !(name == "super" && self.context.class_name.is_some()) && !(name == "set" && self.script.language == ScriptLanguage::ActionScript2)) || matches!(name.as_str(), "if" | "else" | "while" | "for" | "var" | "break" | "continue" | "return") {
+                if (is_unsupported_keyword(&name) && !(name == "super" && (self.context.class_name.is_some() || self.context.legacy_case)) && !(name == "set" && self.script.language == ScriptLanguage::ActionScript2)) || matches!(name.as_str(), "if" | "else" | "while" | "for" | "var" | "break" | "continue" | "return") {
                     return Err(self.error(format!("ActionScript construct '{name}' is not supported in this expression.")));
                 }
                 self.pos += 1;
@@ -2065,7 +2110,14 @@ pub(super) fn is_as2_frame_global(name: &str) -> bool {
 fn is_as2_legacy_instanceof_type(name: &str) -> bool {
     matches!(
         name,
-        "LoadVars"
+        "MovieClip"
+            | "Button"
+            | "TextField"
+            | "TextField.StyleSheet"
+            | "TextFormat"
+            | "TextSnapshot"
+            | "Video"
+            | "LoadVars"
             | "Color"
             | "Sound"
             | "MovieClipLoader"
@@ -2102,150 +2154,271 @@ pub(super) fn fnv1a64(text: &str) -> u64 {
     hash
 }
 
+const FAMILY_METHODS: &[&str] = &[
+    "call",
+    "apply",
+    "push",
+    "pop",
+    "shift",
+    "unshift",
+    "join",
+    "slice",
+    "concat",
+    "reverse",
+    "splice",
+    "sort",
+    "sortOn",
+    "indexOf",
+    "lastIndexOf",
+    "map",
+    "filter",
+    "forEach",
+    "every",
+    "some",
+    "charAt",
+    "charCodeAt",
+    "substring",
+    "substr",
+    "split",
+    "toLowerCase",
+    "toUpperCase",
+    "toLocaleLowerCase",
+    "toLocaleUpperCase",
+    "localeCompare",
+    "replace",
+    "toString",
+    "valueOf",
+    "fromCharCode",
+    "toFixed",
+    "toExponential",
+    "toPrecision",
+    "match",
+    "search",
+    "exec",
+    "test",
+    "UTC",
+    "parse",
+    "stringify",
+    "getDate",
+    "getDay",
+    "getFullYear",
+    "getHours",
+    "getMilliseconds",
+    "getMinutes",
+    "getMonth",
+    "getSeconds",
+    "getTime",
+    "getTimezoneOffset",
+    "getUTCDate",
+    "getUTCDay",
+    "getUTCFullYear",
+    "getUTCHours",
+    "getUTCMilliseconds",
+    "getUTCMinutes",
+    "getUTCMonth",
+    "getUTCSeconds",
+    "getUTCYear",
+    "getYear",
+    "setDate",
+    "setFullYear",
+    "setHours",
+    "setMilliseconds",
+    "setMinutes",
+    "setMonth",
+    "setSeconds",
+    "setTime",
+    "setUTCDate",
+    "setUTCFullYear",
+    "setUTCHours",
+    "setUTCMilliseconds",
+    "setUTCMinutes",
+    "setUTCMonth",
+    "setUTCSeconds",
+    "setYear",
+    "toDateString",
+    "toTimeString",
+    "toUTCString",
+    "toLocaleDateString",
+    "toLocaleTimeString",
+    "toLocaleString",
+    "toJSON",
+    "length",
+    "child",
+    "children",
+    "elements",
+    "descendants",
+    "attribute",
+    "attributes",
+    "text",
+    "parent",
+    "localName",
+    "nodeKind",
+    "hasSimpleContent",
+    "hasComplexContent",
+    "copy",
+    "appendChild",
+    "prependChild",
+    "setChildren",
+    "normalize",
+    "toXMLString",
+    "settings",
+    "setSettings",
+    "defaultSettings",
+    "parseXML",
+    "insertAt",
+    "removeAt",
+    "getStackTrace",
+    "hasOwnProperty",
+    "propertyIsEnumerable",
+    "isPrototypeOf",
+    "childIndex",
+    "comments",
+    "processingInstructions",
+    "addNamespace",
+    "removeNamespace",
+    "inScopeNamespaces",
+    "namespaceDeclarations",
+    "namespace",
+    "name",
+    "setLocalName",
+    "setName",
+    "setNamespace",
+    "insertChildAfter",
+    "insertChildBefore",
+    "contains",
+    "createElement",
+    "createTextNode",
+    "hasChildNodes",
+    "insertBefore",
+    "removeNode",
+    "cloneNode",
+    "load",
+    "getBytesLoaded",
+    "getBytesTotal",
+];
+
 fn is_family_method(name: &str) -> bool {
-    matches!(
-        name,
-        "call"
-            | "apply"
-            | "push"
-            | "pop"
-            | "shift"
-            | "unshift"
-            | "join"
-            | "slice"
-            | "concat"
-            | "reverse"
-            | "splice"
-            | "sort"
-            | "sortOn"
-            | "indexOf"
-            | "lastIndexOf"
-            | "map"
-            | "filter"
-            | "forEach"
-            | "every"
-            | "some"
-            | "charAt"
-            | "charCodeAt"
-            | "substring"
-            | "substr"
-            | "split"
-            | "toLowerCase"
-            | "toUpperCase"
-            | "toLocaleLowerCase"
-            | "toLocaleUpperCase"
-            | "localeCompare"
-            | "replace"
-            | "toString"
-            | "valueOf"
-            | "fromCharCode"
-            | "toFixed"
-            | "toExponential"
-            | "toPrecision"
-            | "match"
-            | "search"
-            | "exec"
-            | "test"
-            | "UTC"
-            | "parse"
-            | "stringify"
-            | "getDate"
-            | "getDay"
-            | "getFullYear"
-            | "getHours"
-            | "getMilliseconds"
-            | "getMinutes"
-            | "getMonth"
-            | "getSeconds"
-            | "getTime"
-            | "getTimezoneOffset"
-            | "getUTCDate"
-            | "getUTCDay"
-            | "getUTCFullYear"
-            | "getUTCHours"
-            | "getUTCMilliseconds"
-            | "getUTCMinutes"
-            | "getUTCMonth"
-            | "getUTCSeconds"
-            | "getUTCYear"
-            | "getYear"
-            | "setDate"
-            | "setFullYear"
-            | "setHours"
-            | "setMilliseconds"
-            | "setMinutes"
-            | "setMonth"
-            | "setSeconds"
-            | "setTime"
-            | "setUTCDate"
-            | "setUTCFullYear"
-            | "setUTCHours"
-            | "setUTCMilliseconds"
-            | "setUTCMinutes"
-            | "setUTCMonth"
-            | "setUTCSeconds"
-            | "setYear"
-            | "toDateString"
-            | "toTimeString"
-            | "toUTCString"
-            | "toLocaleDateString"
-            | "toLocaleTimeString"
-            | "toLocaleString"
-            | "toJSON"
-            | "length"
-            | "child"
-            | "children"
-            | "elements"
-            | "descendants"
-            | "attribute"
-            | "attributes"
-            | "text"
-            | "parent"
-            | "localName"
-            | "nodeKind"
-            | "hasSimpleContent"
-            | "hasComplexContent"
-            | "copy"
-            | "appendChild"
-            | "prependChild"
-            | "setChildren"
-            | "normalize"
-            | "toXMLString"
-            | "settings"
-            | "setSettings"
-            | "defaultSettings"
-            | "parseXML"
-            | "insertAt"
-            | "removeAt"
-            | "getStackTrace"
-            | "hasOwnProperty"
-            | "propertyIsEnumerable"
-            | "isPrototypeOf"
-            | "childIndex"
-            | "comments"
-            | "processingInstructions"
-            | "addNamespace"
-            | "removeNamespace"
-            | "inScopeNamespaces"
-            | "namespaceDeclarations"
-            | "namespace"
-            | "name"
-            | "setLocalName"
-            | "setName"
-            | "setNamespace"
-            | "insertChildAfter"
-            | "insertChildBefore"
-            | "contains"
-            | "createElement"
-            | "createTextNode"
-            | "hasChildNodes"
-            | "insertBefore"
-            | "removeNode"
-            | "cloneNode"
-            | "load"
-            | "getBytesLoaded"
-            | "getBytesTotal"
-    )
+    FAMILY_METHODS.contains(&name)
+}
+
+fn is_family_method_for(name: &str, legacy_case: bool) -> bool {
+    is_family_method(name)
+        || (legacy_case && FAMILY_METHODS.iter().any(|m| m.eq_ignore_ascii_case(name)))
+}
+
+fn resolve_legacy_event_name(
+    clip_event: bool,
+    name: &str,
+    legacy_case: bool,
+) -> Option<&'static str> {
+    const CLIP_EVENTS: &[&str] = &[
+        "load",
+        "enterFrame",
+        "unload",
+        "data",
+        "mouseDown",
+        "mouseMove",
+        "mouseUp",
+        "keyDown",
+        "keyUp",
+    ];
+    const BUTTON_EVENTS: &[&str] = &[
+        "press",
+        "release",
+        "releaseOutside",
+        "rollOver",
+        "rollOut",
+        "dragOver",
+        "dragOut",
+        "keyPress",
+    ];
+    let table = if clip_event {
+        CLIP_EVENTS
+    } else {
+        BUTTON_EVENTS
+    };
+    table.iter().copied().find(|candidate| {
+        if legacy_case {
+            candidate.eq_ignore_ascii_case(name)
+        } else {
+            *candidate == name
+        }
+    })
+}
+
+fn validate_flash_key_press(spec: &str, legacy_case: bool) -> Option<String> {
+    const SPECIAL_KEYS: &[&str] = &[
+        "<Left>",
+        "<Right>",
+        "<Up>",
+        "<Down>",
+        "<Enter>",
+        "<Space>",
+        "<Tab>",
+        "<Escape>",
+        "<Backspace>",
+        "<Delete>",
+        "<Home>",
+        "<End>",
+        "<PageUp>",
+        "<PageDown>",
+        "<Insert>",
+    ];
+    if let Some(&canonical) = SPECIAL_KEYS.iter().find(|token| {
+        if legacy_case {
+            token.eq_ignore_ascii_case(spec)
+        } else {
+            **token == spec
+        }
+    }) {
+        return Some(canonical.to_owned());
+    }
+    if spec.len() >= 2 && spec.starts_with('<') && spec.ends_with('>') {
+        return None;
+    }
+    if spec.chars().count() == 1 {
+        Some(spec.to_owned())
+    } else {
+        None
+    }
+}
+
+fn flash4_property_index(name: &str, legacy_case: bool) -> Option<u32> {
+    (0..22).find(|&index| {
+        neoflash_core::as2_strings::property_name(index).is_some_and(|prop| {
+            if legacy_case {
+                prop.eq_ignore_ascii_case(name)
+            } else {
+                prop == name
+            }
+        })
+    })
+}
+
+fn canonical_legacy_callback(name: &str, legacy_case: bool) -> Option<&'static str> {
+    const LEGACY_CALLBACKS: &[&str] = &[
+        "onEnterFrame",
+        "onPress",
+        "onRelease",
+        "onReleaseOutside",
+        "onRollOver",
+        "onRollOut",
+        "onMouseDown",
+        "onMouseMove",
+        "onMouseUp",
+        "onKeyDown",
+        "onKeyUp",
+        "onDragOver",
+        "onDragOut",
+        "onUnload",
+    ];
+    LEGACY_CALLBACKS.iter().copied().find(|candidate| {
+        if legacy_case {
+            candidate.eq_ignore_ascii_case(name)
+        } else {
+            *candidate == name
+        }
+    })
 }
 
 fn literal_property_name(expr: &Expr) -> Option<String> {
@@ -2399,6 +2572,62 @@ struct Emitter<'a> {
 }
 
 impl Emitter<'_> {
+    fn legacy_case(&self) -> bool {
+        self.analysis.context.legacy_case
+    }
+    fn container_tail(&self) -> String {
+        if self.legacy_case() {
+            ", undefined, true".into()
+        } else {
+            self.caller_argument()
+        }
+    }
+    fn index_tail(&self) -> &'static str {
+        if self.legacy_case() {
+            ", undefined, true"
+        } else {
+            ""
+        }
+    }
+    fn legacy_receiver(&self) -> String {
+        let fallback = if self.analysis.context.class_name.is_some()
+            && self.analysis.context.method_id.is_none()
+        {
+            "this"
+        } else {
+            "__nfFrame"
+        };
+        let target = self.tell_target.as_deref().unwrap_or(fallback);
+        if self.legacy_case() {
+            format!("{{__nfTimeline: {target}, __nfLegacyCase: true}}")
+        } else {
+            target.to_owned()
+        }
+    }
+    fn dotted_value_expr(&self, name: &str) -> String {
+        let mut parts = name.split('.');
+        let first = parts.next().expect("non-empty type name");
+        let mut expr = Expr::Name(first.to_owned());
+        let mut has_dot = false;
+        for part in parts {
+            has_dot = true;
+            expr = Expr::Member(Box::new(expr), part.to_owned());
+        }
+        let primary = self.expression(&expr);
+        if !has_dot
+            && self.legacy_case()
+            && self
+                .analysis
+                .resolve(self.scope, first)
+                .is_none_or(|(id, _)| id == 0)
+        {
+            format!(
+                "((__nfVal) => __nfVal !== undefined ? __nfVal : (typeof __nfLegacy !== 'undefined' && __nfLegacy?._global ? __nfFamilyPropertyValue(__nfLegacy._global, {first:?}, false, undefined, true) : undefined))({primary})"
+            )
+        } else {
+            primary
+        }
+    }
     fn active_timeline(&self) -> &str {
         self.tell_target
             .as_deref()
@@ -2528,7 +2757,7 @@ impl Emitter<'_> {
             .map(|owner| {
                 format!(
                     "__nfContainerRef({owner},{name:?},false{})",
-                    self.caller_argument()
+                    self.container_tail()
                 )
             })
             .or_else(|| plain.reference(&expression))
@@ -2552,7 +2781,7 @@ impl Emitter<'_> {
                 .cloned()
                 .collect::<Vec<_>>()
                 .join(","),
-            self.caller_argument()
+            self.container_tail()
         ))
     }
     fn unscoped_name(&self, name: &str) -> String {
@@ -2587,7 +2816,7 @@ impl Emitter<'_> {
             && self.analysis.resolve(self.scope, name).is_none()
             && !self.analysis.context.types.contains_key(name)
         {
-            return format!("__nfLegacy.{name}.bind(__nfFrame)");
+            return format!("__nfLegacy.{name}.bind({})", self.legacy_receiver());
         }
         if self.analysis.resolve(self.scope, name).is_none() && (!self.as3 && name == "getTimer") {
             return "__nfProgram.type(\"flash.utils.getTimer\")".into();
@@ -2640,6 +2869,7 @@ impl Emitter<'_> {
                 name,
                 "MovieClip"
                     | "Button"
+                    | "TextSnapshot"
                     | "Video"
                     | "MovieClipLoader"
                     | "AsBroadcaster"
@@ -2734,12 +2964,10 @@ impl Emitter<'_> {
             }
             .into();
         }
-        if self
-            .analysis
-            .resolve(self.scope, name)
-            .is_some_and(|(id, _)| id != 0)
+        if let Some((id, binding)) = self.analysis.resolve(self.scope, name)
+            && id != 0
         {
-            return name.into();
+            return binding.canonical.clone();
         }
         if name == "this" || (is_global(name) && !is_timeline_method(name) && name != "trace") {
             name.into()
@@ -2793,25 +3021,36 @@ impl Emitter<'_> {
         }
     }
     fn as2_lexical_reference(&self) -> String {
-        let mut names = std::collections::BTreeSet::new();
+        let mut names = std::collections::BTreeMap::new();
         let mut scope = Some(self.scope);
         while let Some(id) = scope {
-            names.extend(self.analysis.scopes[&id].bindings.keys().cloned());
+            if id != 0 || self.tell_target.is_none() {
+                for (key, binding) in &self.analysis.scopes[&id].bindings {
+                    names
+                        .entry(key.clone())
+                        .or_insert_with(|| binding.canonical.clone());
+                }
+            }
             scope = self.analysis.scopes[&id].parent;
         }
         let cases = names
             .into_iter()
-            .map(|name| {
-                let expression = Expr::Name(name.clone());
-                let value = self.name(&name);
+            .map(|(key, canonical)| {
+                let expression = Expr::Name(canonical.clone());
+                let value = self.name(&canonical);
                 let reference = self.reference(&expression).unwrap_or_else(|| {
                     format!("{{get:()=>{value},set:__nfAssigned=>({value}=__nfAssigned)}}")
                 });
-                format!("case {name:?}: return {reference};")
+                format!("case {key:?}: return {reference};")
             })
             .collect::<Vec<_>>()
             .join("\n");
-        format!("(__nfName)=>{{switch(__nfName){{{cases}}}return null;}}")
+        let selector = if self.legacy_case() {
+            "__nfAs2Strings().invoke(\"toLowerCase\", __nfString(__nfName), [])"
+        } else {
+            "__nfName"
+        };
+        format!("(__nfName)=>{{switch({selector}){{{cases}}}return null;}}")
     }
     fn default_value(&self, ty: Option<&str>) -> &'static str {
         if !self.as3 {
@@ -2882,10 +3121,11 @@ impl Emitter<'_> {
                     .join(", ")
             ));
         }
-        for (name, binding) in &self.analysis.scopes[&f.id].bindings {
+        for binding in self.analysis.scopes[&f.id].bindings.values() {
             if binding.kind == scope::BindingKind::Variable {
                 prologue.push_str(&format!(
-                    "var {name} = {};\n",
+                    "var {} = {};\n",
+                    binding.canonical,
                     inner.default_value(binding.ty.as_deref())
                 ));
             }
@@ -2908,18 +3148,28 @@ impl Emitter<'_> {
         for statement in body {
             if let Stmt::Function(f) = statement {
                 let code = self.function(f);
+                let fn_name = f.name.as_deref().unwrap();
                 if self.scope == 0 {
-                    output.push_str(&format!(
-                        "this.{} = {};\n",
-                        f.name.as_deref().unwrap(),
-                        if self.as3 {
-                            format!("__nfBindFunction({code}, __nfFrame)")
-                        } else {
-                            code
-                        }
-                    ));
+                    if self.legacy_case() {
+                        output.push_str(&format!(
+                            "__nfContainerRef(this, {fn_name:?}, false, undefined, true).set({code});\n"
+                        ));
+                    } else {
+                        output.push_str(&format!(
+                            "this.{fn_name} = {};\n",
+                            if self.as3 {
+                                format!("__nfBindFunction({code}, __nfFrame)")
+                            } else {
+                                code
+                            }
+                        ));
+                    }
                 } else {
-                    output.push_str(&format!("var {} = {code};\n", f.name.as_deref().unwrap()));
+                    let canonical = self
+                        .analysis
+                        .resolve(self.scope, fn_name)
+                        .map_or(fn_name, |(_, b)| b.canonical.as_str());
+                    output.push_str(&format!("var {canonical} = {code};\n"));
                 }
             }
         }
@@ -2940,7 +3190,7 @@ impl Emitter<'_> {
         if self.as3 || !matches!(prop, "scroll" | "maxscroll") {
             return None;
         }
-        let caller = self.caller_argument();
+        let caller = self.container_tail();
         match base {
             Expr::Name(var_name)
                 if !is_global(var_name)
@@ -2969,9 +3219,16 @@ impl Emitter<'_> {
                         "((__nfRef)=>__nfVarScrollRef(__nfRef.get(),__nfRef.receiver,{var_name:?},{prop:?}{caller}))({wref})"
                     ))
                 } else {
+                    let read_expr = if self.legacy_case() {
+                        format!(
+                            "__nfFamilyPropertyValue({}, {var_name:?}, false, undefined, true)",
+                            self.active_timeline()
+                        )
+                    } else {
+                        self.unscoped_name(var_name)
+                    };
                     Some(format!(
-                        "__nfVarScrollRef({}, {}, {var_name:?}, {prop:?}{caller})",
-                        self.unscoped_name(var_name),
+                        "__nfVarScrollRef({read_expr}, {}, {var_name:?}, {prop:?}{caller})",
                         self.active_timeline()
                     ))
                 }
@@ -3008,7 +3265,7 @@ impl Emitter<'_> {
                 format!(
                     "__nfContainerRef({receiver}, {name:?}, {}{})",
                     self.as3,
-                    self.caller_argument()
+                    self.container_tail()
                 )
             }),
             Expr::Member(base, name) => self.as2_var_scroll_ref(base, name).or_else(|| {
@@ -3016,7 +3273,7 @@ impl Emitter<'_> {
                     "__nfContainerRef({}, {name:?}, {}{})",
                     self.expression(base),
                     self.as3,
-                    self.caller_argument()
+                    self.container_tail()
                 ))
             }),
             Expr::XmlSelect {
@@ -3045,10 +3302,11 @@ impl Emitter<'_> {
                 ))
             }
             Expr::Index(base, key) => Some(format!(
-                "__nfContainerRef({}, {}, {})",
+                "__nfContainerRef({}, {}, {}{})",
                 self.expression(base),
                 self.expression(key),
-                self.as3
+                self.as3,
+                self.index_tail()
             )),
             _ => None,
         }
@@ -3145,8 +3403,9 @@ impl Emitter<'_> {
                     && !self.analysis.context.static_members.contains_key(name) =>
             {
                 format!(
-                    "__nfContainerRef({}, \"scrollRect\", false).get()",
-                    if self.scope == 0 { "this" } else { "__nfFrame" }
+                    "__nfContainerRef({}, \"scrollRect\", false{}).get()",
+                    if self.scope == 0 { "this" } else { "__nfFrame" },
+                    self.index_tail()
                 )
             }
             Expr::Name(name) => self.bare_member_receiver(name).map_or_else(
@@ -3155,7 +3414,7 @@ impl Emitter<'_> {
                     format!(
                         "__nfFamilyPropertyValue({receiver}, {name:?}, {}{})",
                         self.as3,
-                        self.caller_argument()
+                        self.container_tail()
                     )
                 },
             ),
@@ -3178,14 +3437,27 @@ impl Emitter<'_> {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Expr::NewValue(name, args, _) => format!(
-                "__nfClassConstruct({}, [{}])",
-                self.name(name),
-                args.iter()
-                    .map(|a| self.expression(a))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+            Expr::NewValue(name, args, _) => {
+                if self.legacy_case() {
+                    format!(
+                        "__nfLegacyConstruct({}, [{}])",
+                        self.dotted_value_expr(name),
+                        args.iter()
+                            .map(|a| self.expression(a))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                } else {
+                    format!(
+                        "__nfClassConstruct({}, [{}])",
+                        self.name(name),
+                        args.iter()
+                            .map(|a| self.expression(a))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
+            }
             Expr::NewBuiltin(name, args, _)
                 if matches!(
                     name.as_str(),
@@ -3204,7 +3476,8 @@ impl Emitter<'_> {
             Expr::NewBuiltin(name, args, _)
                 if matches!(
                     name.as_str(),
-                    "LoadVars"
+                    "TextField.StyleSheet"
+                        | "LoadVars"
                         | "Color"
                         | "TextFormat"
                         | "Sound"
@@ -3267,15 +3540,16 @@ impl Emitter<'_> {
                     "__nfFamilyPropertyValue({}, {name:?}, {}{})",
                     self.expression(base),
                     self.as3,
-                    self.caller_argument()
+                    self.container_tail()
                 )
             }
             Expr::Index(base, index) => {
                 format!(
-                    "__nfFamilyPropertyValue({}, {}, {})",
+                    "__nfFamilyPropertyValue({}, {}, {}{})",
                     self.expression(base),
                     self.expression(index),
-                    self.as3
+                    self.as3,
+                    self.index_tail()
                 )
             }
             Expr::Array(values) => format!(
@@ -3305,8 +3579,9 @@ impl Emitter<'_> {
             ),
             Expr::Unary(op, value) => format!("({op} {})", self.expression(value)),
             Expr::Binary(op, left, right) if op == "in" => format!(
-                "((__nfKey,__nfReceiver)=>__nfContainerRef(__nfReceiver,__nfKey,{}).has())({}, {})",
+                "((__nfKey,__nfReceiver)=>__nfContainerRef(__nfReceiver,__nfKey,{}{}).has())({}, {})",
                 self.as3,
+                self.index_tail(),
                 self.expression(left),
                 self.expression(right)
             ),
@@ -3321,13 +3596,22 @@ impl Emitter<'_> {
                         "(typeof __nfValue === 'function' && __nfNumericClassName(__nfValue)===null)".into()
                     } else if ty == "Array" {
                         "__nfArrayIsArray(__nfValue)".into()
+                    } else if !self.as3
+                        && op == "instanceof"
+                        && matches!(ty.as_str(), "Number" | "String" | "Boolean")
+                    {
+                        format!(
+                            "Boolean(typeof __nfLegacy !== 'undefined' && __nfLegacy.boxing?.is?.(__nfValue) && __nfLegacy.boxing.kind(__nfValue) === {ty:?})"
+                        )
                     } else {
                         format!("__nfCatchType(__nfValue, {ty:?})")
                     }
                 } else if vector_element(ty).is_some() {
                     format!("{}.__nfIs(__nfValue)", self.vector_type(ty))
-                } else if matches!(ty.as_str(), "XML" | "XMLList" | "Namespace" | "QName")
-                    && self.analysis.context.intrinsic_type(ty, self.as3)
+                } else if matches!(
+                    ty.as_str(),
+                    "XML" | "XMLList" | "XMLNode" | "Namespace" | "QName"
+                ) && self.analysis.context.intrinsic_type(ty, self.as3)
                 {
                     format!("__nfXMLClass({ty:?}, {}).__nfIs(__nfValue)", self.as3)
                 } else if self.analysis.context.intrinsic_type(ty, self.as3) {
@@ -3336,7 +3620,16 @@ impl Emitter<'_> {
                     && !self.analysis.context.types.contains_key(ty)
                     && is_as2_legacy_instanceof_type(ty)
                 {
-                    format!("Boolean(__nfLegacy.{ty}?.__nfIs?.(__nfValue))")
+                    if ty == "TextField.StyleSheet" {
+                        "Boolean(__nfLegacy.TextField?.StyleSheet?.__nfIs?.(__nfValue))".into()
+                    } else {
+                        format!("Boolean(__nfLegacy.{ty}?.__nfIs?.(__nfValue))")
+                    }
+                } else if self.legacy_case() && !self.analysis.context.types.contains_key(ty) {
+                    format!(
+                        "__nfLegacyInstanceOf(__nfValue, {})",
+                        self.dotted_value_expr(ty)
+                    )
                 } else {
                     format!(
                         "__nfProgram.is(__nfValue, {:?})",
@@ -3367,47 +3660,15 @@ impl Emitter<'_> {
                 if !self.as3 && op == "=" {
                     let callback = match left.as_ref() {
                         Expr::Name(name)
-                            if matches!(
-                                name.as_str(),
-                                "onEnterFrame"
-                                    | "onPress"
-                                    | "onRelease"
-                                    | "onReleaseOutside"
-                                    | "onRollOver"
-                                    | "onRollOut"
-                                    | "onMouseDown"
-                                    | "onMouseMove"
-                                    | "onMouseUp"
-                                    | "onKeyDown"
-                                    | "onKeyUp"
-                                    | "onDragOver"
-                                    | "onDragOut"
-                                    | "onUnload"
-                            ) && self.with_targets.is_empty()
+                            if self.with_targets.is_empty()
                                 && self.analysis.resolve(self.scope, name).is_none() =>
                         {
-                            Some(("__nfFrame".into(), name))
+                            canonical_legacy_callback(name, self.legacy_case())
+                                .map(|canonical| ("__nfFrame".into(), canonical))
                         }
-                        Expr::Member(base, name)
-                            if matches!(
-                                name.as_str(),
-                                "onEnterFrame"
-                                    | "onPress"
-                                    | "onRelease"
-                                    | "onReleaseOutside"
-                                    | "onRollOver"
-                                    | "onRollOut"
-                                    | "onMouseDown"
-                                    | "onMouseMove"
-                                    | "onMouseUp"
-                                    | "onKeyDown"
-                                    | "onKeyUp"
-                                    | "onDragOver"
-                                    | "onDragOut"
-                                    | "onUnload"
-                            ) =>
-                        {
-                            Some((self.expression(base), name))
+                        Expr::Member(base, name) => {
+                            canonical_legacy_callback(name, self.legacy_case())
+                                .map(|canonical| (self.expression(base), canonical))
                         }
                         _ => None,
                     };
@@ -3550,6 +3811,88 @@ impl Emitter<'_> {
                         self.expression(&args[0])
                     );
                 }
+                if !self.as3
+                    && let Expr::Name(name) = callee.as_ref()
+                    && matches!(name.as_str(), "eval" | "set")
+                    && self.analysis.resolve(self.scope, name).is_none()
+                {
+                    let tail = match (name == "set", self.legacy_case()) {
+                        (true, true) => format!(", {}, true", self.expression(&args[1])),
+                        (true, false) => format!(", {}", self.expression(&args[1])),
+                        (false, true) => ", undefined, true".into(),
+                        (false, false) => String::new(),
+                    };
+                    return format!(
+                        "__nfLegacy.objects.resolve({}, {}, {}, {}{tail})",
+                        self.active_timeline(),
+                        self.expression(&args[0]),
+                        self.as2_lexical_reference(),
+                        name == "set"
+                    );
+                }
+                if !self.as3
+                    && let Expr::Name(name) = callee.as_ref()
+                    && self.analysis.resolve(self.scope, name).is_none()
+                    && matches!(name.as_str(), "getProperty" | "setProperty" | "targetPath")
+                {
+                    let rendered_args = args
+                        .iter()
+                        .enumerate()
+                        .map(|(index, arg)| {
+                            if index == 1
+                                && matches!(name.as_str(), "getProperty" | "setProperty")
+                                && let Expr::Name(prop) = arg
+                                && self
+                                    .analysis
+                                    .resolve(self.scope, prop)
+                                    .is_none_or(|(id, _)| id == 0)
+                                && let Some(prop_index) =
+                                    flash4_property_index(prop, self.legacy_case())
+                            {
+                                return prop_index.to_string();
+                            }
+                            self.expression(arg)
+                        })
+                        .map(|arg| format!(", {arg}"))
+                        .collect::<String>();
+                    return format!(
+                        "__nfLegacy.{name}.call({}{rendered_args})",
+                        self.legacy_receiver()
+                    );
+                }
+                if !self.as3
+                    && (self.with_targets.is_empty() || self.tell_target.is_some())
+                    && let Expr::Name(name) = callee.as_ref()
+                    && self.analysis.resolve(self.scope, name).is_none()
+                    && !self.analysis.context.types.contains_key(name)
+                    && (matches!(
+                        name.as_str(),
+                        "duplicateMovieClip"
+                            | "removeMovieClip"
+                            | "startDrag"
+                            | "stopDrag"
+                            | "loadVariables"
+                            | "loadVariablesNum"
+                    ) || is_as2_frame_global(name))
+                    && match name.as_str() {
+                        "duplicateMovieClip" => args.len() >= 3 || self.with_targets.is_empty(),
+                        "removeMovieClip" | "unloadMovie" | "startDrag" => {
+                            !args.is_empty() || self.with_targets.is_empty()
+                        }
+                        "loadVariables" | "loadMovie" => {
+                            args.len() >= 2 || self.with_targets.is_empty()
+                        }
+                        _ => true,
+                    }
+                {
+                    return format!(
+                        "__nfLegacy.{name}.call({}{})",
+                        self.legacy_receiver(),
+                        args.iter()
+                            .map(|arg| format!(", {}", self.expression(arg)))
+                            .collect::<String>()
+                    );
+                }
                 if let Expr::Name(name) = callee.as_ref()
                     && let Some(reference) = self.with_reference(name)
                 {
@@ -3567,32 +3910,14 @@ impl Emitter<'_> {
                     && self.analysis.resolve(self.scope, name).is_none()
                 {
                     return format!(
-                        "__nfLegacy.{name}.call(__nfFrame, {})",
+                        "__nfLegacy.{name}.call({}, {})",
+                        self.legacy_receiver(),
                         args.iter()
                             .map(|arg| self.expression(arg))
                             .collect::<Vec<_>>()
                             .join(", ")
                     );
                 }
-
-                if !self.as3
-                    && let Expr::Name(name) = callee.as_ref()
-                    && matches!(name.as_str(), "eval" | "set")
-                    && self.analysis.resolve(self.scope, name).is_none()
-                {
-                    return format!(
-                        "__nfLegacy.objects.resolve(__nfFrame, {}, {}, {}{})",
-                        self.expression(&args[0]),
-                        self.as2_lexical_reference(),
-                        name == "set",
-                        if name == "set" {
-                            format!(", {}", self.expression(&args[1]))
-                        } else {
-                            String::new()
-                        }
-                    );
-                }
-
                 if !self.as3
                     && let Expr::Name(name) = callee.as_ref()
                     && is_as2_frame_global(name)
@@ -3600,7 +3925,8 @@ impl Emitter<'_> {
                     && !self.analysis.context.types.contains_key(name)
                 {
                     return format!(
-                        "__nfLegacy.{name}.call(__nfFrame{})",
+                        "__nfLegacy.{name}.call({}{})",
+                        self.legacy_receiver(),
                         args.iter()
                             .map(|arg| format!(", {}", self.expression(arg)))
                             .collect::<String>()
@@ -3700,16 +4026,25 @@ impl Emitter<'_> {
                             if name == "String" { ", false" } else { "" }
                         );
                     }
-                    if name == "super"
-                        && let Some(class) = &self.analysis.context.class_name
-                    {
-                        return format!(
-                            "__nfProgram.superConstruct({class:?}, __nfFrame, [{}])",
-                            args.iter()
-                                .map(|a| self.expression(a))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        );
+                    if name == "super" {
+                        if let Some(class) = &self.analysis.context.class_name {
+                            return format!(
+                                "__nfProgram.superConstruct({class:?}, __nfFrame, [{}])",
+                                args.iter()
+                                    .map(|a| self.expression(a))
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            );
+                        }
+                        if self.legacy_case() {
+                            return format!(
+                                "__nfLegacySuperConstruct(this, [{}])",
+                                args.iter()
+                                    .map(|a| self.expression(a))
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            );
+                        }
                     }
                     if let Some(qname) = self.analysis.context.types.get(name) {
                         return format!(
@@ -3742,9 +4077,30 @@ impl Emitter<'_> {
                     }
                     _ => None,
                 };
-                if let Some((base, name)) = &member
-                    && matches!(name.as_str(), "call" | "apply")
+                if self.legacy_case()
+                    && self.analysis.context.class_name.is_none()
+                    && let Some((Expr::Name(base_name), method_name)) = &member
+                    && base_name == "super"
                 {
+                    return format!(
+                        "__nfLegacySuperMethod(this, {method_name:?}, true)({})",
+                        args.iter()
+                            .map(|arg| self.expression(arg))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
+                if let Some((base, name)) = &member
+                    && (matches!(name.as_str(), "call" | "apply")
+                        || (self.legacy_case()
+                            && (name.eq_ignore_ascii_case("call")
+                                || name.eq_ignore_ascii_case("apply"))))
+                {
+                    let canonical = if name.eq_ignore_ascii_case("call") {
+                        "call"
+                    } else {
+                        "apply"
+                    };
                     if self.analysis.context.class_name.is_some() {
                         let caller = if matches!(callee.as_ref(), Expr::Member(_, _)) {
                             self.caller_argument()
@@ -3761,6 +4117,16 @@ impl Emitter<'_> {
                                 .join(", ")
                         );
                     }
+                    if self.legacy_case() {
+                        return format!(
+                            "((__nfRecv)=>__nfFunctionMethod(__nfRecv, {canonical:?}, false, __nfContainerRef(__nfRecv, {name:?}, false, undefined, true).get()))({})({})",
+                            self.expression(base),
+                            args.iter()
+                                .map(|arg| self.expression(arg))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
                     return format!(
                         "__nfFunctionMethod({}, {name:?}, {})({})",
                         self.expression(base),
@@ -3772,17 +4138,17 @@ impl Emitter<'_> {
                     );
                 }
                 if let Some((base, name)) = &member
-                    && is_family_method(name)
+                    && is_family_method_for(name, self.legacy_case())
                 {
+                    let tail = if matches!(callee.as_ref(), Expr::Member(_, _)) {
+                        self.container_tail()
+                    } else {
+                        self.index_tail().to_owned()
+                    };
                     return format!(
-                        "__nfMemberMethod({}, {name:?}, {}{})({})",
+                        "__nfMemberMethod({}, {name:?}, {}{tail})({})",
                         self.expression(base),
                         self.as3,
-                        if matches!(callee.as_ref(), Expr::Member(_, _)) {
-                            self.caller_argument()
-                        } else {
-                            String::new()
-                        },
                         args.iter()
                             .map(|arg| self.expression(arg))
                             .collect::<Vec<_>>()
@@ -3865,7 +4231,13 @@ impl Emitter<'_> {
                             self.expression(callee)
                         }
                     },
-                    |(receiver, name)| format!("__nfAs2Method({receiver}, {name:?})"),
+                    |(receiver, name)| {
+                        if self.legacy_case() {
+                            format!("__nfAs2Method({receiver}, {name:?}, true)")
+                        } else {
+                            format!("__nfAs2Method({receiver}, {name:?})")
+                        }
+                    },
                 );
                 format!(
                     "{callable}({})",
@@ -3881,6 +4253,26 @@ impl Emitter<'_> {
         match stmt {
             Stmt::Empty => ";".into(),
             Stmt::Expr(expr) => format!("{};", self.expression(expr)),
+            Stmt::LegacyEvent(triggers, func) => {
+                let code = format!(
+                    "(function() {{\nconst __nfFrame = this, _parent = this._parent;\nreturn ({}).apply(this, arguments);\n}})",
+                    self.function(func)
+                );
+                let mut out = format!("{{\nconst __nfEventFn = {code};\n");
+                for trigger in triggers {
+                    let kind = if trigger.clip_event { "clip" } else { "button" };
+                    let key = trigger
+                        .key_press
+                        .as_ref()
+                        .map_or_else(|| "null".into(), |k| format!("{k:?}"));
+                    out.push_str(&format!(
+                        "__nfDisplay.addLegacyEvent(this, {kind:?}, {:?}, {key}, __nfEventFn);\n",
+                        trigger.event
+                    ));
+                }
+                out.push('}');
+                out
+            }
             Stmt::Var(variables) => format!(
                 "{};",
                 variables
@@ -3900,6 +4292,19 @@ impl Emitter<'_> {
                                 format!("({reference}).set({value})")
                             } else {
                                 "undefined".into()
+                            };
+                        }
+                        if self.analysis.scopes[&self.scope].function == 0 && self.legacy_case() {
+                            let cref = format!(
+                                "__nfContainerRef({}, {name:?}, false, undefined, true)",
+                                self.active_timeline()
+                            );
+                            return if initialized {
+                                format!("{cref}.set({value})")
+                            } else {
+                                format!(
+                                    "((__nfRef)=>__nfRef.get()===undefined?__nfRef.set({value}):__nfRef.get())({cref})"
+                                )
                             };
                         }
                         if initialized {
@@ -3940,9 +4345,10 @@ impl Emitter<'_> {
                     tell_target: Some(name.clone()),
                 };
                 format!(
-                    "{{const {name}=__nfTellTarget({}, {}, __nfFrame);\n{}\n}}",
+                    "{{const {name}=__nfTellTarget({}, {}, __nfFrame{});\n{}\n}}",
                     self.active_timeline(),
                     self.expression(target),
+                    if self.legacy_case() { ", true" } else { "" },
                     inner.statement(body)
                 )
             }
@@ -4013,9 +4419,10 @@ impl Emitter<'_> {
                     Box::new(Expr::Literal("__nfItem".into())),
                 );
                 let iterator = format!(
-                    "__nfEnumerate({}, {values}, {})",
+                    "__nfEnumerate({}, {values}, {}{})",
                     self.expression(collection),
-                    self.as3
+                    self.as3,
+                    if self.legacy_case() { ", true" } else { "" }
                 );
                 let iterator = initial.map_or(iterator.clone(), |initial| {
                     format!("({}, {iterator})", initial.trim_end_matches(';'))
@@ -4091,7 +4498,27 @@ impl Emitter<'_> {
                         };
                         let condition = catch.ty.as_deref().filter(|t| *t != "*").map_or_else(
                             || "true".into(),
-                            |ty| format!("__nfCatchType({value}, {ty:?})"),
+                            |ty| {
+                                if self.as3
+                                    && self.analysis.context.project
+                                    && !is_error_type(ty)
+                                    && !matches!(
+                                        ty,
+                                        "Object"
+                                            | "Number"
+                                            | "String"
+                                            | "Boolean"
+                                            | "Function"
+                                            | "int"
+                                            | "uint"
+                                    )
+                                    && let Some(qname) = self.analysis.context.types.get(ty)
+                                {
+                                    format!("__nfProgram.is({value}, {qname:?})")
+                                } else {
+                                    format!("__nfCatchType({value}, {ty:?})")
+                                }
+                            },
                         );
                         out.push_str(&format!(
                             "{}if ({condition}) {{ let {} = {value};\n{}\n}} ",
@@ -4226,11 +4653,11 @@ function __nfFamilyValue(value, as3) {
     value = __nfDateMethodValue(value);
     return as3 ? __nfMethodValue(value) : value;
 }
-function __nfFamilyPropertyValue(receiver, key, as3, caller) {
-    return __nfFamilyValue(__nfContainerRef(receiver,key,as3,caller).get(), as3);
+function __nfFamilyPropertyValue(receiver, key, as3, caller, legacyCase) {
+    return __nfFamilyValue(__nfContainerRef(receiver,key,as3,caller,legacyCase).get(), as3);
 }
-function __nfMemberMethod(receiver, key, as3, caller) {
-    return __nfContainerMethod(receiver,key,as3,caller);
+function __nfMemberMethod(receiver, key, as3, caller, legacyCase) {
+    return __nfContainerMethod(receiver,key,as3,caller,legacyCase);
 }
 "#,
     ]
@@ -4238,6 +4665,7 @@ function __nfMemberMethod(receiver, key, as3, caller) {
 }
 
 fn compile_context(script: &Script, context: CompileContext) -> Result<String, Diagnostic> {
+    let legacy_case = context.legacy_case;
     let tokens = TokenCursor::default();
     let mut parser = Frontend {
         script,
@@ -4262,8 +4690,13 @@ fn compile_context(script: &Script, context: CompileContext) -> Result<String, D
         tell_target: None,
     }
     .body(&statements);
+    let legacy_prefix = if legacy_case {
+        "const __nfLegacyCase = true;\n"
+    } else {
+        ""
+    };
     let output = format!(
-        "const __nfFrame = this, __nfNumber = Number, __nfString = String, __nfBoolean = Boolean, __nfTypeError = TypeError;\nconst __nfTrace = trace;\n{}\n{body}",
+        "{legacy_prefix}const __nfFrame = this, __nfNumber = Number, __nfString = String, __nfBoolean = Boolean, __nfTypeError = TypeError;\nconst __nfTrace = trace;\n{}\n{body}",
         embedded_helpers()
     );
     // Validate literal spelling and the generated function body with an independent parser.
@@ -4346,7 +4779,7 @@ mod tests {
         assert!(output.contains("this.n = 2"));
         assert!(!output.contains("Number(2)"));
         let events = compile(&Script {language:ScriptLanguage::ActionScript2,source:"on(press,release) { trace(this); } onClipEvent(enterFrame) { this.tick=1; } var a=[]; trace(a instanceof Array);".into()}).unwrap();
-        assert!(events.contains("setLegacyCallback"));
+        assert!(events.contains("addLegacyEvent"));
         assert!(events.contains("__nfArrayIsArray(__nfValue)"));
     }
     #[test]

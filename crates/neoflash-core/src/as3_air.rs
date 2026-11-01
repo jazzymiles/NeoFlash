@@ -1,0 +1,5004 @@
+//! Shared ActionScript 3 AIR runtime services: virtual sandboxed filesystem,
+//! AIR URI/path resolution, EncryptedLocalStore, application descriptor
+//! synthesis, and a bounded relational SQL engine for `flash.data.*`.
+//!
+//! Browser hosts marshal inputs/outputs and dispatch AS3 events without
+//! duplicating path normalization or SQL execution logic.
+
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use thiserror::Error;
+
+pub const MAX_AIR_PATH_BYTES: usize = 4096;
+pub const MAX_AIR_FS_ENTRIES: usize = 4096;
+pub const MAX_AIR_FILE_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_AIR_TOTAL_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_AIR_ELS_ITEMS: usize = 1024;
+pub const MAX_AIR_SQL_ROWS: usize = 32_768;
+pub const MAX_AIR_SQL_TABLES: usize = 256;
+pub const MAX_AIR_SQL_BYTES: usize = 256 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum AirError {
+    #[error("SecurityError: {0}")]
+    Security(String),
+    #[error("IOError: {0}")]
+    Io(String),
+    #[error("ArgumentError: {0}")]
+    Argument(String),
+    #[error("RangeError: {0}")]
+    Range(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("SQLError({operation}, #{error_id}): {details}")]
+pub struct AirSqlError {
+    pub operation: String,
+    pub details: String,
+    pub error_id: i32,
+    pub detail_id: i32,
+    pub detail_args: Vec<String>,
+}
+
+impl AirSqlError {
+    pub fn new(operation: &str, details: impl Into<String>, error_id: i32) -> Self {
+        Self {
+            operation: operation.to_owned(),
+            details: details.into(),
+            error_id,
+            detail_id: 0,
+            detail_args: Vec::new(),
+        }
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::json!({
+            "operation": self.operation,
+            "details": self.details,
+            "errorId": self.error_id,
+            "detailId": self.detail_id,
+            "detailArguments": self.detail_args,
+        })
+        .to_string()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AirResourceInit {
+    pub path: String,
+    #[serde(default)]
+    pub data_base64: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum VfsNode {
+    Dir {
+        created_ms: f64,
+        modified_ms: f64,
+        read_only: bool,
+    },
+    File {
+        bytes: Vec<u8>,
+        created_ms: f64,
+        modified_ms: f64,
+        read_only: bool,
+    },
+}
+
+impl VfsNode {
+    fn is_dir(&self) -> bool {
+        matches!(self, Self::Dir { .. })
+    }
+
+    fn read_only(&self) -> bool {
+        match self {
+            Self::Dir { read_only, .. } | Self::File { read_only, .. } => *read_only,
+        }
+    }
+
+    fn created_ms(&self) -> f64 {
+        match self {
+            Self::Dir { created_ms, .. } | Self::File { created_ms, .. } => *created_ms,
+        }
+    }
+
+    fn modified_ms(&self) -> f64 {
+        match self {
+            Self::Dir { modified_ms, .. } | Self::File { modified_ms, .. } => *modified_ms,
+        }
+    }
+
+    fn byte_len(&self) -> usize {
+        match self {
+            Self::Dir { .. } => 0,
+            Self::File { bytes, .. } => bytes.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AirPathInfo {
+    pub native_path: String,
+    pub url: String,
+    pub name: String,
+    pub extension: Option<String>,
+    pub file_type: String,
+    pub is_hidden: bool,
+    pub parent: Option<String>,
+    pub exists: bool,
+    pub is_directory: bool,
+    pub size: usize,
+    pub created_ms: f64,
+    pub modified_ms: f64,
+    pub space_available: usize,
+    pub writable: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct AirFileSystem {
+    nodes: BTreeMap<String, VfsNode>,
+    total_bytes: usize,
+    temp_counter: u64,
+}
+
+fn percent_decode(raw: &str) -> Result<String, AirError> {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if i + 2 >= bytes.len() {
+                return Err(AirError::Argument(
+                    "Malformed percent-encoding in AIR URL.".into(),
+                ));
+            }
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            match (hi, lo) {
+                (Some(h), Some(l)) => {
+                    out.push(((h << 4) | l) as u8);
+                    i += 3;
+                }
+                _ => {
+                    return Err(AirError::Argument("Invalid hex escape in AIR URL.".into()));
+                }
+            }
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).map_err(|_| AirError::Argument("AIR URL is not valid UTF-8.".into()))
+}
+
+fn percent_encode_path(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for byte in path.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(byte as char)
+            }
+            _ => {
+                out.push('%');
+                out.push_str(&format!("{byte:02X}"));
+            }
+        }
+    }
+    out
+}
+
+pub fn normalize_air_path(input: &str) -> Result<String, AirError> {
+    if input.is_empty() {
+        return Err(AirError::Argument(
+            "File path or URL must not be empty.".into(),
+        ));
+    }
+    if input.len() > MAX_AIR_PATH_BYTES {
+        return Err(AirError::Range("File path exceeds 4096 bytes.".into()));
+    }
+    if input.contains('\0') {
+        return Err(AirError::Argument(
+            "File path must not contain NUL bytes.".into(),
+        ));
+    }
+    let trimmed = input.trim();
+    let replaced;
+    let raw_posix = if let Some(idx) = trimmed.find(':') {
+        let scheme = trimmed[..idx].to_ascii_lowercase();
+        let rest = &trimmed[idx + 1..];
+        if idx == 1 && scheme.chars().all(|c| c.is_ascii_alphabetic()) {
+            // Windows drive path such as C:\Users\demo -> /Users/demo
+            replaced = format!("/{}", rest.replace('\\', "/").trim_start_matches('/'));
+            replaced.as_str()
+        } else {
+            let decoded = percent_decode(rest.trim_start_matches('/'))?;
+            let sub = decoded.replace('\\', "/");
+            let base = match scheme.as_str() {
+                "app" => "/app",
+                "app-storage" => "/app-storage",
+                "app-temp" => "/tmp",
+                "cache" => "/cache",
+                "user" => "/user",
+                "documents" => "/user/Documents",
+                "desktop" => "/user/Desktop",
+                "file" => "",
+                _ => {
+                    return Err(AirError::Argument(format!(
+                        "Unsupported AIR URL scheme '{scheme}:'."
+                    )));
+                }
+            };
+            if sub.is_empty() {
+                replaced = if base.is_empty() {
+                    "/".to_owned()
+                } else {
+                    base.to_owned()
+                };
+            } else if base.is_empty() {
+                replaced = format!("/{}", sub.trim_start_matches('/'));
+            } else {
+                replaced = format!("{base}/{}", sub.trim_start_matches('/'));
+            }
+            replaced.as_str()
+        }
+    } else {
+        replaced = trimmed.replace('\\', "/");
+        if !replaced.starts_with('/') {
+            return Err(AirError::Argument(
+                "Unqualified File constructor path requires an absolute path or AIR URL scheme."
+                    .into(),
+            ));
+        }
+        replaced.as_str()
+    };
+
+    let mut stack: Vec<&str> = Vec::new();
+    for seg in raw_posix.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                stack.pop();
+            }
+            other => stack.push(other),
+        }
+    }
+    if stack.is_empty() {
+        Ok("/".to_owned())
+    } else {
+        let out = format!("/{}", stack.join("/"));
+        if out.len() > MAX_AIR_PATH_BYTES {
+            return Err(AirError::Range(
+                "Normalized File path exceeds 4096 bytes.".into(),
+            ));
+        }
+        Ok(out)
+    }
+}
+
+pub fn resolve_air_path(base_native_path: &str, relative: &str) -> Result<String, AirError> {
+    let base = normalize_air_path(base_native_path)?;
+    if relative.is_empty() || relative == "." {
+        return Ok(base);
+    }
+    if relative.len() > MAX_AIR_PATH_BYTES || relative.contains('\0') {
+        return Err(AirError::Argument("Invalid relative File path.".into()));
+    }
+    let trimmed = relative.trim();
+    if trimmed.starts_with('/') || trimmed.contains(":/") || trimmed.contains(":\\") {
+        return normalize_air_path(trimmed);
+    }
+    let joined = if base == "/" {
+        format!("/{}", trimmed.replace('\\', "/"))
+    } else {
+        format!("{base}/{}", trimmed.replace('\\', "/"))
+    };
+    normalize_air_path(&joined)
+}
+
+pub fn relative_air_path(
+    from_native_path: &str,
+    to_native_path: &str,
+    use_dot_dot: bool,
+) -> Result<Option<String>, AirError> {
+    let from = normalize_air_path(from_native_path)?;
+    let to = normalize_air_path(to_native_path)?;
+    if from == to {
+        return Ok(Some(String::new()));
+    }
+    let from_parts: Vec<&str> = if from == "/" {
+        Vec::new()
+    } else {
+        from[1..].split('/').collect()
+    };
+    let to_parts: Vec<&str> = if to == "/" {
+        Vec::new()
+    } else {
+        to[1..].split('/').collect()
+    };
+    let mut common = 0;
+    while common < from_parts.len()
+        && common < to_parts.len()
+        && from_parts[common] == to_parts[common]
+    {
+        common += 1;
+    }
+    if common < from_parts.len() && !use_dot_dot {
+        return Ok(None);
+    }
+    let mut rel: Vec<&str> = vec![".."; from_parts.len() - common];
+    rel.extend_from_slice(&to_parts[common..]);
+    Ok(Some(rel.join("/")))
+}
+
+pub fn air_url_for_native_path(native_path: &str) -> String {
+    if native_path == "/app" {
+        "app:/".to_owned()
+    } else if let Some(rest) = native_path.strip_prefix("/app/") {
+        format!("app:/{}", percent_encode_path(rest))
+    } else if native_path == "/app-storage" {
+        "app-storage:/".to_owned()
+    } else if let Some(rest) = native_path.strip_prefix("/app-storage/") {
+        format!("app-storage:/{}", percent_encode_path(rest))
+    } else {
+        format!("file://{}", percent_encode_path(native_path))
+    }
+}
+
+fn parent_of(native_path: &str) -> Option<String> {
+    if native_path == "/" {
+        return None;
+    }
+    match native_path.rfind('/') {
+        Some(0) => Some("/".to_owned()),
+        Some(idx) => Some(native_path[..idx].to_owned()),
+        None => None,
+    }
+}
+
+fn basename_of(native_path: &str) -> &str {
+    if native_path == "/" {
+        ""
+    } else {
+        native_path.rsplit('/').next().unwrap_or(native_path)
+    }
+}
+
+fn extension_of(name: &str) -> Option<String> {
+    if let Some(dot) = name.rfind('.')
+        && dot > 0
+        && dot + 1 < name.len()
+    {
+        return Some(name[dot + 1..].to_owned());
+    }
+    None
+}
+
+fn is_under_readonly_root(path: &str) -> bool {
+    path == "/app" || path.starts_with("/app/")
+}
+
+impl AirFileSystem {
+    pub fn new(resources: &[AirResourceInit], now_ms: f64) -> Result<Self, AirError> {
+        let mut fs = Self {
+            nodes: BTreeMap::new(),
+            total_bytes: 0,
+            temp_counter: 0,
+        };
+        for (dir, ro) in [
+            ("/", false),
+            ("/app", true),
+            ("/app-storage", false),
+            ("/cache", false),
+            ("/user", false),
+            ("/user/Documents", false),
+            ("/user/Desktop", false),
+            ("/tmp", false),
+        ] {
+            fs.nodes.insert(
+                dir.to_owned(),
+                VfsNode::Dir {
+                    created_ms: now_ms,
+                    modified_ms: now_ms,
+                    read_only: ro,
+                },
+            );
+        }
+        for res in resources {
+            let clean = res.path.trim_start_matches('/').replace('\\', "/");
+            if clean.is_empty() {
+                continue;
+            }
+            let full = normalize_air_path(&format!("/app/{clean}"))?;
+            if !full.starts_with("/app/") {
+                continue;
+            }
+            let bytes = if res.data_base64.is_empty() {
+                Vec::new()
+            } else {
+                BASE64
+                    .decode(res.data_base64.trim())
+                    .map_err(|_| AirError::Argument("Invalid base64 in project resource.".into()))?
+            };
+            if bytes.len() > MAX_AIR_FILE_BYTES
+                || fs.total_bytes + bytes.len() > MAX_AIR_TOTAL_BYTES
+            {
+                return Err(AirError::Range(
+                    "Embedded AIR resources exceed virtual filesystem budget.".into(),
+                ));
+            }
+            // Create read-only intermediate directories under /app
+            let mut ancestors = Vec::new();
+            let mut cur = parent_of(&full);
+            while let Some(p) = cur {
+                if fs.nodes.contains_key(&p) {
+                    break;
+                }
+                ancestors.push(p.clone());
+                cur = parent_of(&p);
+            }
+            for dir in ancestors.into_iter().rev() {
+                fs.nodes.insert(
+                    dir,
+                    VfsNode::Dir {
+                        created_ms: now_ms,
+                        modified_ms: now_ms,
+                        read_only: true,
+                    },
+                );
+            }
+            fs.total_bytes += bytes.len();
+            fs.nodes.insert(
+                full,
+                VfsNode::File {
+                    bytes,
+                    created_ms: now_ms,
+                    modified_ms: now_ms,
+                    read_only: true,
+                },
+            );
+        }
+        Ok(fs)
+    }
+
+    pub fn canonicalize(&self, path: &str) -> Result<String, AirError> {
+        let norm = normalize_air_path(path)?;
+        if norm == "/" || self.nodes.contains_key(&norm) {
+            return Ok(norm);
+        }
+        // Match existing segments case-insensitively to mimic AIR canonicalize()
+        let mut current = String::new();
+        for seg in norm[1..].split('/') {
+            let prefix = if current.is_empty() {
+                "/".to_owned()
+            } else {
+                format!("{current}/")
+            };
+            let candidate = format!("{prefix}{seg}");
+            if self.nodes.contains_key(&candidate) {
+                current = candidate;
+                continue;
+            }
+            let found = self
+                .nodes
+                .keys()
+                .find(|k| {
+                    if let Some(rest) = k.strip_prefix(&prefix) {
+                        !rest.contains('/') && rest.eq_ignore_ascii_case(seg)
+                    } else {
+                        false
+                    }
+                })
+                .cloned();
+            current = found.unwrap_or(candidate);
+        }
+        Ok(if current.is_empty() {
+            "/".to_owned()
+        } else {
+            current
+        })
+    }
+
+    pub fn info(&self, path: &str) -> Result<AirPathInfo, AirError> {
+        let native_path = normalize_air_path(path)?;
+        let url = air_url_for_native_path(&native_path);
+        let name = basename_of(&native_path).to_owned();
+        let extension = extension_of(&name);
+        let file_type = extension
+            .as_ref()
+            .map(|e| format!(".{e}"))
+            .unwrap_or_default();
+        let is_hidden = name.starts_with('.') && name.len() > 1;
+        let parent = parent_of(&native_path);
+        let writable = !is_under_readonly_root(&native_path);
+        let space_available = if writable {
+            MAX_AIR_TOTAL_BYTES.saturating_sub(self.total_bytes)
+        } else {
+            0
+        };
+        if let Some(node) = self.nodes.get(&native_path) {
+            Ok(AirPathInfo {
+                native_path,
+                url,
+                name,
+                extension,
+                file_type,
+                is_hidden,
+                parent,
+                exists: true,
+                is_directory: node.is_dir(),
+                size: node.byte_len(),
+                created_ms: node.created_ms(),
+                modified_ms: node.modified_ms(),
+                space_available,
+                writable: writable && !node.read_only(),
+            })
+        } else {
+            Ok(AirPathInfo {
+                native_path,
+                url,
+                name,
+                extension,
+                file_type,
+                is_hidden,
+                parent,
+                exists: false,
+                is_directory: false,
+                size: 0,
+                created_ms: 0.0,
+                modified_ms: 0.0,
+                space_available,
+                writable,
+            })
+        }
+    }
+
+    fn ensure_writable(&self, native_path: &str) -> Result<(), AirError> {
+        if native_path == "/" || is_under_readonly_root(native_path) {
+            return Err(AirError::Security(format!(
+                "Path '{native_path}' is inside a read-only AIR sandbox root."
+            )));
+        }
+        if let Some(node) = self.nodes.get(native_path)
+            && node.read_only()
+        {
+            return Err(AirError::Security(format!(
+                "Path '{native_path}' is read-only."
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn create_directory(&mut self, path: &str, now_ms: f64) -> Result<(), AirError> {
+        let target = normalize_air_path(path)?;
+        self.ensure_writable(&target)?;
+        if let Some(existing) = self.nodes.get(&target) {
+            return if existing.is_dir() {
+                Ok(())
+            } else {
+                Err(AirError::Io(format!(
+                    "Cannot create directory '{target}': a file already exists at that path."
+                )))
+            };
+        }
+        let mut to_create = Vec::new();
+        let mut cur = Some(target);
+        while let Some(p) = cur {
+            if let Some(node) = self.nodes.get(&p) {
+                if !node.is_dir() {
+                    return Err(AirError::Io(format!(
+                        "Ancestor '{p}' is a file, not a directory."
+                    )));
+                }
+                break;
+            }
+            self.ensure_writable(&p)?;
+            to_create.push(p.clone());
+            cur = parent_of(&p);
+        }
+        if self.nodes.len() + to_create.len() > MAX_AIR_FS_ENTRIES {
+            return Err(AirError::Range(
+                "Virtual AIR filesystem entry limit (4096) exceeded.".into(),
+            ));
+        }
+        for dir in to_create.into_iter().rev() {
+            self.nodes.insert(
+                dir,
+                VfsNode::Dir {
+                    created_ms: now_ms,
+                    modified_ms: now_ms,
+                    read_only: false,
+                },
+            );
+        }
+        Ok(())
+    }
+
+    pub fn create_temp(&mut self, is_directory: bool, now_ms: f64) -> Result<String, AirError> {
+        if self.nodes.len() >= MAX_AIR_FS_ENTRIES {
+            return Err(AirError::Range(
+                "Virtual AIR filesystem entry limit (4096) exceeded.".into(),
+            ));
+        }
+        loop {
+            self.temp_counter += 1;
+            let candidate = if is_directory {
+                format!("/tmp/air-temp-dir-{}", self.temp_counter)
+            } else {
+                format!("/tmp/air-temp-{}.tmp", self.temp_counter)
+            };
+            if !self.nodes.contains_key(&candidate) {
+                let node = if is_directory {
+                    VfsNode::Dir {
+                        created_ms: now_ms,
+                        modified_ms: now_ms,
+                        read_only: false,
+                    }
+                } else {
+                    VfsNode::File {
+                        bytes: Vec::new(),
+                        created_ms: now_ms,
+                        modified_ms: now_ms,
+                        read_only: false,
+                    }
+                };
+                self.nodes.insert(candidate.clone(), node);
+                return Ok(candidate);
+            }
+        }
+    }
+
+    pub fn list_directory(&self, path: &str) -> Result<Vec<String>, AirError> {
+        let dir = normalize_air_path(path)?;
+        match self.nodes.get(&dir) {
+            Some(VfsNode::Dir { .. }) => {}
+            Some(VfsNode::File { .. }) => {
+                return Err(AirError::Io(format!("'{dir}' is not a directory.")));
+            }
+            None => {
+                return Err(AirError::Io(format!("Directory '{dir}' does not exist.")));
+            }
+        }
+        let prefix = if dir == "/" {
+            "/".to_owned()
+        } else {
+            format!("{dir}/")
+        };
+        let mut out = Vec::new();
+        for key in self.nodes.keys() {
+            if key == &dir {
+                continue;
+            }
+            if let Some(rest) = key.strip_prefix(&prefix)
+                && !rest.is_empty()
+                && !rest.contains('/')
+            {
+                out.push(key.clone());
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn delete_file(&mut self, path: &str) -> Result<(), AirError> {
+        let target = normalize_air_path(path)?;
+        self.ensure_writable(&target)?;
+        match self.nodes.get(&target) {
+            Some(VfsNode::File { bytes, .. }) => {
+                let len = bytes.len();
+                self.nodes.remove(&target);
+                self.total_bytes = self.total_bytes.saturating_sub(len);
+                Ok(())
+            }
+            Some(VfsNode::Dir { .. }) => Err(AirError::Io(format!(
+                "Cannot deleteFile on directory '{target}'."
+            ))),
+            None => Err(AirError::Io(format!("File '{target}' does not exist."))),
+        }
+    }
+
+    pub fn delete_directory(&mut self, path: &str, delete_contents: bool) -> Result<(), AirError> {
+        let target = normalize_air_path(path)?;
+        if matches!(
+            target.as_str(),
+            "/" | "/app" | "/app-storage" | "/cache" | "/user" | "/tmp"
+        ) {
+            return Err(AirError::Security(format!(
+                "Cannot delete protected AIR root directory '{target}'."
+            )));
+        }
+        self.ensure_writable(&target)?;
+        match self.nodes.get(&target) {
+            Some(VfsNode::Dir { .. }) => {}
+            Some(VfsNode::File { .. }) => {
+                return Err(AirError::Io(format!(
+                    "Cannot deleteDirectory on file '{target}'."
+                )));
+            }
+            None => {
+                return Err(AirError::Io(format!(
+                    "Directory '{target}' does not exist."
+                )));
+            }
+        }
+        let prefix = format!("{target}/");
+        let descendants: Vec<String> = self
+            .nodes
+            .keys()
+            .filter(|k| k.starts_with(&prefix))
+            .cloned()
+            .collect();
+        if !descendants.is_empty() && !delete_contents {
+            return Err(AirError::Io(format!("Directory '{target}' is not empty.")));
+        }
+        for key in descendants {
+            if let Some(removed) = self.nodes.remove(&key) {
+                self.total_bytes = self.total_bytes.saturating_sub(removed.byte_len());
+            }
+        }
+        self.nodes.remove(&target);
+        Ok(())
+    }
+
+    pub fn read_bytes(&self, path: &str) -> Result<Vec<u8>, AirError> {
+        let target = normalize_air_path(path)?;
+        match self.nodes.get(&target) {
+            Some(VfsNode::File { bytes, .. }) => Ok(bytes.clone()),
+            Some(VfsNode::Dir { .. }) => Err(AirError::Io(format!(
+                "Cannot open directory '{target}' as a file."
+            ))),
+            None => Err(AirError::Io(format!("File '{target}' does not exist."))),
+        }
+    }
+
+    pub fn write_bytes(&mut self, path: &str, data: &[u8], now_ms: f64) -> Result<(), AirError> {
+        let target = normalize_air_path(path)?;
+        self.ensure_writable(&target)?;
+        if data.len() > MAX_AIR_FILE_BYTES {
+            return Err(AirError::Range("AIR file exceeds 16 MiB limit.".into()));
+        }
+        if let Some(parent) = parent_of(&target) {
+            if !self.nodes.contains_key(&parent) {
+                self.create_directory(&parent, now_ms)?;
+            } else if !self.nodes[&parent].is_dir() {
+                return Err(AirError::Io(format!(
+                    "Parent path '{parent}' is not a directory."
+                )));
+            }
+        }
+        let (old_len, created) = match self.nodes.get(&target) {
+            Some(VfsNode::Dir { .. }) => {
+                return Err(AirError::Io(format!(
+                    "Cannot overwrite directory '{target}' with a file."
+                )));
+            }
+            Some(VfsNode::File {
+                bytes, created_ms, ..
+            }) => (bytes.len(), *created_ms),
+            None => {
+                if self.nodes.len() >= MAX_AIR_FS_ENTRIES {
+                    return Err(AirError::Range(
+                        "Virtual AIR filesystem entry limit (4096) exceeded.".into(),
+                    ));
+                }
+                (0, now_ms)
+            }
+        };
+        let next_total = self
+            .total_bytes
+            .saturating_sub(old_len)
+            .saturating_add(data.len());
+        if next_total > MAX_AIR_TOTAL_BYTES {
+            return Err(AirError::Range(
+                "Virtual AIR filesystem storage quota (64 MiB) exceeded.".into(),
+            ));
+        }
+        self.total_bytes = next_total;
+        self.nodes.insert(
+            target,
+            VfsNode::File {
+                bytes: data.to_vec(),
+                created_ms: created,
+                modified_ms: now_ms,
+                read_only: false,
+            },
+        );
+        Ok(())
+    }
+
+    pub fn open_stream(
+        &mut self,
+        path: &str,
+        mode: &str,
+        now_ms: f64,
+    ) -> Result<Vec<u8>, AirError> {
+        let target = normalize_air_path(path)?;
+        match mode {
+            "read" => self.read_bytes(&target),
+            "write" => {
+                self.write_bytes(&target, &[], now_ms)?;
+                Ok(Vec::new())
+            }
+            "append" | "update" => {
+                self.ensure_writable(&target)?;
+                match self.nodes.get(&target) {
+                    Some(VfsNode::File { bytes, .. }) => Ok(bytes.clone()),
+                    Some(VfsNode::Dir { .. }) => Err(AirError::Io(format!(
+                        "Cannot open directory '{target}' as a FileStream."
+                    ))),
+                    None => {
+                        self.write_bytes(&target, &[], now_ms)?;
+                        Ok(Vec::new())
+                    }
+                }
+            }
+            other => Err(AirError::Argument(format!(
+                "Invalid FileMode '{other}'. Expected read, write, append or update."
+            ))),
+        }
+    }
+
+    pub fn copy_to(
+        &mut self,
+        src_path: &str,
+        dst_path: &str,
+        overwrite: bool,
+        now_ms: f64,
+    ) -> Result<(), AirError> {
+        let src = normalize_air_path(src_path)?;
+        let dst = normalize_air_path(dst_path)?;
+        if src == dst {
+            return if overwrite {
+                Ok(())
+            } else {
+                Err(AirError::Io(
+                    "Source and destination refer to the same File.".into(),
+                ))
+            };
+        }
+        if dst.starts_with(&format!("{src}/")) {
+            return Err(AirError::Io(
+                "Cannot copy a directory into one of its own descendants.".into(),
+            ));
+        }
+        self.ensure_writable(&dst)?;
+        let src_node = self
+            .nodes
+            .get(&src)
+            .cloned()
+            .ok_or_else(|| AirError::Io(format!("Source '{src}' does not exist.")))?;
+        if self.nodes.contains_key(&dst) {
+            if !overwrite {
+                return Err(AirError::Io(format!(
+                    "Destination '{dst}' already exists and overwrite is false."
+                )));
+            }
+            if self.nodes[&dst].is_dir() {
+                self.delete_directory(&dst, true)?;
+            } else {
+                self.delete_file(&dst)?;
+            }
+        }
+        match src_node {
+            VfsNode::File { bytes, .. } => self.write_bytes(&dst, &bytes, now_ms),
+            VfsNode::Dir { .. } => {
+                self.create_directory(&dst, now_ms)?;
+                let prefix = format!("{src}/");
+                let children: Vec<(String, VfsNode)> = self
+                    .nodes
+                    .iter()
+                    .filter(|(k, _)| k.starts_with(&prefix))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                for (child_key, child_node) in children {
+                    let suffix = &child_key[prefix.len()..];
+                    let mapped = format!("{dst}/{suffix}");
+                    match child_node {
+                        VfsNode::Dir { .. } => self.create_directory(&mapped, now_ms)?,
+                        VfsNode::File { bytes, .. } => self.write_bytes(&mapped, &bytes, now_ms)?,
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
+    pub fn move_to(
+        &mut self,
+        src_path: &str,
+        dst_path: &str,
+        overwrite: bool,
+        now_ms: f64,
+    ) -> Result<(), AirError> {
+        let src = normalize_air_path(src_path)?;
+        let dst = normalize_air_path(dst_path)?;
+        self.ensure_writable(&src)?;
+        if src == dst {
+            return Ok(());
+        }
+        self.copy_to(&src, &dst, overwrite, now_ms)?;
+        if self.nodes.get(&src).is_some_and(VfsNode::is_dir) {
+            self.delete_directory(&src, true)
+        } else {
+            self.delete_file(&src)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Application Descriptor & EncryptedLocalStore
+// ---------------------------------------------------------------------------
+
+fn xml_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+pub fn synthesize_app_id(project_name: &str) -> String {
+    let mut slug = String::new();
+    let mut prev_dot = false;
+    for ch in project_name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            prev_dot = false;
+        } else if !slug.is_empty() && !prev_dot {
+            slug.push('-');
+            prev_dot = true;
+        }
+    }
+    let slug = slug.trim_matches('-');
+    if slug.is_empty() {
+        "org.neoflash.application".to_owned()
+    } else {
+        format!("org.neoflash.{slug}")
+    }
+}
+
+pub fn synthesize_app_descriptor_xml(project_name: &str, width: u32, height: u32) -> String {
+    let app_id = synthesize_app_id(project_name);
+    let safe_name = if project_name.trim().is_empty() {
+        "NeoFlash Application"
+    } else {
+        project_name.trim()
+    };
+    let escaped = xml_escape(safe_name);
+    format!(
+        "<application xmlns=\"http://ns.adobe.com/air/application/32.0\"><id>{}</id><filename>{escaped}</filename><name>{escaped}</name><versionNumber>1.0.0</versionNumber><initialWindow><title>{escaped}</title><visible>true</visible><width>{width}</width><height>{height}</height></initialWindow></application>",
+        xml_escape(&app_id)
+    )
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AirEncryptedStore {
+    items: BTreeMap<String, Vec<u8>>,
+    total_bytes: usize,
+}
+
+impl AirEncryptedStore {
+    pub fn set_item(&mut self, name: &str, bytes: &[u8]) -> Result<(), AirError> {
+        if name.is_empty() {
+            return Err(AirError::Argument(
+                "EncryptedLocalStore item name must not be empty.".into(),
+            ));
+        }
+        if name.len() > MAX_AIR_PATH_BYTES {
+            return Err(AirError::Range(
+                "EncryptedLocalStore item name exceeds 4096 bytes.".into(),
+            ));
+        }
+        if bytes.len() > MAX_AIR_FILE_BYTES {
+            return Err(AirError::Range(
+                "EncryptedLocalStore item exceeds 16 MiB.".into(),
+            ));
+        }
+        let old_len = self.items.get(name).map_or(0, Vec::len);
+        if !self.items.contains_key(name) && self.items.len() >= MAX_AIR_ELS_ITEMS {
+            return Err(AirError::Range(
+                "EncryptedLocalStore item count limit (1024) exceeded.".into(),
+            ));
+        }
+        let next_total = self
+            .total_bytes
+            .saturating_sub(old_len)
+            .saturating_add(bytes.len());
+        if next_total > MAX_AIR_TOTAL_BYTES {
+            return Err(AirError::Range(
+                "EncryptedLocalStore total storage limit (64 MiB) exceeded.".into(),
+            ));
+        }
+        self.total_bytes = next_total;
+        self.items.insert(name.to_owned(), bytes.to_vec());
+        Ok(())
+    }
+
+    pub fn get_item(&self, name: &str) -> Result<Option<Vec<u8>>, AirError> {
+        if name.is_empty() {
+            return Err(AirError::Argument(
+                "EncryptedLocalStore item name must not be empty.".into(),
+            ));
+        }
+        Ok(self.items.get(name).cloned())
+    }
+
+    pub fn remove_item(&mut self, name: &str) -> Result<(), AirError> {
+        if name.is_empty() {
+            return Err(AirError::Argument(
+                "EncryptedLocalStore item name must not be empty.".into(),
+            ));
+        }
+        if let Some(old) = self.items.remove(name) {
+            self.total_bytes = self.total_bytes.saturating_sub(old.len());
+        }
+        Ok(())
+    }
+
+    pub fn reset(&mut self) {
+        self.items.clear();
+        self.total_bytes = 0;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bounded Relational SQL Engine (`flash.data.*`)
+// ---------------------------------------------------------------------------
+
+const SQL_VFS_MAGIC: &[u8] = b"NFAIRSDB1\n";
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "k", content = "v")]
+pub enum SqlValue {
+    Null,
+    Int(i64),
+    Real(f64),
+    Text(String),
+    Bool(bool),
+    Blob(String), // base64
+}
+
+impl SqlValue {
+    fn is_null(&self) -> bool {
+        matches!(self, Self::Null)
+    }
+
+    fn truthy(&self) -> bool {
+        match self {
+            Self::Null => false,
+            Self::Bool(b) => *b,
+            Self::Int(n) => *n != 0,
+            Self::Real(f) => *f != 0.0 && !f.is_nan(),
+            Self::Text(s) => {
+                let t = s.trim();
+                !t.is_empty() && t != "0" && !t.eq_ignore_ascii_case("false")
+            }
+            Self::Blob(b) => !b.is_empty(),
+        }
+    }
+
+    fn as_f64(&self) -> Option<f64> {
+        match self {
+            Self::Int(n) => Some(*n as f64),
+            Self::Real(f) => Some(*f),
+            Self::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+            Self::Text(s) => s.trim().parse::<f64>().ok(),
+            Self::Null | Self::Blob(_) => None,
+        }
+    }
+
+    fn as_text(&self) -> String {
+        match self {
+            Self::Null => String::new(),
+            Self::Int(n) => n.to_string(),
+            Self::Real(f) => {
+                if f.fract() == 0.0 && f.is_finite() {
+                    format!("{f:.1}")
+                } else {
+                    f.to_string()
+                }
+            }
+            Self::Text(s) => s.clone(),
+            Self::Bool(b) => if *b { "true" } else { "false" }.to_owned(),
+            Self::Blob(b) => b.clone(),
+        }
+    }
+
+    fn cmp_sql(&self, other: &Self, nocase: bool) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        match (self, other) {
+            (Self::Null, Self::Null) => Ordering::Equal,
+            (Self::Null, _) => Ordering::Less,
+            (_, Self::Null) => Ordering::Greater,
+            (Self::Int(a), Self::Int(b)) => a.cmp(b),
+            (Self::Int(a), Self::Real(b)) => (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal),
+            (Self::Real(a), Self::Int(b)) => a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal),
+            (Self::Real(a), Self::Real(b)) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
+            (Self::Bool(a), Self::Bool(b)) => a.cmp(b),
+            (Self::Bool(a), Self::Int(b)) => i64::from(*a).cmp(b),
+            (Self::Int(a), Self::Bool(b)) => a.cmp(&i64::from(*b)),
+            (Self::Text(a), Self::Text(b)) => {
+                if nocase {
+                    a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase())
+                } else {
+                    a.cmp(b)
+                }
+            }
+            (a, b) => {
+                if let (Some(na), Some(nb)) = (a.as_f64(), b.as_f64())
+                    && (matches!(a, Self::Int(_) | Self::Real(_) | Self::Bool(_))
+                        || matches!(b, Self::Int(_) | Self::Real(_) | Self::Bool(_)))
+                {
+                    return na.partial_cmp(&nb).unwrap_or(Ordering::Equal);
+                }
+                let sa = a.as_text();
+                let sb = b.as_text();
+                if nocase {
+                    sa.to_ascii_lowercase().cmp(&sb.to_ascii_lowercase())
+                } else {
+                    sa.cmp(&sb)
+                }
+            }
+        }
+    }
+
+    fn coerce_affinity(&self, data_type: &str) -> Self {
+        if self.is_null() {
+            return Self::Null;
+        }
+        let upper = data_type.to_ascii_uppercase();
+        if upper.contains("INT") {
+            match self {
+                Self::Int(n) => Self::Int(*n),
+                Self::Real(f) if f.is_finite() && f.fract() == 0.0 => Self::Int(*f as i64),
+                Self::Bool(b) => Self::Int(i64::from(*b)),
+                Self::Text(s) => s
+                    .trim()
+                    .parse::<i64>()
+                    .map_or_else(|_| self.clone(), Self::Int),
+                _ => self.clone(),
+            }
+        } else if upper.contains("BOOL") {
+            match self {
+                Self::Bool(b) => Self::Bool(*b),
+                Self::Int(n) => Self::Bool(*n != 0),
+                _ => self.clone(),
+            }
+        } else if upper.contains("CHAR") || upper.contains("CLOB") || upper.contains("TEXT") {
+            match self {
+                Self::Text(_) | Self::Blob(_) => self.clone(),
+                other => Self::Text(other.as_text()),
+            }
+        } else if upper.contains("REAL") || upper.contains("FLOA") || upper.contains("DOUB") {
+            self.as_f64().map_or_else(|| self.clone(), Self::Real)
+        } else {
+            self.clone()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SqlColumnDef {
+    pub name: String,
+    pub data_type: String,
+    pub allow_null: bool,
+    pub primary_key: bool,
+    pub auto_increment: bool,
+    pub unique: bool,
+    pub default_collation_type: String,
+    pub default_value: Option<SqlValue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SqlRow {
+    rowid: i64,
+    values: Vec<SqlValue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SqlTable {
+    name: String,
+    sql: String,
+    columns: Vec<SqlColumnDef>,
+    rows: Vec<SqlRow>,
+    next_rowid: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SqlIndexMeta {
+    name: String,
+    table: String,
+    sql: String,
+    unique: bool,
+    columns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SqlViewMeta {
+    name: String,
+    sql: String,
+    select_sql: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SqlTriggerMeta {
+    name: String,
+    table: String,
+    sql: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct SqlDatabase {
+    tables: BTreeMap<String, SqlTable>,
+    indices: BTreeMap<String, SqlIndexMeta>,
+    views: BTreeMap<String, SqlViewMeta>,
+    triggers: BTreeMap<String, SqlTriggerMeta>,
+}
+
+#[derive(Debug, Clone)]
+struct AttachedDb {
+    vfs_path: Option<String>,
+    read_only: bool,
+    db: SqlDatabase,
+}
+
+#[derive(Debug, Clone)]
+struct SavepointSnap {
+    name: String,
+    dbs: BTreeMap<String, SqlDatabase>,
+}
+
+#[derive(Debug, Clone)]
+struct SqlConnState {
+    connected: bool,
+    auto_compact: bool,
+    page_size: u32,
+    cache_size: u32,
+    column_name_style: String,
+    last_insert_rowid: i64,
+    total_changes: u64,
+    in_transaction: bool,
+    tx_base: Option<BTreeMap<String, SqlDatabase>>,
+    savepoints: Vec<SavepointSnap>,
+    sp_counter: u64,
+    attached: BTreeMap<String, AttachedDb>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SqlUpdateRecord {
+    pub action: String,
+    pub table: String,
+    pub row_id: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum Tok {
+    Word(String),
+    Ident(String), // quoted identifier
+    Str(String),
+    Int(i64),
+    Real(f64),
+    Param(String), // ":id", "@id", "$id" or "?"
+    LParen,
+    RParen,
+    Comma,
+    Semi,
+    Dot,
+    Star,
+    Plus,
+    Minus,
+    Slash,
+    Percent,
+    Concat, // ||
+    Eq,     // = or ==
+    Ne,     // != or <>
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+fn tokenize_sql(sql: &str) -> Result<Vec<Tok>, AirSqlError> {
+    if sql.len() > MAX_AIR_SQL_BYTES {
+        return Err(AirSqlError::new(
+            "execute",
+            "SQL text exceeds 256 KiB limit.",
+            3115,
+        ));
+    }
+    let bytes = sql.as_bytes();
+    let mut i = 0;
+    let mut out = Vec::new();
+    let mut pos_param = 0usize;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b.is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+        if b == b'-' && i + 1 < bytes.len() && bytes[i + 1] == b'-' {
+            i += 2;
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            if i + 1 >= bytes.len() {
+                return Err(AirSqlError::new(
+                    "execute",
+                    "Unterminated SQL block comment.",
+                    3115,
+                ));
+            }
+            i += 2;
+            continue;
+        }
+        match b {
+            b'(' => {
+                out.push(Tok::LParen);
+                i += 1;
+            }
+            b')' => {
+                out.push(Tok::RParen);
+                i += 1;
+            }
+            b',' => {
+                out.push(Tok::Comma);
+                i += 1;
+            }
+            b';' => {
+                out.push(Tok::Semi);
+                i += 1;
+            }
+            b'.' if !(i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit()) => {
+                out.push(Tok::Dot);
+                i += 1;
+            }
+            b'*' => {
+                out.push(Tok::Star);
+                i += 1;
+            }
+            b'+' => {
+                out.push(Tok::Plus);
+                i += 1;
+            }
+            b'-' => {
+                out.push(Tok::Minus);
+                i += 1;
+            }
+            b'/' => {
+                out.push(Tok::Slash);
+                i += 1;
+            }
+            b'%' => {
+                out.push(Tok::Percent);
+                i += 1;
+            }
+            b'|' if i + 1 < bytes.len() && bytes[i + 1] == b'|' => {
+                out.push(Tok::Concat);
+                i += 2;
+            }
+            b'=' => {
+                if i + 1 < bytes.len() && bytes[i + 1] == b'=' {
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+                out.push(Tok::Eq);
+            }
+            b'!' if i + 1 < bytes.len() && bytes[i + 1] == b'=' => {
+                out.push(Tok::Ne);
+                i += 2;
+            }
+            b'<' => {
+                if i + 1 < bytes.len() && bytes[i + 1] == b'=' {
+                    out.push(Tok::Le);
+                    i += 2;
+                } else if i + 1 < bytes.len() && bytes[i + 1] == b'>' {
+                    out.push(Tok::Ne);
+                    i += 2;
+                } else {
+                    out.push(Tok::Lt);
+                    i += 1;
+                }
+            }
+            b'>' => {
+                if i + 1 < bytes.len() && bytes[i + 1] == b'=' {
+                    out.push(Tok::Ge);
+                    i += 2;
+                } else {
+                    out.push(Tok::Gt);
+                    i += 1;
+                }
+            }
+            b'?' => {
+                i += 1;
+                let start = i;
+                while i < bytes.len() && bytes[i].is_ascii_digit() {
+                    i += 1;
+                }
+                if i > start {
+                    let n: usize = sql[start..i].parse().unwrap_or(1);
+                    out.push(Tok::Param(n.saturating_sub(1).to_string()));
+                } else {
+                    out.push(Tok::Param(pos_param.to_string()));
+                    pos_param += 1;
+                }
+            }
+            b':' | b'@' | b'$' => {
+                let prefix = b as char;
+                i += 1;
+                let start = i;
+                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                    i += 1;
+                }
+                if i == start {
+                    return Err(AirSqlError::new(
+                        "execute",
+                        "Invalid SQL parameter name.",
+                        3115,
+                    ));
+                }
+                out.push(Tok::Param(format!("{prefix}{}", &sql[start..i])));
+            }
+            b'\'' => {
+                i += 1;
+                let mut s = String::new();
+                let mut closed = false;
+                while i < sql.len() {
+                    let ch = sql[i..].chars().next().unwrap();
+                    i += ch.len_utf8();
+                    if ch == '\'' {
+                        if i < bytes.len() && bytes[i] == b'\'' {
+                            s.push('\'');
+                            i += 1;
+                        } else {
+                            closed = true;
+                            break;
+                        }
+                    } else {
+                        s.push(ch);
+                    }
+                }
+                if !closed {
+                    return Err(AirSqlError::new(
+                        "execute",
+                        "Unterminated SQL string literal.",
+                        3115,
+                    ));
+                }
+                out.push(Tok::Str(s));
+            }
+            b'"' | b'`' | b'[' => {
+                let closer = if b == b'[' { ']' } else { b as char };
+                i += 1;
+                let mut s = String::new();
+                let mut closed = false;
+                while i < sql.len() {
+                    let ch = sql[i..].chars().next().unwrap();
+                    i += ch.len_utf8();
+                    if ch == closer {
+                        if closer != ']' && i < bytes.len() && bytes[i] == closer as u8 {
+                            s.push(closer);
+                            i += 1;
+                        } else {
+                            closed = true;
+                            break;
+                        }
+                    } else {
+                        s.push(ch);
+                    }
+                }
+                if !closed {
+                    return Err(AirSqlError::new(
+                        "execute",
+                        "Unterminated quoted SQL identifier.",
+                        3115,
+                    ));
+                }
+                out.push(Tok::Ident(s));
+            }
+            _ if b.is_ascii_digit()
+                || (b == b'.' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit()) =>
+            {
+                let start = i;
+                let mut is_float = false;
+                while i < bytes.len() && bytes[i].is_ascii_digit() {
+                    i += 1;
+                }
+                if i < bytes.len() && bytes[i] == b'.' {
+                    is_float = true;
+                    i += 1;
+                    while i < bytes.len() && bytes[i].is_ascii_digit() {
+                        i += 1;
+                    }
+                }
+                if i < bytes.len() && (bytes[i] == b'e' || bytes[i] == b'E') {
+                    is_float = true;
+                    i += 1;
+                    if i < bytes.len() && (bytes[i] == b'+' || bytes[i] == b'-') {
+                        i += 1;
+                    }
+                    while i < bytes.len() && bytes[i].is_ascii_digit() {
+                        i += 1;
+                    }
+                }
+                let raw = &sql[start..i];
+                if is_float {
+                    let v = raw.parse::<f64>().map_err(|_| {
+                        AirSqlError::new("execute", format!("Invalid number '{raw}'."), 3115)
+                    })?;
+                    out.push(Tok::Real(v));
+                } else {
+                    let v = raw.parse::<i64>().map_err(|_| {
+                        AirSqlError::new("execute", format!("Invalid integer '{raw}'."), 3115)
+                    })?;
+                    out.push(Tok::Int(v));
+                }
+            }
+            _ if b.is_ascii_alphabetic() || b == b'_' => {
+                let start = i;
+                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                    i += 1;
+                }
+                out.push(Tok::Word(sql[start..i].to_owned()));
+            }
+            _ => {
+                return Err(AirSqlError::new(
+                    "execute",
+                    format!("Unexpected character '{}' in SQL statement.", b as char),
+                    3115,
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
+#[derive(Debug, Clone)]
+enum SqlExpr {
+    Lit(SqlValue),
+    Param(String),
+    Col {
+        table: Option<String>,
+        name: String,
+    },
+    UnaryMinus(Box<SqlExpr>),
+    Not(Box<SqlExpr>),
+    Binary {
+        op: BinOp,
+        left: Box<SqlExpr>,
+        right: Box<SqlExpr>,
+    },
+    IsNull {
+        expr: Box<SqlExpr>,
+        negated: bool,
+    },
+    InList {
+        expr: Box<SqlExpr>,
+        list: Vec<SqlExpr>,
+        negated: bool,
+    },
+    Between {
+        expr: Box<SqlExpr>,
+        low: Box<SqlExpr>,
+        high: Box<SqlExpr>,
+        negated: bool,
+    },
+    Like {
+        expr: Box<SqlExpr>,
+        pattern: Box<SqlExpr>,
+        negated: bool,
+    },
+    Call {
+        name: String,
+        distinct: bool,
+        star: bool,
+        args: Vec<SqlExpr>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BinOp {
+    Or,
+    And,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    Concat,
+}
+
+#[derive(Debug, Clone)]
+enum SelectItem {
+    All(Option<String>),
+    Expr {
+        expr: SqlExpr,
+        alias: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct JoinClause {
+    left_outer: bool,
+    db: Option<String>,
+    table: String,
+    alias: Option<String>,
+    on: Option<SqlExpr>,
+}
+
+#[derive(Debug, Clone)]
+struct OrderItem {
+    expr: SqlExpr,
+    desc: bool,
+}
+
+#[derive(Debug, Clone)]
+struct SelectPlan {
+    distinct: bool,
+    items: Vec<SelectItem>,
+    from_db: Option<String>,
+    from_table: Option<String>,
+    from_alias: Option<String>,
+    joins: Vec<JoinClause>,
+    where_expr: Option<SqlExpr>,
+    group_by: Vec<SqlExpr>,
+    having: Option<SqlExpr>,
+    order_by: Vec<OrderItem>,
+    limit: Option<usize>,
+    offset: usize,
+}
+
+struct SqlParser<'a> {
+    toks: &'a [Tok],
+    pos: usize,
+}
+
+impl<'a> SqlParser<'a> {
+    fn new(toks: &'a [Tok]) -> Self {
+        Self { toks, pos: 0 }
+    }
+
+    fn peek(&self) -> Option<&'a Tok> {
+        self.toks.get(self.pos)
+    }
+
+    fn at_end(&self) -> bool {
+        matches!(self.peek(), None | Some(Tok::Semi))
+    }
+
+    fn kw(&self, word: &str) -> bool {
+        matches!(self.peek(), Some(Tok::Word(w)) if w.eq_ignore_ascii_case(word))
+    }
+
+    fn eat_kw(&mut self, word: &str) -> bool {
+        if self.kw(word) {
+            self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn expect_kw(&mut self, word: &str) -> Result<(), AirSqlError> {
+        if self.eat_kw(word) {
+            Ok(())
+        } else {
+            Err(AirSqlError::new(
+                "execute",
+                format!("Expected SQL keyword '{word}'."),
+                3115,
+            ))
+        }
+    }
+
+    fn eat(&mut self, tok: &Tok) -> bool {
+        if self.peek() == Some(tok) {
+            self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn expect(&mut self, tok: &Tok) -> Result<(), AirSqlError> {
+        if self.eat(tok) {
+            Ok(())
+        } else {
+            Err(AirSqlError::new(
+                "execute",
+                format!("Unexpected SQL syntax near token #{}.", self.pos + 1),
+                3115,
+            ))
+        }
+    }
+
+    fn ident(&mut self) -> Result<String, AirSqlError> {
+        match self.peek() {
+            Some(Tok::Word(w)) | Some(Tok::Ident(w)) => {
+                let s = w.clone();
+                self.pos += 1;
+                Ok(s)
+            }
+            Some(Tok::Str(s)) => {
+                let v = s.clone();
+                self.pos += 1;
+                Ok(v)
+            }
+            _ => Err(AirSqlError::new(
+                "execute",
+                "Expected SQL identifier.",
+                3115,
+            )),
+        }
+    }
+
+    fn qualified_name(&mut self) -> Result<(Option<String>, String), AirSqlError> {
+        let first = self.ident()?;
+        if self.eat(&Tok::Dot) {
+            let second = self.ident()?;
+            Ok((Some(first), second))
+        } else {
+            Ok((None, first))
+        }
+    }
+
+    fn expr(&mut self) -> Result<SqlExpr, AirSqlError> {
+        self.or_expr()
+    }
+
+    fn or_expr(&mut self) -> Result<SqlExpr, AirSqlError> {
+        let mut left = self.and_expr()?;
+        while self.eat_kw("OR") {
+            let right = self.and_expr()?;
+            left = SqlExpr::Binary {
+                op: BinOp::Or,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+        Ok(left)
+    }
+
+    fn and_expr(&mut self) -> Result<SqlExpr, AirSqlError> {
+        let mut left = self.not_expr()?;
+        while self.eat_kw("AND") {
+            let right = self.not_expr()?;
+            left = SqlExpr::Binary {
+                op: BinOp::And,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+        Ok(left)
+    }
+
+    fn not_expr(&mut self) -> Result<SqlExpr, AirSqlError> {
+        if self.eat_kw("NOT") {
+            Ok(SqlExpr::Not(Box::new(self.not_expr()?)))
+        } else {
+            self.cmp_expr()
+        }
+    }
+
+    fn cmp_expr(&mut self) -> Result<SqlExpr, AirSqlError> {
+        let mut left = self.add_expr()?;
+        loop {
+            if self.eat_kw("IS") {
+                let negated = self.eat_kw("NOT");
+                if self.eat_kw("NULL") {
+                    left = SqlExpr::IsNull {
+                        expr: Box::new(left),
+                        negated,
+                    };
+                    continue;
+                }
+                let right = self.add_expr()?;
+                left = SqlExpr::Binary {
+                    op: if negated { BinOp::Ne } else { BinOp::Eq },
+                    left: Box::new(left),
+                    right: Box::new(right),
+                };
+                continue;
+            }
+            let negated_op = if self.kw("NOT") {
+                let saved = self.pos;
+                self.pos += 1;
+                if self.kw("IN") || self.kw("LIKE") || self.kw("BETWEEN") {
+                    true
+                } else {
+                    self.pos = saved;
+                    false
+                }
+            } else {
+                false
+            };
+            if self.eat_kw("IN") {
+                self.expect(&Tok::LParen)?;
+                let mut list = Vec::new();
+                if !self.eat(&Tok::RParen) {
+                    loop {
+                        list.push(self.expr()?);
+                        if !self.eat(&Tok::Comma) {
+                            break;
+                        }
+                    }
+                    self.expect(&Tok::RParen)?;
+                }
+                left = SqlExpr::InList {
+                    expr: Box::new(left),
+                    list,
+                    negated: negated_op,
+                };
+                continue;
+            }
+            if self.eat_kw("BETWEEN") {
+                let low = self.add_expr()?;
+                self.expect_kw("AND")?;
+                let high = self.add_expr()?;
+                left = SqlExpr::Between {
+                    expr: Box::new(left),
+                    low: Box::new(low),
+                    high: Box::new(high),
+                    negated: negated_op,
+                };
+                continue;
+            }
+            if self.eat_kw("LIKE") {
+                let pattern = self.add_expr()?;
+                left = SqlExpr::Like {
+                    expr: Box::new(left),
+                    pattern: Box::new(pattern),
+                    negated: negated_op,
+                };
+                continue;
+            }
+            let op = match self.peek() {
+                Some(Tok::Eq) => Some(BinOp::Eq),
+                Some(Tok::Ne) => Some(BinOp::Ne),
+                Some(Tok::Lt) => Some(BinOp::Lt),
+                Some(Tok::Le) => Some(BinOp::Le),
+                Some(Tok::Gt) => Some(BinOp::Gt),
+                Some(Tok::Ge) => Some(BinOp::Ge),
+                _ => None,
+            };
+            if let Some(op) = op {
+                self.pos += 1;
+                let right = self.add_expr()?;
+                left = SqlExpr::Binary {
+                    op,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                };
+            } else {
+                break;
+            }
+        }
+        Ok(left)
+    }
+
+    fn add_expr(&mut self) -> Result<SqlExpr, AirSqlError> {
+        let mut left = self.mul_expr()?;
+        loop {
+            let op = match self.peek() {
+                Some(Tok::Plus) => Some(BinOp::Add),
+                Some(Tok::Minus) => Some(BinOp::Sub),
+                Some(Tok::Concat) => Some(BinOp::Concat),
+                _ => None,
+            };
+            if let Some(op) = op {
+                self.pos += 1;
+                let right = self.mul_expr()?;
+                left = SqlExpr::Binary {
+                    op,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                };
+            } else {
+                break;
+            }
+        }
+        Ok(left)
+    }
+
+    fn mul_expr(&mut self) -> Result<SqlExpr, AirSqlError> {
+        let mut left = self.unary_expr()?;
+        loop {
+            let op = match self.peek() {
+                Some(Tok::Star) => Some(BinOp::Mul),
+                Some(Tok::Slash) => Some(BinOp::Div),
+                Some(Tok::Percent) => Some(BinOp::Rem),
+                _ => None,
+            };
+            if let Some(op) = op {
+                self.pos += 1;
+                let right = self.unary_expr()?;
+                left = SqlExpr::Binary {
+                    op,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                };
+            } else {
+                break;
+            }
+        }
+        Ok(left)
+    }
+
+    fn unary_expr(&mut self) -> Result<SqlExpr, AirSqlError> {
+        if self.eat(&Tok::Plus) {
+            return self.unary_expr();
+        }
+        if self.eat(&Tok::Minus) {
+            return Ok(SqlExpr::UnaryMinus(Box::new(self.unary_expr()?)));
+        }
+        self.primary_expr()
+    }
+
+    fn primary_expr(&mut self) -> Result<SqlExpr, AirSqlError> {
+        if self.eat(&Tok::LParen) {
+            let inner = self.expr()?;
+            self.expect(&Tok::RParen)?;
+            return Ok(inner);
+        }
+        match self.peek().cloned() {
+            Some(Tok::Int(n)) => {
+                self.pos += 1;
+                Ok(SqlExpr::Lit(SqlValue::Int(n)))
+            }
+            Some(Tok::Real(f)) => {
+                self.pos += 1;
+                Ok(SqlExpr::Lit(SqlValue::Real(f)))
+            }
+            Some(Tok::Str(s)) => {
+                self.pos += 1;
+                Ok(SqlExpr::Lit(SqlValue::Text(s)))
+            }
+            Some(Tok::Param(p)) => {
+                self.pos += 1;
+                Ok(SqlExpr::Param(p))
+            }
+            Some(Tok::Word(w)) if w.eq_ignore_ascii_case("NULL") => {
+                self.pos += 1;
+                Ok(SqlExpr::Lit(SqlValue::Null))
+            }
+            Some(Tok::Word(w)) if w.eq_ignore_ascii_case("TRUE") => {
+                self.pos += 1;
+                Ok(SqlExpr::Lit(SqlValue::Bool(true)))
+            }
+            Some(Tok::Word(w)) if w.eq_ignore_ascii_case("FALSE") => {
+                self.pos += 1;
+                Ok(SqlExpr::Lit(SqlValue::Bool(false)))
+            }
+            Some(Tok::Word(w)) | Some(Tok::Ident(w)) => {
+                let is_word = matches!(self.peek(), Some(Tok::Word(_)));
+                self.pos += 1;
+                if is_word && self.eat(&Tok::LParen) {
+                    if self.eat(&Tok::Star) {
+                        self.expect(&Tok::RParen)?;
+                        return Ok(SqlExpr::Call {
+                            name: w.to_ascii_uppercase(),
+                            distinct: false,
+                            star: true,
+                            args: Vec::new(),
+                        });
+                    }
+                    let distinct = self.eat_kw("DISTINCT");
+                    let mut args = Vec::new();
+                    if !self.eat(&Tok::RParen) {
+                        loop {
+                            args.push(self.expr()?);
+                            if !self.eat(&Tok::Comma) {
+                                break;
+                            }
+                        }
+                        self.expect(&Tok::RParen)?;
+                    }
+                    return Ok(SqlExpr::Call {
+                        name: w.to_ascii_uppercase(),
+                        distinct,
+                        star: false,
+                        args,
+                    });
+                }
+                if self.eat(&Tok::Dot) {
+                    let col = self.ident()?;
+                    Ok(SqlExpr::Col {
+                        table: Some(w),
+                        name: col,
+                    })
+                } else {
+                    Ok(SqlExpr::Col {
+                        table: None,
+                        name: w,
+                    })
+                }
+            }
+            _ => Err(AirSqlError::new(
+                "execute",
+                "Expected SQL expression.",
+                3115,
+            )),
+        }
+    }
+
+    fn optional_table_alias(&mut self) -> Option<String> {
+        let has_as = self.eat_kw("AS");
+        match self.peek() {
+            Some(Tok::Word(w)) => {
+                if !has_as
+                    && matches!(
+                        w.to_ascii_uppercase().as_str(),
+                        "WHERE"
+                            | "GROUP"
+                            | "HAVING"
+                            | "ORDER"
+                            | "LIMIT"
+                            | "OFFSET"
+                            | "JOIN"
+                            | "INNER"
+                            | "LEFT"
+                            | "CROSS"
+                            | "ON"
+                    )
+                {
+                    return None;
+                }
+                let s = w.clone();
+                self.pos += 1;
+                Some(s)
+            }
+            Some(Tok::Ident(w)) => {
+                let s = w.clone();
+                self.pos += 1;
+                Some(s)
+            }
+            _ => None,
+        }
+    }
+
+    fn parse_select(&mut self) -> Result<SelectPlan, AirSqlError> {
+        self.expect_kw("SELECT")?;
+        let distinct = if self.eat_kw("DISTINCT") {
+            true
+        } else {
+            self.eat_kw("ALL");
+            false
+        };
+        let mut items = Vec::new();
+        loop {
+            if self.eat(&Tok::Star) {
+                items.push(SelectItem::All(None));
+            } else if matches!(
+                (
+                    self.toks.get(self.pos),
+                    self.toks.get(self.pos + 1),
+                    self.toks.get(self.pos + 2)
+                ),
+                (
+                    Some(Tok::Word(_) | Tok::Ident(_)),
+                    Some(Tok::Dot),
+                    Some(Tok::Star)
+                )
+            ) {
+                let tbl = self.ident()?;
+                self.pos += 2;
+                items.push(SelectItem::All(Some(tbl)));
+            } else {
+                let expr = self.expr()?;
+                let alias = if self.eat_kw("AS") {
+                    Some(self.ident()?)
+                } else if let Some(Tok::Word(w) | Tok::Ident(w)) = self.peek() {
+                    if !matches!(
+                        w.to_ascii_uppercase().as_str(),
+                        "FROM" | "WHERE" | "GROUP" | "HAVING" | "ORDER" | "LIMIT"
+                    ) {
+                        let a = w.clone();
+                        self.pos += 1;
+                        Some(a)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                items.push(SelectItem::Expr { expr, alias });
+            }
+            if !self.eat(&Tok::Comma) {
+                break;
+            }
+        }
+        let (mut from_db, mut from_table, mut from_alias) = (None, None, None);
+        let mut joins = Vec::new();
+        if self.eat_kw("FROM") {
+            let (db, tbl) = self.qualified_name()?;
+            from_db = db;
+            from_table = Some(tbl);
+            from_alias = self.optional_table_alias();
+            loop {
+                let mut left_outer = false;
+                if self.eat_kw("LEFT") {
+                    self.eat_kw("OUTER");
+                    self.expect_kw("JOIN")?;
+                    left_outer = true;
+                } else if self.eat_kw("INNER") || self.eat_kw("CROSS") {
+                    self.expect_kw("JOIN")?;
+                } else if self.eat_kw("JOIN") || self.eat(&Tok::Comma) {
+                    // plain JOIN / comma join
+                } else {
+                    break;
+                }
+                let (jdb, jtbl) = self.qualified_name()?;
+                let jalias = self.optional_table_alias();
+                let on = if self.eat_kw("ON") {
+                    Some(self.expr()?)
+                } else {
+                    None
+                };
+                joins.push(JoinClause {
+                    left_outer,
+                    db: jdb,
+                    table: jtbl,
+                    alias: jalias,
+                    on,
+                });
+            }
+        }
+        let where_expr = if self.eat_kw("WHERE") {
+            Some(self.expr()?)
+        } else {
+            None
+        };
+        let mut group_by = Vec::new();
+        if self.eat_kw("GROUP") {
+            self.expect_kw("BY")?;
+            loop {
+                group_by.push(self.expr()?);
+                if !self.eat(&Tok::Comma) {
+                    break;
+                }
+            }
+        }
+        let having = if self.eat_kw("HAVING") {
+            Some(self.expr()?)
+        } else {
+            None
+        };
+        let mut order_by = Vec::new();
+        if self.eat_kw("ORDER") {
+            self.expect_kw("BY")?;
+            loop {
+                let expr = self.expr()?;
+                self.eat_kw("COLLATE");
+                if matches!(self.peek(), Some(Tok::Word(w)) if w.eq_ignore_ascii_case("NOCASE") || w.eq_ignore_ascii_case("BINARY"))
+                {
+                    self.pos += 1;
+                }
+                let desc = if self.eat_kw("DESC") {
+                    true
+                } else {
+                    self.eat_kw("ASC");
+                    false
+                };
+                order_by.push(OrderItem { expr, desc });
+                if !self.eat(&Tok::Comma) {
+                    break;
+                }
+            }
+        }
+        let mut limit = None;
+        let mut offset = 0usize;
+        if self.eat_kw("LIMIT") {
+            let lim_val = self.parse_nonneg_int()?;
+            if self.eat_kw("OFFSET") {
+                offset = self.parse_nonneg_int()?;
+                limit = Some(lim_val);
+            } else if self.eat(&Tok::Comma) {
+                offset = lim_val;
+                limit = Some(self.parse_nonneg_int()?);
+            } else {
+                limit = Some(lim_val);
+            }
+        }
+        Ok(SelectPlan {
+            distinct,
+            items,
+            from_db,
+            from_table,
+            from_alias,
+            joins,
+            where_expr,
+            group_by,
+            having,
+            order_by,
+            limit,
+            offset,
+        })
+    }
+
+    fn parse_nonneg_int(&mut self) -> Result<usize, AirSqlError> {
+        match self.peek() {
+            Some(Tok::Int(n)) if *n >= 0 => {
+                let v = *n as usize;
+                self.pos += 1;
+                Ok(v)
+            }
+            _ => Err(AirSqlError::new(
+                "execute",
+                "Expected non-negative integer in LIMIT/OFFSET.",
+                3115,
+            )),
+        }
+    }
+
+    fn parse_column_def(&mut self) -> Result<SqlColumnDef, AirSqlError> {
+        let name = self.ident()?;
+        let mut type_words = Vec::new();
+        while let Some(Tok::Word(w)) = self.peek() {
+            if matches!(
+                w.to_ascii_uppercase().as_str(),
+                "PRIMARY"
+                    | "NOT"
+                    | "NULL"
+                    | "UNIQUE"
+                    | "DEFAULT"
+                    | "COLLATE"
+                    | "AUTOINCREMENT"
+                    | "CHECK"
+                    | "REFERENCES"
+                    | "CONSTRAINT"
+            ) {
+                break;
+            }
+            type_words.push(w.clone());
+            self.pos += 1;
+            if self.eat(&Tok::LParen) {
+                let mut depth = 1;
+                while depth > 0 && self.pos < self.toks.len() {
+                    if self.eat(&Tok::LParen) {
+                        depth += 1;
+                    } else if self.eat(&Tok::RParen) {
+                        depth -= 1;
+                    } else {
+                        self.pos += 1;
+                    }
+                }
+            }
+        }
+        let data_type = if type_words.is_empty() {
+            "TEXT".to_owned()
+        } else {
+            type_words.join(" ").to_ascii_uppercase()
+        };
+        let mut allow_null = true;
+        let mut primary_key = false;
+        let mut auto_increment = false;
+        let mut unique = false;
+        let mut default_collation_type = "BINARY".to_owned();
+        let mut default_value = None;
+
+        while !self.at_end() && !matches!(self.peek(), Some(Tok::Comma | Tok::RParen)) {
+            if self.eat_kw("CONSTRAINT") {
+                let _ = self.ident()?;
+            } else if self.eat_kw("PRIMARY") {
+                self.expect_kw("KEY")?;
+                self.eat_kw("ASC");
+                self.eat_kw("DESC");
+                primary_key = true;
+                if self.eat_kw("AUTOINCREMENT") {
+                    auto_increment = true;
+                }
+            } else if self.eat_kw("AUTOINCREMENT") {
+                auto_increment = true;
+            } else if self.eat_kw("NOT") {
+                self.expect_kw("NULL")?;
+                allow_null = false;
+            } else if self.eat_kw("NULL") {
+                allow_null = true;
+            } else if self.eat_kw("UNIQUE") {
+                unique = true;
+            } else if self.eat_kw("COLLATE") {
+                let c = self.ident()?.to_ascii_uppercase();
+                default_collation_type = if c == "NOCASE" {
+                    "NO_CASE".to_owned()
+                } else {
+                    "BINARY".to_owned()
+                };
+            } else if self.eat_kw("DEFAULT") {
+                let expr = self.unary_expr()?;
+                default_value = Some(eval_const_expr(&expr)?);
+            } else if self.eat_kw("CHECK") {
+                self.expect(&Tok::LParen)?;
+                let mut depth = 1;
+                while depth > 0 && self.pos < self.toks.len() {
+                    if self.eat(&Tok::LParen) {
+                        depth += 1;
+                    } else if self.eat(&Tok::RParen) {
+                        depth -= 1;
+                    } else {
+                        self.pos += 1;
+                    }
+                }
+            } else if self.eat_kw("REFERENCES") {
+                let _ = self.ident()?;
+                if self.eat(&Tok::LParen) {
+                    while !self.eat(&Tok::RParen) && self.pos < self.toks.len() {
+                        self.pos += 1;
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+        if primary_key && data_type == "INTEGER" {
+            auto_increment = true;
+        }
+        Ok(SqlColumnDef {
+            name,
+            data_type,
+            allow_null,
+            primary_key,
+            auto_increment,
+            unique,
+            default_collation_type,
+            default_value,
+        })
+    }
+}
+
+fn eval_const_expr(expr: &SqlExpr) -> Result<SqlValue, AirSqlError> {
+    match expr {
+        SqlExpr::Lit(v) => Ok(v.clone()),
+        SqlExpr::UnaryMinus(inner) => match eval_const_expr(inner)? {
+            SqlValue::Int(n) => Ok(SqlValue::Int(-n)),
+            SqlValue::Real(f) => Ok(SqlValue::Real(-f)),
+            _ => Err(AirSqlError::new(
+                "execute",
+                "Invalid DEFAULT numeric literal.",
+                3115,
+            )),
+        },
+        _ => Err(AirSqlError::new(
+            "execute",
+            "Column DEFAULT requires a literal value in this bounded SQL profile.",
+            3115,
+        )),
+    }
+}
+
+fn sql_like_match(value: &str, pattern: &str) -> bool {
+    let v: Vec<char> = value.chars().map(|c| c.to_ascii_lowercase()).collect();
+    let p: Vec<char> = pattern.chars().map(|c| c.to_ascii_lowercase()).collect();
+    let (mut vi, mut pi) = (0usize, 0usize);
+    let (mut star_pi, mut star_vi) = (None::<usize>, 0usize);
+    while vi < v.len() {
+        if pi < p.len() && (p[pi] == '_' || p[pi] == v[vi]) {
+            vi += 1;
+            pi += 1;
+        } else if pi < p.len() && p[pi] == '%' {
+            star_pi = Some(pi);
+            pi += 1;
+            star_vi = vi;
+        } else if let Some(sp) = star_pi {
+            pi = sp + 1;
+            star_vi += 1;
+            vi = star_vi;
+        } else {
+            return false;
+        }
+    }
+    while pi < p.len() && p[pi] == '%' {
+        pi += 1;
+    }
+    pi == p.len()
+}
+
+#[derive(Debug, Clone)]
+struct EvalColMeta {
+    table_name: String,
+    table_alias: String,
+    col_name: String,
+    nocase: bool,
+}
+
+#[derive(Debug, Clone)]
+struct EvalRow {
+    rowid: Option<i64>,
+    values: Vec<SqlValue>,
+}
+
+fn resolve_param(params: &BTreeMap<String, SqlValue>, key: &str) -> Result<SqlValue, AirSqlError> {
+    if let Some(v) = params.get(key) {
+        return Ok(v.clone());
+    }
+    let stripped = key.trim_start_matches([':', '@', '$']);
+    if let Some(v) = params.get(stripped) {
+        return Ok(v.clone());
+    }
+    for prefix in [":", "@", "$"] {
+        if let Some(v) = params.get(&format!("{prefix}{stripped}")) {
+            return Ok(v.clone());
+        }
+    }
+    Err(AirSqlError::new(
+        "execute",
+        format!("Missing bound value for SQL parameter '{key}'."),
+        3115,
+    ))
+}
+
+fn expr_contains_aggregate(expr: &SqlExpr) -> bool {
+    match expr {
+        SqlExpr::Call { name, args, .. } => {
+            matches!(
+                name.as_str(),
+                "COUNT" | "SUM" | "AVG" | "MIN" | "MAX" | "TOTAL"
+            ) || args.iter().any(expr_contains_aggregate)
+        }
+        SqlExpr::UnaryMinus(e) | SqlExpr::Not(e) | SqlExpr::IsNull { expr: e, .. } => {
+            expr_contains_aggregate(e)
+        }
+        SqlExpr::Binary { left, right, .. } => {
+            expr_contains_aggregate(left) || expr_contains_aggregate(right)
+        }
+        SqlExpr::InList { expr, list, .. } => {
+            expr_contains_aggregate(expr) || list.iter().any(expr_contains_aggregate)
+        }
+        SqlExpr::Between {
+            expr, low, high, ..
+        } => {
+            expr_contains_aggregate(expr)
+                || expr_contains_aggregate(low)
+                || expr_contains_aggregate(high)
+        }
+        SqlExpr::Like { expr, pattern, .. } => {
+            expr_contains_aggregate(expr) || expr_contains_aggregate(pattern)
+        }
+        SqlExpr::Lit(_) | SqlExpr::Param(_) | SqlExpr::Col { .. } => false,
+    }
+}
+
+type ProjectedRowCtx = (Vec<SqlValue>, Option<EvalRow>, Option<Vec<EvalRow>>);
+type OrderKeyedRow = (Vec<(SqlValue, bool)>, Vec<SqlValue>);
+
+fn default_expr_column_name(expr: &SqlExpr, long_style: bool) -> String {
+    match expr {
+        SqlExpr::Col { table, name } => {
+            if long_style && let Some(t) = table {
+                return format!("{t}_{name}");
+            }
+            name.clone()
+        }
+        SqlExpr::Call {
+            name, star: true, ..
+        } => format!("{name}(*)"),
+        SqlExpr::Call { name, args, .. } => {
+            let inner: Vec<String> = args
+                .iter()
+                .map(|a| default_expr_column_name(a, false))
+                .collect();
+            format!("{name}({})", inner.join(","))
+        }
+        _ => "column".to_owned(),
+    }
+}
+
+fn eval_sql_expr(
+    expr: &SqlExpr,
+    cols: &[EvalColMeta],
+    row: Option<&EvalRow>,
+    group: Option<&[EvalRow]>,
+    params: &BTreeMap<String, SqlValue>,
+    extra_aliases: Option<&[(&str, SqlValue)]>,
+) -> Result<SqlValue, AirSqlError> {
+    let active_row = row.or_else(|| group.and_then(|g| g.first()));
+    match expr {
+        SqlExpr::Lit(v) => Ok(v.clone()),
+        SqlExpr::Param(p) => resolve_param(params, p),
+        SqlExpr::Col { table, name } => {
+            if table.is_none()
+                && let Some(aliases) = extra_aliases
+                && let Some((_, val)) = aliases.iter().find(|(a, _)| a.eq_ignore_ascii_case(name))
+            {
+                return Ok(val.clone());
+            }
+            if matches!(
+                name.to_ascii_lowercase().as_str(),
+                "rowid" | "_rowid_" | "oid"
+            ) && let Some(r) = active_row
+                && let Some(id) = r.rowid
+            {
+                let has_explicit = cols.iter().any(|c| c.col_name.eq_ignore_ascii_case(name));
+                if !has_explicit {
+                    return Ok(SqlValue::Int(id));
+                }
+            }
+            let mut matched: Option<(usize, &EvalColMeta)> = None;
+            for (idx, c) in cols.iter().enumerate() {
+                let table_ok = match table {
+                    Some(t) => {
+                        c.table_alias.eq_ignore_ascii_case(t)
+                            || c.table_name.eq_ignore_ascii_case(t)
+                    }
+                    None => true,
+                };
+                if table_ok && c.col_name.eq_ignore_ascii_case(name) {
+                    matched = Some((idx, c));
+                    break;
+                }
+            }
+            let (idx, _) = matched.ok_or_else(|| {
+                AirSqlError::new("execute", format!("No such column '{name}'."), 3115)
+            })?;
+            Ok(active_row
+                .and_then(|r| r.values.get(idx).cloned())
+                .unwrap_or(SqlValue::Null))
+        }
+        SqlExpr::UnaryMinus(inner) => {
+            let v = eval_sql_expr(inner, cols, row, group, params, extra_aliases)?;
+            match v {
+                SqlValue::Null => Ok(SqlValue::Null),
+                SqlValue::Int(n) => Ok(SqlValue::Int(-n)),
+                SqlValue::Real(f) => Ok(SqlValue::Real(-f)),
+                other => Ok(SqlValue::Real(-other.as_f64().unwrap_or(0.0))),
+            }
+        }
+        SqlExpr::Not(inner) => {
+            let v = eval_sql_expr(inner, cols, row, group, params, extra_aliases)?;
+            Ok(if v.is_null() {
+                SqlValue::Null
+            } else {
+                SqlValue::Bool(!v.truthy())
+            })
+        }
+        SqlExpr::IsNull { expr, negated } => {
+            let v = eval_sql_expr(expr, cols, row, group, params, extra_aliases)?;
+            let is_n = v.is_null();
+            Ok(SqlValue::Bool(if *negated { !is_n } else { is_n }))
+        }
+        SqlExpr::InList {
+            expr,
+            list,
+            negated,
+        } => {
+            let lhs = eval_sql_expr(expr, cols, row, group, params, extra_aliases)?;
+            if lhs.is_null() {
+                return Ok(SqlValue::Null);
+            }
+            let mut found = false;
+            for item in list {
+                let rhs = eval_sql_expr(item, cols, row, group, params, extra_aliases)?;
+                if !rhs.is_null() && lhs.cmp_sql(&rhs, false) == std::cmp::Ordering::Equal {
+                    found = true;
+                    break;
+                }
+            }
+            Ok(SqlValue::Bool(if *negated { !found } else { found }))
+        }
+        SqlExpr::Between {
+            expr,
+            low,
+            high,
+            negated,
+        } => {
+            let v = eval_sql_expr(expr, cols, row, group, params, extra_aliases)?;
+            let lo = eval_sql_expr(low, cols, row, group, params, extra_aliases)?;
+            let hi = eval_sql_expr(high, cols, row, group, params, extra_aliases)?;
+            if v.is_null() || lo.is_null() || hi.is_null() {
+                return Ok(SqlValue::Null);
+            }
+            let inside = v.cmp_sql(&lo, false) != std::cmp::Ordering::Less
+                && v.cmp_sql(&hi, false) != std::cmp::Ordering::Greater;
+            Ok(SqlValue::Bool(if *negated { !inside } else { inside }))
+        }
+        SqlExpr::Like {
+            expr,
+            pattern,
+            negated,
+        } => {
+            let v = eval_sql_expr(expr, cols, row, group, params, extra_aliases)?;
+            let p = eval_sql_expr(pattern, cols, row, group, params, extra_aliases)?;
+            if v.is_null() || p.is_null() {
+                return Ok(SqlValue::Null);
+            }
+            let m = sql_like_match(&v.as_text(), &p.as_text());
+            Ok(SqlValue::Bool(if *negated { !m } else { m }))
+        }
+        SqlExpr::Binary { op, left, right } => match op {
+            BinOp::And => {
+                let l = eval_sql_expr(left, cols, row, group, params, extra_aliases)?;
+                if !l.is_null() && !l.truthy() {
+                    return Ok(SqlValue::Bool(false));
+                }
+                let r = eval_sql_expr(right, cols, row, group, params, extra_aliases)?;
+                if !r.is_null() && !r.truthy() {
+                    return Ok(SqlValue::Bool(false));
+                }
+                if l.is_null() || r.is_null() {
+                    Ok(SqlValue::Null)
+                } else {
+                    Ok(SqlValue::Bool(true))
+                }
+            }
+            BinOp::Or => {
+                let l = eval_sql_expr(left, cols, row, group, params, extra_aliases)?;
+                if l.truthy() {
+                    return Ok(SqlValue::Bool(true));
+                }
+                let r = eval_sql_expr(right, cols, row, group, params, extra_aliases)?;
+                if r.truthy() {
+                    return Ok(SqlValue::Bool(true));
+                }
+                if l.is_null() || r.is_null() {
+                    Ok(SqlValue::Null)
+                } else {
+                    Ok(SqlValue::Bool(false))
+                }
+            }
+            _ => {
+                let l = eval_sql_expr(left, cols, row, group, params, extra_aliases)?;
+                let r = eval_sql_expr(right, cols, row, group, params, extra_aliases)?;
+                if l.is_null() || r.is_null() {
+                    return Ok(SqlValue::Null);
+                }
+                let nocase = col_uses_nocase(left, cols) || col_uses_nocase(right, cols);
+                match op {
+                    BinOp::Eq => Ok(SqlValue::Bool(
+                        l.cmp_sql(&r, nocase) == std::cmp::Ordering::Equal,
+                    )),
+                    BinOp::Ne => Ok(SqlValue::Bool(
+                        l.cmp_sql(&r, nocase) != std::cmp::Ordering::Equal,
+                    )),
+                    BinOp::Lt => Ok(SqlValue::Bool(
+                        l.cmp_sql(&r, nocase) == std::cmp::Ordering::Less,
+                    )),
+                    BinOp::Le => Ok(SqlValue::Bool(
+                        l.cmp_sql(&r, nocase) != std::cmp::Ordering::Greater,
+                    )),
+                    BinOp::Gt => Ok(SqlValue::Bool(
+                        l.cmp_sql(&r, nocase) == std::cmp::Ordering::Greater,
+                    )),
+                    BinOp::Ge => Ok(SqlValue::Bool(
+                        l.cmp_sql(&r, nocase) != std::cmp::Ordering::Less,
+                    )),
+                    BinOp::Concat => Ok(SqlValue::Text(format!("{}{}", l.as_text(), r.as_text()))),
+                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+                        if let (SqlValue::Int(a), SqlValue::Int(b)) = (&l, &r) {
+                            return match op {
+                                BinOp::Add => Ok(SqlValue::Int(a.saturating_add(*b))),
+                                BinOp::Sub => Ok(SqlValue::Int(a.saturating_sub(*b))),
+                                BinOp::Mul => Ok(SqlValue::Int(a.saturating_mul(*b))),
+                                BinOp::Div => Ok(if *b == 0 {
+                                    SqlValue::Null
+                                } else {
+                                    SqlValue::Int(a / b)
+                                }),
+                                BinOp::Rem => Ok(if *b == 0 {
+                                    SqlValue::Null
+                                } else {
+                                    SqlValue::Int(a % b)
+                                }),
+                                _ => unreachable!(),
+                            };
+                        }
+                        let a = l.as_f64().unwrap_or(0.0);
+                        let b = r.as_f64().unwrap_or(0.0);
+                        match op {
+                            BinOp::Add => Ok(SqlValue::Real(a + b)),
+                            BinOp::Sub => Ok(SqlValue::Real(a - b)),
+                            BinOp::Mul => Ok(SqlValue::Real(a * b)),
+                            BinOp::Div => Ok(if b == 0.0 {
+                                SqlValue::Null
+                            } else {
+                                SqlValue::Real(a / b)
+                            }),
+                            BinOp::Rem => Ok(if b == 0.0 {
+                                SqlValue::Null
+                            } else {
+                                SqlValue::Real(a % b)
+                            }),
+                            _ => unreachable!(),
+                        }
+                    }
+                    BinOp::And | BinOp::Or => unreachable!(),
+                }
+            }
+        },
+        SqlExpr::Call {
+            name,
+            distinct,
+            star,
+            args,
+        } => {
+            if matches!(
+                name.as_str(),
+                "COUNT" | "SUM" | "AVG" | "MIN" | "MAX" | "TOTAL"
+            ) {
+                let rows_slice: &[EvalRow] = if let Some(g) = group {
+                    g
+                } else if let Some(r) = row {
+                    std::slice::from_ref(r)
+                } else {
+                    &[]
+                };
+                if name == "COUNT" && *star {
+                    return Ok(SqlValue::Int(rows_slice.len() as i64));
+                }
+                let arg = args.first().ok_or_else(|| {
+                    AirSqlError::new("execute", format!("{name}() requires an argument."), 3115)
+                })?;
+                let mut vals = Vec::new();
+                for r in rows_slice {
+                    let v = eval_sql_expr(arg, cols, Some(r), None, params, None)?;
+                    if !v.is_null() {
+                        if *distinct
+                            && vals.iter().any(|old: &SqlValue| {
+                                old.cmp_sql(&v, false) == std::cmp::Ordering::Equal
+                            })
+                        {
+                            continue;
+                        }
+                        vals.push(v);
+                    }
+                }
+                return match name.as_str() {
+                    "COUNT" => Ok(SqlValue::Int(vals.len() as i64)),
+                    "SUM" | "TOTAL" => {
+                        if vals.is_empty() {
+                            return Ok(if name == "TOTAL" {
+                                SqlValue::Real(0.0)
+                            } else {
+                                SqlValue::Null
+                            });
+                        }
+                        if name == "SUM" && vals.iter().all(|v| matches!(v, SqlValue::Int(_))) {
+                            let s: i64 = vals
+                                .iter()
+                                .map(|v| match v {
+                                    SqlValue::Int(n) => *n,
+                                    _ => 0,
+                                })
+                                .sum();
+                            Ok(SqlValue::Int(s))
+                        } else {
+                            let s: f64 = vals.iter().filter_map(SqlValue::as_f64).sum();
+                            Ok(SqlValue::Real(s))
+                        }
+                    }
+                    "AVG" => {
+                        if vals.is_empty() {
+                            Ok(SqlValue::Null)
+                        } else {
+                            let s: f64 = vals.iter().filter_map(SqlValue::as_f64).sum();
+                            Ok(SqlValue::Real(s / (vals.len() as f64)))
+                        }
+                    }
+                    "MIN" => Ok(vals
+                        .into_iter()
+                        .min_by(|a, b| a.cmp_sql(b, false))
+                        .unwrap_or(SqlValue::Null)),
+                    "MAX" => Ok(vals
+                        .into_iter()
+                        .max_by(|a, b| a.cmp_sql(b, false))
+                        .unwrap_or(SqlValue::Null)),
+                    _ => unreachable!(),
+                };
+            }
+            let mut evaluated = Vec::with_capacity(args.len());
+            for a in args {
+                evaluated.push(eval_sql_expr(a, cols, row, group, params, extra_aliases)?);
+            }
+            match name.as_str() {
+                "COALESCE" | "IFNULL" => Ok(evaluated
+                    .into_iter()
+                    .find(|v| !v.is_null())
+                    .unwrap_or(SqlValue::Null)),
+                "NULLIF" => {
+                    if evaluated.len() == 2
+                        && evaluated[0].cmp_sql(&evaluated[1], false) == std::cmp::Ordering::Equal
+                    {
+                        Ok(SqlValue::Null)
+                    } else {
+                        Ok(evaluated.into_iter().next().unwrap_or(SqlValue::Null))
+                    }
+                }
+                "UPPER" => Ok(match evaluated.first() {
+                    None | Some(SqlValue::Null) => SqlValue::Null,
+                    Some(v) => SqlValue::Text(v.as_text().to_uppercase()),
+                }),
+                "LOWER" => Ok(match evaluated.first() {
+                    None | Some(SqlValue::Null) => SqlValue::Null,
+                    Some(v) => SqlValue::Text(v.as_text().to_lowercase()),
+                }),
+                "TRIM" => Ok(match evaluated.first() {
+                    None | Some(SqlValue::Null) => SqlValue::Null,
+                    Some(v) => SqlValue::Text(v.as_text().trim().to_owned()),
+                }),
+                "LENGTH" => Ok(match evaluated.first() {
+                    None | Some(SqlValue::Null) => SqlValue::Null,
+                    Some(SqlValue::Blob(b)) => {
+                        let decoded = BASE64.decode(b).unwrap_or_default();
+                        SqlValue::Int(decoded.len() as i64)
+                    }
+                    Some(v) => SqlValue::Int(v.as_text().chars().count() as i64),
+                }),
+                "ABS" => Ok(match evaluated.first() {
+                    None | Some(SqlValue::Null) => SqlValue::Null,
+                    Some(SqlValue::Int(n)) => SqlValue::Int(n.abs()),
+                    Some(v) => SqlValue::Real(v.as_f64().unwrap_or(0.0).abs()),
+                }),
+                "ROUND" => match evaluated.first() {
+                    None | Some(SqlValue::Null) => Ok(SqlValue::Null),
+                    Some(v) => {
+                        let f = v.as_f64().unwrap_or(0.0);
+                        let places =
+                            evaluated.get(1).and_then(SqlValue::as_f64).unwrap_or(0.0) as i32;
+                        let factor = 10_f64.powi(places.clamp(0, 12));
+                        Ok(SqlValue::Real((f * factor).round() / factor))
+                    }
+                },
+                "SUBSTR" | "SUBSTRING" => match evaluated.first() {
+                    None | Some(SqlValue::Null) => Ok(SqlValue::Null),
+                    Some(v) => {
+                        let chars: Vec<char> = v.as_text().chars().collect();
+                        let start_1 =
+                            evaluated.get(1).and_then(SqlValue::as_f64).unwrap_or(1.0) as isize;
+                        let idx = if start_1 > 0 {
+                            (start_1 as usize).saturating_sub(1).min(chars.len())
+                        } else if start_1 < 0 {
+                            chars.len().saturating_sub((-start_1) as usize)
+                        } else {
+                            0
+                        };
+                        let take = evaluated
+                            .get(2)
+                            .and_then(SqlValue::as_f64)
+                            .map_or(chars.len(), |n| n.max(0.0) as usize);
+                        let s: String = chars.into_iter().skip(idx).take(take).collect();
+                        Ok(SqlValue::Text(s))
+                    }
+                },
+                "TYPEOF" => Ok(SqlValue::Text(
+                    match evaluated.first().unwrap_or(&SqlValue::Null) {
+                        SqlValue::Null => "null",
+                        SqlValue::Int(_) | SqlValue::Bool(_) => "integer",
+                        SqlValue::Real(_) => "real",
+                        SqlValue::Text(_) => "text",
+                        SqlValue::Blob(_) => "blob",
+                    }
+                    .to_owned(),
+                )),
+                other => Err(AirSqlError::new(
+                    "execute",
+                    format!("Unsupported SQL function '{other}'."),
+                    3115,
+                )),
+            }
+        }
+    }
+}
+
+fn col_uses_nocase(expr: &SqlExpr, cols: &[EvalColMeta]) -> bool {
+    if let SqlExpr::Col { table, name } = expr {
+        cols.iter().any(|c| {
+            let t_ok = table.as_ref().is_none_or(|t| {
+                c.table_alias.eq_ignore_ascii_case(t) || c.table_name.eq_ignore_ascii_case(t)
+            });
+            t_ok && c.col_name.eq_ignore_ascii_case(name) && c.nocase
+        })
+    } else {
+        false
+    }
+}
+
+pub struct AirRuntime {
+    pub app_id: String,
+    pub descriptor_xml: String,
+    pub fs: AirFileSystem,
+    pub els: AirEncryptedStore,
+    conns: BTreeMap<u32, SqlConnState>,
+    next_conn_id: u32,
+}
+
+impl AirRuntime {
+    pub fn new(
+        project_name: &str,
+        width: u32,
+        height: u32,
+        resources: &[AirResourceInit],
+        now_ms: f64,
+    ) -> Result<Self, AirError> {
+        Ok(Self {
+            app_id: synthesize_app_id(project_name),
+            descriptor_xml: synthesize_app_descriptor_xml(project_name, width, height),
+            fs: AirFileSystem::new(resources, now_ms)?,
+            els: AirEncryptedStore::default(),
+            conns: BTreeMap::new(),
+            next_conn_id: 1,
+        })
+    }
+
+    fn load_or_create_db(
+        &mut self,
+        reference_path: Option<&str>,
+        mode: &str,
+        operation: &str,
+        now_ms: f64,
+    ) -> Result<AttachedDb, AirSqlError> {
+        let mode_lc = mode.to_ascii_lowercase();
+        if !matches!(mode_lc.as_str(), "create" | "read" | "update") {
+            return Err(AirSqlError::new(
+                operation,
+                format!("Invalid SQLMode '{mode}'."),
+                3112,
+            ));
+        }
+        let read_only = mode_lc == "read";
+        let Some(raw_path) = reference_path.filter(|s| !s.is_empty() && *s != ":memory:") else {
+            return Ok(AttachedDb {
+                vfs_path: None,
+                read_only,
+                db: SqlDatabase::default(),
+            });
+        };
+        let vfs_path = normalize_air_path(raw_path)
+            .map_err(|e| AirSqlError::new(operation, e.to_string(), 3125))?;
+        let info = self
+            .fs
+            .info(&vfs_path)
+            .map_err(|e| AirSqlError::new(operation, e.to_string(), 3125))?;
+        if info.exists {
+            if info.is_directory {
+                return Err(AirSqlError::new(
+                    operation,
+                    format!("Database path '{vfs_path}' is a directory."),
+                    3125,
+                ));
+            }
+            if !read_only && !info.writable {
+                return Err(AirSqlError::new(
+                    operation,
+                    format!("Database '{vfs_path}' is read-only; open with SQLMode.READ."),
+                    3132,
+                ));
+            }
+            let bytes = self
+                .fs
+                .read_bytes(&vfs_path)
+                .map_err(|e| AirSqlError::new(operation, e.to_string(), 3125))?;
+            let db = if bytes.is_empty() {
+                SqlDatabase::default()
+            } else if let Some(json_bytes) = bytes.strip_prefix(SQL_VFS_MAGIC) {
+                serde_json::from_slice::<SqlDatabase>(json_bytes).map_err(|_| {
+                    AirSqlError::new(
+                        operation,
+                        "File is not a valid NeoFlash AIR SQL database.",
+                        3138,
+                    )
+                })?
+            } else {
+                return Err(AirSqlError::new(
+                    operation,
+                    "File is encrypted or is not a database.",
+                    3138,
+                ));
+            };
+            Ok(AttachedDb {
+                vfs_path: Some(vfs_path),
+                read_only,
+                db,
+            })
+        } else {
+            if mode_lc != "create" {
+                return Err(AirSqlError::new(
+                    operation,
+                    format!("Database file '{vfs_path}' does not exist."),
+                    3125,
+                ));
+            }
+            let db = SqlDatabase::default();
+            let mut payload = SQL_VFS_MAGIC.to_vec();
+            payload.extend(serde_json::to_vec(&db).unwrap_or_default());
+            self.fs
+                .write_bytes(&vfs_path, &payload, now_ms)
+                .map_err(|e| AirSqlError::new(operation, e.to_string(), 3125))?;
+            Ok(AttachedDb {
+                vfs_path: Some(vfs_path),
+                read_only: false,
+                db,
+            })
+        }
+    }
+
+    fn persist_conn(
+        &mut self,
+        conn_id: u32,
+        operation: &str,
+        now_ms: f64,
+    ) -> Result<(), AirSqlError> {
+        let Some(conn) = self.conns.get(&conn_id) else {
+            return Ok(());
+        };
+        if conn.in_transaction {
+            return Ok(());
+        }
+        let writes: Vec<(String, Vec<u8>)> = conn
+            .attached
+            .values()
+            .filter_map(|att| {
+                if att.read_only {
+                    return None;
+                }
+                let path = att.vfs_path.as_ref()?.clone();
+                let mut payload = SQL_VFS_MAGIC.to_vec();
+                payload.extend(serde_json::to_vec(&att.db).ok()?);
+                Some((path, payload))
+            })
+            .collect();
+        for (path, payload) in writes {
+            self.fs
+                .write_bytes(&path, &payload, now_ms)
+                .map_err(|e| AirSqlError::new(operation, e.to_string(), 3125))?;
+        }
+        Ok(())
+    }
+
+    fn conn(&self, conn_id: u32, operation: &str) -> Result<&SqlConnState, AirSqlError> {
+        self.conns
+            .get(&conn_id)
+            .filter(|c| c.connected)
+            .ok_or_else(|| AirSqlError::new(operation, "SQLConnection is not open.", 3104))
+    }
+
+    fn conn_mut(
+        &mut self,
+        conn_id: u32,
+        operation: &str,
+    ) -> Result<&mut SqlConnState, AirSqlError> {
+        self.conns
+            .get_mut(&conn_id)
+            .filter(|c| c.connected)
+            .ok_or_else(|| AirSqlError::new(operation, "SQLConnection is not open.", 3104))
+    }
+
+    pub fn sql_open(
+        &mut self,
+        reference_path: Option<&str>,
+        open_mode: &str,
+        auto_compact: bool,
+        page_size: u32,
+        now_ms: f64,
+    ) -> Result<u32, AirSqlError> {
+        if !matches!(page_size, 512 | 1024 | 2048 | 4096 | 8192 | 16384 | 32768) {
+            return Err(AirSqlError::new(
+                "open",
+                format!(
+                    "Invalid SQL pageSize {page_size}; must be a power of two from 512 to 32768."
+                ),
+                3113,
+            ));
+        }
+        let main_db = self.load_or_create_db(reference_path, open_mode, "open", now_ms)?;
+        let id = self.next_conn_id;
+        self.next_conn_id += 1;
+        let mut attached = BTreeMap::new();
+        attached.insert("main".to_owned(), main_db);
+        self.conns.insert(
+            id,
+            SqlConnState {
+                connected: true,
+                auto_compact,
+                page_size,
+                cache_size: 2000,
+                column_name_style: "default".to_owned(),
+                last_insert_rowid: 0,
+                total_changes: 0,
+                in_transaction: false,
+                tx_base: None,
+                savepoints: Vec::new(),
+                sp_counter: 0,
+                attached,
+            },
+        );
+        Ok(id)
+    }
+
+    pub fn sql_close(&mut self, conn_id: u32) -> Result<(), AirSqlError> {
+        let conn = self.conn_mut(conn_id, "close")?;
+        conn.connected = false;
+        conn.in_transaction = false;
+        conn.tx_base = None;
+        conn.savepoints.clear();
+        self.conns.remove(&conn_id);
+        Ok(())
+    }
+
+    pub fn sql_attach(
+        &mut self,
+        conn_id: u32,
+        name: &str,
+        reference_path: Option<&str>,
+        now_ms: f64,
+    ) -> Result<(), AirSqlError> {
+        let clean = name.trim();
+        if clean.is_empty() {
+            return Err(AirSqlError::new(
+                "attach",
+                "Database name must not be empty.",
+                3115,
+            ));
+        }
+        let key = clean.to_ascii_lowercase();
+        if self.conn(conn_id, "attach")?.attached.contains_key(&key) {
+            return Err(AirSqlError::new(
+                "attach",
+                format!("Database '{clean}' is already attached."),
+                3115,
+            ));
+        }
+        let att = self.load_or_create_db(reference_path, "create", "attach", now_ms)?;
+        self.conn_mut(conn_id, "attach")?.attached.insert(key, att);
+        Ok(())
+    }
+
+    pub fn sql_detach(&mut self, conn_id: u32, name: &str) -> Result<(), AirSqlError> {
+        let key = name.trim().to_ascii_lowercase();
+        if key == "main" || key == "temp" {
+            return Err(AirSqlError::new(
+                "detach",
+                format!("Cannot detach built-in database '{name}'."),
+                3115,
+            ));
+        }
+        let conn = self.conn_mut(conn_id, "detach")?;
+        if conn.in_transaction {
+            return Err(AirSqlError::new(
+                "detach",
+                "Cannot detach a database while a transaction is active.",
+                3115,
+            ));
+        }
+        if conn.attached.remove(&key).is_none() {
+            return Err(AirSqlError::new(
+                "detach",
+                format!("No such attached database '{name}'."),
+                3115,
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn sql_begin(&mut self, conn_id: u32, option: Option<&str>) -> Result<(), AirSqlError> {
+        if let Some(opt) = option.filter(|s| !s.is_empty())
+            && !matches!(
+                opt.to_ascii_lowercase().as_str(),
+                "deferred" | "immediate" | "exclusive"
+            )
+        {
+            return Err(AirSqlError::new(
+                "begin",
+                format!("Invalid SQLTransactionLockType '{opt}'."),
+                3115,
+            ));
+        }
+        let conn = self.conn_mut(conn_id, "begin")?;
+        if conn.in_transaction {
+            return Err(AirSqlError::new(
+                "begin",
+                "Cannot start a transaction within an active transaction.",
+                3106,
+            ));
+        }
+        let snap: BTreeMap<String, SqlDatabase> = conn
+            .attached
+            .iter()
+            .map(|(k, v)| (k.clone(), v.db.clone()))
+            .collect();
+        conn.in_transaction = true;
+        conn.tx_base = Some(snap);
+        conn.savepoints.clear();
+        Ok(())
+    }
+
+    pub fn sql_commit(&mut self, conn_id: u32, now_ms: f64) -> Result<(), AirSqlError> {
+        {
+            let conn = self.conn_mut(conn_id, "commit")?;
+            if !conn.in_transaction {
+                return Err(AirSqlError::new(
+                    "commit",
+                    "Cannot commit when no transaction is active.",
+                    3107,
+                ));
+            }
+            conn.in_transaction = false;
+            conn.tx_base = None;
+            conn.savepoints.clear();
+        }
+        self.persist_conn(conn_id, "commit", now_ms)
+    }
+
+    pub fn sql_rollback(&mut self, conn_id: u32) -> Result<(), AirSqlError> {
+        let conn = self.conn_mut(conn_id, "rollback")?;
+        if !conn.in_transaction {
+            return Err(AirSqlError::new(
+                "rollback",
+                "Cannot roll back when no transaction is active.",
+                3107,
+            ));
+        }
+        if let Some(base) = conn.tx_base.take() {
+            for (k, db) in base {
+                if let Some(att) = conn.attached.get_mut(&k) {
+                    att.db = db;
+                }
+            }
+        }
+        conn.in_transaction = false;
+        conn.savepoints.clear();
+        Ok(())
+    }
+
+    pub fn sql_set_savepoint(
+        &mut self,
+        conn_id: u32,
+        name: Option<&str>,
+    ) -> Result<String, AirSqlError> {
+        let conn = self.conn_mut(conn_id, "setSavepoint")?;
+        let sp_name = match name.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(s) => s.to_owned(),
+            None => {
+                conn.sp_counter += 1;
+                format!("nf_sp_{}", conn.sp_counter)
+            }
+        };
+        let snap: BTreeMap<String, SqlDatabase> = conn
+            .attached
+            .iter()
+            .map(|(k, v)| (k.clone(), v.db.clone()))
+            .collect();
+        if !conn.in_transaction {
+            conn.in_transaction = true;
+            conn.tx_base = Some(snap.clone());
+        }
+        conn.savepoints.push(SavepointSnap {
+            name: sp_name.clone(),
+            dbs: snap,
+        });
+        Ok(sp_name)
+    }
+
+    pub fn sql_release_savepoint(
+        &mut self,
+        conn_id: u32,
+        name: Option<&str>,
+        now_ms: f64,
+    ) -> Result<(), AirSqlError> {
+        {
+            let conn = self.conn_mut(conn_id, "releaseSavepoint")?;
+            let idx = match name.map(str::trim).filter(|s| !s.is_empty()) {
+                Some(target) => conn
+                    .savepoints
+                    .iter()
+                    .rposition(|s| s.name.eq_ignore_ascii_case(target)),
+                None => conn.savepoints.len().checked_sub(1),
+            }
+            .ok_or_else(|| {
+                AirSqlError::new(
+                    "releaseSavepoint",
+                    "No matching savepoint to release.",
+                    3115,
+                )
+            })?;
+            conn.savepoints.truncate(idx);
+            if conn.savepoints.is_empty() && conn.tx_base.is_some() {
+                // Savepoint-started implicit transaction remains active only if explicit begin ran;
+                // SQLite RELEASE of outermost implicit savepoint commits.
+            }
+        }
+        self.persist_conn(conn_id, "releaseSavepoint", now_ms)
+    }
+
+    pub fn sql_rollback_to_savepoint(
+        &mut self,
+        conn_id: u32,
+        name: Option<&str>,
+    ) -> Result<(), AirSqlError> {
+        let conn = self.conn_mut(conn_id, "rollbackToSavepoint")?;
+        let idx = match name.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(target) => conn
+                .savepoints
+                .iter()
+                .rposition(|s| s.name.eq_ignore_ascii_case(target)),
+            None => conn.savepoints.len().checked_sub(1),
+        }
+        .ok_or_else(|| {
+            AirSqlError::new(
+                "rollbackToSavepoint",
+                "No matching savepoint to roll back to.",
+                3115,
+            )
+        })?;
+        let snap = conn.savepoints[idx].dbs.clone();
+        conn.savepoints.truncate(idx + 1);
+        for (k, db) in snap {
+            if let Some(att) = conn.attached.get_mut(&k) {
+                att.db = db;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn sql_compact(&mut self, conn_id: u32, now_ms: f64) -> Result<(), AirSqlError> {
+        let conn = self.conn(conn_id, "compact")?;
+        if conn.in_transaction {
+            return Err(AirSqlError::new(
+                "compact",
+                "Cannot compact database while a transaction is active.",
+                3115,
+            ));
+        }
+        self.persist_conn(conn_id, "compact", now_ms)
+    }
+
+    pub fn sql_analyze(
+        &self,
+        conn_id: u32,
+        _resource_name: Option<&str>,
+    ) -> Result<(), AirSqlError> {
+        let _ = self.conn(conn_id, "analyze")?;
+        Ok(())
+    }
+
+    pub fn sql_deanalyze(&self, conn_id: u32) -> Result<(), AirSqlError> {
+        let _ = self.conn(conn_id, "deanalyze")?;
+        Ok(())
+    }
+
+    pub fn sql_state_json(&self, conn_id: u32) -> Result<String, AirSqlError> {
+        let conn = self.conn(conn_id, "open")?;
+        Ok(serde_json::json!({
+            "connected": conn.connected,
+            "inTransaction": conn.in_transaction,
+            "lastInsertRowID": conn.last_insert_rowid,
+            "totalChanges": conn.total_changes,
+            "autoCompact": conn.auto_compact,
+            "pageSize": conn.page_size,
+            "cacheSize": conn.cache_size,
+            "columnNameStyle": conn.column_name_style,
+        })
+        .to_string())
+    }
+
+    pub fn sql_set_config(
+        &mut self,
+        conn_id: u32,
+        cache_size: Option<u32>,
+        column_name_style: Option<&str>,
+    ) -> Result<(), AirSqlError> {
+        let conn = self.conn_mut(conn_id, "execute")?;
+        if let Some(cs) = cache_size {
+            conn.cache_size = cs.max(1);
+        }
+        if let Some(style) = column_name_style {
+            if !matches!(style, "default" | "long" | "short") {
+                return Err(AirSqlError::new(
+                    "execute",
+                    format!("Invalid SQLColumnNameStyle '{style}'."),
+                    3115,
+                ));
+            }
+            conn.column_name_style = style.to_owned();
+        }
+        Ok(())
+    }
+
+    pub fn sql_load_schema_json(
+        &self,
+        conn_id: u32,
+        schema_type: Option<&str>,
+        name: Option<&str>,
+        database: &str,
+        include_columns: bool,
+    ) -> Result<String, AirSqlError> {
+        let conn = self.conn(conn_id, "schema")?;
+        let db_key = if database.trim().is_empty() {
+            "main".to_owned()
+        } else {
+            database.trim().to_ascii_lowercase()
+        };
+        let att = conn.attached.get(&db_key).ok_or_else(|| {
+            AirSqlError::new(
+                "schema",
+                format!("No such attached database '{database}'."),
+                3115,
+            )
+        })?;
+        let want_tables =
+            schema_type.is_none_or(|t| matches!(t, "table" | "SQLTableSchema" | "all"));
+        let want_views = schema_type.is_none_or(|t| matches!(t, "view" | "SQLViewSchema" | "all"));
+        let want_indices =
+            schema_type.is_none_or(|t| matches!(t, "index" | "SQLIndexSchema" | "all"));
+        let want_triggers =
+            schema_type.is_none_or(|t| matches!(t, "trigger" | "SQLTriggerSchema" | "all"));
+        let name_filter = name.map(str::trim).filter(|s| !s.is_empty());
+
+        let mut tables = Vec::new();
+        if want_tables {
+            for tbl in att.db.tables.values() {
+                if name_filter.is_some_and(|f| !tbl.name.eq_ignore_ascii_case(f)) {
+                    continue;
+                }
+                let cols: Vec<serde_json::Value> = if include_columns {
+                    tbl.columns
+                        .iter()
+                        .map(|c| {
+                            serde_json::json!({
+                                "name": c.name,
+                                "dataType": c.data_type,
+                                "allowNull": c.allow_null,
+                                "primaryKey": c.primary_key,
+                                "autoIncrement": c.auto_increment,
+                                "defaultCollationType": c.default_collation_type,
+                            })
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                tables.push(serde_json::json!({
+                    "database": db_key,
+                    "name": tbl.name,
+                    "sql": tbl.sql,
+                    "columns": cols,
+                }));
+            }
+        }
+        let mut views = Vec::new();
+        if want_views {
+            for v in att.db.views.values() {
+                if name_filter.is_some_and(|f| !v.name.eq_ignore_ascii_case(f)) {
+                    continue;
+                }
+                views.push(serde_json::json!({
+                    "database": db_key,
+                    "name": v.name,
+                    "sql": v.sql,
+                }));
+            }
+        }
+        let mut indices = Vec::new();
+        if want_indices {
+            for idx in att.db.indices.values() {
+                if name_filter.is_some_and(|f| !idx.name.eq_ignore_ascii_case(f)) {
+                    continue;
+                }
+                indices.push(serde_json::json!({
+                    "database": db_key,
+                    "name": idx.name,
+                    "sql": idx.sql,
+                    "table": idx.table,
+                }));
+            }
+        }
+        let mut triggers = Vec::new();
+        if want_triggers {
+            for tr in att.db.triggers.values() {
+                if name_filter.is_some_and(|f| !tr.name.eq_ignore_ascii_case(f)) {
+                    continue;
+                }
+                triggers.push(serde_json::json!({
+                    "database": db_key,
+                    "name": tr.name,
+                    "sql": tr.sql,
+                    "table": tr.table,
+                }));
+            }
+        }
+        if name_filter.is_some()
+            && tables.is_empty()
+            && views.is_empty()
+            && indices.is_empty()
+            && triggers.is_empty()
+        {
+            return Err(AirSqlError::new(
+                "schema",
+                "No schema objects matched the requested filter.",
+                3115,
+            ));
+        }
+        Ok(serde_json::json!({
+            "tables": tables,
+            "views": views,
+            "indices": indices,
+            "triggers": triggers,
+        })
+        .to_string())
+    }
+
+    pub fn sql_execute_json(
+        &mut self,
+        conn_id: u32,
+        sql_text: &str,
+        params_json: &str,
+        now_ms: f64,
+    ) -> Result<String, AirSqlError> {
+        let params: BTreeMap<String, SqlValue> = if params_json.trim().is_empty() {
+            BTreeMap::new()
+        } else {
+            serde_json::from_str(params_json).map_err(|e| {
+                AirSqlError::new("execute", format!("Invalid SQL parameters JSON: {e}"), 3115)
+            })?
+        };
+        let toks = tokenize_sql(sql_text)?;
+        let mut p = SqlParser::new(&toks);
+        while p.eat(&Tok::Semi) {}
+        if p.at_end() {
+            return Err(AirSqlError::new(
+                "execute",
+                "SQLStatement.text must not be empty.",
+                3115,
+            ));
+        }
+        let head = match p.peek() {
+            Some(Tok::Word(w)) => w.to_ascii_uppercase(),
+            _ => {
+                return Err(AirSqlError::new(
+                    "execute",
+                    "SQL statement must begin with a command keyword.",
+                    3115,
+                ));
+            }
+        };
+
+        let mut columns: Vec<String> = Vec::new();
+        let mut rows_out: Vec<Vec<SqlValue>> = Vec::new();
+        let mut rows_affected: usize = 0;
+        let mut update_events: Vec<SqlUpdateRecord> = Vec::new();
+        let mut mutated = false;
+
+        match head.as_str() {
+            "BEGIN" => {
+                p.pos += 1;
+                let lock = if p.eat_kw("DEFERRED") {
+                    Some("deferred")
+                } else if p.eat_kw("IMMEDIATE") {
+                    Some("immediate")
+                } else if p.eat_kw("EXCLUSIVE") {
+                    Some("exclusive")
+                } else {
+                    None
+                };
+                p.eat_kw("TRANSACTION");
+                self.sql_begin(conn_id, lock)?;
+            }
+            "COMMIT" | "END" => {
+                p.pos += 1;
+                p.eat_kw("TRANSACTION");
+                self.sql_commit(conn_id, now_ms)?;
+            }
+            "ROLLBACK" => {
+                p.pos += 1;
+                p.eat_kw("TRANSACTION");
+                if p.eat_kw("TO") {
+                    p.eat_kw("SAVEPOINT");
+                    let sp = p.ident()?;
+                    self.sql_rollback_to_savepoint(conn_id, Some(&sp))?;
+                } else {
+                    self.sql_rollback(conn_id)?;
+                }
+            }
+            "SAVEPOINT" => {
+                p.pos += 1;
+                let sp = p.ident()?;
+                self.sql_set_savepoint(conn_id, Some(&sp))?;
+            }
+            "RELEASE" => {
+                p.pos += 1;
+                p.eat_kw("SAVEPOINT");
+                let sp = p.ident()?;
+                self.sql_release_savepoint(conn_id, Some(&sp), now_ms)?;
+            }
+            "CREATE" => {
+                p.pos += 1;
+                let unique = p.eat_kw("UNIQUE");
+                p.eat_kw("TEMP");
+                p.eat_kw("TEMPORARY");
+                if p.eat_kw("TABLE") {
+                    let if_not_exists = if p.eat_kw("IF") {
+                        p.expect_kw("NOT")?;
+                        p.expect_kw("EXISTS")?;
+                        true
+                    } else {
+                        false
+                    };
+                    let (db_opt, tbl_name) = p.qualified_name()?;
+                    p.expect(&Tok::LParen)?;
+                    let mut col_defs = Vec::new();
+                    let mut table_pk_cols = Vec::new();
+                    while !p.eat(&Tok::RParen) {
+                        if p.eat_kw("CONSTRAINT") {
+                            let _ = p.ident()?;
+                        }
+                        if p.eat_kw("PRIMARY") {
+                            p.expect_kw("KEY")?;
+                            p.expect(&Tok::LParen)?;
+                            loop {
+                                table_pk_cols.push(p.ident()?);
+                                if !p.eat(&Tok::Comma) {
+                                    break;
+                                }
+                            }
+                            p.expect(&Tok::RParen)?;
+                        } else if p.eat_kw("UNIQUE") || p.eat_kw("CHECK") || p.eat_kw("FOREIGN") {
+                            let mut depth = 0usize;
+                            while p.pos < p.toks.len() {
+                                if p.eat(&Tok::LParen) {
+                                    depth += 1;
+                                } else if p.peek() == Some(&Tok::RParen) {
+                                    if depth == 0 {
+                                        break;
+                                    }
+                                    p.pos += 1;
+                                    depth -= 1;
+                                } else if depth == 0 && p.peek() == Some(&Tok::Comma) {
+                                    break;
+                                } else {
+                                    p.pos += 1;
+                                }
+                            }
+                        } else {
+                            col_defs.push(p.parse_column_def()?);
+                        }
+                        if !p.eat(&Tok::Comma) {
+                            p.expect(&Tok::RParen)?;
+                            break;
+                        }
+                    }
+                    for pk in table_pk_cols {
+                        if let Some(c) = col_defs
+                            .iter_mut()
+                            .find(|c| c.name.eq_ignore_ascii_case(&pk))
+                        {
+                            c.primary_key = true;
+                        }
+                    }
+                    if col_defs.is_empty() {
+                        return Err(AirSqlError::new(
+                            "execute",
+                            "CREATE TABLE requires at least one column.",
+                            3115,
+                        ));
+                    }
+                    let att = self.att_mut(conn_id, db_opt.as_deref(), true)?;
+                    let key = tbl_name.to_ascii_lowercase();
+                    if att.db.tables.contains_key(&key) {
+                        if !if_not_exists {
+                            return Err(AirSqlError::new(
+                                "execute",
+                                format!("Table '{tbl_name}' already exists."),
+                                3115,
+                            ));
+                        }
+                    } else {
+                        if att.db.tables.len() >= MAX_AIR_SQL_TABLES {
+                            return Err(AirSqlError::new(
+                                "execute",
+                                "SQL database table count limit (256) exceeded.",
+                                3115,
+                            ));
+                        }
+                        att.db.tables.insert(
+                            key,
+                            SqlTable {
+                                name: tbl_name,
+                                sql: sql_text.trim().trim_end_matches(';').to_owned(),
+                                columns: col_defs,
+                                rows: Vec::new(),
+                                next_rowid: 1,
+                            },
+                        );
+                        mutated = true;
+                    }
+                } else if p.eat_kw("INDEX") {
+                    let if_not_exists = if p.eat_kw("IF") {
+                        p.expect_kw("NOT")?;
+                        p.expect_kw("EXISTS")?;
+                        true
+                    } else {
+                        false
+                    };
+                    let (db_opt, idx_name) = p.qualified_name()?;
+                    p.expect_kw("ON")?;
+                    let tbl_name = p.ident()?;
+                    p.expect(&Tok::LParen)?;
+                    let mut idx_cols = Vec::new();
+                    loop {
+                        idx_cols.push(p.ident()?);
+                        p.eat_kw("COLLATE");
+                        if matches!(p.peek(), Some(Tok::Word(w)) if w.eq_ignore_ascii_case("NOCASE") || w.eq_ignore_ascii_case("BINARY"))
+                        {
+                            p.pos += 1;
+                        }
+                        p.eat_kw("ASC");
+                        p.eat_kw("DESC");
+                        if !p.eat(&Tok::Comma) {
+                            break;
+                        }
+                    }
+                    p.expect(&Tok::RParen)?;
+                    let att = self.att_mut(conn_id, db_opt.as_deref(), true)?;
+                    let tbl_key = tbl_name.to_ascii_lowercase();
+                    let actual_tbl = att
+                        .db
+                        .tables
+                        .get(&tbl_key)
+                        .map(|t| t.name.clone())
+                        .ok_or_else(|| {
+                            AirSqlError::new(
+                                "execute",
+                                format!("No such table '{tbl_name}'."),
+                                3115,
+                            )
+                        })?;
+                    let key = idx_name.to_ascii_lowercase();
+                    match att.db.indices.entry(key) {
+                        std::collections::btree_map::Entry::Occupied(_) => {
+                            if !if_not_exists {
+                                return Err(AirSqlError::new(
+                                    "execute",
+                                    format!("Index '{idx_name}' already exists."),
+                                    3115,
+                                ));
+                            }
+                        }
+                        std::collections::btree_map::Entry::Vacant(entry) => {
+                            entry.insert(SqlIndexMeta {
+                                name: idx_name,
+                                table: actual_tbl,
+                                sql: sql_text.trim().trim_end_matches(';').to_owned(),
+                                unique,
+                                columns: idx_cols,
+                            });
+                            mutated = true;
+                        }
+                    }
+                } else if p.eat_kw("VIEW") {
+                    let if_not_exists = if p.eat_kw("IF") {
+                        p.expect_kw("NOT")?;
+                        p.expect_kw("EXISTS")?;
+                        true
+                    } else {
+                        false
+                    };
+                    let (db_opt, view_name) = p.qualified_name()?;
+                    p.expect_kw("AS")?;
+                    let upper_src = sql_text.to_ascii_uppercase();
+                    let select_sql = if let Some(as_idx) = upper_src.find(" AS ") {
+                        sql_text[as_idx + 4..]
+                            .trim()
+                            .trim_end_matches(';')
+                            .to_owned()
+                    } else {
+                        "SELECT 1".to_owned()
+                    };
+                    let _ = p.parse_select()?;
+                    let att = self.att_mut(conn_id, db_opt.as_deref(), true)?;
+                    let key = view_name.to_ascii_lowercase();
+                    match att.db.views.entry(key) {
+                        std::collections::btree_map::Entry::Occupied(_) => {
+                            if !if_not_exists {
+                                return Err(AirSqlError::new(
+                                    "execute",
+                                    format!("View '{view_name}' already exists."),
+                                    3115,
+                                ));
+                            }
+                        }
+                        std::collections::btree_map::Entry::Vacant(entry) => {
+                            entry.insert(SqlViewMeta {
+                                name: view_name,
+                                sql: sql_text.trim().trim_end_matches(';').to_owned(),
+                                select_sql,
+                            });
+                            mutated = true;
+                        }
+                    }
+                } else if p.eat_kw("TRIGGER") {
+                    let if_not_exists = if p.eat_kw("IF") {
+                        p.expect_kw("NOT")?;
+                        p.expect_kw("EXISTS")?;
+                        true
+                    } else {
+                        false
+                    };
+                    let (db_opt, trig_name) = p.qualified_name()?;
+                    while !p.at_end() && !p.eat_kw("ON") {
+                        p.pos += 1;
+                    }
+                    let tbl_name = p.ident().unwrap_or_default();
+                    let att = self.att_mut(conn_id, db_opt.as_deref(), true)?;
+                    let key = trig_name.to_ascii_lowercase();
+                    match att.db.triggers.entry(key) {
+                        std::collections::btree_map::Entry::Vacant(entry) => {
+                            entry.insert(SqlTriggerMeta {
+                                name: trig_name,
+                                table: tbl_name,
+                                sql: sql_text.trim().to_owned(),
+                            });
+                            mutated = true;
+                        }
+                        std::collections::btree_map::Entry::Occupied(_) if !if_not_exists => {
+                            return Err(AirSqlError::new(
+                                "execute",
+                                "Trigger already exists.",
+                                3115,
+                            ));
+                        }
+                        std::collections::btree_map::Entry::Occupied(_) => {}
+                    }
+                } else {
+                    return Err(AirSqlError::new(
+                        "execute",
+                        "Unsupported CREATE target; expected TABLE, INDEX, VIEW or TRIGGER.",
+                        3115,
+                    ));
+                }
+            }
+            "DROP" => {
+                p.pos += 1;
+                let kind = p.ident()?.to_ascii_uppercase();
+                let if_exists = if p.eat_kw("IF") {
+                    p.expect_kw("EXISTS")?;
+                    true
+                } else {
+                    false
+                };
+                let (db_opt, obj_name) = p.qualified_name()?;
+                let att = self.att_mut(conn_id, db_opt.as_deref(), true)?;
+                let key = obj_name.to_ascii_lowercase();
+                let removed = match kind.as_str() {
+                    "TABLE" => {
+                        let existed = att.db.tables.remove(&key);
+                        if let Some(t) = &existed {
+                            att.db
+                                .indices
+                                .retain(|_, idx| !idx.table.eq_ignore_ascii_case(&t.name));
+                            att.db
+                                .triggers
+                                .retain(|_, tr| !tr.table.eq_ignore_ascii_case(&t.name));
+                        }
+                        existed.is_some()
+                    }
+                    "INDEX" => att.db.indices.remove(&key).is_some(),
+                    "VIEW" => att.db.views.remove(&key).is_some(),
+                    "TRIGGER" => att.db.triggers.remove(&key).is_some(),
+                    _ => {
+                        return Err(AirSqlError::new(
+                            "execute",
+                            format!("Unsupported DROP {kind}."),
+                            3115,
+                        ));
+                    }
+                };
+                if !removed && !if_exists {
+                    return Err(AirSqlError::new(
+                        "execute",
+                        format!("No such {} '{obj_name}'.", kind.to_ascii_lowercase()),
+                        3115,
+                    ));
+                }
+                mutated = removed;
+            }
+            "ALTER" => {
+                p.pos += 1;
+                p.expect_kw("TABLE")?;
+                let (db_opt, tbl_name) = p.qualified_name()?;
+                if p.eat_kw("RENAME") {
+                    p.expect_kw("TO")?;
+                    let new_name = p.ident()?;
+                    let att = self.att_mut(conn_id, db_opt.as_deref(), true)?;
+                    let old_key = tbl_name.to_ascii_lowercase();
+                    let new_key = new_name.to_ascii_lowercase();
+                    if att.db.tables.contains_key(&new_key) {
+                        return Err(AirSqlError::new(
+                            "execute",
+                            format!("Table '{new_name}' already exists."),
+                            3115,
+                        ));
+                    }
+                    let mut tbl = att.db.tables.remove(&old_key).ok_or_else(|| {
+                        AirSqlError::new("execute", format!("No such table '{tbl_name}'."), 3115)
+                    })?;
+                    tbl.name = new_name;
+                    att.db.tables.insert(new_key, tbl);
+                    mutated = true;
+                } else if p.eat_kw("ADD") {
+                    p.eat_kw("COLUMN");
+                    let col = p.parse_column_def()?;
+                    let att = self.att_mut(conn_id, db_opt.as_deref(), true)?;
+                    let tbl = att
+                        .db
+                        .tables
+                        .get_mut(&tbl_name.to_ascii_lowercase())
+                        .ok_or_else(|| {
+                            AirSqlError::new(
+                                "execute",
+                                format!("No such table '{tbl_name}'."),
+                                3115,
+                            )
+                        })?;
+                    if tbl
+                        .columns
+                        .iter()
+                        .any(|c| c.name.eq_ignore_ascii_case(&col.name))
+                    {
+                        return Err(AirSqlError::new(
+                            "execute",
+                            format!("Duplicate column name '{}'.", col.name),
+                            3115,
+                        ));
+                    }
+                    let def_val = col.default_value.clone().unwrap_or(SqlValue::Null);
+                    for row in &mut tbl.rows {
+                        row.values.push(def_val.clone());
+                    }
+                    tbl.columns.push(col);
+                    mutated = true;
+                } else {
+                    return Err(AirSqlError::new(
+                        "execute",
+                        "Unsupported ALTER TABLE action.",
+                        3115,
+                    ));
+                }
+            }
+            "INSERT" | "REPLACE" => {
+                let mut conflict = if head == "REPLACE" {
+                    "replace"
+                } else {
+                    "abort"
+                };
+                p.pos += 1;
+                if head == "INSERT" && p.eat_kw("OR") {
+                    if p.eat_kw("REPLACE") {
+                        conflict = "replace";
+                    } else if p.eat_kw("IGNORE") {
+                        conflict = "ignore";
+                    } else {
+                        let _ = p.ident()?;
+                    }
+                }
+                p.expect_kw("INTO")?;
+                let (db_opt, tbl_name) = p.qualified_name()?;
+                let mut target_cols = Vec::new();
+                if p.eat(&Tok::LParen) {
+                    loop {
+                        target_cols.push(p.ident()?);
+                        if !p.eat(&Tok::Comma) {
+                            break;
+                        }
+                    }
+                    p.expect(&Tok::RParen)?;
+                }
+                let mut tuples: Vec<Vec<SqlExpr>> = Vec::new();
+                if p.eat_kw("DEFAULT") {
+                    p.expect_kw("VALUES")?;
+                    tuples.push(Vec::new());
+                } else {
+                    p.expect_kw("VALUES")?;
+                    loop {
+                        p.expect(&Tok::LParen)?;
+                        let mut tuple = Vec::new();
+                        if !p.eat(&Tok::RParen) {
+                            loop {
+                                tuple.push(p.expr()?);
+                                if !p.eat(&Tok::Comma) {
+                                    break;
+                                }
+                            }
+                            p.expect(&Tok::RParen)?;
+                        }
+                        tuples.push(tuple);
+                        if !p.eat(&Tok::Comma) {
+                            break;
+                        }
+                    }
+                }
+
+                let mut last_rowid = self.conn(conn_id, "execute")?.last_insert_rowid;
+                {
+                    let att = self.att_mut(conn_id, db_opt.as_deref(), true)?;
+                    let tbl = att
+                        .db
+                        .tables
+                        .get_mut(&tbl_name.to_ascii_lowercase())
+                        .ok_or_else(|| {
+                            AirSqlError::new(
+                                "execute",
+                                format!("No such table '{tbl_name}'."),
+                                3115,
+                            )
+                        })?;
+                    let col_indices: Vec<usize> = if target_cols.is_empty() {
+                        (0..tbl.columns.len()).collect()
+                    } else {
+                        let mut idxs = Vec::with_capacity(target_cols.len());
+                        for tc in &target_cols {
+                            let idx = tbl
+                                .columns
+                                .iter()
+                                .position(|c| c.name.eq_ignore_ascii_case(tc))
+                                .ok_or_else(|| {
+                                    AirSqlError::new(
+                                        "execute",
+                                        format!("Table '{}' has no column named '{tc}'.", tbl.name),
+                                        3115,
+                                    )
+                                })?;
+                            idxs.push(idx);
+                        }
+                        idxs
+                    };
+
+                    for tuple in tuples {
+                        if !tuple.is_empty() && tuple.len() != col_indices.len() {
+                            return Err(AirSqlError::new(
+                                "execute",
+                                format!(
+                                    "{} values for {} columns.",
+                                    tuple.len(),
+                                    col_indices.len()
+                                ),
+                                3115,
+                            ));
+                        }
+                        if tbl.rows.len() >= MAX_AIR_SQL_ROWS {
+                            return Err(AirSqlError::new(
+                                "execute",
+                                "SQL table row limit (32768) exceeded.",
+                                3115,
+                            ));
+                        }
+                        let mut row_vals: Vec<SqlValue> = tbl
+                            .columns
+                            .iter()
+                            .map(|c| c.default_value.clone().unwrap_or(SqlValue::Null))
+                            .collect();
+                        for (pos, expr) in tuple.iter().enumerate() {
+                            let v = eval_sql_expr(expr, &[], None, None, &params, None)?;
+                            let cidx = col_indices[pos];
+                            row_vals[cidx] = v.coerce_affinity(&tbl.columns[cidx].data_type);
+                        }
+                        // Integer PK / rowid assignment
+                        let mut assigned_rowid = tbl.next_rowid;
+                        for (cidx, col) in tbl.columns.iter().enumerate() {
+                            if col.primary_key && col.auto_increment {
+                                match &row_vals[cidx] {
+                                    SqlValue::Null => {
+                                        row_vals[cidx] = SqlValue::Int(assigned_rowid);
+                                    }
+                                    SqlValue::Int(n) => {
+                                        assigned_rowid = *n;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            if !col.allow_null && row_vals[cidx].is_null() && !col.auto_increment {
+                                return Err(AirSqlError::new(
+                                    "execute",
+                                    format!(
+                                        "NOT NULL constraint failed: {}.{}",
+                                        tbl.name, col.name
+                                    ),
+                                    3131,
+                                ));
+                            }
+                        }
+                        // Check PK / UNIQUE constraint conflicts
+                        let mut conflict_rows = Vec::new();
+                        for (r_idx, existing) in tbl.rows.iter().enumerate() {
+                            let mut clashes = existing.rowid == assigned_rowid;
+                            if !clashes {
+                                for (cidx, col) in tbl.columns.iter().enumerate() {
+                                    if (col.primary_key || col.unique) && !row_vals[cidx].is_null()
+                                    {
+                                        let nocase = col.default_collation_type == "NO_CASE";
+                                        if existing.values[cidx].cmp_sql(&row_vals[cidx], nocase)
+                                            == std::cmp::Ordering::Equal
+                                        {
+                                            clashes = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            if clashes {
+                                conflict_rows.push(r_idx);
+                            }
+                        }
+                        if !conflict_rows.is_empty() {
+                            match conflict {
+                                "ignore" => continue,
+                                "replace" => {
+                                    for r_idx in conflict_rows.into_iter().rev() {
+                                        tbl.rows.remove(r_idx);
+                                    }
+                                }
+                                _ => {
+                                    return Err(AirSqlError::new(
+                                        "execute",
+                                        format!(
+                                            "UNIQUE constraint failed on table '{}'.",
+                                            tbl.name
+                                        ),
+                                        3131,
+                                    ));
+                                }
+                            }
+                        }
+                        if assigned_rowid >= tbl.next_rowid {
+                            tbl.next_rowid = assigned_rowid + 1;
+                        }
+                        tbl.rows.push(SqlRow {
+                            rowid: assigned_rowid,
+                            values: row_vals,
+                        });
+                        last_rowid = assigned_rowid;
+                        rows_affected += 1;
+                        update_events.push(SqlUpdateRecord {
+                            action: "insert".to_owned(),
+                            table: tbl.name.clone(),
+                            row_id: assigned_rowid,
+                        });
+                    }
+                }
+                if rows_affected > 0 {
+                    let conn = self.conn_mut(conn_id, "execute")?;
+                    conn.last_insert_rowid = last_rowid;
+                    conn.total_changes += rows_affected as u64;
+                    mutated = true;
+                }
+            }
+            "UPDATE" => {
+                p.pos += 1;
+                let (db_opt, tbl_name) = p.qualified_name()?;
+                p.expect_kw("SET")?;
+                let mut assignments: Vec<(String, SqlExpr)> = Vec::new();
+                loop {
+                    let col = p.ident()?;
+                    p.expect(&Tok::Eq)?;
+                    let val_expr = p.expr()?;
+                    assignments.push((col, val_expr));
+                    if !p.eat(&Tok::Comma) {
+                        break;
+                    }
+                }
+                let where_expr = if p.eat_kw("WHERE") {
+                    Some(p.expr()?)
+                } else {
+                    None
+                };
+                {
+                    let att = self.att_mut(conn_id, db_opt.as_deref(), true)?;
+                    let tbl = att
+                        .db
+                        .tables
+                        .get_mut(&tbl_name.to_ascii_lowercase())
+                        .ok_or_else(|| {
+                            AirSqlError::new(
+                                "execute",
+                                format!("No such table '{tbl_name}'."),
+                                3115,
+                            )
+                        })?;
+                    let eval_cols: Vec<EvalColMeta> = tbl
+                        .columns
+                        .iter()
+                        .map(|c| EvalColMeta {
+                            table_name: tbl.name.clone(),
+                            table_alias: tbl.name.clone(),
+                            col_name: c.name.clone(),
+                            nocase: c.default_collation_type == "NO_CASE",
+                        })
+                        .collect();
+                    let mut target_idxs = Vec::with_capacity(assignments.len());
+                    for (col_name, _) in &assignments {
+                        let cidx = tbl
+                            .columns
+                            .iter()
+                            .position(|c| c.name.eq_ignore_ascii_case(col_name))
+                            .ok_or_else(|| {
+                                AirSqlError::new(
+                                    "execute",
+                                    format!("No such column '{col_name}'."),
+                                    3115,
+                                )
+                            })?;
+                        target_idxs.push(cidx);
+                    }
+                    for row in &mut tbl.rows {
+                        let erow = EvalRow {
+                            rowid: Some(row.rowid),
+                            values: row.values.clone(),
+                        };
+                        if let Some(w) = &where_expr
+                            && !eval_sql_expr(w, &eval_cols, Some(&erow), None, &params, None)?
+                                .truthy()
+                        {
+                            continue;
+                        }
+                        let mut next_vals = row.values.clone();
+                        for (pos, (_, expr)) in assignments.iter().enumerate() {
+                            let cidx = target_idxs[pos];
+                            let v =
+                                eval_sql_expr(expr, &eval_cols, Some(&erow), None, &params, None)?;
+                            let coerced = v.coerce_affinity(&tbl.columns[cidx].data_type);
+                            if !tbl.columns[cidx].allow_null && coerced.is_null() {
+                                return Err(AirSqlError::new(
+                                    "execute",
+                                    format!(
+                                        "NOT NULL constraint failed: {}.{}",
+                                        tbl.name, tbl.columns[cidx].name
+                                    ),
+                                    3131,
+                                ));
+                            }
+                            next_vals[cidx] = coerced;
+                        }
+                        row.values = next_vals;
+                        rows_affected += 1;
+                        update_events.push(SqlUpdateRecord {
+                            action: "update".to_owned(),
+                            table: tbl.name.clone(),
+                            row_id: row.rowid,
+                        });
+                    }
+                }
+                if rows_affected > 0 {
+                    self.conn_mut(conn_id, "execute")?.total_changes += rows_affected as u64;
+                    mutated = true;
+                }
+            }
+            "DELETE" => {
+                p.pos += 1;
+                p.expect_kw("FROM")?;
+                let (db_opt, tbl_name) = p.qualified_name()?;
+                let where_expr = if p.eat_kw("WHERE") {
+                    Some(p.expr()?)
+                } else {
+                    None
+                };
+                {
+                    let att = self.att_mut(conn_id, db_opt.as_deref(), true)?;
+                    let tbl = att
+                        .db
+                        .tables
+                        .get_mut(&tbl_name.to_ascii_lowercase())
+                        .ok_or_else(|| {
+                            AirSqlError::new(
+                                "execute",
+                                format!("No such table '{tbl_name}'."),
+                                3115,
+                            )
+                        })?;
+                    let eval_cols: Vec<EvalColMeta> = tbl
+                        .columns
+                        .iter()
+                        .map(|c| EvalColMeta {
+                            table_name: tbl.name.clone(),
+                            table_alias: tbl.name.clone(),
+                            col_name: c.name.clone(),
+                            nocase: c.default_collation_type == "NO_CASE",
+                        })
+                        .collect();
+                    let mut kept = Vec::with_capacity(tbl.rows.len());
+                    for row in tbl.rows.drain(..) {
+                        let erow = EvalRow {
+                            rowid: Some(row.rowid),
+                            values: row.values.clone(),
+                        };
+                        let should_del = match &where_expr {
+                            Some(w) => {
+                                eval_sql_expr(w, &eval_cols, Some(&erow), None, &params, None)?
+                                    .truthy()
+                            }
+                            None => true,
+                        };
+                        if should_del {
+                            rows_affected += 1;
+                            update_events.push(SqlUpdateRecord {
+                                action: "delete".to_owned(),
+                                table: tbl.name.clone(),
+                                row_id: row.rowid,
+                            });
+                        } else {
+                            kept.push(row);
+                        }
+                    }
+                    tbl.rows = kept;
+                }
+                if rows_affected > 0 {
+                    self.conn_mut(conn_id, "execute")?.total_changes += rows_affected as u64;
+                    mutated = true;
+                }
+            }
+            "SELECT" => {
+                let plan = p.parse_select()?;
+                let (cols, rows) = self.eval_select_plan(conn_id, &plan, &params, 0)?;
+                columns = cols;
+                rows_out = rows;
+            }
+            other => {
+                return Err(AirSqlError::new(
+                    "execute",
+                    format!("Unsupported SQL command '{other}'."),
+                    3115,
+                ));
+            }
+        }
+
+        if mutated {
+            self.persist_conn(conn_id, "execute", now_ms)?;
+        }
+        let last_rowid = self.conns.get(&conn_id).map_or(0, |c| c.last_insert_rowid);
+        Ok(serde_json::json!({
+            "columns": columns,
+            "rows": rows_out,
+            "rowsAffected": rows_affected,
+            "lastInsertRowID": last_rowid,
+            "updateEvents": update_events,
+        })
+        .to_string())
+    }
+
+    fn att_ref(&self, conn_id: u32, db_opt: Option<&str>) -> Result<&AttachedDb, AirSqlError> {
+        let conn = self.conn(conn_id, "execute")?;
+        let key = db_opt
+            .map(|s| s.to_ascii_lowercase())
+            .unwrap_or_else(|| "main".to_owned());
+        conn.attached
+            .get(&key)
+            .ok_or_else(|| AirSqlError::new("execute", format!("No such database '{key}'."), 3115))
+    }
+
+    fn att_mut(
+        &mut self,
+        conn_id: u32,
+        db_opt: Option<&str>,
+        write: bool,
+    ) -> Result<&mut AttachedDb, AirSqlError> {
+        let conn = self.conn_mut(conn_id, "execute")?;
+        let key = db_opt
+            .map(|s| s.to_ascii_lowercase())
+            .unwrap_or_else(|| "main".to_owned());
+        let att = conn.attached.get_mut(&key).ok_or_else(|| {
+            AirSqlError::new("execute", format!("No such database '{key}'."), 3115)
+        })?;
+        if write && att.read_only {
+            return Err(AirSqlError::new(
+                "execute",
+                "Attempt to write a readonly database.",
+                3132,
+            ));
+        }
+        Ok(att)
+    }
+
+    fn load_table_or_view(
+        &self,
+        conn_id: u32,
+        db_opt: Option<&str>,
+        name: &str,
+        alias_opt: Option<&str>,
+        params: &BTreeMap<String, SqlValue>,
+        depth: usize,
+    ) -> Result<(Vec<EvalColMeta>, Vec<EvalRow>), AirSqlError> {
+        if depth > 8 {
+            return Err(AirSqlError::new(
+                "execute",
+                "Recursive SQL view depth exceeded.",
+                3115,
+            ));
+        }
+        let att = self.att_ref(conn_id, db_opt)?;
+        let key = name.to_ascii_lowercase();
+        if let Some(tbl) = att.db.tables.get(&key) {
+            let alias = alias_opt.unwrap_or(&tbl.name).to_owned();
+            let cols = tbl
+                .columns
+                .iter()
+                .map(|c| EvalColMeta {
+                    table_name: tbl.name.clone(),
+                    table_alias: alias.clone(),
+                    col_name: c.name.clone(),
+                    nocase: c.default_collation_type == "NO_CASE",
+                })
+                .collect();
+            let rows = tbl
+                .rows
+                .iter()
+                .map(|r| EvalRow {
+                    rowid: Some(r.rowid),
+                    values: r.values.clone(),
+                })
+                .collect();
+            return Ok((cols, rows));
+        }
+        if let Some(view) = att.db.views.get(&key) {
+            let vtoks = tokenize_sql(&view.select_sql)?;
+            let mut vp = SqlParser::new(&vtoks);
+            let vplan = vp.parse_select()?;
+            let (vcols, vrows) = self.eval_select_plan(conn_id, &vplan, params, depth + 1)?;
+            let alias = alias_opt.unwrap_or(&view.name).to_owned();
+            let cols = vcols
+                .into_iter()
+                .map(|cn| EvalColMeta {
+                    table_name: view.name.clone(),
+                    table_alias: alias.clone(),
+                    col_name: cn,
+                    nocase: false,
+                })
+                .collect();
+            let rows = vrows
+                .into_iter()
+                .map(|vals| EvalRow {
+                    rowid: None,
+                    values: vals,
+                })
+                .collect();
+            return Ok((cols, rows));
+        }
+        Err(AirSqlError::new(
+            "execute",
+            format!("No such table '{name}'."),
+            3115,
+        ))
+    }
+
+    fn eval_select_plan(
+        &self,
+        conn_id: u32,
+        plan: &SelectPlan,
+        params: &BTreeMap<String, SqlValue>,
+        depth: usize,
+    ) -> Result<(Vec<String>, Vec<Vec<SqlValue>>), AirSqlError> {
+        let long_style = self.conn(conn_id, "execute")?.column_name_style == "long";
+        let (mut working_cols, mut working_rows) = if let Some(from_tbl) = &plan.from_table {
+            self.load_table_or_view(
+                conn_id,
+                plan.from_db.as_deref(),
+                from_tbl,
+                plan.from_alias.as_deref(),
+                params,
+                depth,
+            )?
+        } else {
+            (
+                Vec::new(),
+                vec![EvalRow {
+                    rowid: None,
+                    values: Vec::new(),
+                }],
+            )
+        };
+
+        for join in &plan.joins {
+            let (rcols, rrows) = self.load_table_or_view(
+                conn_id,
+                join.db.as_deref(),
+                &join.table,
+                join.alias.as_deref(),
+                params,
+                depth,
+            )?;
+            let r_width = rcols.len();
+            let mut combined_cols = working_cols.clone();
+            combined_cols.extend(rcols);
+            let mut next_rows = Vec::new();
+            for lrow in &working_rows {
+                let mut matched_any = false;
+                for rrow in &rrows {
+                    let mut vals = lrow.values.clone();
+                    vals.extend(rrow.values.clone());
+                    let candidate = EvalRow {
+                        rowid: lrow.rowid,
+                        values: vals,
+                    };
+                    let ok = match &join.on {
+                        Some(on_expr) => eval_sql_expr(
+                            on_expr,
+                            &combined_cols,
+                            Some(&candidate),
+                            None,
+                            params,
+                            None,
+                        )?
+                        .truthy(),
+                        None => true,
+                    };
+                    if ok {
+                        matched_any = true;
+                        next_rows.push(candidate);
+                    }
+                }
+                if !matched_any && join.left_outer {
+                    let mut vals = lrow.values.clone();
+                    vals.extend(std::iter::repeat_n(SqlValue::Null, r_width));
+                    next_rows.push(EvalRow {
+                        rowid: lrow.rowid,
+                        values: vals,
+                    });
+                }
+            }
+            working_cols = combined_cols;
+            working_rows = next_rows;
+        }
+
+        if let Some(w) = &plan.where_expr {
+            let mut filtered = Vec::with_capacity(working_rows.len());
+            for row in working_rows {
+                if eval_sql_expr(w, &working_cols, Some(&row), None, params, None)?.truthy() {
+                    filtered.push(row);
+                }
+            }
+            working_rows = filtered;
+        }
+
+        // Expand projection items (`*`, `alias.*`, expressions)
+        let mut proj_names: Vec<String> = Vec::new();
+        let mut proj_exprs: Vec<SqlExpr> = Vec::new();
+        for item in &plan.items {
+            match item {
+                SelectItem::All(tbl_filter) => {
+                    for c in &working_cols {
+                        if let Some(tf) = tbl_filter
+                            && !c.table_alias.eq_ignore_ascii_case(tf)
+                            && !c.table_name.eq_ignore_ascii_case(tf)
+                        {
+                            continue;
+                        }
+                        let out_name = if long_style {
+                            format!("{}_{}", c.table_alias, c.col_name)
+                        } else {
+                            c.col_name.clone()
+                        };
+                        proj_names.push(out_name);
+                        proj_exprs.push(SqlExpr::Col {
+                            table: Some(c.table_alias.clone()),
+                            name: c.col_name.clone(),
+                        });
+                    }
+                }
+                SelectItem::Expr { expr, alias } => {
+                    let out_name = alias
+                        .clone()
+                        .unwrap_or_else(|| default_expr_column_name(expr, long_style));
+                    proj_names.push(out_name);
+                    proj_exprs.push(expr.clone());
+                }
+            }
+        }
+
+        let is_agg = !plan.group_by.is_empty()
+            || plan.having.is_some()
+            || proj_exprs.iter().any(expr_contains_aggregate);
+
+        let mut projected_with_ctx: Vec<ProjectedRowCtx> = Vec::new();
+
+        if is_agg {
+            let groups: Vec<Vec<EvalRow>> = if plan.group_by.is_empty() {
+                vec![working_rows]
+            } else {
+                let mut buckets: Vec<(Vec<SqlValue>, Vec<EvalRow>)> = Vec::new();
+                for row in working_rows {
+                    let mut key = Vec::with_capacity(plan.group_by.len());
+                    for gexpr in &plan.group_by {
+                        key.push(eval_sql_expr(
+                            gexpr,
+                            &working_cols,
+                            Some(&row),
+                            None,
+                            params,
+                            None,
+                        )?);
+                    }
+                    if let Some((_, bucket)) = buckets.iter_mut().find(|(k, _)| {
+                        k.len() == key.len()
+                            && k.iter()
+                                .zip(&key)
+                                .all(|(a, b)| a.cmp_sql(b, false) == std::cmp::Ordering::Equal)
+                    }) {
+                        bucket.push(row);
+                    } else {
+                        buckets.push((key, vec![row]));
+                    }
+                }
+                buckets.into_iter().map(|(_, b)| b).collect()
+            };
+
+            for grp in groups {
+                let mut pvals = Vec::with_capacity(proj_exprs.len());
+                for pexpr in &proj_exprs {
+                    pvals.push(eval_sql_expr(
+                        pexpr,
+                        &working_cols,
+                        grp.first(),
+                        Some(&grp),
+                        params,
+                        None,
+                    )?);
+                }
+                if let Some(h) = &plan.having {
+                    let alias_pairs: Vec<(&str, SqlValue)> = proj_names
+                        .iter()
+                        .zip(&pvals)
+                        .map(|(n, v)| (n.as_str(), v.clone()))
+                        .collect();
+                    if !eval_sql_expr(
+                        h,
+                        &working_cols,
+                        grp.first(),
+                        Some(&grp),
+                        params,
+                        Some(&alias_pairs),
+                    )?
+                    .truthy()
+                    {
+                        continue;
+                    }
+                }
+                projected_with_ctx.push((pvals, None, Some(grp)));
+            }
+        } else {
+            for row in working_rows {
+                let mut pvals = Vec::with_capacity(proj_exprs.len());
+                for pexpr in &proj_exprs {
+                    pvals.push(eval_sql_expr(
+                        pexpr,
+                        &working_cols,
+                        Some(&row),
+                        None,
+                        params,
+                        None,
+                    )?);
+                }
+                projected_with_ctx.push((pvals, Some(row), None));
+            }
+        }
+
+        if plan.distinct {
+            let mut unique_rows: Vec<ProjectedRowCtx> = Vec::new();
+            for item in projected_with_ctx {
+                if !unique_rows.iter().any(|(existing, _, _)| {
+                    existing.len() == item.0.len()
+                        && existing
+                            .iter()
+                            .zip(&item.0)
+                            .all(|(a, b)| a.cmp_sql(b, false) == std::cmp::Ordering::Equal)
+                }) {
+                    unique_rows.push(item);
+                }
+            }
+            projected_with_ctx = unique_rows;
+        }
+
+        if !plan.order_by.is_empty() {
+            let mut keyed: Vec<OrderKeyedRow> = Vec::with_capacity(projected_with_ctx.len());
+            for (pvals, srow, sgrp) in projected_with_ctx {
+                let alias_pairs: Vec<(&str, SqlValue)> = proj_names
+                    .iter()
+                    .zip(&pvals)
+                    .map(|(n, v)| (n.as_str(), v.clone()))
+                    .collect();
+                let mut keys = Vec::with_capacity(plan.order_by.len());
+                for ob in &plan.order_by {
+                    let kv = if let SqlExpr::Lit(SqlValue::Int(pos_1)) = &ob.expr {
+                        let idx = (*pos_1 - 1) as usize;
+                        pvals.get(idx).cloned().unwrap_or(SqlValue::Null)
+                    } else {
+                        eval_sql_expr(
+                            &ob.expr,
+                            &working_cols,
+                            srow.as_ref()
+                                .or_else(|| sgrp.as_ref().and_then(|g| g.first())),
+                            sgrp.as_deref(),
+                            params,
+                            Some(&alias_pairs),
+                        )?
+                    };
+                    keys.push((kv, ob.desc));
+                }
+                keyed.push((keys, pvals));
+            }
+            keyed.sort_by(|(ka, _), (kb, _)| {
+                for ((va, desc), (vb, _)) in ka.iter().zip(kb.iter()) {
+                    let ord = va.cmp_sql(vb, false);
+                    if ord != std::cmp::Ordering::Equal {
+                        return if *desc { ord.reverse() } else { ord };
+                    }
+                }
+                std::cmp::Ordering::Equal
+            });
+            let mut all_rows: Vec<Vec<SqlValue>> = keyed.into_iter().map(|(_, p)| p).collect();
+            if plan.offset > 0 {
+                if plan.offset >= all_rows.len() {
+                    all_rows.clear();
+                } else {
+                    all_rows.drain(0..plan.offset);
+                }
+            }
+            if let Some(lim) = plan.limit {
+                all_rows.truncate(lim);
+            }
+            return Ok((proj_names, all_rows));
+        }
+
+        let mut all_rows: Vec<Vec<SqlValue>> =
+            projected_with_ctx.into_iter().map(|(p, _, _)| p).collect();
+        if plan.offset > 0 {
+            if plan.offset >= all_rows.len() {
+                all_rows.clear();
+            } else {
+                all_rows.drain(0..plan.offset);
+            }
+        }
+        if let Some(lim) = plan.limit {
+            all_rows.truncate(lim);
+        }
+        Ok((proj_names, all_rows))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn air_path_resolution_urls_and_relative_paths_follow_air_contract() {
+        assert_eq!(
+            normalize_air_path("app:/data/levels/1.json").unwrap(),
+            "/app/data/levels/1.json"
+        );
+        assert_eq!(
+            normalize_air_path("app-storage:/prefs/../save.bin").unwrap(),
+            "/app-storage/save.bin"
+        );
+        assert_eq!(
+            normalize_air_path("documents:/Notes/todo.txt").unwrap(),
+            "/user/Documents/Notes/todo.txt"
+        );
+        assert_eq!(
+            normalize_air_path("file:///user/Desktop/my%20file.png").unwrap(),
+            "/user/Desktop/my file.png"
+        );
+        assert_eq!(
+            resolve_air_path("/app-storage/profiles", "slot1/data.sav").unwrap(),
+            "/app-storage/profiles/slot1/data.sav"
+        );
+        assert_eq!(
+            relative_air_path("/user/Documents", "/user/Documents/work/report.txt", false).unwrap(),
+            Some("work/report.txt".to_owned())
+        );
+        assert_eq!(
+            relative_air_path("/user/Documents", "/user/Desktop/icon.png", false).unwrap(),
+            None
+        );
+        assert_eq!(
+            relative_air_path("/user/Documents", "/user/Desktop/icon.png", true).unwrap(),
+            Some("../Desktop/icon.png".to_owned())
+        );
+        assert_eq!(air_url_for_native_path("/app"), "app:/");
+        assert_eq!(
+            air_url_for_native_path("/app/assets/hero.png"),
+            "app:/assets/hero.png"
+        );
+        assert_eq!(
+            air_url_for_native_path("/app-storage/db/main.db"),
+            "app-storage:/db/main.db"
+        );
+    }
+
+    #[test]
+    fn air_virtual_filesystem_protects_app_and_supports_tree_operations() {
+        let res = vec![AirResourceInit {
+            path: "config/settings.txt".into(),
+            data_base64: BASE64.encode(b"hello-air"),
+        }];
+        let mut fs = AirFileSystem::new(&res, 1_700_000_000_000.0).unwrap();
+
+        let app_file = fs.info("/app/config/settings.txt").unwrap();
+        assert!(app_file.exists);
+        assert!(!app_file.is_directory);
+        assert_eq!(app_file.size, 9);
+        assert_eq!(app_file.extension.as_deref(), Some("txt"));
+        assert!(!app_file.writable);
+        assert_eq!(
+            fs.read_bytes("/app/config/settings.txt").unwrap(),
+            b"hello-air"
+        );
+
+        // Writing or deleting under app:/ fails with SecurityError
+        assert!(matches!(
+            fs.write_bytes("/app/new.txt", b"x", 1.0),
+            Err(AirError::Security(_))
+        ));
+        assert!(matches!(
+            fs.delete_file("/app/config/settings.txt"),
+            Err(AirError::Security(_))
+        ));
+
+        // Copy from app:/ into app-storage:/ works and becomes writable
+        fs.copy_to("/app/config", "/app-storage/backup", false, 2000.0)
+            .unwrap();
+        assert_eq!(
+            fs.read_bytes("/app-storage/backup/settings.txt").unwrap(),
+            b"hello-air"
+        );
+        fs.move_to(
+            "/app-storage/backup/settings.txt",
+            "/app-storage/backup/renamed.txt",
+            false,
+            3000.0,
+        )
+        .unwrap();
+        assert_eq!(
+            fs.list_directory("/app-storage/backup").unwrap(),
+            vec!["/app-storage/backup/renamed.txt".to_owned()]
+        );
+        // Non-empty deleteDirectory(false) fails, deleteDirectory(true) succeeds
+        assert!(fs.delete_directory("/app-storage/backup", false).is_err());
+        fs.delete_directory("/app-storage/backup", true).unwrap();
+        assert!(!fs.info("/app-storage/backup").unwrap().exists);
+
+        // Temp file & directory creation
+        let tmp_f = fs.create_temp(false, 4000.0).unwrap();
+        let tmp_d = fs.create_temp(true, 4000.0).unwrap();
+        assert!(fs.info(&tmp_f).unwrap().exists);
+        assert!(fs.info(&tmp_d).unwrap().is_directory);
+    }
+
+    #[test]
+    fn encrypted_local_store_roundtrips_and_resets() {
+        let mut els = AirEncryptedStore::default();
+        els.set_item("token", &[1, 2, 3, 255]).unwrap();
+        assert_eq!(els.get_item("token").unwrap(), Some(vec![1, 2, 3, 255]));
+        els.remove_item("token").unwrap();
+        assert_eq!(els.get_item("token").unwrap(), None);
+        els.set_item("k1", b"abc").unwrap();
+        els.reset();
+        assert_eq!(els.get_item("k1").unwrap(), None);
+    }
+
+    #[test]
+    fn sql_engine_executes_ddl_dml_joins_aggregates_transactions_savepoints_and_persistence() {
+        let mut rt = AirRuntime::new("AIR Inventory", 800, 600, &[], 1000.0).unwrap();
+        assert_eq!(rt.app_id, "org.neoflash.air-inventory");
+        assert!(rt.descriptor_xml.contains("<width>800</width>"));
+
+        let cid = rt
+            .sql_open(Some("app-storage:/store.db"), "create", false, 1024, 1000.0)
+            .unwrap();
+        rt.sql_execute_json(
+            cid,
+            "CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT NOT NULL, price REAL DEFAULT 0, name TEXT COLLATE NOCASE UNIQUE)",
+            "{}",
+            1001.0,
+        )
+        .unwrap();
+        rt.sql_execute_json(
+            cid,
+            "CREATE INDEX idx_items_cat ON items (category)",
+            "{}",
+            1002.0,
+        )
+        .unwrap();
+
+        let p1 = serde_json::json!({
+            ":cat": {"k": "Text", "v": "tools"},
+            ":price": {"k": "Real", "v": 12.5},
+            ":name": {"k": "Text", "v": "Hammer"}
+        })
+        .to_string();
+        let res1: serde_json::Value = serde_json::from_str(
+            &rt.sql_execute_json(
+                cid,
+                "INSERT INTO items (category, price, name) VALUES (:cat, :price, :name)",
+                &p1,
+                1003.0,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(res1["rowsAffected"], 1);
+        assert_eq!(res1["lastInsertRowID"], 1);
+
+        rt.sql_execute_json(
+            cid,
+            "INSERT INTO items (category, price, name) VALUES ('tools', 7.5, 'Wrench'), ('books', 20.0, 'Manual')",
+            "{}",
+            1004.0,
+        )
+        .unwrap();
+
+        // Savepoint + rollback to savepoint inside transaction
+        rt.sql_begin(cid, Some("immediate")).unwrap();
+        rt.sql_set_savepoint(cid, Some("sp1")).unwrap();
+        rt.sql_execute_json(
+            cid,
+            "DELETE FROM items WHERE category = 'books'",
+            "{}",
+            1005.0,
+        )
+        .unwrap();
+        rt.sql_rollback_to_savepoint(cid, Some("sp1")).unwrap();
+        rt.sql_execute_json(
+            cid,
+            "UPDATE items SET price = price + 2.5 WHERE name = 'hammer'",
+            "{}",
+            1006.0,
+        )
+        .unwrap();
+        rt.sql_commit(cid, 1007.0).unwrap();
+
+        // Close and reopen from virtual FS in READ mode to verify persistence!
+        rt.sql_close(cid).unwrap();
+        let cid2 = rt
+            .sql_open(Some("/app-storage/store.db"), "read", false, 1024, 2000.0)
+            .unwrap();
+
+        let sel: serde_json::Value = serde_json::from_str(
+            &rt.sql_execute_json(
+                cid2,
+                "SELECT category, COUNT(*) AS cnt, SUM(price) AS total FROM items GROUP BY category ORDER BY total DESC",
+                "{}",
+                2001.0,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            sel["columns"],
+            serde_json::json!(["category", "cnt", "total"])
+        );
+        assert_eq!(sel["rows"].as_array().unwrap().len(), 2);
+        assert_eq!(sel["rows"][0][0]["v"], "tools");
+        assert_eq!(sel["rows"][0][1]["v"], 2);
+        assert_eq!(sel["rows"][0][2]["v"], 22.5);
+
+        // Schema introspection returns table + columns + index
+        let schema: serde_json::Value = serde_json::from_str(
+            &rt.sql_load_schema_json(cid2, None, None, "main", true)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(schema["tables"][0]["name"], "items");
+        assert_eq!(schema["tables"][0]["columns"].as_array().unwrap().len(), 4);
+        assert_eq!(schema["indices"][0]["name"], "idx_items_cat");
+
+        // Writing to a READ mode connection fails with errorId 3132
+        let ro_err = rt
+            .sql_execute_json(cid2, "DELETE FROM items", "{}", 2002.0)
+            .unwrap_err();
+        assert_eq!(ro_err.error_id, 3132);
+    }
+}
