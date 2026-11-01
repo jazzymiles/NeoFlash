@@ -47,6 +47,7 @@ mod planned_dialogs;
 mod planned_documents;
 mod planned_drawing;
 mod planned_panels;
+pub(crate) mod preferences;
 pub(crate) mod project;
 pub(crate) mod properties;
 mod properties_sound;

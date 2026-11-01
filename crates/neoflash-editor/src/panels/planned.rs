@@ -5,18 +5,16 @@
 //! `DialogHeader` for dialogs) with a "Planned feature" banner. Bodies show the reference layout with fixed
 //! sample values; their controls are disabled (`ui.disable()`), so a preview never reads or writes the
 //! project. Only preview chrome reacts: move, collapse, close and — where the reference has them — page or
-//! format tabs that switch between preview pages. The one wired setting is Preferences ▸ General ▸ Theme:
-//! Save applies it to the editor theme preference (never the project), Cancel discards it. Open previews live
-//! in egui temp memory, not in the document or the workspace prefs.
+//! format tabs that switch between preview pages. Open previews live in egui temp memory, not in the
+//! document or the workspace prefs.
 //!
 //! Bodies: `planned_panels.rs` (History, Swatches, Info, Compiler errors, Debugger, Project, Code snippets and
-//! movie clip display/filter properties), `planned_dialogs.rs` (Preferences, Document settings, Publish
+//! movie clip display/filter properties), `planned_dialogs.rs` (Document settings, Publish
 //! settings, Export image / video / audio, Import video, Sound properties), `planned_color.rs` (Color — radial
 //! gradient / solid mixer, bitmap fill), `planned_drawing.rs` (oval / rectangle primitive, PolyStar, Deco, Spray
 //! brush, IK bone), `planned_documents.rs` (Graphic looping, Layer properties, Stroke style, Font
 //! embedding, Test Movie window, Find and replace, Movie Explorer, Symbols & scenes popover).
 use crate::app::Editor;
-use crate::theme::ThemeMode;
 use eframe::egui::{self, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::metrics;
@@ -29,7 +27,6 @@ pub(crate) enum PlannedPanel {
     CodeSnippets,
     CompilerErrors,
     PropertiesFilters,
-    Preferences,
     PublishSettings,
     ExportImage,
     ExportVideo,
@@ -64,12 +61,11 @@ pub(crate) enum Chrome {
 const WINDOW_TITLE_BAR: f32 = 52.0;
 
 impl PlannedPanel {
-    pub(crate) const ALL: [Self; 22] = [
+    pub(crate) const ALL: [Self; 21] = [
         Self::Debugger,
         Self::CodeSnippets,
         Self::CompilerErrors,
         Self::PropertiesFilters,
-        Self::Preferences,
         Self::PublishSettings,
         Self::ExportImage,
         Self::ExportVideo,
@@ -96,7 +92,6 @@ impl PlannedPanel {
             Self::CodeSnippets => "Code snippets",
             Self::CompilerErrors => "Compiler errors",
             Self::PropertiesFilters => "Properties — Display & filters",
-            Self::Preferences => "Preferences",
             Self::PublishSettings => "Publish settings",
             Self::ExportImage => "Export image",
             Self::ExportVideo => "Export video",
@@ -123,7 +118,6 @@ impl PlannedPanel {
             Self::Debugger | Self::CodeSnippets => "scripting-panels.png",
             Self::CompilerErrors => "panels-more-2.png",
             Self::PropertiesFilters => "panel-properties-movie-clip.png",
-            Self::Preferences => "dialog-preferences-*.png",
             Self::PublishSettings => "publish-misc-dialogs.png",
             Self::ExportImage | Self::ExportVideo | Self::ExportAudio => "dialogs-export.png",
             Self::ImportVideo => "dialog-import-video.png",
@@ -171,7 +165,6 @@ impl PlannedPanel {
     pub(crate) const fn width(self) -> f32 {
         match self {
             Self::Debugger => 960.,
-            Self::Preferences => 920.,
             Self::PublishSettings => 900.,
             Self::ExportVideo => 840.,
             Self::ExportImage => 760.,
@@ -201,14 +194,8 @@ impl PlannedPanel {
 pub(crate) struct PlannedState {
     pub(crate) open: Vec<(PlannedPanel, egui::Pos2)>,
     pub(crate) collapsed: Vec<PlannedPanel>,
-    /// Preferences category index.
-    pub(crate) preferences_page: usize,
     /// Export image format index (PNG, SVG, PSD, AI, PDF).
     pub(crate) export_format: usize,
-    /// Preferences ▸ General ▸ Theme draft (`None` = the current theme); dropped when Preferences closes.
-    pub(crate) theme_draft: Option<ThemeMode>,
-    /// Theme confirmed with Preferences ▸ Save; [`Editor::planned_panels`] applies and clears it.
-    pub(crate) theme_save: Option<ThemeMode>,
 }
 
 fn state_id() -> egui::Id {
@@ -257,17 +244,11 @@ pub(crate) fn menu_items(ui: &mut Ui) {
 }
 
 impl Editor {
-    /// Draw open planned-panel previews. They never touch the project; the only wired setting,
-    /// Preferences ▸ General ▸ Theme, changes the editor theme preference when Save is clicked.
+    /// Draw open planned-panel previews. Read-only: they never touch the project.
     pub(crate) fn planned_panels(&mut self, ctx: &egui::Context) {
         self.drain_converted_entry_triggers(ctx);
         open_from_env(ctx);
         show_planned_panels(ctx);
-        let mut state = planned_state(ctx);
-        if let Some(theme) = state.theme_save.take() {
-            store_state(ctx, state);
-            self.set_theme(ctx, theme);
-        }
     }
 }
 
@@ -321,9 +302,6 @@ pub(crate) fn show_planned_panels(ctx: &egui::Context) {
     }
     state.open.retain(|(p, _)| !closed.contains(p));
     state.collapsed.retain(|p| !closed.contains(p));
-    if closed.contains(&PlannedPanel::Preferences) {
-        state.theme_draft = None;
-    }
     // Keep previews opened from inside a preview this frame (e.g. Color ▸ Bitmap fill).
     for (p, pos) in planned_state(ctx).open {
         if !state.open.iter().any(|(q, _)| *q == p) && !closed.contains(&p) {
@@ -521,28 +499,13 @@ pub(crate) fn banner(ui: &mut Ui) {
     });
 }
 
-/// Preview body. Returns true when the body closes its window (Preferences Save / Cancel).
+/// Preview body. Returns true when the body closes its window.
 fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) -> bool {
-    use super::planned_dialogs::PreferencesAction;
     use PlannedPanel as P;
     // Pages with preview navigation disable their own content; everything else is disabled here.
-    match panel {
-        P::Preferences => {
-            let action = super::planned_dialogs::preferences(
-                ui,
-                &mut state.preferences_page,
-                &mut state.theme_draft,
-            );
-            if action == Some(PreferencesAction::Save) {
-                state.theme_save = state.theme_draft;
-            }
-            return action.is_some();
-        }
-        P::ExportImage => {
-            super::planned_dialogs::export_image(ui, &mut state.export_format);
-            return false;
-        }
-        _ => {}
+    if panel == P::ExportImage {
+        super::planned_dialogs::export_image(ui, &mut state.export_format);
+        return false;
     }
     ui.scope(|ui| {
         ui.disable();
@@ -567,7 +530,7 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) -> bool {
             P::TestMovie => super::planned_documents::test_movie(ui),
             P::FindReplace => super::planned_documents::find_replace(ui),
             P::MovieExplorer => super::planned_documents::movie_explorer(ui),
-            P::Preferences | P::ExportImage => {}
+            P::ExportImage => {}
         }
     });
     false
@@ -794,16 +757,14 @@ mod tests {
     }
 
     #[test]
-    fn preferences_pages_and_export_formats_paint() {
+    fn export_formats_paint() {
         let ctx = egui::Context::default();
-        set_open(&ctx, PlannedPanel::Preferences, true);
         set_open(&ctx, PlannedPanel::ExportImage, true);
-        for page in 0..super::super::planned_dialogs::PREFERENCE_PAGES.len() {
+        for format in 0..5 {
             let mut state = planned_state(&ctx);
-            state.preferences_page = page;
-            state.export_format = page % 5;
+            state.export_format = format;
             store_state(&ctx, state);
-            assert!(render(&ctx, neoflash_ui::Theme::Dark, 1) > 50);
+            assert!(render(&ctx, neoflash_ui::Theme::Dark, 2) > 50);
         }
     }
 

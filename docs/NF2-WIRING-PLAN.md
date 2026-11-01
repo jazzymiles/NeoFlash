@@ -390,11 +390,34 @@ Graphic thumbnail strip (PR-07, can reuse `timeline_preview.rs`). Registry: `ani
 | W3.3 Export video | DL-05 | `planned_dialogs::export_video` | E-23 | — |
 | W3.4 Export audio, Sound properties, Edit envelope | DL-06, DL-08, DL-09 | `panels/edit_envelope.rs` (DL-09 done), `panels/sound_properties.rs` (DL-08 partial; re-encoding open), `planned_dialogs::export_audio` (DL-06 open) | E-18, E-23 | `web-media-assets`, `animation-media-sync` |
 | W3.5 Import video, Import PSD | DL-07, DL-10 | `planned_dialogs::import_video` | E-19, E-24 | `web-media-assets`, `imports-*` |
-| W3.6 Preferences persistence (all pages) | DL-01 | `planned_dialogs::preferences` | E-25 | `editor-workspace`, `platform-recovery` (autosave) |
+| W3.6 Preferences persistence (all pages) — partial, see card below | DL-01 | `panels/preferences.rs` | E-25 | `editor-workspace`, `platform-recovery` (autosave) |
 | W3.7 Shortcut editor | DL-01 Shortcuts | `prefs_shortcuts` | E-25 (command registry) | `editor-workspace` |
 | W3.8 Font embedding + text embed rows | DL-11, PR-01 | absent → request | E-26 | `web-font-portability` |
 | W3.9 Deco, Spray, Bone/IK | TO-03…05 | tools rail → request for panels | E-27, E-28 | `editor-advanced-drawing` |
 | W3.10 9-slice, sharing, accessibility extras, Script assist, Bitmap fill | DL-15, DL-17, AC-07, CO-02 | various | E-29 | `editor-symbols`, `platform-accessibility`, `editor-paint-effects` |
+
+**W3.6 · Preferences (DL-01)** — partial. Done: real modal dialog with a draft, live theme preview, Save / Cancel /
+page reset; General ▸ Theme, UI scale, Undo levels, Shift-select; Timeline ▸ frame view / row, Show seconds, Snap
+playhead, Onion range, Default ease; Text ▸ Font and size; Clipboard ▸ Default paste. Tests:
+`panel_tests::preferences_dialog_previews_saves_cancels_and_resets`, `preference_defaults_reach_tweens_text_and_paste`.
+Remaining controls, by size (S = one setting on existing engine, M = new editor behaviour, L = new subsystem):
+
+| Control | Size | What is missing |
+| --- | --- | --- |
+| General ▸ follow system | S + design | `ThemeMode::System` + egui system theme; the design has a caption, not a control (R-012) |
+| General ▸ Autosave every N min | L | `platform-recovery`: recovery folder, periodic dirty write, restore prompt on launch (E-25) |
+| General ▸ On launch | M | No welcome screen; offer New document / Reopen last first |
+| General ▸ Tooltips with shortcuts | M + design | `components::tooltip` always shows the shortcut; needs a flag in the locked component (request) |
+| General ▸ Accent, Language, Highlight | design | One accent token, no localisation, highlight colour role (§4 W3.6 row) |
+| Code editor page | M | Check which options `components::code` / the Actions editor support (line numbers, wrap, tab size, highlight line); bind those; custom schemes need a request |
+| Timeline ▸ Span-based selection, Named anchors, Auto keyframe, Tween type on drag | M each | New timeline behaviours (selection mode, export of scene anchors, keyframe-on-transform switch, drag-to-tween) |
+| Timeline ▸ Onion tints, Opacity falloff | S + design | Onion colours are StageOverlay roles; custom colours need a palette role |
+| Drawing page | M–L | Merge drawing model, pen preview / solid points / precise cursors (S–M), recognition (L), snap tolerance → `ViewPrefs` accuracies (S), snap to pixels (exists in the Tools toggle) |
+| Text ▸ Anti-alias, substitution warning, embed glyphs, spell check, vertical text, input method | M–L | Font embedding is E-26; spell check / vertical text are new subsystems |
+| Clipboard ▸ Copying options, editable vector paste, large bitmap prompt | M | Native clipboard formats (SVG/bitmap) beyond the NeoFlash JSON payload |
+| Shortcuts page | L | Command registry + shortcut sets + conflict detection (E-25, W3.7) |
+| Publish page | M | After Publish settings (W1.10, DL-03) |
+| Updates page | — | Stays disabled (no update service, no telemetry) |
 
 Preferences ▸ Updates must stay disabled (no update service, no telemetry) until `platform-release` /
 `platform-extensions` define them; never send usage data.

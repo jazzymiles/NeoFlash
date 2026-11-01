@@ -695,20 +695,26 @@ impl Editor {
                         && page.contains(pos)
                     {
                         let local = to_local(pos);
-                        let font = if self.fonts.families.iter().any(|s| s == "Arial") {
-                            "Arial"
-                        } else {
-                            "Helvetica"
-                        };
-                        let _ = self.fonts.load(ctx, font);
+                        // Preferences ▸ Text ▸ Default font and size.
+                        let preferred = self.workspace.text_font.clone();
+                        let font =
+                            if !preferred.is_empty() && self.fonts.families.contains(&preferred) {
+                                preferred
+                            } else if self.fonts.families.iter().any(|s| s == "Arial") {
+                                "Arial".to_owned()
+                            } else {
+                                "Helvetica".to_owned()
+                            };
+                        let size = self.workspace.text_size;
+                        let _ = self.fonts.load(ctx, &font);
                         self.add_element_transformed(
                             ElementKind::TextBox {
                                 text: "Your text".into(),
                                 width: 240.,
                                 height: 100.,
                                 format: TextFormat {
-                                    font: font.into(),
-                                    size: 32.,
+                                    font,
+                                    size,
                                     color: u32::from_be_bytes([
                                         0,
                                         self.fill[0],

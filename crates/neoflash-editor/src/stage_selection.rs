@@ -960,6 +960,9 @@ impl Editor {
                             .data_mut(|d| d.insert_temp(pivot_click_id, (now, pos)));
                     }
                     let hit = self.pick_placement(scene, p, local);
+                    // Preferences ▸ Shift-select off: clicking an object adds it without ⇧.
+                    let additive =
+                        modifiers.shift || (!self.workspace.shift_select && hit.is_some());
                     let mut cursor = move_cursor;
                     let kind = if let Some((kind, zone_cursor)) = zone {
                         cursor = zone_cursor;
@@ -973,7 +976,7 @@ impl Editor {
                         GestureKind::Move
                     } else if let Some(target) = &hit {
                         if !self.selection.targets.contains(target) {
-                            let mut targets = if modifiers.shift {
+                            let mut targets = if additive {
                                 self.selection.targets.clone()
                             } else {
                                 vec![]
@@ -1046,7 +1049,7 @@ impl Editor {
                         targets,
                         other_keyframes,
                         hit,
-                        shift: modifiers.shift,
+                        shift: additive,
                         moved: false,
                         began: false,
                         changed: false,

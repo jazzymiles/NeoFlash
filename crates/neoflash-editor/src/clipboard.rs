@@ -231,6 +231,8 @@ impl Editor {
         }
     }
     pub(crate) fn paste_objects(&mut self, ctx: &egui::Context, text: &str, in_place: bool) {
+        // Preferences ▸ Clipboard ▸ Default paste = In place: plain Paste keeps the position too.
+        let in_place = in_place || self.workspace.paste_in_place;
         if self.confirm.is_some() {
             return;
         }

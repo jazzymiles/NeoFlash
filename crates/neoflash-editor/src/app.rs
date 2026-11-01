@@ -97,6 +97,8 @@ pub struct Editor {
     pub(crate) graphic_drop_position: Option<egui::Pos2>,
     pub(crate) symbol_conversion: Option<crate::symbol_dialog::SymbolConversion>,
     pub(crate) document_settings: Option<crate::panels::document_settings::DocumentSettingsDraft>,
+    /// Open Preferences dialog draft (`panels/preferences.rs`).
+    pub(crate) preferences: Option<crate::panels::preferences::PreferencesDraft>,
     pub(crate) edit_envelope: Option<crate::panels::edit_envelope::EditEnvelopeDraft>,
     pub(crate) project_panel: crate::panels::project::ProjectPanelState,
     pub resource_panel: crate::resources::ResourcePanel,
@@ -145,6 +147,7 @@ impl Editor {
             s.workspace.theme = theme;
         }
         s.workspace.theme.apply(&cc.egui_ctx);
+        s.apply_editor_preferences(&cc.egui_ctx);
         s.bottom = s.workspace.active_bottom;
         s.stage_view.prefs = s.workspace.view_defaults.clone().unwrap_or_default();
         // Screenshot aid (editor-view-settings-open.png): open the View settings popover.
@@ -214,6 +217,13 @@ impl Editor {
             Ok("edit_envelope") => s.open_edit_envelope(),
             _ => {}
         }
+        // Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>` opens Preferences on that page.
+        if let Some(page) = std::env::var("NEOFLASH_SCREENSHOT_PREFERENCES")
+            .ok()
+            .and_then(|v| v.trim().parse::<usize>().ok())
+        {
+            s.open_preferences(page);
+        }
         s
     }
     pub(crate) fn from_project(ctx: &egui::Context, project: Project) -> Self {
@@ -237,7 +247,7 @@ impl Editor {
             output: vec!["NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser.".into()],
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
             timeline_cell: neoflash_ui::metrics::FRAME, timeline_key_drag: None, timeline_edit: Default::default(), library_selected: None, symbol_conversion: None,
-            document_settings: None, edit_envelope: None, project_panel: Default::default(),
+            document_settings: None, preferences: None, edit_envelope: None, project_panel: Default::default(),
             library_panel: crate::library::LibraryPanel::default(),
             graphic_drop_position: None,
             resource_panel: crate::resources::ResourcePanel::default(),
@@ -255,6 +265,13 @@ impl Editor {
         s.load_project_fonts(ctx);
         s.normalize_selection();
         s
+    }
+    /// Apply the Preferences stored in the workspace prefs: UI scale, undo levels, onion range.
+    pub(crate) fn apply_editor_preferences(&mut self, ctx: &egui::Context) {
+        ctx.set_zoom_factor(self.workspace.ui_scale);
+        self.history
+            .set_capacity(self.workspace.undo_levels as usize);
+        [self.onion_before, self.onion_after] = self.workspace.onion_range;
     }
     pub(crate) fn set_theme(&mut self, ctx: &egui::Context, theme: ThemeMode) {
         self.workspace.theme = theme;
@@ -427,7 +444,7 @@ impl Editor {
         self.finish_edits();
         self.timeline_key_drag = None;
         self.vector = Default::default();
-        self.history = History::new(150);
+        self.history = History::new(self.workspace.undo_levels as usize);
     }
     pub fn layer_editable(&self) -> bool {
         self.symbol()
@@ -615,7 +632,7 @@ impl Editor {
                 self.layer = 0;
                 self.clear_selection();
                 self.path = None;
-                self.history = History::new(150);
+                self.history = History::new(self.workspace.undo_levels as usize);
                 self.saved_project = Some(self.project.clone());
                 self.playing = false;
                 self.load_project_fonts(ctx);
@@ -667,7 +684,7 @@ impl Editor {
                 self.layer = 0;
                 self.clear_selection();
                 self.path = Some(path);
-                self.history = History::new(150);
+                self.history = History::new(self.workspace.undo_levels as usize);
                 self.saved_project = Some(self.project.clone());
                 self.playing = false;
                 self.load_project_fonts(ctx);
@@ -711,7 +728,7 @@ impl Editor {
                             self.clear_selection();
                             self.path = None;
                             self.saved_project = None;
-                            self.history = History::new(150);
+                            self.history = History::new(self.workspace.undo_levels as usize);
                             self.playing = false;
                             self.load_project_fonts(ctx);
                             self.message(
@@ -1233,6 +1250,7 @@ impl Editor {
     pub fn draw_dialogs(&mut self, ctx: &egui::Context) {
         self.drain_converted_entry_triggers(ctx);
         self.document_settings_dialog(ctx);
+        self.preferences_dialog(ctx);
         self.edit_envelope_dialog(ctx);
         self.sound_properties_dialog(ctx);
         self.layer_properties_dialog(ctx);

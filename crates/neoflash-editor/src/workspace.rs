@@ -1365,6 +1365,44 @@ pub struct WorkspacePrefs {
     /// Default document settings saved with "Make default" (`DL-02`); `None` = `Project::blank()`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document_defaults: Option<DocumentDefaults>,
+    /// Preferences ▸ General ▸ UI scale (egui zoom factor, 0.8–1.5).
+    pub ui_scale: f32,
+    /// Preferences ▸ General ▸ Undo levels (history capacity of each document).
+    pub undo_levels: u32,
+    /// Preferences ▸ General ▸ Shift-select: on = ⇧ adds to the selection, off = every click adds.
+    pub shift_select: bool,
+    /// Preferences ▸ Timeline ▸ Onion skin range (frames before, after) every session starts with.
+    pub onion_range: [u32; 2],
+    /// Preferences ▸ Timeline ▸ Default ease of new classic tweens.
+    pub default_ease: neoflash_core::Easing,
+    /// Preferences ▸ Text ▸ Default font family of new text (empty = Arial, else Helvetica).
+    pub text_font: String,
+    /// Preferences ▸ Text ▸ Default size of new text, in points.
+    pub text_size: f64,
+    /// Preferences ▸ Clipboard ▸ Default paste: plain Paste keeps the copied position.
+    pub paste_in_place: bool,
+}
+
+impl WorkspacePrefs {
+    pub const UI_SCALES: [(f32, &'static str); 6] = [
+        (0.8, "80 %"),
+        (0.9, "90 %"),
+        (1.0, "100 %"),
+        (1.1, "110 %"),
+        (1.25, "125 %"),
+        (1.5, "150 %"),
+    ];
+    pub const DEFAULT_UNDO_LEVELS: u32 = 150;
+    pub const UNDO_LEVELS: std::ops::RangeInclusive<u32> = 10..=1000;
+    pub const ONION_MAX: u32 = 60;
+    pub const EASES: [(neoflash_core::Easing, &'static str); 4] = [
+        (neoflash_core::Easing::Linear, "Linear"),
+        (neoflash_core::Easing::EaseIn, "Ease In"),
+        (neoflash_core::Easing::EaseOut, "Ease Out"),
+        (neoflash_core::Easing::EaseInOut, "Ease In-Out"),
+    ];
+    pub const TEXT_SIZES: std::ops::RangeInclusive<f64> = 4.0..=200.0;
+    pub const DEFAULT_TEXT_SIZE: f64 = 32.0;
 }
 
 /// Presentation and playback options of the Timeline. Workspace-only, never in the document.
@@ -1444,6 +1482,14 @@ impl Default for WorkspacePrefs {
             recent_colors: Vec::new(),
             custom_swatches: Vec::new(),
             document_defaults: None,
+            ui_scale: 1.0,
+            undo_levels: Self::DEFAULT_UNDO_LEVELS,
+            shift_select: true,
+            onion_range: [3, 3],
+            default_ease: neoflash_core::Easing::EaseInOut,
+            text_font: String::new(),
+            text_size: Self::DEFAULT_TEXT_SIZE,
+            paste_in_place: false,
         }
     }
 }
@@ -1706,6 +1752,29 @@ impl WorkspacePrefs {
     }
     pub fn sanitize(&mut self) {
         self.version = VERSION;
+        if !Self::UI_SCALES
+            .iter()
+            .any(|(scale, _)| *scale == self.ui_scale)
+        {
+            self.ui_scale = 1.0;
+        }
+        self.undo_levels = self
+            .undo_levels
+            .clamp(*Self::UNDO_LEVELS.start(), *Self::UNDO_LEVELS.end());
+        self.onion_range = self.onion_range.map(|n| n.min(Self::ONION_MAX));
+        if !Self::EASES
+            .iter()
+            .any(|(ease, _)| *ease == self.default_ease)
+        {
+            self.default_ease = neoflash_core::Easing::EaseInOut;
+        }
+        if !self.text_size.is_finite() {
+            self.text_size = Self::DEFAULT_TEXT_SIZE;
+        }
+        self.text_size = self
+            .text_size
+            .clamp(*Self::TEXT_SIZES.start(), *Self::TEXT_SIZES.end());
+        self.text_font.truncate(256);
         if let Some(view) = &mut self.view_defaults {
             view.sanitize();
         }
@@ -1798,6 +1867,14 @@ impl WorkspacePrefs {
         let (dock, panels, active_bottom) = template.layout();
         *self = Self {
             theme: self.theme,
+            ui_scale: self.ui_scale,
+            undo_levels: self.undo_levels,
+            shift_select: self.shift_select,
+            onion_range: self.onion_range,
+            default_ease: self.default_ease,
+            text_font: std::mem::take(&mut self.text_font),
+            text_size: self.text_size,
+            paste_in_place: self.paste_in_place,
             view_defaults: self.view_defaults.take(),
             recent_colors: std::mem::take(&mut self.recent_colors),
             custom_swatches: std::mem::take(&mut self.custom_swatches),

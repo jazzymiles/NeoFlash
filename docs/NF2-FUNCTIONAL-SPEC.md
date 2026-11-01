@@ -111,7 +111,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | PP-12 | Rulers, guides & grid (View settings) | Popover | working | UI-only | P1 (= ST-06) |
 | PP-13 | Properties — Sound | Planned panel | partial | yes | P3 (= PR-08) |
 | PP-14 | Properties — Display & filters | Planned panel | preview | yes | P2 (= PR-05) |
-| DL-01 | Preferences (9 pages) | Planned dialog | preview; General ▸ Theme done | editor | P1–P3 per page |
+| DL-01 | Preferences (9 pages) | Dialog | partial: General, Timeline, Text, Clipboard basics wired | editor | P1–P3 per page |
 | DL-02 | Document settings | Planned dialog | done | editor | P1 |
 | DL-03 | Publish settings | Planned dialog | preview | yes | P2 |
 | DL-04 | Export image (PNG/SVG/PSD/AI/PDF) | Planned dialog | preview | yes | P2 (PNG/SVG) / P3 |
@@ -720,12 +720,16 @@ See ST-01…ST-06.
 ### DL-01 · Preferences (`preferences`, 920 pt; footer Reset to defaults · Cancel · Save)
 
 All values are editor preferences (eframe storage, like `WorkspacePrefs`), never document data. Save applies and
-persists; Cancel discards; Reset restores defaults for the current page (verify: page vs all).
+persists; Cancel discards; Reset restores defaults for the current page only.
 
-Done: General ▸ Theme Dark / Light (`planned_dialogs::prefs_general`) is a draft that Save applies through
-`Editor::set_theme` and persists with the workspace prefs; Cancel and the header close discard it; Reset to defaults
-(enabled on General only) restores Dark. The dialog is still the non-modal planned preview; "follow system" and every
-other setting stay disabled.
+Done (`panels/preferences.rs`, modal like Document settings; Edit ▸ Preferences… ⌘U, Edit ▸ Keyboard shortcuts…
+opens the Shortcuts page): edits live on a draft; the theme previews live and Cancel / Esc / ✕ restores it; Save /
+Enter applies and persists. Wired: General ▸ Theme, UI scale (80–150 %, egui zoom), Undo levels (10–1000, history
+capacity), Shift-select (off = clicking an object adds it); Timeline ▸ Default frame view and row, Show seconds, Snap
+playhead, Onion range (session default), Default ease (new classic tweens); Text ▸ Font and size of new text;
+Clipboard ▸ Default paste (In centre / In place). Reset to defaults is enabled on those four pages. Everything else
+stays disabled; plan and requests in `NF2-WIRING-PLAN.md` W3.6 and `NF2-REQUESTS.md` R-012. Screenshot aid:
+`NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
 
 | Page | Controls (from the preview) | Effect when wired | Model / engine | Prio |
 | --- | --- | --- | --- | --- |

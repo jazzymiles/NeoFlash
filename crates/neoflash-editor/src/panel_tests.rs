@@ -1302,65 +1302,102 @@ fn stage_context_menu_follows_design() {
     }
 }
 
-/// DL-01 Preferences ▸ General ▸ Theme: choosing Light is a draft until Save; Cancel discards it, Reset to
-/// defaults restores Dark, and the project never changes.
+/// DL-01 Preferences: Edit ▸ Preferences… opens the dialog; the theme previews live and Cancel restores
+/// it; Save applies and persists the General and Timeline settings; Reset to defaults resets the
+/// current page; Esc cancels; Keyboard shortcuts… opens the Shortcuts page; the project never changes.
 #[test]
-fn preferences_theme_applies_on_save_and_cancel_discards() {
-    use crate::panels::planned::{self, PlannedPanel};
-    let ctx = egui::Context::default();
-    ctx.enable_accesskit();
-    let mut editor = Editor::from_project(&ctx, Project::blank());
-    editor.set_theme(&ctx, ThemeMode::Dark);
-    let project = editor.project.clone();
-    let mut time = 0.0;
-    let mut step = |editor: &mut Editor, events: Vec<Event>| {
-        time += 0.1;
-        ctx.run(
-            egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1920., 1080.))),
-                time: Some(time),
-                events,
-                ..Default::default()
-            },
-            |ctx| editor.planned_panels(ctx),
-        )
-    };
-    let mut click = |editor: &mut Editor, label: &str| {
-        let out = step(editor, vec![]);
-        let at = named_bounds(&out, label)
-            .unwrap_or_else(|| panic!("{label} is not shown"))
-            .center();
-        step(
-            editor,
-            vec![Event::PointerMoved(at), primary_button(at, true)],
-        );
-        step(editor, vec![primary_button(at, false)]);
-        step(editor, vec![]);
+fn preferences_dialog_previews_saves_cancels_and_resets() {
+    use crate::panels::preferences::{PAGE_SHORTCUTS, PAGE_TIMELINE};
+    let mut d = Driver::new();
+    let project = d.editor.project.clone();
+    d.editor.set_theme(&d.ctx, ThemeMode::Light);
+    d.settle();
+    let open = |d: &mut Driver| {
+        d.click("Edit");
+        d.click("Preferences… (⌘U)");
+        assert!(d.editor.preferences.is_some(), "Edit ▸ Preferences… opens");
     };
 
-    planned::set_open(&ctx, PlannedPanel::Preferences, true);
-    click(&mut editor, "Light");
-    assert_eq!(editor.workspace.theme, ThemeMode::Dark, "draft only");
-    assert_eq!(ctx.theme(), egui::Theme::Dark);
-    click(&mut editor, "Cancel");
-    assert!(!planned::is_open(&ctx, PlannedPanel::Preferences));
-    assert_eq!(editor.workspace.theme, ThemeMode::Dark);
-    assert_eq!(planned::planned_state(&ctx).theme_draft, None);
+    open(&mut d);
+    d.click("Dark");
+    assert_eq!(d.ctx.theme(), egui::Theme::Dark, "the theme previews live");
+    assert_eq!(d.editor.workspace.theme, ThemeMode::Light, "not saved yet");
+    d.click("Cancel");
+    assert!(d.editor.preferences.is_none());
+    assert_eq!(
+        d.ctx.theme(),
+        egui::Theme::Light,
+        "Cancel restores the theme"
+    );
 
-    planned::set_open(&ctx, PlannedPanel::Preferences, true);
-    click(&mut editor, "Light");
-    click(&mut editor, "Save");
-    assert!(!planned::is_open(&ctx, PlannedPanel::Preferences));
-    assert_eq!(editor.workspace.theme, ThemeMode::Light);
-    assert_eq!(ctx.theme(), egui::Theme::Light);
+    // Light → Dark with Save, plus Shift-select.
+    open(&mut d);
+    d.click("Dark");
+    d.click("Add with ⇧ (otherwise click adds)");
+    d.click("Save");
+    assert!(d.editor.preferences.is_none());
+    assert_eq!(d.editor.workspace.theme, ThemeMode::Dark);
+    assert_eq!(d.ctx.theme(), egui::Theme::Dark);
+    assert!(!d.editor.workspace.shift_select);
 
-    planned::set_open(&ctx, PlannedPanel::Preferences, true);
-    click(&mut editor, "Reset to defaults");
-    assert_eq!(editor.workspace.theme, ThemeMode::Light, "draft only");
-    click(&mut editor, "Save");
-    assert_eq!(editor.workspace.theme, ThemeMode::Dark);
-    assert_eq!(ctx.theme(), egui::Theme::Dark);
-    assert_eq!(editor.project, project);
+    // Timeline page: switches, Reset to defaults for the page, then Save.
+    open(&mut d);
+    d.editor.preferences.as_mut().unwrap().page = PAGE_TIMELINE;
+    d.settle();
+    d.click("Snap playhead to keyframes");
+    d.click("Show seconds");
+    let draft = d.editor.preferences.clone().unwrap();
+    assert!(draft.timeline.snap_playhead && !draft.timeline.show_seconds);
+    d.click("Reset to defaults");
+    let draft = d.editor.preferences.clone().unwrap();
+    assert!(!draft.timeline.snap_playhead && draft.timeline.show_seconds);
+    assert!(!draft.shift_select, "Reset touches only the current page");
+    d.click("Snap playhead to keyframes");
+    d.click("Save");
+    assert!(d.editor.workspace.timeline.snap_playhead);
+    assert!(d.editor.workspace.timeline.show_seconds);
+
+    // Esc cancels; Keyboard shortcuts… opens the Shortcuts page.
+    open(&mut d);
+    d.step(vec![Event::Key {
+        key: egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert!(d.editor.preferences.is_none(), "Esc cancels");
+    d.click("Edit");
+    d.click("Keyboard shortcuts… (⌥⇧⌘K)");
+    assert_eq!(
+        d.editor.preferences.as_ref().map(|p| p.page),
+        Some(PAGE_SHORTCUTS)
+    );
+    d.click("Cancel");
+
+    // Undo levels, onion range and UI scale apply on Save (set on the draft directly).
+    d.editor.open_preferences(0);
+    let mut draft = d.editor.preferences.take().unwrap();
+    draft.undo_levels = 20.;
+    draft.onion = [5., 2.];
+    draft.ui_scale = 1.25;
+    d.editor.save_preferences(&d.ctx, &draft);
+    assert_eq!(d.editor.history.capacity(), 20);
+    assert_eq!((d.editor.onion_before, d.editor.onion_after), (5, 2));
+    assert_eq!(d.editor.workspace.ui_scale, 1.25);
+    d.settle();
+    assert_eq!(
+        d.ctx.zoom_factor(),
+        1.25,
+        "UI scale applies from the next frame"
+    );
+    let json = serde_json::to_string(&d.editor.workspace).unwrap();
+    let restored = crate::workspace::WorkspacePrefs::from_json(&json);
+    assert_eq!(restored.undo_levels, 20);
+    assert_eq!(restored.onion_range, [5, 2]);
+    assert!(!restored.shift_select);
+    assert_eq!(d.editor.project, project);
 }
 
 /// Whole editor frame in `eframe::App::update` order (without playback/audio/native window glue).
@@ -2190,4 +2227,71 @@ fn document_settings_and_library_symbol_commands_commit_atomically_and_preserve_
     d.editor.project.validate().unwrap();
     d.editor.undo();
     assert_eq!(d.editor.project, before_delete);
+}
+
+/// Preferences that change editing defaults: Timeline ▸ Default ease drives new classic tweens,
+/// Text ▸ Default size drives the Text tool, Clipboard ▸ Default paste = In place keeps positions.
+#[test]
+fn preference_defaults_reach_tweens_text_and_paste() {
+    let mut d = Driver::new();
+    // Default ease.
+    d.editor.workspace.default_ease = Easing::Linear;
+    d.editor.layer = 0;
+    let layer = d.editor.symbol().timeline.layers[0].id.clone();
+    d.editor.frame = 0;
+    d.editor.transact(|e| {
+        let l = &mut e.symbol_mut().timeline.layers[0];
+        let mut key = l.keyframes[0].clone();
+        key.frame = 10;
+        key.tween = None;
+        l.keyframes.retain(|k| k.frame != 10);
+        l.keyframes.push(key);
+        l.keyframes.sort_by_key(|k| k.frame);
+    });
+    d.editor.frame = 0;
+    d.editor.create_tween(TweenKind::Classic);
+    let tween = d.editor.symbol().timeline.layers[0].keyframes[0].tween;
+    assert_eq!(
+        tween,
+        Some(Easing::Linear),
+        "new classic tween on {layer} uses the preferred ease"
+    );
+
+    // Default paste in place.
+    let (_, element) = d
+        .editor
+        .sampled_targets()
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| {
+            d.editor.select_all();
+            d.editor.sampled_targets().into_iter().next().unwrap()
+        });
+    let text = ClipboardPayload::capture(
+        &d.editor.project,
+        vec![element.clone()],
+        &d.editor.clipboard.session,
+        [element.transform.x + 500., element.transform.y + 500.],
+    )
+    .and_then(|payload| payload.to_text())
+    .unwrap();
+    d.editor.workspace.paste_in_place = true;
+    d.editor.paste_objects(&d.ctx, &text, false);
+    let pasted = d.editor.selected_element().unwrap().transform;
+    assert_eq!(
+        (pasted.x, pasted.y),
+        (element.transform.x, element.transform.y)
+    );
+
+    // Default text size.
+    d.editor.workspace.text_size = 48.;
+    d.editor.set_tool(crate::app::Tool::Text);
+    d.editor.clear_selection();
+    d.settle();
+    d.press(Pos2::new(800., 400.), egui::PointerButton::Primary);
+    let text_size = d.editor.selected_element().and_then(|e| match &e.kind {
+        ElementKind::TextBox { format, .. } => Some(format.size),
+        _ => None,
+    });
+    assert_eq!(text_size, Some(48.));
 }

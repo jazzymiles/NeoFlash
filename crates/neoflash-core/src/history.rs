@@ -43,6 +43,19 @@ impl History {
         }
     }
 
+    /// Maximum undo steps. Lowering it drops the oldest steps now; redo steps are kept.
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    pub fn set_capacity(&mut self, capacity: usize) {
+        self.capacity = capacity;
+        if self.undo.len() > capacity {
+            let excess = self.undo.len() - capacity;
+            self.undo.drain(..excess);
+        }
+    }
+
     fn normalize_label(raw: String) -> String {
         let trimmed = raw.trim();
         if trimmed.is_empty() {

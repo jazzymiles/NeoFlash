@@ -134,6 +134,16 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** `panel-properties-movie-clip.png`, `panels/properties.rs`, `panels/planned_*.rs` (no Swap symbol dialog preview exists).
 - **Answer:**
 
+### R-012 · Preferences ▸ General ▸ "follow system" control
+- **Status:** open
+- **Requested by / for:** Antigravity · DL-01
+- **Where:** `crates/neoflash-editor/src/panels/preferences.rs` (`prefs_general`), reference `dialog-preferences-*.png`
+- **Need:** a selectable state for following the macOS appearance. The reference shows `Dark | Light` and the caption
+  "or follow system", which is not a control; a third segment ("System") or a checkbox would make it selectable.
+- **Why:** the editor can follow the system theme (egui reports it); without a control the caption stays disabled.
+- **Checked:** `dialog-preferences-*.png`, `Segmented` component, design doc Preferences section.
+- **Answer:**
+
 ## Resolved requests
 
 ### R-005 · Motion path on the stage

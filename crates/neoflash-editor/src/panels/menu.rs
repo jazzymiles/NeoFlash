@@ -31,8 +31,6 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     ("File ▸ Export ▸ Export audio…", P::ExportAudio),
     ("File ▸ Publish settings…", P::PublishSettings),
     ("Edit ▸ Find and replace", P::FindReplace),
-    ("Edit ▸ Preferences…", P::Preferences),
-    ("Edit ▸ Keyboard shortcuts…", P::Preferences),
     ("Window ▸ Compiler errors", P::CompilerErrors),
     // §6 panels the §8 Window list does not name.
     ("Window ▸ Debugger", P::Debugger),
@@ -94,6 +92,8 @@ const WINDOW_PANELS: [(&str, &str, PanelId); 17] = [
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConvertedTrigger {
     DocumentSettings,
+    /// Preferences opened on a page (`panels/preferences.rs`).
+    Preferences(usize),
     AddSwatch,
     EditEnvelope,
     SoundProperties,
@@ -113,6 +113,12 @@ impl Editor {
     pub(crate) fn open_planned(ctx: &egui::Context, path: &str) {
         let converted = match path {
             "Modify ▸ Document…" => Some(ConvertedTrigger::DocumentSettings),
+            "Edit ▸ Preferences…" => Some(ConvertedTrigger::Preferences(
+                crate::panels::preferences::PAGE_GENERAL,
+            )),
+            "Edit ▸ Keyboard shortcuts…" => Some(ConvertedTrigger::Preferences(
+                crate::panels::preferences::PAGE_SHORTCUTS,
+            )),
             "Color menu ▸ Add swatch" | "Swatches popover ▸ Add swatch" => {
                 Some(ConvertedTrigger::AddSwatch)
             }
@@ -148,6 +154,7 @@ impl Editor {
         for trigger in triggers {
             match trigger {
                 ConvertedTrigger::DocumentSettings => self.open_document_settings(),
+                ConvertedTrigger::Preferences(page) => self.open_preferences(page),
                 ConvertedTrigger::AddSwatch => {
                     self.add_active_swatch(ctx);
                     self.show_panel(PanelId::Swatches);

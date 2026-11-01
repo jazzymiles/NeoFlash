@@ -182,6 +182,7 @@ impl Editor {
             TweenKind::Shape => "Shape tween",
             TweenKind::Motion => "Motion tween",
         };
+        let classic_ease = self.workspace.default_ease;
         self.transact_named(tween_label, |s| {
             let l = s.layer;
             let layer = &mut s.symbol_mut().timeline.layers[l];
@@ -190,7 +191,7 @@ impl Editor {
                 if key.frame == start {
                     in_span = true;
                     let default = match kind {
-                        TweenKind::Classic => Easing::EaseInOut,
+                        TweenKind::Classic => classic_ease,
                         _ => Easing::Linear,
                     };
                     key.tween = Some(key.tween.unwrap_or(default));
