@@ -45,7 +45,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | TL-05 | Motion tween | Timeline controls | partial | yes | P2 |
 | TL-06 | Ease panel button | Timeline controls | done | editor | P1 |
 | TL-07 | Sound | Timeline controls | done | yes | P3 |
-| TL-08 | Edit multiple frames | Timeline controls | partial | editor | P2 |
+| TL-08 | Edit multiple frames | Timeline controls | done | editor | P2 |
 | TL-09 | Frame view ▸ Short rows | Frame view menu | done | UI-only | P1 |
 | TL-10 | Frame view ▸ Preview | Frame view menu | done | editor | P3 |
 | TL-11 | Frame view ▸ Snap playhead to keyframes | Frame view menu | done | UI-only | P1 |
@@ -67,7 +67,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | ST-05 | Zoom control toggles rulers/guides/grid/snap | Stage chrome | working | UI-only | P1 |
 | ST-06 | View settings popover | Stage chrome | working | UI-only | P1 |
 | ST-07 | NF2 stage cursors | Stage chrome | done | UI-only | P1 |
-| ST-08 | Breadcrumb ▾ menu + Symbols & scenes popover | Stage chrome | absent | editor | P2 |
+| ST-08 | Breadcrumb ▾ menu + Symbols & scenes popover | Stage chrome | done | editor | P2 |
 | ST-09 | Toasts / progress / spinner | Window chrome | absent | UI-only | P1 |
 | ST-10 | Dock compass | Docking | absent | UI-only | P3 |
 | ST-11 | Canvas editing chrome (Selection/Transform box variants, gradient transform focal handle) | Stage | partial (boxes, anchors, marquee, transformation point done) | editor | P2 |
@@ -80,7 +80,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | PR-07 | Properties — Graphic thumbnail strip | Properties | partial | editor | P3 |
 | PR-08 | Properties — Sound (frame) | Properties | partial | yes | P3 |
 | PR-09 | Properties — Video playback & cue points | Properties | partial | yes | P3 |
-| PR-10 | Properties — Motion tween | Properties | partial | yes | P2 |
+| PR-10 | Properties — Motion tween | Properties | done | yes | P2 |
 | PR-11 | Frame easing: overshoot values, Flash acceleration field | Properties | done | UI-only | P1 |
 | CO-01 | Color panel fill type: Linear / Radial gradient | Color | done | yes (small) | P2 |
 | CO-02 | Color panel fill type: Bitmap fill (+ Bitmap fill panel) | Color | disabled | yes | P3 |
@@ -99,7 +99,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | OU-02 | Output: trace() from Test Movie | Output | absent | yes | P2 |
 | PP-01 | Ease panel | Planned panel | done | editor | P1 |
 | PP-02 | Motion editor | Planned panel | partial | yes | P2 |
-| PP-03 | Properties — Motion tween | Planned panel | partial | yes | P2 (= PR-10) |
+| PP-03 | Properties — Motion tween | Planned panel | done | yes | P2 (= PR-10) |
 | PP-04 | Debugger | Planned panel | preview | yes | P3 |
 | PP-05 | Project | Planned panel | done | editor | P2 |
 | PP-06 | Code snippets | Planned panel | preview | editor | P2 |
@@ -118,15 +118,15 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | DL-05 | Export video | Planned dialog | preview | yes | P3 |
 | DL-06 | Export audio | Planned dialog | preview | yes | P3 |
 | DL-07 | Import video | Planned dialog | preview | yes | P3 |
-| DL-08 | Sound properties | Planned dialog | preview | yes | P3 |
-| DL-09 | Edit envelope | Dialog | absent | yes | P3 |
+| DL-08 | Sound properties | Planned dialog | partial | yes | P3 |
+| DL-09 | Edit envelope | Dialog | done | yes | P3 |
 | DL-10 | Import PSD to library | Dialog | absent | yes | P3 |
 | DL-11 | Font embedding | Dialog | absent | yes | P3 |
 | DL-12 | Test Movie window | Window | absent | yes | P2 |
 | DL-13 | Find and replace | Dialog | absent | editor | P2 |
 | DL-14 | Movie Explorer | Panel | absent | editor | P2 |
 | DL-15 | Convert to Symbol ▸ Advanced: 9-slice, runtime / authortime sharing | Dialog | absent | yes | P3 |
-| DL-16 | Layer properties: Guided / Masked / Armature types, layer height | Dialog | partial | editor / yes | P2 |
+| DL-16 | Layer properties: Guided / Masked / Armature types, layer height | Dialog | done (Armature disabled) | editor / yes | P2 |
 | DL-17 | Accessibility: child objects, auto label, shortcut | Panel | partial | yes (small) | P3 |
 | MN-01 | Menu items absent from §8 menus | Menus | partial | mixed | P1–P3 |
 | MN-02 | Frame / layer / stage context menu items absent | Menus | partial | mixed | P1–P2 |
@@ -164,7 +164,7 @@ groups.
   panel re-dock (workspace prefs).
 
 **TL-03 · Scene select ▸ New scene** — `timeline_scene_select` · done
-- Done: `Project.scenes` (ordered MovieClip symbol IDs, first = `root`, format 6); Scene select lists and switches scenes, New scene and Insert ▸ Scene add one (one Undo); scene symbols are hidden from the Library; Control ▸ Play all scenes continues editor playback into the next scene. Runtime/HTML5 flatten scenes into one main timeline (`neoflash_core::flatten_scenes`); the Scene panel (PP-08) renames, duplicates, deletes and reorders. Not yet: Control ▸ Test scene, breadcrumb ▾ (ST-08).
+- Done: `Project.scenes` (ordered MovieClip symbol IDs, first = `root`, format 6); Scene select lists and switches scenes, New scene and Insert ▸ Scene add one (one Undo); scene symbols are hidden from the Library; Control ▸ Play all scenes continues editor playback into the next scene; `Control ▸ Test scene` (`⌥⌘↵`) publishes and opens only the active scene; breadcrumb `▾` (ST-08) switches scenes and symbols. Runtime/HTML5 flatten scenes into one main timeline (`neoflash_core::flatten_scenes`); the Scene panel (PP-08) renames, duplicates, deletes and reorders.
 - Purpose: Flash scenes — consecutive main timelines played in order; the Scene select switches the edited scene.
 - Behaviour: menu lists scenes (checked = current) + New scene; selecting a scene leaves symbol editing and shows its
   timeline. New scene is one Undo step. Scene panel (PP-08) adds rename/duplicate/delete/reorder.
@@ -186,14 +186,14 @@ groups.
   keyframe without shapes produces an explanation instead of a jump.
 
 **TL-05 · Motion tween** — `timeline_frame_tools` (tween group, item 3) · partial
-- Done: `tween_kind = Motion`; ◆ property keyframes are keyframes with `keyed_properties`; editing inside the span keys only changed properties (`timeline_commands::record_motion_property_keys`, run on every history commit); F6 keys all; independent tracks with the span ease (`evaluate::sample_motion`). The selected instance's path is drawn on the stage (`NF2/Motion Path`, R-005) while the playhead is in its span; dragging a key point ◆ moves that key and keys X/Y, one Undo (`timeline_motion.rs`). Motion editor (PP-02) and Properties — Motion tween (PR-10) are partial. Not yet: Bézier path editing between keys, per-property eases, Orient to path evaluation for motion tweens (wiring plan §7.4).
+- Done: `tween_kind = Motion`; ◆ property keyframes are keyframes with `keyed_properties`; editing inside the span keys only changed properties (`timeline_commands::record_motion_property_keys`, run on every history commit); F6 keys all; independent tracks with the span ease or per-property ease overrides (`Keyframe.property_eases` in format 7, `evaluate::sample_motion`), Orient to path along the X/Y track direction, continuous Graphic symbol playback (`Keyframe.sync_symbols`), and guide endpoint snapping (`Keyframe.snap_to_guide`). The selected instance's path is drawn on the stage (`NF2/Motion Path`, R-005; `TimelineView { show_motion_path, show_motion_frame_dots }`) while the playhead is in its span; dragging a key point ◆ moves that key and keys X/Y, one Undo (`timeline_motion.rs`). Properties — Motion tween (PR-10) is done and Motion editor (PP-02) is partial. Not yet: Bézier path editing between keys, Paste motion special (R-006; wiring plan §7.4 rows 8–9).
 - Purpose: object-based tween with per-property keyframes ◆ (blue span) and an editable motion path on stage.
 - Behaviour: on a frame with exactly one symbol instance → convert span to a motion tween; dragging the instance on a
   later frame creates property keyframes; path visible on stage; edited in Motion editor (PP-02) and Properties —
   Motion tween (PR-10). Non-symbol content → offer Convert to Symbol (F8) or a diagnostic.
-- Data: `tween_kind = Motion` on the span start key; ◆ keys = `Keyframe.keyed_properties` (tracks are derived from
-  them, not stored separately).
-- Depends on: engine (done for tracks; path curves and per-property eases open).
+- Data: `tween_kind = Motion` on the span start key; ◆ keys = `Keyframe.keyed_properties`, `property_eases`,
+  `sync_symbols`, `snap_to_guide` (tracks are derived from them, not stored separately).
+- Depends on: engine (done for tracks, per-property eases, orient, sync and snap; Bézier path curves open).
 - Acceptance: create/remove with one Undo each; ◆ markers render; X/Y/rotation/scale/alpha tracks interpolate
   independently in editor and HTML5; classic tweens unchanged.
 
@@ -203,7 +203,7 @@ groups.
 - Purpose: open the Ease panel (PP-01) for the selected classic tween.
 - Behaviour: enabled when the current frame is inside a tweened span; click opens/focuses the Ease panel bound to that
   keyframe.
-- Data: `Easing::{Linear, EaseIn, EaseOut, EaseInOut, CubicBezier, Flash}` exists.
+- Data: `Easing::{Linear, EaseIn, EaseOut, EaseInOut, CubicBezier, Flash, Bounce, Elastic}` exists.
 - Depends on: editor (PP-01).
 - Acceptance: enabled only inside a tween; opens Ease showing the keyframe's current curve.
 
@@ -216,8 +216,8 @@ groups.
 - Acceptance: waveform span on the layer; Event/Start/Stop/Stream behave in HTML5 preview; scrubbing with Stream
   sync plays audio (or a documented limitation).
 
-**TL-08 · Edit multiple frames** — `timeline_onion_group` · partial
-- Done: toggle; stage draws every keyframe in the onion range opaque; a Move gesture applies the same offset to the selected objects on all those keyframes (one Undo). Not yet: selecting objects that exist only on other keyframes; scale/rotate across frames.
+**TL-08 · Edit multiple frames** — `timeline_onion_group` · done
+- Done: toggle; stage draws every keyframe in the onion range opaque; clicking, marquee-selecting or Select All hits objects across every keyframe in `onion_range` (including objects that exist only on other keyframes), and Move / Scale / Rotate / Skew gestures apply across all selected keyframes in a single Undo step (`selection.rs`, `stage_selection.rs`, `timeline_commands.rs`).
 - Purpose: show and edit content of all keyframes inside the onion range at once (Flash "Edit multiple frames").
 - Behaviour: toggle; while on, stage shows every keyframe in the range opaque; selection/move/transform apply to
   objects on several keyframes; one Undo for the whole gesture.
@@ -403,7 +403,8 @@ its icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exac
 - Data: none. Depends on: UI-only. Acceptance: each tool shows its NF2 cursor only over the canvas; hotspot accurate
   (click lands at the glyph's hotspot).
 
-**ST-08 · Breadcrumb ▾ menu + Symbols & scenes popover** — `stage_chrome` (`BreadcrumbItem { menu: false }`) · absent
+**ST-08 · Breadcrumb ▾ menu + Symbols & scenes popover** — `stage_chrome` (`panels/symbols_popover.rs`, `shell.rs`) · done
+- Done: breadcrumb `▾` and overflow `…` open `Popover / Symbols & scenes` with single-pass `< 1` frame search filtering, `Scenes` · `Matches` · `Recent` · `Browse` expandable library-folder sections, `↑`/`↓` row movement, `←`/`→` folder collapse/expand, `↵` edit, `⌥↵` edit in place, and `Esc` / click-outside dismissal (`⌘↵ new window` stays disabled with its hint).
 - Purpose: ▾ lists sibling scenes/symbols with search; popover for large projects (sections Scenes · Matches ·
   Recent · Browse, keyboard ↑↓ ↵ ⌥↵ ⌘↵); Breadcrumb overflow "…" for long paths.
 - Data: `Project.symbols`, library folders; Recent = editor history. Depends on: editor (scenes need TL-03).
@@ -498,11 +499,11 @@ its icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exac
 - Purpose: clickable thumbnail strip to pick the first frame. Depends on: editor (thumbnails as TL-10).
 
 **PR-08 · Properties — Sound (frame)** — `panels/properties_sound.rs` · partial
-- Done: Sound section of frame Properties when the keyframe has a sound: sound select (None + library sounds), Effect presets, Sync, Repeat/Loop + count, file info, Play (native preview). Not yet: Envelope… and Sound properties… open their planned dialogs (DL-09, DL-08); the waveform is the decorative span painter.
+- Done: Sound section of frame Properties when the keyframe has a sound: sound select (None + library sounds), Effect presets + Custom, `Envelope…` opening the modal `Edit envelope` dialog (`panels/edit_envelope.rs`, DL-09; format-7 `SoundEffect::Custom` + `FrameSound.envelope`), Sync, Repeat/Loop + count, file info, Play (native preview), and `Sound properties…` opening the modal `Sound properties` dialog (`panels/sound_properties.rs`, DL-08). Not yet: the waveform is the decorative span painter (wiring plan §7.4 row 13).
 - Controls: Label name/type; sound file select; Effect (None, Left/Right channel, Fade left→right / right→left, Fade in,
   Fade out, Custom) + Envelope… (DL-09); Sync Event / Start / Stop / Stream; Repeat / Loop + count; waveform; file info;
   Play; Sound properties… (DL-08).
-- Data: `FrameSound { resource, sync, loops, loop_forever, effect }` (TL-07); Custom envelope is **NEW** (DL-09).
+- Data: `FrameSound { resource, sync, loops, loop_forever, effect, envelope }` (TL-07, DL-09, format 7).
   Acceptance: Event sound plays once per keyframe hit; Stop stops it; Stream follows playhead.
 
 **PR-09 · Properties — Video** — partial (W/H + NetStream hint)
@@ -514,12 +515,14 @@ its icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exac
 - Acceptance: an authored video with Autoplay plays in HTML5 without script; cue point fires an AS3 `cuePoint` event
   (bounded).
 
-**PR-10 · Properties — Motion tween** — partial (`panels/motion_tween.rs`)
+**PR-10 · Properties — Motion tween** — done (`panels/motion_tween.rs`)
 - Done: replaces the frame Tween section while the playhead is inside a motion tween. Ease (Flash acceleration of the
   span start key) + Edit curve… (opens PP-01); Rotate turns + CW/CCW (written as the last Rotation ◆ key); Orient to
-  path (`Keyframe.orient_to_path` on the span start key); Path X/Y/W/H moves and scales the X/Y keys. The path itself
-  is drawn on the stage (R-005 resolved). Orient to path turns the object along its X/Y track. Not yet: Show path / Show frame dots toggles, Sync graphic symbols and Snap to motion guide stay disabled ("Not
-  available yet"). Task cards: wiring plan §7.4 rows 4, 6, 7.
+  path (`Keyframe.orient_to_path` on the span start key, turning the object along its X/Y track); Path X/Y/W/H moves and
+  scales the X/Y keys; Show path and Show frame dots (`WorkspacePrefs.timeline.show_motion_path` /
+  `show_motion_frame_dots`); Sync graphic symbols (`Keyframe.sync_symbols` in format 7, continuous Graphic playback +
+  `sync_layer_symbols`); and Snap to motion guide (`Keyframe.snap_to_guide` in format 7, snapping path endpoints to a
+  linked guide layer's stroke). The path itself is drawn on the stage (R-005 resolved).
 - Controls: Ease −100 in … +100 out + Edit curve… (→ PP-01); Rotation count + direction CW/CCW + Orient to path; Path
   X/Y/W/H; Show path / frame dots; Sync graphic symbols; Snap to motion guide.
 - Data: values live in the span keys (TL-05). Acceptance: Orient to path rotates the object along the path tangent
@@ -602,30 +605,32 @@ AC-03, AC-04 and AC-07 stay disabled; AC-08 is partial.
 - Depends on: engine/host bridge (browser → editor channel, or an embedded preview). Acceptance: `trace("x")` in a
   frame script appears in Output within one second of Test Movie.
 
-## 9. Planned panels (`panels/planned.rs` enum `PlannedPanel`, bodies in `planned_panels.rs`; PP-01, PP-02, PP-03, PP-05, PP-08, PP-09, PP-10 and PP-11 are real panels now)
+## 9. Planned panels (`panels/planned.rs` enum `PlannedPanel`, 22 remaining previews in `planned_panels.rs` / `planned_dialogs.rs` / `planned_documents.rs`; PP-01, PP-02, PP-03, PP-05, PP-08, PP-09, PP-10, PP-11, PP-12, ST-08, DL-02, DL-08, DL-09 and DL-16 are real panels/dialogs/popovers now)
 
 **PP-01 · Ease** — done (`panels/ease.rs`)
 - Done: bound to the tween span under the playhead (motion: its start key); presets Linear, Ease In/Out/In-Out, Back,
-  Custom; draggable handles; X1–Y2 fields; preview track with Play/Stop; Reset · Cancel · Apply (one Undo). Not yet:
-  Bounce, Elastic (disabled; not single cubic curves) and per-property curves (Property select disabled).
+  Bounce, Elastic (`Easing::{Bounce, Elastic}` with `EaseDirection::{In, Out, InOut}` in format 7, Penner exact
+  formulas) and Custom; `Property` select (`All`, `Position`, `Rotation`, `Scale`, `Colour`) + `One curve for all`
+  editing `Keyframe.property_eases` on motion tweens; draggable handles; X1–Y2 fields; preview track with Play/Stop;
+  Reset · Cancel · Apply (one Undo).
 - Controls: context line ("Classic tween · <layer> · frames a–b"); Property select All / Position / Rotation / Scale /
   Colour / Filters + "One curve for all"; presets Linear, Ease In, Ease Out, Ease In-Out, Back, Bounce, Elastic, Custom;
   `EaseGraph` with draggable Bézier handles (range 0–100 / Overshoot / Undershoot switches automatically); X1 Y1 X2 Y2
   fields; preview track with play and "Frame n / N · p %"; Reset · Cancel · Apply.
-- Behaviour: edits a draft; Apply writes `Keyframe.tween` in one Undo; Cancel discards; X fields 0–1, Y fields
-  −0.3…1.3 in the graph (model allows |y| ≤ 100); Bounce and Elastic are not single cubic curves → disabled preset with
-  hint or **NEW** easing variants. Per-property curves ("One curve for all" off) need motion tracks (TL-05).
-- Data: `Easing::{Linear, EaseIn, EaseOut, EaseInOut, CubicBezier{..}, Flash{..}}`; evaluation `evaluate::easing`
-  solves Bézier x by bisection. Back is a cubic with y outside 0–1. Depends on: engine for Bounce/Elastic presets and
-  per-property curves (wiring plan §7.4 rows 1–2).
-- Acceptance: Apply on "Back out" (Y2 > 1) overshoots in editor preview and HTML5; Cancel leaves the document
-  unchanged (History unchanged).
+- Behaviour: edits a draft; Apply writes `Keyframe.tween` (or `Keyframe.property_eases` when `One curve for all` is off)
+  in one Undo; Cancel discards; X fields 0–1, Y fields −0.3…1.3 in the graph (model allows |y| ≤ 100).
+- Data: `Easing::{Linear, EaseIn, EaseOut, EaseInOut, CubicBezier{..}, Flash{..}, Bounce{..}, Elastic{..}}` and
+  `Keyframe.property_eases`; evaluation `evaluate::easing` solves Bézier x by bisection and evaluates Penner Bounce and
+  Elastic exactly.
+- Acceptance: Apply on "Back out" (Y2 > 1) or "Bounce" overshoots/bounces in editor preview and HTML5; Cancel leaves the
+  document unchanged (History unchanged).
 
 **PP-02 · Motion editor** — partial (`panels/motion_editor.rs`)
 - Done: rows X, Y, Rotation Z, Scale X/Y, Alpha over the motion span with ◆ keys; value field keys the property at the
-  playhead; ◆ adds/removes that property's key; ◀ ▶ jump between its keys; click a lane to move the playhead, drag a
-  key on the selected lane to change its value (one Undo per drag); Graph size / Expanded sliders. Not yet:
-  per-property eases (Ease column shows the span ease, disabled), Add property, moving keys in time.
+  playhead; per-row `Ease` column selects per-property eases (`Keyframe.property_eases`, format 7) in one Undo; ◆
+  adds/removes that property's key; ◀ ▶ jump between its keys; click a lane to move the playhead, drag a key vertically
+  on the selected lane to change its value or horizontally to move that property's key in time (`Editor::move_motion_key`,
+  one Undo per drag); Graph size / Expanded sliders. Not yet: Add property (and Filters tracks).
 - Controls: columns Property · Value · Ease · Keyframe + frame ruler; sections Basic motion (X, Y, Rotation Z),
   Transformation (Scale X/Y, Skew X/Y), Colour effect (Alpha, Tint …), Filters; per row value field, ease select (No
   ease, Simple (slow), Bounce …), ◀ ◆ ▶ keyframe navigation, curve lane; Add property; footer Graph size, Expanded
@@ -779,20 +784,22 @@ external / Progressive; symbol type, codec, place on stage, expand timeline, inc
 Depends on: engine (PR-09 model; embedding = frame extraction is large). P3. Acceptance: "Load external video" creates
 a Video element bound to the imported resource with Autoplay.
 
-**DL-08 · Sound properties** — `sound_properties`: name, path, source info; export compression MP3 / ADPCM / Raw /
-Speech; bit rate; quality; stereo → mono; result size; Update / Import… / Test. Depends on: engine (audio resource
-metadata + encoding at publish). P3.
+**DL-08 · Sound properties** — partial (`panels/sound_properties.rs`, modal dialog): edits audio resource name, shows
+source path and decoded format/duration/size stats, auditions with `Test`/`Stop`, reloads from the recorded import path
+via `Update`, or replaces bytes via `Import…` in one `"Sound properties"` Undo step (`Cancel`/`Esc` discards and stops
+audition). Export compression / bit rate / quality / stereo → mono rows stay disabled with their hint until audio
+re-encoding at publish lands. P3.
 
-| ID | Absent dialog / panel (reference §9) | Purpose | Depends on | Prio |
+| ID | Absent / promoted dialog / panel (reference §9) | Purpose | Depends on | Prio |
 | --- | --- | --- | --- | --- |
-| DL-09 | Edit envelope | Left/right volume lanes with draggable points, seconds/frames, zoom | TL-07 audio model | P3 |
+| DL-09 | Edit envelope — **done** (`panels/edit_envelope.rs`) | Modal dialog with Left/right `EnvelopeLane`s (`1..=8` draggable stereo points in format-7 `FrameSound.envelope`, `SoundEffect::Custom`), presets, seconds/frames ruler, zoom, Play/Stop preview, one Undo | TL-07 audio model (done) | P3 |
 | DL-10 | Import PSD to library | Layer list + per-layer options, placement, keep positions, stage size | **NEW** PSD reader in `neoflash-import` | P3 |
 | DL-11 | Font embedding | Font list, character ranges, extra chars, export for AS + class, glyph count | `web-font-portability` (planned) | P3 |
 | DL-12 | Test Movie window | Native window: stage, transport, speed, fps/memory badge, Output drawer | Embedded runtime host (today Test Movie opens a browser) | P2 |
 | DL-13 | Find and replace (⌘F) | Text / Font / Colour / Symbol / Sound / Video / Bitmap search, scope, regex, results table, Replace all | editor scan of `Project` (+ scripts); Replace all = one Undo | P2 |
 | DL-14 | Movie Explorer | Tree document ▸ scene ▸ layer ▸ frame ▸ instance / actions, filters, path footer | editor traversal of `Project` | P2 |
 | DL-15 | Convert to Symbol ▸ Advanced | 9-slice guides; runtime shared library export/import URL; authortime sharing source | **NEW** symbol fields; runtime 9-slice scaling | P3 |
-| DL-16 | Layer properties (exists as dialog in `layer_controls.rs`) | Missing: types Guided / Masked / Armature, Layer height 100/200/300 % | Guided = TL-01; height = timeline row model | P2 |
+| DL-16 | Layer properties — **done** (`panels/layer_properties.rs`) | Modal dialog editing Name, Visible, Locked, Type (`Normal`, `Guide`, `Guided` ↔ `motion_guide`, `Mask`, `Masked`, `Folder`; `Armature` stays disabled), Outline colour + outlines toggle, and Layer height `100 %`/`200 %`/`300 %` with one Undo | Guided = TL-01 (done); Armature = TO-05 | P2 |
 | DL-17 | Accessibility panel (`panels/accessibility.rs`) | Missing: Make child objects accessible, Auto label, Shortcut | `Accessibility` lacks these fields (**NEW**) + HTML5 ARIA mapping | P3 |
 
 ## 11. Menus (`panels/menu.rs`, `authoring_modify.rs::modify_menu_ui`, frame/layer context menus)
@@ -811,8 +818,8 @@ unclear.
 | Edit | Find and replace ⌘F, Preferences… ⌘U, Keyboard shortcuts… (planned previews). Done: Timeline ▸ (Cut/Copy/Paste/Clear/Remove/Select all/Reverse frames, Synchronise symbols), Edit symbols ⌘E, Edit selected, Edit in place | DL-13; DL-01 |
 | View | Preview mode ▸, Snapping ▸, Show shape hints ⌥⌘H (disabled); Pasteboard ⇧⌘W is shown checked but disabled (hiding the pasteboard is not available) | editor; ST-04 / R-003; TL-04 shape hints |
 | Insert | — (Layer, Layer folder, Motion guide, Classic / Shape / Motion tween and Scene work) | — |
-| Modify | Bitmap ▸, Symbol ▸, Shape ▸, Combine objects ▸ (disabled), Timeline ▸ Distribute to layers (disabled), Layer properties… (planned). Done: Document… ⌘J, Timeline ▸ Reverse frames, Synchronise symbols, Convert to (blank) keyframes | PR-06; LI-01; engine for shape ops |
-| Control | Test scene ⌥⌘↵ (planned preview), Enable simple buttons ⌥⌘B (disabled). Done: Go to end, step `.` `,`, Loop playback, Play all scenes, Mute sounds ⌥⌘M | E-16; editor button preview |
+| Modify | Bitmap ▸, Symbol ▸, Shape ▸, Combine objects ▸ (disabled), Timeline ▸ Distribute to layers (disabled). Done: Document… ⌘J, Timeline ▸ Layer properties…, Reverse frames, Synchronise symbols, Convert to (blank) keyframes | PR-06; LI-01; engine for shape ops |
+| Control | Enable simple buttons ⌥⌘B (disabled). Done: Test scene ⌥⌘↵, Go to end, step `.` `,`, Loop playback, Play all scenes, Mute sounds ⌥⌘M | editor button preview |
 | Window | Duplicate window, Hide panels F4 (disabled); Compiler errors, Debugger, Code snippets, Movie Explorer and other planned panels open previews. Done: Swatches ⌘F9, Info ⌘I, Ease, History ⌘F10, Scene ⇧F2, Motion editor, Project | PP-*; workspace |
 
 **MN-02 · Context menus** (reference §8 Frame / Layer / Stage object)

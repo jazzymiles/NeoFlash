@@ -312,3 +312,73 @@ fn sound_button_menu_and_properties_section_are_wired() {
         );
     }
 }
+
+#[test]
+fn edit_envelope_dialog_commits_custom_stereo_envelope_and_cancels_cleanly() {
+    let ctx = egui::Context::default();
+    ctx.set_fonts(neoflash_ui::typography::font_definitions());
+    neoflash_ui::theme::install(&ctx, neoflash_ui::Theme::Dark);
+    let mut editor = editor_in(&ctx);
+    editor.layer = 1;
+    editor.frame = 2;
+    editor.set_frame_sound(Some("beep".into()));
+    let before = editor.project.clone();
+
+    // Library menu entry point routes through ConvertedTrigger::EditEnvelope to the real modal dialog.
+    Editor::open_planned(&ctx, "Library menu ▸ Edit envelope…");
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1920., 1080.),
+            )),
+            ..Default::default()
+        },
+        |ctx| editor.draw_dialogs(ctx),
+    );
+    assert!(editor.has_modal_dialog());
+    assert!(editor.edit_envelope.is_some());
+
+    // Mutate draft in Seconds and Frames modes, then Cancel: 0 Undo steps and project unchanged.
+    {
+        let draft = editor.edit_envelope.as_mut().unwrap();
+        draft.effect = SoundEffect::Custom;
+        draft.left = vec![(0.0, 0.25), (1.0, 1.0)];
+        draft.right = vec![(0.0, 1.0), (0.5, 0.5), (1.0, 0.0)];
+        draft.unit = 1;
+    }
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1920., 1080.),
+            )),
+            ..Default::default()
+        },
+        |ctx| editor.draw_dialogs(ctx),
+    );
+    editor.cancel_edit_envelope();
+    assert!(!editor.has_modal_dialog());
+    assert_eq!(editor.project, before);
+
+    // Reopen, shape independent L/R curves, and commit on OK: 1 Undo step, format 7, valid.
+    editor.open_edit_envelope();
+    let mut draft = editor.edit_envelope.take().unwrap();
+    draft.effect = SoundEffect::Custom;
+    draft.left = vec![(0.0, 0.25), (1.0, 1.0)];
+    draft.right = vec![(0.0, 1.0), (0.5, 0.5), (1.0, 0.0)];
+    editor.commit_edit_envelope(draft);
+    assert_eq!(editor.project.format_version, 7);
+    editor.project.validate().unwrap();
+
+    let (_, sound) = editor.frame_sound().unwrap();
+    assert_eq!(sound.effect, SoundEffect::Custom);
+    let pts = sound.envelope.as_ref().expect("custom envelope stored");
+    assert_eq!(pts.len(), 3);
+    assert!((pts[1][0] - 0.5).abs() < 1e-6);
+    assert!((pts[1][1] - 0.625).abs() < 1e-6, "L interpolated at t=0.5");
+    assert!((pts[1][2] - 0.5).abs() < 1e-6, "R key at t=0.5");
+
+    editor.undo();
+    assert_eq!(editor.project, before, "OK commits in a single Undo step");
+}

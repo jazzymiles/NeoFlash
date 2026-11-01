@@ -158,6 +158,14 @@ pub fn easing(t: f64, ease: Easing) -> f64 {
                 1. - (-2. * t + 2.).powi(2) / 2.
             }
         }
+        Easing::Bounce => {
+            crate::as_easing::ease("Bounce", "easeOut", t, 0.0, 1.0, 1.0, f64::NAN, f64::NAN)
+                .unwrap_or(t)
+        }
+        Easing::Elastic => {
+            crate::as_easing::ease("Elastic", "easeOut", t, 0.0, 1.0, 1.0, f64::NAN, f64::NAN)
+                .unwrap_or(t)
+        }
         Easing::CubicBezier { x1, y1, x2, y2 } => {
             if t == 0. || t == 1. {
                 return t;
@@ -463,9 +471,19 @@ fn set_property(
     }
 }
 
+pub fn effective_property_ease(start: &Keyframe, property: TweenProperty) -> Easing {
+    start
+        .property_eases
+        .iter()
+        .find(|(p, _)| *p == property)
+        .map(|(_, ease)| *ease)
+        .unwrap_or_else(|| start.tween.unwrap_or(Easing::Linear))
+}
+
 /// Motion tween: every property has its own track through the ◆ keys that key
-/// it. The span ease remaps time over the whole span, as Flash motion tweens do;
-/// after the last property key a track holds its value.
+/// it. Each property uses its override in `start.property_eases` (or the span
+/// `start.tween` ease) to remap time over the span; after the last property key
+/// a track holds its value.
 fn sample_motion(layer: &Layer, frame: u32) -> Vec<Element> {
     let Some((start, properties, end)) = motion_span(layer, frame) else {
         return layer
@@ -477,27 +495,43 @@ fn sample_motion(layer: &Layer, frame: u32) -> Vec<Element> {
     let span_end = end.unwrap_or(last).max(last).max(start.frame + 1);
     let length = (span_end - start.frame) as f64;
     let progress = ((frame - start.frame) as f64 / length).min(1.);
-    let time =
-        start.frame as f64 + easing(progress, start.tween.unwrap_or(Easing::Linear)) * length;
+    let x_ease = effective_property_ease(start, TweenProperty::X);
+    let y_ease = effective_property_ease(start, TweenProperty::Y);
     start
         .elements
         .iter()
         .map(|element| {
             let mut out = element.clone();
-            out.transform = motion_pose(start, &properties, element, time);
+            out.transform = motion_pose(start, &properties, element, progress, length);
             if start.orient_to_path {
                 // Orient to path: turn with the direction of travel, relative to the
                 // direction at the span start (the authored rotation stays the base).
-                let heading = |at: f64| {
-                    let a = motion_pose(start, &properties, element, at);
-                    let b = motion_pose(start, &properties, element, at + 0.5);
-                    let (dx, dy) = (b.x - a.x, b.y - a.y);
-                    (dx.hypot(dy) > 1e-9).then(|| dy.atan2(dx).to_degrees())
-                };
-                let initial = heading(start.frame as f64);
-                let now = heading(time).or_else(|| heading(time - 0.5));
-                if let (Some(initial), Some(now)) = (initial, now) {
-                    out.transform.rotation += now - initial;
+                if x_ease == y_ease {
+                    let xy_time = start.frame as f64 + easing(progress, x_ease) * length;
+                    let heading = |at: f64| {
+                        let a = motion_pose_at_time(start, &properties, element, at);
+                        let b = motion_pose_at_time(start, &properties, element, at + 0.5);
+                        let (dx, dy) = (b.x - a.x, b.y - a.y);
+                        (dx.hypot(dy) > 1e-9).then(|| dy.atan2(dx).to_degrees())
+                    };
+                    let initial = heading(start.frame as f64);
+                    let now = heading(xy_time).or_else(|| heading(xy_time - 0.5));
+                    if let (Some(initial), Some(now)) = (initial, now) {
+                        out.transform.rotation += now - initial;
+                    }
+                } else {
+                    let dp = (0.5 / length).min(0.25);
+                    let heading_p = |p: f64| {
+                        let p1 = (p + dp).min(1.0);
+                        let p0 = if p1 - p > 1e-6 { p } else { (p1 - dp).max(0.0) };
+                        let a = motion_pose(start, &properties, element, p0, length);
+                        let b = motion_pose(start, &properties, element, p1, length);
+                        let (dx, dy) = (b.x - a.x, b.y - a.y);
+                        (dx.hypot(dy) > 1e-9).then(|| dy.atan2(dx).to_degrees())
+                    };
+                    if let (Some(initial), Some(now)) = (heading_p(0.0), heading_p(progress)) {
+                        out.transform.rotation += now - initial;
+                    }
                 }
             }
             out
@@ -505,9 +539,64 @@ fn sample_motion(layer: &Layer, frame: u32) -> Vec<Element> {
         .collect()
 }
 
-/// Pose of one motion-tweened element at (eased, fractional) frame `time`: every
-/// property interpolates between the ◆ keys that key it.
+fn interpolate_motion_property(
+    transform: &mut Transform,
+    start: &Keyframe,
+    properties: &[&Keyframe],
+    element: &Element,
+    property: TweenProperty,
+    time: f64,
+) {
+    let mut previous = (start.frame as f64, element.transform);
+    let mut next = None;
+    for key in properties {
+        if !key
+            .keyed_properties
+            .as_ref()
+            .is_some_and(|keyed| keyed.contains(&property))
+        {
+            continue;
+        }
+        let Some(keyed) = key.elements.iter().find(|e| e.id == element.id) else {
+            continue;
+        };
+        if key.frame as f64 <= time {
+            previous = (key.frame as f64, keyed.transform);
+        } else {
+            next = Some((key.frame as f64, keyed.transform));
+            break;
+        }
+    }
+    let (to, t) = match next {
+        Some((frame, to)) => (
+            to,
+            ((time - previous.0) / (frame - previous.0)).clamp(0., 1.),
+        ),
+        None => (previous.1, 0.),
+    };
+    set_property(transform, property, &previous.1, &to, t);
+}
+
+/// Pose of one motion-tweened element at normalized `progress` (`0..=1`) over `length`:
+/// every property applies its effective ease and interpolates between the ◆ keys that key it.
 fn motion_pose(
+    start: &Keyframe,
+    properties: &[&Keyframe],
+    element: &Element,
+    progress: f64,
+    length: f64,
+) -> Transform {
+    let mut transform = element.transform;
+    for property in TweenProperty::ALL {
+        let ease = effective_property_ease(start, property);
+        let time = start.frame as f64 + easing(progress, ease) * length;
+        interpolate_motion_property(&mut transform, start, properties, element, property, time);
+    }
+    transform
+}
+
+/// Pose of one motion-tweened element at an explicit fractional frame `time`.
+fn motion_pose_at_time(
     start: &Keyframe,
     properties: &[&Keyframe],
     element: &Element,
@@ -515,42 +604,14 @@ fn motion_pose(
 ) -> Transform {
     let mut transform = element.transform;
     for property in TweenProperty::ALL {
-        let mut previous = (start.frame as f64, element.transform);
-        let mut next = None;
-        for key in properties {
-            if !key
-                .keyed_properties
-                .as_ref()
-                .is_some_and(|keyed| keyed.contains(&property))
-            {
-                continue;
-            }
-            let Some(keyed) = key.elements.iter().find(|e| e.id == element.id) else {
-                continue;
-            };
-            if key.frame as f64 <= time {
-                previous = (key.frame as f64, keyed.transform);
-            } else {
-                next = Some((key.frame as f64, keyed.transform));
-                break;
-            }
-        }
-        let (to, t) = match next {
-            Some((frame, to)) => (
-                to,
-                ((time - previous.0) / (frame - previous.0)).clamp(0., 1.),
-            ),
-            None => (previous.1, 0.),
-        };
-        set_property(&mut transform, property, &previous.1, &to, t);
+        interpolate_motion_property(&mut transform, start, properties, element, property, time);
     }
     transform
 }
 
-/// Sample a layer within its timeline: classic tweens on a layer guided by a
-/// motion guide move their objects' registration points along the guide's
-/// first stroke, from the point nearest the start pose to the point nearest
-/// the end pose.
+/// Sample a layer within its timeline: classic tweens (and motion tweens with
+/// `snap_to_guide`) on a layer guided by a motion guide move their objects'
+/// registration points along the guide's first stroke.
 pub fn sample_layer_in(timeline: &Timeline, layer: &Layer, frame: u32) -> Vec<Element> {
     let mut elements = sample_layer(layer, frame);
     let Some(guide) = layer
@@ -561,6 +622,57 @@ pub fn sample_layer_in(timeline: &Timeline, layer: &Layer, frame: u32) -> Vec<El
     else {
         return elements;
     };
+    if let Some((start, properties, end)) = motion_span(layer, frame)
+        && start.snap_to_guide
+        && let Some(path) = guide_polyline(guide, start.frame)
+    {
+        let last = properties.last().map_or(start.frame, |k| k.frame);
+        let span_end = end.unwrap_or(last).max(last).max(start.frame + 1);
+        let length = (span_end - start.frame) as f64;
+        let progress = ((frame - start.frame) as f64 / length).min(1.);
+        let x_ease = effective_property_ease(start, TweenProperty::X);
+        let time = start.frame as f64 + easing(progress, x_ease) * length;
+        for element in &mut elements {
+            let Some(a) = start.elements.iter().find(|e| e.id == element.id) else {
+                continue;
+            };
+            let s0 = path.nearest([a.transform.x, a.transform.y]);
+            let mut waypoints = vec![(start.frame as f64, s0)];
+            for key in &properties {
+                if key.keyed_properties.as_ref().is_some_and(|kp| {
+                    kp.contains(&TweenProperty::X) || kp.contains(&TweenProperty::Y)
+                }) {
+                    let pose = motion_pose_at_time(start, &properties, a, key.frame as f64);
+                    waypoints.push((key.frame as f64, path.nearest([pose.x, pose.y])));
+                }
+            }
+            let mut previous = waypoints[0];
+            let mut next = None;
+            for &wp in &waypoints[1..] {
+                if wp.0 <= time {
+                    previous = wp;
+                } else {
+                    next = Some(wp);
+                    break;
+                }
+            }
+            let s = match next {
+                Some((wf, ws)) => {
+                    let u = ((time - previous.0) / (wf - previous.0)).clamp(0., 1.);
+                    lerp(previous.1, ws, u)
+                }
+                None => previous.1,
+            };
+            let [x, y] = path.point_at(s);
+            element.transform.x = x;
+            element.transform.y = y;
+            if start.orient_to_path {
+                let base = motion_pose(start, &properties, a, progress, length).rotation;
+                element.transform.rotation = base + path.tangent_at(s) - path.tangent_at(s0);
+            }
+        }
+        return elements;
+    }
     let Some(key) = layer.key_at(frame) else {
         return elements;
     };
@@ -708,7 +820,9 @@ pub fn guide_polyline(guide: &Layer, frame: u32) -> Option<GuidePath> {
     })
 }
 
-/// Earliest key in the current continuous placement span (stable IDs survive keys).
+/// Earliest key in the current continuous placement span (stable IDs survive keys, and
+/// `sync_symbols` motion spans chain continuously across consecutive keyframes of the same
+/// graphic symbol).
 pub(crate) fn placement_start(layer: &Layer, frame: u32, id: &str) -> u32 {
     let mut keys: Vec<_> = layer
         .keyframes
@@ -716,12 +830,34 @@ pub(crate) fn placement_start(layer: &Layer, frame: u32, id: &str) -> u32 {
         .filter(|k| k.frame <= frame)
         .collect();
     keys.sort_by_key(|k| std::cmp::Reverse(k.frame));
+    let target_symbol = keys
+        .iter()
+        .find_map(|k| k.elements.iter().find(|e| e.id == id))
+        .and_then(|e| match &e.kind {
+            ElementKind::Instance { symbol_id, .. } => Some(symbol_id.as_str()),
+            _ => None,
+        });
+    let mut current_id = id;
+    let mut seen_current = false;
     let mut start = frame;
     for key in keys {
-        if !key.elements.iter().any(|e| e.id == id) {
-            break;
+        if key.elements.iter().any(|e| e.id == current_id) {
+            seen_current = true;
+            start = key.frame;
+            continue;
         }
-        start = key.frame;
+        if seen_current
+            && motion_span(layer, key.frame).is_some_and(|(s, _, _)| s.sync_symbols)
+            && let Some(sym) = target_symbol
+            && let Some(matched) = key.elements.iter().find(
+                |e| matches!(&e.kind, ElementKind::Instance { symbol_id, .. } if symbol_id == sym),
+            )
+        {
+            current_id = &matched.id;
+            start = key.frame;
+            continue;
+        }
+        break;
     }
     start
 }

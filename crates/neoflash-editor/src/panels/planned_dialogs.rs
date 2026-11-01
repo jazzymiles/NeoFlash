@@ -935,36 +935,3 @@ pub(super) fn import_video(ui: &mut Ui) {
         &["Cancel", "Import"],
     );
 }
-
-/// Dialog / Sound properties.
-pub(super) fn sound_properties(ui: &mut Ui) {
-    let w = ui.available_width();
-    ui.horizontal(|ui| {
-        let (span, _) = ui.allocate_exact_size(egui::vec2(120.0, 64.0), egui::Sense::hover());
-        tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Sound, true);
-        ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing.y = space::S1;
-            text(ui, "music.mp3", "", w - 120.0 - space::S2);
-            caption(ui, "~/Projects/ideas/audio/music.mp3");
-            caption(ui, "44 kHz · Stereo · 16 bit · 32.4 s · 5.7 MB");
-        });
-    });
-    group(ui, "Export");
-    select(ui, "Compression: MP3", w);
-    ui.horizontal(|ui| {
-        let half = (w - space::S2) / 2.0;
-        select(ui, "Bit rate: 128 kbps", half);
-        select(ui, "Quality: Best", half);
-    });
-    check(ui, false, "Convert stereo to mono");
-    caption(ui, "Result: 128 kbps stereo, 518.6 kB — 9 % of original");
-    ui.horizontal(|ui| {
-        let _ = ui.add(c::Button::ghost("Update"));
-        let _ = ui.add(c::Button::ghost("Import…"));
-        let _ = ui.add(c::Button::ghost("Test").icon(i16::PLAY));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let _ = ui.add(c::Button::primary("OK"));
-            let _ = ui.add(c::Button::new("Cancel"));
-        });
-    });
-}

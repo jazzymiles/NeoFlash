@@ -686,7 +686,10 @@ impl Editor {
                 "⇧⌘D",
                 |ui| {
                     Self::unavailable_item(ui, "Distribute to layers", "⇧⌘D");
-                    Self::planned_menu_item(ui, "Modify ▸ Timeline ▸ Layer properties…", "");
+                    if crate::ui_icons::menu_item(ui, "Layer properties…", "").clicked() {
+                        self.open_layer_properties(ui.ctx(), self.layer);
+                        ui.close();
+                    }
                     let editable = self.layer_editable();
                     if menu_item_enabled(ui, self.can_reverse_frames(), "Reverse frames", "")
                         .clicked()

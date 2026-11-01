@@ -347,3 +347,174 @@ fn preview_frame_view_grows_rows_and_caches_visible_thumbnails() {
     );
     assert_eq!(painted, 3);
 }
+
+#[test]
+fn copy_paste_motion_preserves_per_property_eases() {
+    let mut editor = motion_editor();
+    editor.project.symbols[0].timeline.layers[0].keyframes[0].property_eases = vec![
+        (TweenProperty::X, Easing::Bounce),
+        (TweenProperty::Y, Easing::EaseIn),
+    ];
+    editor.project.upgrade_format_for_features();
+    editor.project.validate().unwrap();
+
+    editor.frame = 4;
+    editor.layer = 0;
+    editor.copy_motion();
+
+    editor.frame = 0;
+    editor.layer = 1;
+    select(&mut editor, "still", "other");
+    let before = editor.project.clone();
+    editor.paste_motion();
+    editor.project.validate().unwrap();
+    assert_eq!(
+        editor.symbol().timeline.layers[1].keyframes[0].property_eases,
+        vec![
+            (TweenProperty::X, Easing::Bounce),
+            (TweenProperty::Y, Easing::EaseIn),
+        ]
+    );
+    for frame in 0..30 {
+        let (x, y) = position(&editor, 0, "star", frame);
+        let (ox, oy) = position(&editor, 1, "other", frame);
+        assert!(
+            (ox - (x + 50.0)).abs() < 1e-6 && (oy - (y + 50.0)).abs() < 1e-6,
+            "frame {frame}: ({ox}, {oy}) vs ({}, {})",
+            x + 50.0,
+            y + 50.0
+        );
+    }
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn show_motion_path_and_frame_dots_preferences_control_stage_overlay_without_history() {
+    let legacy: crate::workspace::TimelineView =
+        serde_json::from_str(r#"{"tinted":true,"show_seconds":true}"#).unwrap();
+    assert!(legacy.show_motion_path);
+    assert!(legacy.show_motion_frame_dots);
+
+    let mut editor = motion_editor();
+    editor.frame = 5;
+    select(&mut editor, "moving", "star");
+    assert!(editor.motion_paths_interactive());
+
+    let ctx = egui::Context::default();
+    let count_shapes = |editor: &Editor, paint: bool| -> usize {
+        ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                if paint {
+                    editor.paint_motion_path(ui.painter(), egui::pos2(20.0, 20.0));
+                }
+            });
+        })
+        .shapes
+        .len()
+    };
+    let baseline = count_shapes(&editor, false);
+    let with_dots = count_shapes(&editor, true).saturating_sub(baseline);
+    editor.workspace.timeline.show_motion_frame_dots = false;
+    let without_dots = count_shapes(&editor, true).saturating_sub(baseline);
+    assert!(
+        with_dots > without_dots && without_dots > 0,
+        "hiding frame dots keeps path line and key diamonds ({without_dots} vs {with_dots})"
+    );
+    editor.workspace.timeline.show_motion_path = false;
+    assert!(!editor.motion_paths_interactive());
+    assert!(!editor.begin_motion_key_drag(10, [100.0, 30.0]));
+    assert_eq!(count_shapes(&editor, true).saturating_sub(baseline), 0);
+    assert!(
+        !editor.history.can_undo(),
+        "view toggles never record Undo steps"
+    );
+}
+
+#[test]
+fn motion_sync_symbols_and_snap_to_guide_options_commit_with_one_undo() {
+    // 1. Sync graphic symbols on a motion tween.
+    let mut project = Project::blank();
+    project.symbols.push(art("walk", SymbolKind::Graphic, 8));
+    let mut k0 = key(0, vec![instance("a", "walk", 0., 0.)]);
+    k0.tween = Some(Easing::Linear);
+    k0.tween_kind = TweenKind::Motion;
+    let mut b_inst = instance("b", "walk", 40., 0.);
+    b_inst.kind = ElementKind::Instance {
+        symbol_id: "walk".into(),
+        playback: InstancePlayback::LoopFrom(6),
+    };
+    let k3 = key(3, vec![b_inst]);
+    project.symbols[0].timeline.frame_count = 10;
+    project.symbols[0].timeline.layers[0].keyframes = vec![k0, k3];
+    project.format_version = 6;
+    project.validate().unwrap();
+    let mut editor = Editor::from_project(&egui::Context::default(), project);
+    assert_eq!(
+        evaluate(&editor.project, &editor.project.root, 3)[0].element_id,
+        "dot-6"
+    );
+    let span = editor.motion_tween_span().unwrap();
+    let before = editor.project.clone();
+    editor.set_motion_sync_symbols(&span, true);
+    editor.project.validate().unwrap();
+    assert_eq!(editor.project.format_version, 7);
+    assert!(editor.symbol().timeline.layers[0].keyframes[0].sync_symbols);
+    assert!(matches!(
+        editor.symbol().timeline.layers[0].keyframes[1].elements[0].kind,
+        ElementKind::Instance {
+            playback: InstancePlayback::Loop,
+            ..
+        }
+    ));
+    assert_eq!(
+        evaluate(&editor.project, &editor.project.root, 3)[0].element_id,
+        "dot-3"
+    );
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // 2. Snap to motion guide snaps X/Y keys and stage drags onto the guide stroke.
+    let mut editor = motion_editor();
+    editor.add_motion_guide();
+    // "moving" is layer 0; Guide is inserted above it at layer 1.
+    editor.project.symbols[0].timeline.layers[1].keyframes = vec![key(
+        0,
+        vec![Element {
+            id: "guide-line".into(),
+            name: "guide-line".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Path {
+                commands: vec![
+                    PathCommand::MoveTo { x: 0.0, y: 20.0 },
+                    PathCommand::LineTo { x: 200.0, y: 20.0 },
+                ],
+                fill_rule: Default::default(),
+                fill: [0, 0, 0, 0],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 1.0,
+            },
+            scripts: vec![],
+            accessibility: None,
+        }],
+    )];
+    editor.layer = 0;
+    editor.frame = 5;
+    let span = editor.motion_tween_span().unwrap();
+    let before_snap = editor.project.clone();
+    editor.set_motion_snap_to_guide(&span, true);
+    editor.project.validate().unwrap();
+    assert!(editor.symbol().timeline.layers[0].keyframes[0].snap_to_guide);
+    assert_eq!(position(&editor, 0, "star", 0), (0.0, 20.0));
+    assert_eq!(position(&editor, 0, "star", 10), (100.0, 20.0));
+
+    // Dragging key 10 to (130, 26) (within 12 px of y=20) snaps onto (130, 20).
+    select(&mut editor, "moving", "star");
+    assert!(editor.begin_motion_key_drag(10, [100.0, 20.0]));
+    editor.drag_motion_key_to([130.0, 26.0]);
+    editor.finish_motion_key_drag();
+    assert_eq!(position(&editor, 0, "star", 10), (130.0, 20.0));
+    editor.undo();
+    editor.undo();
+    assert_eq!(editor.project, before_snap);
+}

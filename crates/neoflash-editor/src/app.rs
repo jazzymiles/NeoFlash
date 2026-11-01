@@ -97,6 +97,7 @@ pub struct Editor {
     pub(crate) graphic_drop_position: Option<egui::Pos2>,
     pub(crate) symbol_conversion: Option<crate::symbol_dialog::SymbolConversion>,
     pub(crate) document_settings: Option<crate::panels::document_settings::DocumentSettingsDraft>,
+    pub(crate) edit_envelope: Option<crate::panels::edit_envelope::EditEnvelopeDraft>,
     pub(crate) project_panel: crate::panels::project::ProjectPanelState,
     pub resource_panel: crate::resources::ResourcePanel,
     pub bitmap_textures: crate::bitmaps::BitmapTextures,
@@ -208,8 +209,10 @@ impl Editor {
                 }
             }
         }
-        if std::env::var("NEOFLASH_SCREENSHOT_DIALOG").as_deref() == Ok("document_settings") {
-            s.open_document_settings();
+        match std::env::var("NEOFLASH_SCREENSHOT_DIALOG").as_deref() {
+            Ok("document_settings") => s.open_document_settings(),
+            Ok("edit_envelope") => s.open_edit_envelope(),
+            _ => {}
         }
         s
     }
@@ -234,7 +237,7 @@ impl Editor {
             output: vec!["NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser.".into()],
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
             timeline_cell: neoflash_ui::metrics::FRAME, timeline_key_drag: None, timeline_edit: Default::default(), library_selected: None, symbol_conversion: None,
-            document_settings: None, project_panel: Default::default(),
+            document_settings: None, edit_envelope: None, project_panel: Default::default(),
             library_panel: crate::library::LibraryPanel::default(),
             graphic_drop_position: None,
             resource_panel: crate::resources::ResourcePanel::default(),
@@ -341,7 +344,14 @@ impl Editor {
             || self.saved_project.as_ref() != Some(&self.project)
     }
     pub(crate) fn has_modal_dialog(&self) -> bool {
-        self.symbol_conversion.is_some() || self.document_settings.is_some()
+        self.symbol_conversion.is_some()
+            || self.document_settings.is_some()
+            || self.edit_envelope.is_some()
+    }
+    pub(crate) fn has_modal_dialog_in(&self, ctx: &egui::Context) -> bool {
+        self.has_modal_dialog()
+            || crate::panels::sound_properties::has_sound_properties_dialog(ctx)
+            || crate::panels::layer_properties::has_layer_properties_dialog(ctx)
     }
     pub fn message(&mut self, msg: impl Into<String>) {
         self.status = msg.into();
@@ -593,6 +603,10 @@ impl Editor {
                 self.library_panel = Default::default();
                 self.project_panel = Default::default();
                 self.document_settings = None;
+                self.edit_envelope = None;
+                self.cancel_sound_properties(ctx);
+                self.cancel_layer_properties(ctx);
+                self.close_symbols_popover(ctx);
                 self.timeline_edit = Default::default();
                 self.graphic_drop_position = None;
                 self.bitmap_textures = Default::default();
@@ -641,6 +655,10 @@ impl Editor {
                 self.library_panel = Default::default();
                 self.project_panel = Default::default();
                 self.document_settings = None;
+                self.edit_envelope = None;
+                self.cancel_sound_properties(ctx);
+                self.cancel_layer_properties(ctx);
+                self.close_symbols_popover(ctx);
                 self.timeline_edit = Default::default();
                 self.graphic_drop_position = None;
                 self.bitmap_textures = Default::default();
@@ -680,6 +698,10 @@ impl Editor {
                             self.library_panel = Default::default();
                             self.project_panel = Default::default();
                             self.document_settings = None;
+                            self.edit_envelope = None;
+                            self.cancel_sound_properties(ctx);
+                            self.cancel_layer_properties(ctx);
+                            self.close_symbols_popover(ctx);
                             self.timeline_edit = Default::default();
                             self.graphic_drop_position = None;
                             self.bitmap_textures = Default::default();
@@ -794,8 +816,59 @@ impl Editor {
             }
         }
     }
+    /// Single-scene copy of `self.project` rooted at the currently edited scene (`Control ▸ Test scene`).
+    pub(crate) fn test_scene_project(&self) -> Project {
+        let mut cloned = self.project.clone();
+        let scene_id = self.current_scene().to_owned();
+        cloned
+            .symbols
+            .retain(|s| s.id == scene_id || !self.project.is_scene(&s.id));
+        cloned.root = scene_id.clone();
+        cloned.scenes.clear();
+        let doc_class = cloned.document_class.clone();
+        if let Some(root_sym) = cloned.symbol_mut(&scene_id) {
+            root_sym.folder.clear();
+            root_sym.linkage_id = None;
+            if doc_class.is_some()
+                && root_sym.class_name.is_some()
+                && root_sym.class_name != doc_class
+            {
+                root_sym.class_name = None;
+            }
+        }
+        cloned
+    }
+
+    /// `Control ▸ Test scene` (`⌥⌘↵`): export and open only the currently edited scene in the browser.
+    pub fn test_scene(&mut self) {
+        self.finish_edits();
+        let project = self.test_scene_project();
+        let output = std::env::temp_dir()
+            .join("neoflash-preview-scene")
+            .join(std::process::id().to_string());
+        match neoflash_export::export_project(&project, &output, &Self::runtime_dir()) {
+            Ok(index) => {
+                self.message(format!("HTML5 scene exported: {}", index.display()));
+                for warning in neoflash_export::export_warnings(&project) {
+                    self.message(warning);
+                }
+                if !cfg!(test)
+                    && let Err(e) = std::process::Command::new("open").arg(&index).spawn()
+                {
+                    self.message(format!("Cannot open preview: {e}"));
+                }
+            }
+            Err(e) => {
+                self.message(format!("Export failed: {e}"));
+                self.show_panel(PanelId::Output);
+            }
+        }
+    }
+
     pub(crate) fn shortcuts(&mut self, ctx: &egui::Context) {
-        if self.has_modal_dialog() {
+        if self.has_modal_dialog_in(ctx)
+            || crate::panels::symbols_popover::is_symbols_popover_open(ctx)
+        {
             return;
         }
         self.menu_shortcuts(ctx);
@@ -814,7 +887,9 @@ impl Editor {
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::N)) {
             self.request(Pending::New, ctx);
         }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Enter)) {
+        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::ALT, Key::Enter)) {
+            self.test_scene();
+        } else if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Enter)) {
             self.export(true);
         }
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F9)) {
@@ -1015,7 +1090,7 @@ impl Editor {
             self.seek_frame(self.frame.saturating_sub(1));
         }
         if exact(alt | cmd, Key::Enter) {
-            Self::open_planned(ctx, "Control ▸ Test scene");
+            self.test_scene();
         }
         // Window.
         for (m, key, panel) in [
@@ -1158,6 +1233,9 @@ impl Editor {
     pub fn draw_dialogs(&mut self, ctx: &egui::Context) {
         self.drain_converted_entry_triggers(ctx);
         self.document_settings_dialog(ctx);
+        self.edit_envelope_dialog(ctx);
+        self.sound_properties_dialog(ctx);
+        self.layer_properties_dialog(ctx);
         self.polystar_settings_modal(ctx);
         use neoflash_ui::{
             TextStyle,

@@ -79,7 +79,7 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     if project.uses_format_7() && project.format_version < 7 {
         add(
             "format_version".into(),
-            "parametric shape options and custom transformation points require document version 7"
+            "parametric shape options, custom transformation points, Bounce/Elastic and per-property eases, motion sync/snap options, and custom sound envelopes require document version 7"
                 .into(),
         );
     }
@@ -462,30 +462,66 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                 if !keys.insert(key.frame) {
                     add(format!("{kp}.frame"), "duplicate frame in a layer".into());
                 }
-                if let Some(Easing::CubicBezier { x1, y1, x2, y2 }) = key.tween
-                    && (![x1, y1, x2, y2].iter().all(|v| v.is_finite())
-                        || !(0.0..=1.0).contains(&x1)
-                        || !(0.0..=1.0).contains(&x2)
-                        || y1.abs() > 100.
-                        || y2.abs() > 100.)
-                {
-                    add(
-                        format!("{kp}.tween"),
-                        "Bézier controls must be finite, x in [0,1], |y| <= 100".into(),
-                    );
+                let check_easing =
+                    |ease: Easing, field_path: String, add: &mut dyn FnMut(String, String)| {
+                        match ease {
+                            Easing::CubicBezier { x1, y1, x2, y2 } => {
+                                if ![x1, y1, x2, y2].iter().all(|v| v.is_finite())
+                                    || !(0.0..=1.0).contains(&x1)
+                                    || !(0.0..=1.0).contains(&x2)
+                                    || y1.abs() > 100.
+                                    || y2.abs() > 100.
+                                {
+                                    add(
+                                        field_path,
+                                        "Bézier controls must be finite, x in [0,1], |y| <= 100"
+                                            .into(),
+                                    );
+                                }
+                            }
+                            Easing::Flash { acceleration } => {
+                                if !acceleration.is_finite()
+                                    || !(-100.0..=100.0).contains(&acceleration)
+                                {
+                                    add(
+                                        field_path.clone(),
+                                        "Flash acceleration must be finite and within [-100,100]"
+                                            .into(),
+                                    );
+                                }
+                                if project.format_version < 5 {
+                                    add(
+                                        field_path,
+                                        "Flash easing requires format version 5".into(),
+                                    );
+                                }
+                            }
+                            _ => {}
+                        }
+                    };
+                if let Some(ease) = key.tween {
+                    check_easing(ease, format!("{kp}.tween"), &mut add);
                 }
-                if let Some(Easing::Flash { acceleration }) = key.tween {
-                    if !acceleration.is_finite() || !(-100.0..=100.0).contains(&acceleration) {
+                if !key.property_eases.is_empty() {
+                    if !(key.tween.is_some()
+                        && key.tween_kind == TweenKind::Motion
+                        && key.keyed_properties.is_none())
+                    {
                         add(
-                            format!("{kp}.tween"),
-                            "Flash acceleration must be finite and within [-100,100]".into(),
+                            format!("{kp}.property_eases"),
+                            "per-property eases are only valid on a motion tween start keyframe"
+                                .into(),
                         );
                     }
-                    if project.format_version < 5 {
-                        add(
-                            format!("{kp}.tween"),
-                            "Flash easing requires format version 5".into(),
-                        );
+                    let mut seen_props = HashSet::new();
+                    for (pi, &(prop, ease)) in key.property_eases.iter().enumerate() {
+                        if !seen_props.insert(prop) {
+                            add(
+                                format!("{kp}.property_eases[{pi}]"),
+                                "duplicate property in property_eases".into(),
+                            );
+                        }
+                        check_easing(ease, format!("{kp}.property_eases[{pi}]"), &mut add);
                     }
                 }
                 if let Some(sound) = &key.sound {
@@ -505,6 +541,35 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                             format!("{kp}.sound.loops"),
                             format!("repeat count must be in 1..={}", FrameSound::MAX_LOOPS),
                         );
+                    }
+                    if let Some(points) = &sound.envelope {
+                        if !(1..=FrameSound::MAX_ENVELOPE_POINTS).contains(&points.len()) {
+                            add(
+                                format!("{kp}.sound.envelope"),
+                                format!(
+                                    "sound envelope must contain 1..={} points",
+                                    FrameSound::MAX_ENVELOPE_POINTS
+                                ),
+                            );
+                        }
+                        let mut prev_pos = 0.0_f64;
+                        for (pi, &[pos, left, right]) in points.iter().enumerate() {
+                            if ![pos, left, right].iter().all(|v| v.is_finite())
+                                || !(0.0..=1.0).contains(&pos)
+                                || !(0.0..=1.0).contains(&left)
+                                || !(0.0..=1.0).contains(&right)
+                                || (pi > 0 && pos < prev_pos)
+                            {
+                                add(
+                                    format!("{kp}.sound.envelope[{pi}]"),
+                                    "envelope points must be finite, in 0..=1, and sorted by position"
+                                        .into(),
+                                );
+                            }
+                            if pos.is_finite() {
+                                prev_pos = pos;
+                            }
+                        }
                     }
                 }
                 let mut placed = HashSet::new();

@@ -61,12 +61,7 @@ fn sound_layers(symbol: &Symbol) -> impl Iterator<Item = &Layer> {
 }
 
 fn envelope(sound: &FrameSound) -> Vec<[f64; 3]> {
-    sound
-        .effect
-        .envelope()
-        .iter()
-        .map(|&(position, left, right)| [position, left, right])
-        .collect()
+    sound.envelope_points()
 }
 
 /// Left and right gain of a `(position, left, right)` envelope at `position` (0..=1 of the

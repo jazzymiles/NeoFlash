@@ -54,6 +54,7 @@ enum GestureKind {
     Rotate {
         single: bool,
         pivot: geometry::Point,
+        local_bounds: Option<geometry::Bounds>,
     },
     /// Free Transform edge drag: shear along the edge (`horizontal` = top/bottom edge, x shear)
     /// about the opposite edge, or about the transformation point with ⌥. Stage coordinates on the shear's axis.
@@ -100,6 +101,9 @@ pub(crate) struct SelectionGesture {
     latest: Pos2,
     original_selection: Selection,
     targets: Vec<(SelectionTarget, Transform)>,
+    /// `(layer_id, keyframe_frame, element_id, original_transform)` for other keyframes in
+    /// `onion_range()` when `Edit multiple frames` is active.
+    other_keyframes: Vec<(Id, u32, Id, Transform)>,
     hit: Option<SelectionTarget>,
     shift: bool,
     moved: bool,
@@ -199,28 +203,6 @@ impl Editor {
             && gesture.began
         {
             if gesture.changed {
-                if self.timeline_edit.edit_multiple && matches!(gesture.kind, GestureKind::Move) {
-                    let frame = self.frame;
-                    let moved: Vec<(String, [f64; 2])> = gesture
-                        .targets
-                        .iter()
-                        .filter_map(|(target, original)| {
-                            let now = self
-                                .symbol()
-                                .timeline
-                                .layers
-                                .iter()
-                                .filter_map(|layer| layer.key_at(frame))
-                                .flat_map(|key| &key.elements)
-                                .find(|element| element.id == target.element)?;
-                            Some((
-                                target.element.clone(),
-                                [now.transform.x - original.x, now.transform.y - original.y],
-                            ))
-                        })
-                        .collect();
-                    self.move_on_other_keyframes(&moved);
-                }
                 self.commit_history();
             } else {
                 self.history.cancel(&mut self.project);
@@ -355,7 +337,7 @@ impl Editor {
             .into_iter()
             .map(|target| (target.element.clone(), target))
             .collect();
-        let authored = self.presented_authored_scene(self.show_layer_masking(p.ctx()));
+        let authored = self.presented_interactive_authored_scene(self.show_layer_masking(p.ctx()));
         scene.iter().rev().find_map(|item| {
             let target = eligible.get(item.instance_path.first()?)?;
             (authored.contains_point(&item.instance_path, [point.x as f64, point.y as f64])
@@ -433,6 +415,11 @@ impl Editor {
             return;
         }
         let originals: Vec<_> = gesture.targets.iter().map(|(_, t)| *t).collect();
+        let other_originals: Vec<_> = gesture
+            .other_keyframes
+            .iter()
+            .map(|(_, _, _, t)| *t)
+            .collect();
         let press = gesture.scope.local(gesture.press);
         // Snapping (guides, grid): moves snap the selection's edges and centre; handles snap the
         // dragged handle point; scaling snaps the pointer.
@@ -456,7 +443,7 @@ impl Editor {
             GestureKind::Scale { .. } => gesture.scope.local(self.snap_screen(origin, pos)),
             _ => current,
         };
-        let transforms = match gesture.kind {
+        let (transforms, other_transforms) = match gesture.kind {
             GestureKind::Move => {
                 let mut delta = [current[0] - press[0], current[1] - press[1]];
                 let mut lock = [false, false];
@@ -480,23 +467,35 @@ impl Editor {
                         [gp[0] + delta[0], gp[1] + delta[1]],
                     ));
                 }
-                let moved: Vec<_> = originals
-                    .iter()
-                    .map(|t| Transform {
-                        x: t.x + delta[0],
-                        y: t.y + delta[1],
-                        ..*t
-                    })
-                    .collect();
-                moved
-                    .iter()
-                    .all(|t| {
-                        t.x.is_finite() && t.y.is_finite() && t.x.abs() <= 1e12 && t.y.abs() <= 1e12
-                    })
-                    .then_some(moved)
+                let translate = |list: &[Transform]| -> Option<Vec<Transform>> {
+                    let moved: Vec<_> = list
+                        .iter()
+                        .map(|t| Transform {
+                            x: t.x + delta[0],
+                            y: t.y + delta[1],
+                            ..*t
+                        })
+                        .collect();
+                    moved
+                        .iter()
+                        .all(|t| {
+                            t.x.is_finite()
+                                && t.y.is_finite()
+                                && t.x.abs() <= 1e12
+                                && t.y.abs() <= 1e12
+                        })
+                        .then_some(moved)
+                };
+                let main = translate(&originals);
+                let others = if other_originals.is_empty() {
+                    None
+                } else {
+                    translate(&other_originals)
+                };
+                (main, others)
             }
             GestureKind::Pivot { .. } => {
-                if originals.len() == 1 {
+                let main = if originals.len() == 1 {
                     inverse_matrix(transform_matrix(originals[0])).and_then(|inv| {
                         let lx = inv[0] * current[0] + inv[2] * current[1] + inv[4];
                         let ly = inv[1] * current[0] + inv[3] * current[1] + inv[5];
@@ -512,41 +511,119 @@ impl Editor {
                             Some((self.selection.targets.clone(), current));
                     }
                     None
-                }
+                };
+                let others = if originals.len() == 1
+                    && !other_originals.is_empty()
+                    && let Some(ref main_vec) = main
+                {
+                    let new_pivot = main_vec[0].pivot;
+                    Some(
+                        other_originals
+                            .iter()
+                            .map(|t| Transform {
+                                pivot: new_pivot,
+                                ..*t
+                            })
+                            .collect(),
+                    )
+                } else {
+                    None
+                };
+                (main, others)
             }
-            GestureKind::Resize { bounds, handle } => geometry::resize_single_with_pivot(
-                originals[0],
-                bounds,
-                handle,
-                press,
-                current,
-                geometry::ResizeOptions {
+            GestureKind::Resize { bounds, handle } => {
+                let opts = geometry::ResizeOptions {
                     from_center: modifiers.alt,
                     preserve_aspect: modifiers.shift,
-                },
-                originals[0].pivot,
-            )
-            .map(|t| vec![t]),
-            GestureKind::Scale { pivot, center } => geometry::uniform_scale_many(
-                &originals,
-                if modifiers.alt { center } else { pivot },
-                press,
-                current,
-            ),
+                };
+                let main = geometry::resize_single_with_pivot(
+                    originals[0],
+                    bounds,
+                    handle,
+                    press,
+                    current,
+                    opts,
+                    originals[0].pivot,
+                )
+                .map(|t| vec![t]);
+                let others = if other_originals.is_empty() {
+                    None
+                } else {
+                    other_originals
+                        .iter()
+                        .map(|&orig| {
+                            geometry::resize_single_with_pivot(
+                                orig, bounds, handle, press, current, opts, orig.pivot,
+                            )
+                        })
+                        .collect::<Option<Vec<_>>>()
+                };
+                (main, others)
+            }
+            GestureKind::Scale { pivot, center } => {
+                let anchor = if modifiers.alt { center } else { pivot };
+                let main = geometry::uniform_scale_many(&originals, anchor, press, current);
+                let others = if other_originals.is_empty() {
+                    None
+                } else {
+                    geometry::uniform_scale_many(&other_originals, anchor, press, current)
+                };
+                (main, others)
+            }
             GestureKind::Rotate {
                 single: true,
                 pivot,
-            } => geometry::rotate_single_about_by(
-                originals[0],
-                pivot,
-                gesture.angle,
-                modifiers.shift,
-            )
-            .map(|t| vec![t]),
+                local_bounds,
+            } => {
+                let main = geometry::rotate_single_about_by(
+                    originals[0],
+                    pivot,
+                    gesture.angle,
+                    modifiers.shift,
+                )
+                .map(|t| vec![t]);
+                let others = if other_originals.is_empty() {
+                    None
+                } else {
+                    other_originals
+                        .iter()
+                        .map(|&orig| {
+                            let other_pivot = local_bounds
+                                .map(|lb| {
+                                    let lp = orig.pivot.unwrap_or_else(|| lb.center());
+                                    geometry::transformed_point(orig, lp)
+                                })
+                                .unwrap_or(pivot);
+                            geometry::rotate_single_about_by(
+                                orig,
+                                other_pivot,
+                                gesture.angle,
+                                modifiers.shift,
+                            )
+                        })
+                        .collect::<Option<Vec<_>>>()
+                };
+                (main, others)
+            }
             GestureKind::Rotate {
                 single: false,
                 pivot,
-            } => geometry::rotate_many_by(&originals, pivot, gesture.angle, modifiers.shift),
+                ..
+            } => {
+                let main =
+                    geometry::rotate_many_by(&originals, pivot, gesture.angle, modifiers.shift);
+                let others = if other_originals.is_empty() {
+                    None
+                } else {
+                    geometry::rotate_many_by(
+                        &other_originals,
+                        pivot,
+                        gesture.angle,
+                        modifiers.shift,
+                    )
+                };
+                (main, others)
+            }
             GestureKind::Skew {
                 horizontal,
                 edge,
@@ -554,50 +631,115 @@ impl Editor {
                 center,
             } => {
                 let axis = if horizontal { 0 } else { 1 };
-                geometry::skew_many(
-                    &originals,
-                    horizontal,
-                    edge,
-                    if modifiers.alt { center } else { opposite },
-                    current[axis] - press[axis],
-                )
+                let anchor = if modifiers.alt { center } else { opposite };
+                let delta = current[axis] - press[axis];
+                let main = geometry::skew_many(&originals, horizontal, edge, anchor, delta);
+                let others = if other_originals.is_empty() {
+                    None
+                } else {
+                    geometry::skew_many(&other_originals, horizontal, edge, anchor, delta)
+                };
+                (main, others)
             }
             GestureKind::Marquee => unreachable!(),
         };
         if let Some(transforms) = transforms {
-            gesture.changed = originals != transforms;
-            if gesture.changed && !gesture.began {
-                self.history.begin(&self.project);
-                let layers: HashSet<_> = gesture
-                    .targets
-                    .iter()
-                    .map(|(target, _)| target.layer.as_str())
-                    .collect();
-                for layer in layers {
-                    self.ensure_key_for(layer, false);
+            let others_ok = gesture.other_keyframes.is_empty() || other_transforms.is_some();
+            if others_ok {
+                let other_changed = other_transforms
+                    .as_ref()
+                    .is_some_and(|ot| *ot != other_originals);
+                gesture.changed = originals != transforms || other_changed;
+                if gesture.changed && !gesture.began {
+                    self.history.begin(&self.project);
+                    let multiple = self.timeline_edit.edit_multiple;
+                    let (start, end) = if multiple {
+                        self.onion_range()
+                    } else {
+                        (self.frame, self.frame)
+                    };
+                    let mut layers_to_split = Vec::new();
+                    for (target, _) in &gesture.targets {
+                        if layers_to_split.contains(&target.layer) {
+                            continue;
+                        }
+                        let should_split = if !multiple {
+                            true
+                        } else {
+                            self.symbol()
+                                .timeline
+                                .layers
+                                .iter()
+                                .find(|l| l.id == target.layer)
+                                .and_then(|l| l.key_at(self.frame))
+                                .is_some_and(|k| {
+                                    !(start..=end).contains(&k.frame)
+                                        && k.elements.iter().any(|e| e.id == target.element)
+                                })
+                        };
+                        if should_split {
+                            layers_to_split.push(target.layer.clone());
+                        }
+                    }
+                    for layer_id in &layers_to_split {
+                        self.ensure_key_for(layer_id, false);
+                    }
+                    gesture.began = true;
                 }
-                gesture.began = true;
-            }
-            if gesture.began {
-                let frame = self.frame;
-                // Affine axes (skew) need document format 5; custom pivots need format 7.
-                if transforms.iter().any(|t| t.skew != 0.) {
-                    self.project.format_version = self.project.format_version.max(5);
-                }
-                if transforms.iter().any(|t| t.pivot.is_some()) {
-                    self.project.format_version = self.project.format_version.max(7);
-                }
-                let changed: HashMap<_, _> = gesture
-                    .targets
-                    .iter()
-                    .zip(transforms)
-                    .map(|((target, _), transform)| (target.element.as_str(), transform))
-                    .collect();
-                for layer in &mut self.symbol_mut().timeline.layers {
-                    if let Some(key) = layer.key_at_mut(frame) {
-                        for element in &mut key.elements {
-                            if let Some(transform) = changed.get(element.id.as_str()) {
-                                element.transform = *transform;
+                if gesture.began {
+                    let frame = self.frame;
+                    let all_skew = transforms.iter().any(|t| t.skew != 0.)
+                        || other_transforms
+                            .as_ref()
+                            .is_some_and(|ot| ot.iter().any(|t| t.skew != 0.));
+                    let all_pivot = transforms.iter().any(|t| t.pivot.is_some())
+                        || other_transforms
+                            .as_ref()
+                            .is_some_and(|ot| ot.iter().any(|t| t.pivot.is_some()));
+                    // Affine axes (skew) need document format 5; custom pivots need format 7.
+                    if all_skew {
+                        self.project.format_version = self.project.format_version.max(5);
+                    }
+                    if all_pivot {
+                        self.project.format_version = self.project.format_version.max(7);
+                    }
+                    let changed: HashMap<_, _> = gesture
+                        .targets
+                        .iter()
+                        .zip(transforms)
+                        .map(|((target, _), transform)| (target.element.as_str(), transform))
+                        .collect();
+                    let multiple = self.timeline_edit.edit_multiple;
+                    for layer in &mut self.symbol_mut().timeline.layers {
+                        let key_opt = if multiple {
+                            layer.keyframes.iter_mut().find(|k| k.frame == frame)
+                        } else {
+                            layer.key_at_mut(frame)
+                        };
+                        if let Some(key) = key_opt {
+                            for element in &mut key.elements {
+                                if let Some(transform) = changed.get(element.id.as_str()) {
+                                    element.transform = *transform;
+                                }
+                            }
+                        }
+                    }
+                    if let Some(other_transforms) = other_transforms {
+                        for ((layer_id, key_frame, elem_id, _), new_transform) in
+                            gesture.other_keyframes.iter().zip(other_transforms)
+                        {
+                            if let Some(layer) = self
+                                .symbol_mut()
+                                .timeline
+                                .layers
+                                .iter_mut()
+                                .find(|l| &l.id == layer_id)
+                                && let Some(key) =
+                                    layer.keyframes.iter_mut().find(|k| k.frame == *key_frame)
+                                && let Some(elem) =
+                                    key.elements.iter_mut().find(|e| &e.id == elem_id)
+                            {
+                                elem.transform = new_transform;
                             }
                         }
                     }
@@ -740,6 +882,7 @@ impl Editor {
                     let kind = GestureKind::Rotate {
                         single,
                         pivot: pivot_world,
+                        local_bounds: g.local,
                     };
                     zones.push((Zone::Rotate { corner, frame }, kind, nf::ROTATE));
                 }
@@ -846,11 +989,48 @@ impl Editor {
                         cursor = nf::ARROW;
                         GestureKind::Marquee
                     };
-                    let targets = self
+                    let targets: Vec<(SelectionTarget, Transform)> = self
                         .sampled_targets()
                         .into_iter()
                         .map(|(target, element)| (target, element.transform))
                         .collect();
+                    let other_keyframes = if self.timeline_edit.edit_multiple {
+                        let (start, end) = self.onion_range();
+                        let selected_set: HashSet<&SelectionTarget> =
+                            targets.iter().map(|(t, _)| t).collect();
+                        let mut others = Vec::new();
+                        let sym = self.symbol();
+                        for layer in &sym.timeline.layers {
+                            if layer.properties.role == LayerRole::Folder
+                                || !layer_effectively_visible(&sym.timeline, layer)
+                                || layer_effectively_locked(&sym.timeline, layer)
+                            {
+                                continue;
+                            }
+                            for key in &layer.keyframes {
+                                if !(start..=end).contains(&key.frame) || key.frame == self.frame {
+                                    continue;
+                                }
+                                for elem in &key.elements {
+                                    let candidate = SelectionTarget {
+                                        layer: layer.id.clone(),
+                                        element: elem.id.clone(),
+                                    };
+                                    if selected_set.contains(&candidate) {
+                                        others.push((
+                                            layer.id.clone(),
+                                            key.frame,
+                                            elem.id.clone(),
+                                            elem.transform,
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                        others
+                    } else {
+                        vec![]
+                    };
                     let initial_group_pivot = self
                         .authoring_modify
                         .group_pivot
@@ -864,6 +1044,7 @@ impl Editor {
                         latest: pos,
                         original_selection,
                         targets,
+                        other_keyframes,
                         hit,
                         shift: modifiers.shift,
                         moved: false,

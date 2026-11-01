@@ -318,15 +318,29 @@ impl Project {
         }
     }
 
-    /// Document features introduced with format 7 (parametric Rectangle/Oval options and custom
-    /// authoring transformation points).
+    /// Document features introduced with format 7 (parametric Rectangle/Oval options, custom
+    /// authoring transformation points, Bounce/Elastic and per-property eases, motion sync/snap
+    /// options, and custom stereo sound envelopes).
     pub fn uses_format_7(&self) -> bool {
         self.symbols
             .iter()
             .flat_map(|s| &s.timeline.layers)
             .flat_map(|l| &l.keyframes)
-            .flat_map(|k| &k.elements)
-            .any(|e| e.transform.pivot.is_some() || e.transform.primitive.is_some())
+            .any(|k| {
+                matches!(k.tween, Some(Easing::Bounce | Easing::Elastic))
+                    || !k.property_eases.is_empty()
+                    || k.sync_symbols
+                    || k.snap_to_guide
+                    || k.property_eases
+                        .iter()
+                        .any(|(_, e)| matches!(e, Easing::Bounce | Easing::Elastic))
+                    || k.sound
+                        .as_ref()
+                        .is_some_and(|s| s.effect == SoundEffect::Custom || s.envelope.is_some())
+                    || k.elements
+                        .iter()
+                        .any(|e| e.transform.pivot.is_some() || e.transform.primitive.is_some())
+            })
     }
 
     /// Scene timelines in play order; a document without scenes has one, `root`.
@@ -366,6 +380,16 @@ pub struct Keyframe {
     /// Rotate tweened objects to follow the motion guide path.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub orient_to_path: bool,
+    /// Per-property easing overrides on a motion tween start keyframe (document version 7).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub property_eases: Vec<(TweenProperty, Easing)>,
+    /// Keep nested graphic symbol animations synchronized across this motion tween span
+    /// (document version 7).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sync_symbols: bool,
+    /// Snap this motion tween's path to its layer's motion guide (document version 7).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub snap_to_guide: bool,
     /// Timeline sound started (or stopped) when the playhead enters this keyframe
     /// (document version 6). The layer then shows as a Sound layer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -390,11 +414,16 @@ pub struct FrameSound {
     pub loop_forever: bool,
     #[serde(default, skip_serializing_if = "SoundEffect::is_none")]
     pub effect: SoundEffect,
+    /// Custom stereo volume envelope points `[position, left, right]` (`0.0..=1.0`, format 7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope: Option<Vec<[f64; 3]>>,
 }
 
 impl FrameSound {
     /// Largest repeat count, as in Flash.
     pub const MAX_LOOPS: u32 = 10_000;
+    /// Largest number of custom stereo envelope control points.
+    pub const MAX_ENVELOPE_POINTS: usize = 32;
 
     pub fn new(resource: impl Into<Id>) -> Self {
         Self {
@@ -403,7 +432,25 @@ impl FrameSound {
             loops: 1,
             loop_forever: false,
             effect: SoundEffect::None,
+            envelope: None,
         }
+    }
+    /// Effective stereo volume envelope as `[position, left, right]` points (`0.0..=1.0`).
+    pub fn envelope_points(&self) -> Vec<[f64; 3]> {
+        if let Some(points) = &self.envelope
+            && !points.is_empty()
+        {
+            return points.clone();
+        }
+        self.effect
+            .envelope()
+            .iter()
+            .map(|&(position, left, right)| [position, left, right])
+            .collect()
+    }
+    /// Left and right gain at `position` (`0.0..=1.0`) of the played length.
+    pub fn gains_at(&self, position: f64) -> (f64, f64) {
+        crate::timeline_sound::envelope_gains(&self.envelope_points(), position)
     }
     fn one() -> u32 {
         1
@@ -455,10 +502,11 @@ pub enum SoundEffect {
     FadeRightToLeft,
     FadeIn,
     FadeOut,
+    Custom,
 }
 
 impl SoundEffect {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::None,
         Self::LeftChannel,
         Self::RightChannel,
@@ -466,6 +514,7 @@ impl SoundEffect {
         Self::FadeRightToLeft,
         Self::FadeIn,
         Self::FadeOut,
+        Self::Custom,
     ];
     pub fn is_none(&self) -> bool {
         *self == Self::None
@@ -479,13 +528,14 @@ impl SoundEffect {
             Self::FadeRightToLeft => "Fade right to left",
             Self::FadeIn => "Fade in",
             Self::FadeOut => "Fade out",
+            Self::Custom => "Custom",
         }
     }
     /// Volume envelope as `(position, left, right)` points; `position` is the fraction
     /// 0..=1 of the played length, levels are 0..=1 and linear between points.
     pub fn envelope(self) -> &'static [(f64, f64, f64)] {
         match self {
-            Self::None => &[(0.0, 1.0, 1.0)],
+            Self::None | Self::Custom => &[(0.0, 1.0, 1.0)],
             Self::LeftChannel => &[(0.0, 1.0, 0.0)],
             Self::RightChannel => &[(0.0, 0.0, 1.0)],
             Self::FadeLeftToRight => &[(0.0, 1.0, 0.0), (1.0, 0.0, 1.0)],
@@ -559,6 +609,8 @@ pub enum Easing {
     EaseIn,
     EaseOut,
     EaseInOut,
+    Bounce,
+    Elastic,
     CubicBezier {
         x1: f64,
         y1: f64,
@@ -1046,6 +1098,15 @@ impl Layer {
             }
             if key.keyed_properties.is_none() {
                 in_motion = key.tween.is_some() && key.tween_kind == TweenKind::Motion;
+                if !in_motion {
+                    key.property_eases.clear();
+                    key.sync_symbols = false;
+                    key.snap_to_guide = false;
+                }
+            } else {
+                key.property_eases.clear();
+                key.sync_symbols = false;
+                key.snap_to_guide = false;
             }
         }
     }

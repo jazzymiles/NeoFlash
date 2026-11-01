@@ -648,6 +648,7 @@ impl Context<'_> {
             loops,
             loop_forever,
             effect,
+            envelope: None,
         })
     }
     fn actions(

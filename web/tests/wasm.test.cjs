@@ -161,3 +161,65 @@ test('WASM timeline sounds reach the Web Audio host as play/stream/stop commands
   audio.timeline([{op:'stop_all'}]);assert.equal(audio.status().active,0);
   audio.dispose();player.free();
 });
+
+test('WASM evaluates Bounce/Elastic/per-property motion eases and emits custom stereo sound envelopes',async()=>{
+  await ready;
+  const base=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../../examples/timeline-sound.nflash'),'utf8'));
+  const customEnvelope=[[0,0.2,0.9],[0.5,1,0.3],[1,0,0.75]];
+  const doc={
+    format_version:7,
+    name:'WASM format 7 timeline',
+    width:320,
+    height:200,
+    fps:24,
+    background:[255,255,255,255],
+    root:'root',
+    resources:base.resources.filter(r=>r.id==='beep'),
+    symbols:[{
+      id:'root',
+      name:'Scene 1',
+      kind:'movie_clip',
+      timeline:{
+        frame_count:11,
+        layers:[{
+          id:'motion-layer',
+          name:'Motion',
+          visible:true,
+          locked:false,
+          keyframes:[
+            {
+              frame:0,
+              elements:[shape(0)],
+              label:'',
+              tween:'linear',
+              tween_kind:'motion',
+              property_eases:[['x','ease_in'],['y','bounce']],
+              sound:{resource:'beep',effect:'custom',envelope:customEnvelope},
+            },
+            {
+              frame:10,
+              elements:[{...shape(100),transform:{...transform(100),y:200}}],
+              label:'',
+              tween:'linear',
+              tween_kind:'motion',
+              keyed_properties:['x','y'],
+            },
+          ],
+        }],
+        scripts:[],
+      },
+    }],
+  };
+  const player=new wasm.WebPlayer(JSON.stringify(doc));
+  const startupSounds=JSON.parse(player.sound_commands_json());
+  assert.equal(startupSounds.length,1);
+  assert.equal(startupSounds[0].op,'play');
+  assert.deepEqual(startupSounds[0].envelope,customEnvelope);
+
+  for(let i=0;i<5;i++)player.tick();
+  assert.equal(player.current_frame(),5);
+  const item=JSON.parse(player.scene_json())[0];
+  assert.ok(Math.abs(item.transform[4]-25)<1e-6,`X should follow EaseIn at t=0.5, got ${item.transform[4]}`);
+  assert.ok(item.transform[5]>150,`Y should follow Bounce (>150 at t=0.5), got ${item.transform[5]}`);
+  player.free();
+});

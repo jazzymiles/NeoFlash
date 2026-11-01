@@ -13,7 +13,7 @@
 //! movie clip display/filter properties), `planned_dialogs.rs` (Preferences, Document settings, Publish
 //! settings, Export image / video / audio, Import video, Sound properties), `planned_color.rs` (Color — radial
 //! gradient / solid mixer, bitmap fill), `planned_drawing.rs` (oval / rectangle primitive, PolyStar, Deco, Spray
-//! brush, IK bone), `planned_documents.rs` (Graphic looping, Layer properties, Edit envelope, Stroke style, Font
+//! brush, IK bone), `planned_documents.rs` (Graphic looping, Layer properties, Stroke style, Font
 //! embedding, Test Movie window, Find and replace, Movie Explorer, Symbols & scenes popover).
 use crate::app::Editor;
 use crate::theme::ThemeMode;
@@ -35,7 +35,6 @@ pub(crate) enum PlannedPanel {
     ExportVideo,
     ExportAudio,
     ImportVideo,
-    SoundProperties,
     BitmapFill,
     PropertiesOvalPrimitive,
     PropertiesRectPrimitive,
@@ -43,14 +42,11 @@ pub(crate) enum PlannedPanel {
     SprayBrush,
     BoneProperties,
     GraphicProperties,
-    LayerProperties,
-    EditEnvelope,
     StrokeStyle,
     FontEmbedding,
     TestMovie,
     FindReplace,
     MovieExplorer,
-    SymbolsPopover,
 }
 
 /// How the preview is framed.
@@ -60,8 +56,6 @@ pub(crate) enum Chrome {
     Panel(&'static [&'static str]),
     /// Dialog: `Surface::Dialog` + `DialogHeader` (non-modal while it is a preview).
     Dialog,
-    /// Popover: menu/popover frame, no header; dragged by its banner row.
-    Popover,
     /// Separate window (Test Movie): macOS title bar with window controls, title and trailing actions.
     Window,
 }
@@ -70,7 +64,7 @@ pub(crate) enum Chrome {
 const WINDOW_TITLE_BAR: f32 = 52.0;
 
 impl PlannedPanel {
-    pub(crate) const ALL: [Self; 26] = [
+    pub(crate) const ALL: [Self; 22] = [
         Self::Debugger,
         Self::CodeSnippets,
         Self::CompilerErrors,
@@ -81,7 +75,6 @@ impl PlannedPanel {
         Self::ExportVideo,
         Self::ExportAudio,
         Self::ImportVideo,
-        Self::SoundProperties,
         Self::BitmapFill,
         Self::PropertiesOvalPrimitive,
         Self::PropertiesRectPrimitive,
@@ -89,14 +82,11 @@ impl PlannedPanel {
         Self::SprayBrush,
         Self::BoneProperties,
         Self::GraphicProperties,
-        Self::LayerProperties,
-        Self::EditEnvelope,
         Self::StrokeStyle,
         Self::FontEmbedding,
         Self::TestMovie,
         Self::FindReplace,
         Self::MovieExplorer,
-        Self::SymbolsPopover,
     ];
 
     /// Menu label (Window ▸ Planned panels ▸ …).
@@ -112,7 +102,6 @@ impl PlannedPanel {
             Self::ExportVideo => "Export video",
             Self::ExportAudio => "Export audio",
             Self::ImportVideo => "Import video",
-            Self::SoundProperties => "Sound properties",
             Self::BitmapFill => "Color — Bitmap fill",
             Self::PropertiesOvalPrimitive => "Properties — Oval primitive",
             Self::PropertiesRectPrimitive => "Properties — Rectangle primitive",
@@ -120,14 +109,11 @@ impl PlannedPanel {
             Self::SprayBrush => "Properties — Spray brush",
             Self::BoneProperties => "Properties — IK bone",
             Self::GraphicProperties => "Properties — Graphic looping",
-            Self::LayerProperties => "Layer properties",
-            Self::EditEnvelope => "Edit envelope",
             Self::StrokeStyle => "Stroke style",
             Self::FontEmbedding => "Font embedding",
             Self::TestMovie => "Test Movie",
             Self::FindReplace => "Find and replace",
             Self::MovieExplorer => "Movie Explorer",
-            Self::SymbolsPopover => "Symbols & scenes",
         }
     }
 
@@ -141,18 +127,15 @@ impl PlannedPanel {
             Self::PublishSettings => "publish-misc-dialogs.png",
             Self::ExportImage | Self::ExportVideo | Self::ExportAudio => "dialogs-export.png",
             Self::ImportVideo => "dialog-import-video.png",
-            Self::SoundProperties | Self::EditEnvelope | Self::StrokeStyle => {
-                "dialogs-sound-stroke.png"
-            }
+            Self::StrokeStyle => "dialogs-sound-stroke.png",
             Self::PropertiesOvalPrimitive => "panel-properties-oval-primitive.png",
             Self::PropertiesRectPrimitive => "drawing-tools-panels.png",
             Self::DecoTool | Self::SprayBrush | Self::BoneProperties => {
                 "drawing-tools-panels-2.png"
             }
-            Self::GraphicProperties | Self::LayerProperties => "symbols-panels.png",
+            Self::GraphicProperties => "symbols-panels.png",
             Self::BitmapFill | Self::FontEmbedding | Self::TestMovie => "publish-misc-dialogs.png",
             Self::FindReplace | Self::MovieExplorer => "document-dialogs.png",
-            Self::SymbolsPopover => "interface/{dark,light}/png/editor-editing-symbol-in-place.png",
         }
     }
 
@@ -170,7 +153,6 @@ impl PlannedPanel {
                 Chrome::Panel(&["Properties"])
             }
             Self::MovieExplorer => Chrome::Panel(&["Movie Explorer"]),
-            Self::SymbolsPopover => Chrome::Popover,
             Self::TestMovie => Chrome::Window,
             _ => Chrome::Dialog,
         }
@@ -196,15 +178,12 @@ impl PlannedPanel {
             Self::ImportVideo => 720.,
             Self::ExportAudio => 640.,
             Self::CompilerErrors => 560.,
-            Self::SoundProperties => 520.,
             Self::CodeSnippets => 340.,
             Self::PropertiesFilters => 324.,
             Self::TestMovie => 1000.,
-            Self::EditEnvelope => 680.,
             Self::FindReplace => 640.,
             Self::FontEmbedding => 760.,
             Self::StrokeStyle => 480.,
-            Self::LayerProperties => 440.,
             Self::MovieExplorer => 340.,
             Self::PropertiesOvalPrimitive
             | Self::PropertiesRectPrimitive
@@ -212,8 +191,6 @@ impl PlannedPanel {
             | Self::SprayBrush
             | Self::BoneProperties
             | Self::GraphicProperties => 324.,
-            // Popover frame adds a 4 pt margin: 312 + 2 × 4 = the 320 pt reference.
-            Self::SymbolsPopover => 312.,
             Self::BitmapFill => 284.,
         }
     }
@@ -370,10 +347,9 @@ fn preview_window(
     let frame = match panel.chrome() {
         Chrome::Panel(_) => c::Surface::Floating.frame(ctx),
         Chrome::Dialog => c::Surface::Dialog.frame(ctx),
-        Chrome::Popover => c::popover_frame(ctx),
         Chrome::Window => c::Surface::Dialog.frame(ctx),
     };
-    let area = egui::Area::new(egui::Id::new(("nf2-planned", panel)))
+    let _area = egui::Area::new(egui::Id::new(("nf2-planned", panel)))
         .order(egui::Order::Foreground)
         .current_pos(pos)
         .movable(false)
@@ -439,7 +415,6 @@ fn preview_window(
                             egui::Stroke::new(1.0_f32, nf.border_subtle),
                         );
                     }
-                    Chrome::Popover => {}
                     Chrome::Window => {
                         let (c2, d) = window_title_bar(ui, panel, width);
                         close = c2;
@@ -452,43 +427,18 @@ fn preview_window(
                 let pad = match panel.chrome() {
                     Chrome::Panel(_) => space::S3,
                     Chrome::Dialog => space::S5,
-                    Chrome::Popover => 0.0,
                     Chrome::Window => space::S3,
                 };
                 egui::Frame::new()
                     .inner_margin(egui::Margin::same(pad as i8))
                     .show(ui, |ui| {
                         ui.set_width(width - 2.0 * pad);
-                        if panel.chrome() == Chrome::Popover {
-                            // Popovers have no header: the banner row is the drag handle.
-                            let top = ui.cursor().min;
-                            banner(ui);
-                            let rect = egui::Rect::from_min_max(
-                                top,
-                                egui::pos2(top.x + width - 2.0 * pad, ui.cursor().min.y),
-                            );
-                            let drag = ui.interact(
-                                rect,
-                                ui.id().with("planned-popover-drag"),
-                                egui::Sense::drag(),
-                            );
-                            delta = drag.drag_delta();
-                        } else {
-                            banner(ui);
-                        }
+                        banner(ui);
                         ui.add_space(space::S1);
                         close |= body(ui, panel, state);
                     });
             });
         });
-    // Popovers have no close button: like real popovers, a click outside dismisses them. The click
-    // that opened the popover (it was not shown last frame) does not count.
-    if panel.chrome() == Chrome::Popover
-        && ctx.memory(|m| m.areas().visible_last_frame(&area.response.layer_id))
-        && area.response.clicked_elsewhere()
-    {
-        close = true;
-    }
     (close, pos + delta)
 }
 
@@ -605,7 +555,6 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) -> bool {
             P::ExportVideo => super::planned_dialogs::export_video(ui),
             P::ExportAudio => super::planned_dialogs::export_audio(ui),
             P::ImportVideo => super::planned_dialogs::import_video(ui),
-            P::SoundProperties => super::planned_dialogs::sound_properties(ui),
             P::BitmapFill => super::planned_color::bitmap_fill(ui),
             P::PropertiesOvalPrimitive => super::planned_drawing::properties_oval(ui),
             P::PropertiesRectPrimitive => super::planned_drawing::properties_rect(ui),
@@ -613,14 +562,11 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) -> bool {
             P::SprayBrush => super::planned_drawing::spray_brush(ui),
             P::BoneProperties => super::planned_drawing::bone(ui),
             P::GraphicProperties => super::planned_documents::graphic_properties(ui),
-            P::LayerProperties => super::planned_documents::layer_properties(ui),
-            P::EditEnvelope => super::planned_documents::edit_envelope(ui),
             P::StrokeStyle => super::planned_documents::stroke_style(ui),
             P::FontEmbedding => super::planned_documents::font_embedding(ui),
             P::TestMovie => super::planned_documents::test_movie(ui),
             P::FindReplace => super::planned_documents::find_replace(ui),
             P::MovieExplorer => super::planned_documents::movie_explorer(ui),
-            P::SymbolsPopover => super::planned_documents::symbols_popover(ui),
             P::Preferences | P::ExportImage => {}
         }
     });
@@ -866,7 +812,6 @@ mod tests {
         let kinds = |f: fn(Chrome) -> bool| PlannedPanel::ALL.iter().any(|p| f(p.chrome()));
         assert!(kinds(|c| matches!(c, Chrome::Panel(_))));
         assert!(kinds(|c| c == Chrome::Dialog));
-        assert!(kinds(|c| c == Chrome::Popover));
         assert!(kinds(|c| c == Chrome::Window));
         // Titles are unique so the Window ▸ Planned panels menu stays unambiguous.
         let mut titles: Vec<_> = PlannedPanel::ALL.iter().map(|p| p.title()).collect();

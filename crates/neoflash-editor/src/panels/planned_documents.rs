@@ -1,17 +1,16 @@
-//! Planned previews of symbol, layer, sound, stroke, font and document surfaces: Properties — Graphic looping and
-//! Layer properties (`symbols-panels.png`), Edit envelope and Stroke style (`dialogs-sound-stroke.png`), Font
+//! Planned previews of symbol, layer, stroke, font and document surfaces: Properties — Graphic looping and
+//! Layer properties (`symbols-panels.png`), Stroke style (`dialogs-sound-stroke.png`), Font
 //! embedding and the Test Movie window (`publish-misc-dialogs.png`), Find and replace and Movie Explorer
 //! (`document-dialogs.png`), Symbols & scenes popover (`interface/*/png/editor-editing-symbol-in-place.png`).
 //! Fixed sample values; sample artwork / document colours are HSV data, never UI tokens.
 use super::planned::{caption, check, mono, select, stepper, switch, text};
 use super::planned_dialogs::group;
-use super::planned_drawing::buttons;
 use eframe::egui::{self, Color32, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::components::color_picker::hsv;
 use neoflash_ui::icons::i16;
 use neoflash_ui::tokens::{TextStyle, radius, space};
-use neoflash_ui::typography::{rich, rich_block};
+use neoflash_ui::typography::rich_block;
 
 fn half(ui: &Ui) -> f32 {
     (ui.available_width() - space::S2) / 2.0
@@ -123,99 +122,6 @@ pub(super) fn graphic_properties(ui: &mut Ui) {
             }
             caption(ui, "Click a thumbnail to set the first frame");
         });
-}
-
-/// Dialog / Layer properties.
-pub(super) fn layer_properties(ui: &mut Ui) {
-    let nf = neoflash_ui::palette(ui.ctx());
-    ui.spacing_mut().item_spacing.y = space::S3;
-    text(ui, "hand", "Name", ui.available_width());
-    ui.horizontal(|ui| {
-        switch(ui, true, "Visible");
-        switch(ui, false, "Locked");
-    });
-    group(ui, "Type");
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(space::S4, space::S2);
-        for label in [
-            "Normal", "Guide", "Guided", "Mask", "Masked", "Folder", "Armature",
-        ] {
-            ui.add(c::Radio::new(label == "Masked", label));
-        }
-    });
-    group(ui, "Outline");
-    ui.horizontal(|ui| {
-        ui.label(rich("Colour", TextStyle::Body).color(nf.text_secondary));
-        ui.add(c::SwatchCell {
-            color: nf.layer_blue,
-            selected: true,
-        });
-        check(ui, false, "View layer as outlines");
-    });
-    select(ui, "Layer height: 100 %", 200.0);
-    buttons(ui, &["Cancel", "OK"]);
-}
-
-/// Dialog / Edit envelope.
-pub(super) fn edit_envelope(ui: &mut Ui) {
-    let nf = neoflash_ui::palette(ui.ctx());
-    ui.spacing_mut().item_spacing.y = space::S3;
-    ui.horizontal(|ui| {
-        select(ui, "Effect: Fade in", 200.0);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let mut unit = 0;
-            c::Segmented::show(ui, &mut unit, &[(0, "Seconds"), (1, "Frames")], false);
-        });
-    });
-    let mut left = vec![(0.0, 0.0), (0.19, 1.0), (0.75, 1.0), (1.0, 0.4)];
-    ui.add(c::EnvelopeLane {
-        channel: "L",
-        points: &mut left,
-        selected: Some(1),
-        height: 96.0,
-    });
-    // Time ruler: 0–32 s of the 32.4 s sound.
-    let (ruler, _) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 18.0), egui::Sense::hover());
-    for s in (0..=32).step_by(4) {
-        let x = ruler.left() + s as f32 / 32.4 * ruler.width();
-        let align = if s == 0 {
-            egui::Align2::LEFT_CENTER
-        } else {
-            egui::Align2::CENTER_CENTER
-        };
-        ui.painter().text(
-            egui::pos2(x, ruler.center().y),
-            align,
-            format!("{s}s"),
-            neoflash_ui::typography::font(TextStyle::MonoSmall),
-            nf.text_tertiary,
-        );
-    }
-    let mut right = vec![(0.0, 0.0), (0.24, 1.0), (0.75, 1.0), (1.0, 0.4)];
-    ui.add(c::EnvelopeLane {
-        channel: "R",
-        points: &mut right,
-        selected: None,
-        height: 96.0,
-    });
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = space::S1;
-        let _ = ui.add(c::IconButton::new(i16::PLAY, "Play"));
-        let _ = ui.add(c::IconButton::new(i16::STOP, "Stop"));
-        let _ = ui.add(c::IconButton::new(i16::ZOOMIN, "Zoom in"));
-        let _ = ui.add(c::IconButton::new(i16::ZOOMOUT, "Zoom out"));
-        ui.add_space(space::S2);
-        caption(
-            ui,
-            "Drag handles to shape volume · click a lane to add a point",
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = space::S2;
-            let _ = ui.add(c::Button::primary("OK"));
-            let _ = ui.add(c::Button::new("Cancel"));
-        });
-    });
 }
 
 /// Dialog / Stroke style.
@@ -558,43 +464,4 @@ pub(super) fn movie_explorer(ui: &mut Ui) {
             .show(ui);
     }
     mono(ui, "Scene 1 › orbit › Frame 1 › orbit_mc");
-}
-
-/// Popover / Symbols & scenes (breadcrumb ▾): search, scenes, matching symbols, recent, browse, key hints.
-pub(super) fn symbols_popover(ui: &mut Ui) {
-    let nf = neoflash_ui::palette(ui.ctx());
-    ui.spacing_mut().item_spacing.y = 0.0;
-    ui.add_space(space::S1);
-    search(ui, "pla", "Find symbol or scene");
-    ui.add_space(space::S1);
-    c::menu_section(ui, "Scenes · 4");
-    c::TreeItem::new("Scene 1", c::TreeItemType::Symbol(i16::SCENE)).show(ui);
-    c::menu_section(ui, "Matches in symbols · 3 of 248");
-    c::TreeItem::new("planet", c::TreeItemType::Symbol(i16::GRAPHIC))
-        .selected(true)
-        .show(ui);
-    c::TreeItem::new("planet_shadow", c::TreeItemType::Symbol(i16::GRAPHIC)).show(ui);
-    c::TreeItem::new("planets_bg", c::TreeItemType::Symbol(i16::MOVIECLIP)).show(ui);
-    c::menu_section(ui, "Recent");
-    c::TreeItem::new("orbit", c::TreeItemType::Symbol(i16::MOVIECLIP)).show(ui);
-    c::TreeItem::new("cta_btn", c::TreeItemType::Symbol(i16::BUTTON_SYMBOL)).show(ui);
-    c::menu_section(ui, "Browse");
-    for folder in ["Backgrounds  (41)", "Characters  (96)", "UI  (111)"] {
-        c::TreeItem::new(folder, c::TreeItemType::FolderClosed).show(ui);
-    }
-    c::menu_separator(ui);
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(space::S1, space::S1);
-        ui.add_space(space::S2);
-        for (key, action) in [
-            ("↑↓", "move"),
-            ("↵", "edit"),
-            ("⌥↵", "in place"),
-            ("⌘↵", "new window"),
-        ] {
-            c::kbd(ui, key, false);
-            ui.label(rich(action, TextStyle::Small).color(nf.text_secondary));
-            ui.add_space(space::S1);
-        }
-    });
 }

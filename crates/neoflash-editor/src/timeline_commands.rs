@@ -57,7 +57,8 @@ pub(crate) fn record_motion_property_keys(before: &Project, project: &mut Projec
                         Some(old_key) if old_key.keyed_properties.is_some() => {
                             old_key.elements.clone()
                         }
-                        _ => sample_layer(old, key.frame),
+                        _ if keyed.is_empty() => sample_layer(old, key.frame),
+                        _ => continue,
                     };
                     for element in &key.elements {
                         let Some(previous) = reference.iter().find(|e| e.id == element.id) else {
@@ -194,10 +195,18 @@ impl Editor {
                     };
                     key.tween = Some(key.tween.unwrap_or(default));
                     key.tween_kind = kind;
+                    if kind != TweenKind::Motion {
+                        key.property_eases.clear();
+                        key.sync_symbols = false;
+                        key.snap_to_guide = false;
+                    }
                 } else if in_span && key.frame > start && key.keyed_properties.is_some() {
                     if kind != TweenKind::Motion {
                         key.keyed_properties = None;
                         key.tween_kind = kind;
+                        key.property_eases.clear();
+                        key.sync_symbols = false;
+                        key.snap_to_guide = false;
                     }
                 } else if key.frame > start {
                     in_span = false;
@@ -236,6 +245,9 @@ impl Editor {
                 key.tween = None;
                 key.tween_kind = TweenKind::Classic;
                 key.orient_to_path = false;
+                key.property_eases.clear();
+                key.sync_symbols = false;
+                key.snap_to_guide = false;
             }
         });
     }
@@ -574,6 +586,7 @@ impl Editor {
 
     /// Edit multiple frames: apply a move of selected objects to the same objects on every
     /// keyframe in the onion range (called inside the open Undo step of the move gesture).
+    #[cfg(test)]
     pub(crate) fn move_on_other_keyframes(&mut self, ids: &[(String, [f64; 2])]) {
         if !self.timeline_edit.edit_multiple {
             return;
@@ -595,5 +608,65 @@ impl Editor {
                 }
             }
         }
+    }
+
+    /// Edit multiple frames: apply a scale factor and rotation delta to the selected objects across
+    /// every keyframe in `onion_range()` (or only the current frame when `edit_multiple` is off) in
+    /// one Undo step.
+    #[cfg(test)]
+    pub(crate) fn scale_and_rotate_selected_in_edit_range(
+        &mut self,
+        scale_factor: [f64; 2],
+        rotation_delta_deg: f64,
+    ) {
+        self.finish_edits();
+        let targets = self.sampled_targets();
+        if targets.is_empty() {
+            return;
+        }
+        let multiple = self.timeline_edit.edit_multiple;
+        let (start, end) = if multiple {
+            self.onion_range()
+        } else {
+            (self.frame, self.frame)
+        };
+        let selected: std::collections::HashSet<(Id, Id)> = targets
+            .into_iter()
+            .map(|(t, _)| (t.layer, t.element))
+            .collect();
+        self.transact_named("Transform", |editor| {
+            let frame = editor.frame;
+            if !multiple {
+                let layers: Vec<Id> = selected.iter().map(|(l, _)| l.clone()).collect();
+                for layer_id in layers {
+                    editor.ensure_key_for(&layer_id, false);
+                }
+            }
+            for layer in &mut editor.symbol_mut().timeline.layers {
+                let layer_id = layer.id.clone();
+                if multiple {
+                    for key in &mut layer.keyframes {
+                        if !(start..=end).contains(&key.frame) {
+                            continue;
+                        }
+                        for element in &mut key.elements {
+                            if selected.contains(&(layer_id.clone(), element.id.clone())) {
+                                element.transform.scale_x *= scale_factor[0];
+                                element.transform.scale_y *= scale_factor[1];
+                                element.transform.rotation += rotation_delta_deg;
+                            }
+                        }
+                    }
+                } else if let Some(key) = layer.key_at_mut(frame) {
+                    for element in &mut key.elements {
+                        if selected.contains(&(layer_id.clone(), element.id.clone())) {
+                            element.transform.scale_x *= scale_factor[0];
+                            element.transform.scale_y *= scale_factor[1];
+                            element.transform.rotation += rotation_delta_deg;
+                        }
+                    }
+                }
+            }
+        });
     }
 }

@@ -1,10 +1,10 @@
 //! Ease panel (NF2 `Panel / Ease`, PP-01; references `panel-ease.png`, `ease-range-states.png`).
 //!
 //! Edits the ease of the tween span under the playhead on the current layer: a classic or shape
-//! tween's keyframe, or a motion tween's start key. The panel edits a draft (egui temp memory, never
-//! the document); Apply writes `Keyframe.tween` as one Undo step, Cancel discards the draft.
-//! Bounce and Elastic are not single cubic curves and stay disabled until the engine has them.
-use super::planned::{caption, check, mono, select};
+//! tween's keyframe, or a motion tween's start key (plus optional per-property overrides on motion
+//! tracks). The panel edits a draft (egui temp memory, never the document); Apply writes
+//! `Keyframe.tween` and `Keyframe.property_eases` as one Undo step, Cancel discards the draft.
+use super::planned::{caption, mono};
 use crate::app::Editor;
 use crate::theme::ScrollTheme as _;
 use eframe::egui::{self, Ui};
@@ -18,6 +18,25 @@ pub(crate) const BACK_OUT: [f64; 4] = [0.34, 1.56, 0.64, 1.0];
 /// Range the graph handles can be dragged in (the Overshoot / Undershoot graph shows −30…130 %).
 const HANDLE_Y: std::ops::RangeInclusive<f32> = -0.3..=1.3;
 
+const EASE_TARGETS: &[(Option<TweenProperty>, &str)] = &[
+    (None, "All"),
+    (Some(TweenProperty::X), "X"),
+    (Some(TweenProperty::Y), "Y"),
+    (Some(TweenProperty::Rotation), "Rotation Z"),
+    (Some(TweenProperty::ScaleX), "Scale X"),
+    (Some(TweenProperty::ScaleY), "Scale Y"),
+    (Some(TweenProperty::Skew), "Skew"),
+    (Some(TweenProperty::Alpha), "Alpha"),
+    (Some(TweenProperty::Color), "Color"),
+];
+
+fn ease_target_label(target: Option<TweenProperty>) -> &'static str {
+    EASE_TARGETS
+        .iter()
+        .find(|(t, _)| *t == target)
+        .map_or("All", |(_, label)| *label)
+}
+
 /// The tween span under the playhead on the current layer.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TweenSpan {
@@ -29,6 +48,8 @@ pub(crate) struct TweenSpan {
     /// Exclusive end frame of the span.
     pub end: u32,
     pub easing: Easing,
+    /// Per-property ease overrides on a motion tween's start key.
+    pub property_eases: Vec<(TweenProperty, Easing)>,
 }
 
 impl TweenSpan {
@@ -40,10 +61,18 @@ impl TweenSpan {
     pub(crate) fn frame_label(&self) -> String {
         format!("frames {}–{}", self.start + 1, self.end)
     }
+    /// Per-property override for `property`, if any.
+    pub(crate) fn property_override(&self, property: TweenProperty) -> Option<Easing> {
+        self.property_eases
+            .iter()
+            .find(|(p, _)| *p == property)
+            .map(|(_, e)| *e)
+    }
 }
 
 /// Graph curve (`X1 Y1 X2 Y2`) that draws `easing`. Flash acceleration and the quadratic presets
-/// are exact cubic forms of their quadratic curves; Ease in-out is approximated for display.
+/// are exact cubic forms of their quadratic curves; Ease in-out, Bounce and Elastic are
+/// approximated for display while `evaluate::easing` computes their exact curves.
 pub(crate) fn easing_bezier(easing: Easing) -> [f32; 4] {
     let quadratic = |acceleration: f64| {
         let a = (acceleration / 100.).clamp(-1., 1.) as f32;
@@ -54,6 +83,8 @@ pub(crate) fn easing_bezier(easing: Easing) -> [f32; 4] {
         Easing::EaseIn => quadratic(-100.),
         Easing::EaseOut => quadratic(100.),
         Easing::EaseInOut => [0.45, 0., 0.55, 1.],
+        Easing::Bounce => [0.34, 1.25, 0.64, 1.0],
+        Easing::Elastic => [0.22, 1.35, 0.36, 1.0],
         Easing::CubicBezier { x1, y1, x2, y2 } => [x1 as f32, y1 as f32, x2 as f32, y2 as f32],
         Easing::Flash { acceleration } => quadratic(acceleration),
     }
@@ -66,6 +97,8 @@ pub(crate) fn preset_of(easing: Easing) -> c::EasePresetKind {
         Easing::EaseIn => c::EasePresetKind::EaseIn,
         Easing::EaseOut => c::EasePresetKind::EaseOut,
         Easing::EaseInOut => c::EasePresetKind::EaseInOut,
+        Easing::Bounce => c::EasePresetKind::Bounce,
+        Easing::Elastic => c::EasePresetKind::Elastic,
         Easing::CubicBezier { x1, y1, x2, y2 } if [x1, y1, x2, y2] == BACK_OUT => {
             c::EasePresetKind::Back
         }
@@ -73,7 +106,7 @@ pub(crate) fn preset_of(easing: Easing) -> c::EasePresetKind {
     }
 }
 
-/// Easing written for a preset card; `None` for presets the engine cannot represent.
+/// Easing written for a preset card.
 pub(crate) fn preset_easing(preset: c::EasePresetKind, current: Easing) -> Option<Easing> {
     Some(match preset {
         c::EasePresetKind::Linear => Easing::Linear,
@@ -84,11 +117,12 @@ pub(crate) fn preset_easing(preset: c::EasePresetKind, current: Easing) -> Optio
             let [x1, y1, x2, y2] = BACK_OUT;
             Easing::CubicBezier { x1, y1, x2, y2 }
         }
+        c::EasePresetKind::Bounce => Easing::Bounce,
+        c::EasePresetKind::Elastic => Easing::Elastic,
         c::EasePresetKind::Custom => {
             let [x1, y1, x2, y2] = easing_bezier(current).map(f64::from);
             Easing::CubicBezier { x1, y1, x2, y2 }
         }
-        c::EasePresetKind::Bounce | c::EasePresetKind::Elastic => return None,
     })
 }
 
@@ -102,16 +136,45 @@ fn range_of(bezier: [f32; 4]) -> c::EaseRange {
     }
 }
 
-/// Draft of the Ease panel: the span it belongs to and the edited curve.
+/// Draft of the Ease panel: the span it belongs to and the edited curve(s).
 #[derive(Clone, Debug, PartialEq)]
 struct EaseDraft {
     symbol: Id,
     span: TweenSpan,
     easing: Easing,
+    property_eases: Vec<(TweenProperty, Easing)>,
+    target: Option<TweenProperty>,
+    one_curve_for_all: bool,
     /// The curve differs from the document and waits for Apply.
     dirty: bool,
     /// Preview playback start (egui time), if playing.
     playing_since: Option<f64>,
+}
+
+impl EaseDraft {
+    fn active_easing(&self) -> Easing {
+        match self.target {
+            Some(prop) => self
+                .property_eases
+                .iter()
+                .find(|(p, _)| *p == prop)
+                .map_or(self.easing, |(_, e)| *e),
+            None => self.easing,
+        }
+    }
+
+    fn set_property_override(&mut self, prop: TweenProperty, easing: Easing) {
+        if let Some((_, existing)) = self.property_eases.iter_mut().find(|(p, _)| *p == prop) {
+            *existing = easing;
+        } else {
+            self.property_eases.push((prop, easing));
+        }
+    }
+
+    fn recompute_dirty(&mut self) {
+        self.dirty =
+            self.easing != self.span.easing || self.property_eases != self.span.property_eases;
+    }
 }
 
 fn draft_id() -> egui::Id {
@@ -149,15 +212,53 @@ impl Editor {
             start: key.frame,
             end: end.max(key.frame + 1),
             easing: key.tween?,
+            property_eases: if key.tween_kind == TweenKind::Motion {
+                key.property_eases.clone()
+            } else {
+                vec![]
+            },
         })
     }
 
-    /// Write the ease of a tween span on the current symbol. One Undo step; `false` when the span's
-    /// layer is not editable or its keyframe is gone.
-    pub(crate) fn set_tween_easing(&mut self, span: &TweenSpan, easing: Easing) -> bool {
-        self.finish_edits();
-        let editable = self
-            .symbol()
+    /// Open the Ease panel focused on `property` of the current motion tween (`Motion editor ▸ Edit curve…`).
+    pub(crate) fn open_ease_for_property(&mut self, ctx: &egui::Context, property: TweenProperty) {
+        self.show_panel(crate::workspace::PanelId::Ease);
+        let Some(span) = self.tween_span().filter(|s| s.kind == TweenKind::Motion) else {
+            return;
+        };
+        let symbol = self.symbol_id().to_owned();
+        let stored: Option<EaseDraft> = ctx.data(|d| d.get_temp(draft_id()));
+        let draft = match stored {
+            Some(mut draft)
+                if draft.symbol == symbol
+                    && draft.span.layer_id == span.layer_id
+                    && draft.span.start == span.start =>
+            {
+                if !draft.dirty {
+                    draft.easing = span.easing;
+                    draft.property_eases = span.property_eases.clone();
+                }
+                draft.span = span;
+                draft.target = Some(property);
+                draft.one_curve_for_all = false;
+                draft
+            }
+            _ => EaseDraft {
+                symbol,
+                easing: span.easing,
+                property_eases: span.property_eases.clone(),
+                span,
+                target: Some(property),
+                one_curve_for_all: false,
+                dirty: false,
+                playing_since: None,
+            },
+        };
+        ctx.data_mut(|d| d.insert_temp(draft_id(), draft));
+    }
+
+    fn span_editable(&self, span: &TweenSpan) -> bool {
+        self.symbol()
             .timeline
             .layers
             .iter()
@@ -171,11 +272,41 @@ impl Editor {
                         .keyframes
                         .iter()
                         .any(|k| k.frame == span.start && k.tween.is_some())
-            });
-        if !editable {
+            })
+    }
+
+    /// Write the span ease of a tween span on the current symbol (preserving any per-property eases).
+    /// One Undo step; `false` when the span's layer is not editable or its keyframe is gone.
+    #[cfg(test)]
+    pub(crate) fn set_tween_easing(&mut self, span: &TweenSpan, easing: Easing) -> bool {
+        self.set_tween_eases(span, easing, span.property_eases.clone())
+    }
+
+    /// Write both the span ease and (for motion tweens) per-property ease overrides on the current
+    /// symbol in one Undo step.
+    pub(crate) fn set_tween_eases(
+        &mut self,
+        span: &TweenSpan,
+        easing: Easing,
+        property_eases: Vec<(TweenProperty, Easing)>,
+    ) -> bool {
+        self.finish_edits();
+        if !self.span_editable(span) {
             return false;
         }
-        self.transact(|s| {
+        let mut deduped: Vec<(TweenProperty, Easing)> = Vec::new();
+        for (prop, ease) in property_eases {
+            if let Some((_, existing)) = deduped.iter_mut().find(|(p, _)| *p == prop) {
+                *existing = ease;
+            } else {
+                deduped.push((prop, ease));
+            }
+        }
+        let uses_flash = matches!(easing, Easing::Flash { .. })
+            || deduped
+                .iter()
+                .any(|(_, e)| matches!(e, Easing::Flash { .. }));
+        self.transact_named("Edit ease", |s| {
             if let Some(key) = s
                 .symbol_mut()
                 .timeline
@@ -185,8 +316,13 @@ impl Editor {
                 .and_then(|l| l.keyframes.iter_mut().find(|k| k.frame == span.start))
             {
                 key.tween = Some(easing);
+                key.property_eases = if key.tween_kind == TweenKind::Motion {
+                    deduped
+                } else {
+                    vec![]
+                };
             }
-            if matches!(easing, Easing::Flash { .. }) {
+            if uses_flash {
                 s.project.format_version = s.project.format_version.max(5);
             }
         });
@@ -221,6 +357,15 @@ impl Editor {
                 let mut draft = draft;
                 if !draft.dirty {
                     draft.easing = span.easing;
+                    draft.property_eases = span.property_eases.clone();
+                    if draft.target.is_none() {
+                        draft.one_curve_for_all = draft.property_eases.is_empty();
+                    }
+                }
+                if span.kind != TweenKind::Motion {
+                    draft.target = None;
+                    draft.property_eases.clear();
+                    draft.one_curve_for_all = true;
                 }
                 draft.span = span.clone();
                 draft
@@ -229,6 +374,9 @@ impl Editor {
                 symbol: symbol.clone(),
                 span: span.clone(),
                 easing: span.easing,
+                property_eases: span.property_eases.clone(),
+                target: None,
+                one_curve_for_all: span.property_eases.is_empty(),
                 dirty: false,
                 playing_since: None,
             },
@@ -241,15 +389,21 @@ impl Editor {
                     start: 0,
                     end: 1,
                     easing: Easing::Linear,
+                    property_eases: vec![],
                 },
                 easing: Easing::Linear,
+                property_eases: vec![],
+                target: None,
+                one_curve_for_all: true,
                 dirty: false,
                 playing_since: None,
             },
         };
         let editable = span.is_some() && self.layer_editable();
-        let bezier = easing_bezier(draft.easing);
-        let preset = preset_of(draft.easing);
+        let is_motion = span.as_ref().is_some_and(|s| s.kind == TweenKind::Motion);
+        let active_easing = draft.active_easing();
+        let bezier = easing_bezier(active_easing);
+        let preset = preset_of(active_easing);
         let frames = draft.span.frames();
         let fps = self.project.fps.max(1) as f64;
         let now = ctx.input(|i| i.time);
@@ -269,6 +423,8 @@ impl Editor {
         };
         let playhead = (progress * frames as f32).round() as u32;
         let mut new_easing = None;
+        let mut picked_target = None;
+        let mut toggled_one_curve = None;
         let mut action = None;
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = space::S3;
@@ -288,16 +444,46 @@ impl Editor {
             caption(ui, &context);
             ui.add_enabled_ui(editable, |ui| {
                 ui.horizontal(|ui| {
-                    // Per-property curves need per-property eases in the document (motion tracks).
-                    ui.add_enabled_ui(false, |ui| select(ui, "Property: All", 176.0));
+                    ui.add_enabled_ui(is_motion, |ui| {
+                        let label = format!("Property: {}", ease_target_label(draft.target));
+                        c::Select::new("ease-property", &label)
+                            .width(176.0)
+                            .show(ui, |ui| {
+                                for &(target, item_label) in EASE_TARGETS {
+                                    if ui
+                                        .add(
+                                            c::MenuItem::new(item_label)
+                                                .checked(draft.target == target),
+                                        )
+                                        .clicked()
+                                    {
+                                        picked_target = Some(target);
+                                        ui.close();
+                                    }
+                                }
+                            });
+                    });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add_enabled_ui(false, |ui| check(ui, true, "One curve for all"))
+                        let mut one_curve = if is_motion {
+                            draft.one_curve_for_all
+                        } else {
+                            true
+                        };
+                        if ui
+                            .add_enabled(
+                                is_motion,
+                                c::Checkbox::new(&mut one_curve, "One curve for all"),
+                            )
+                            .changed()
+                        {
+                            toggled_one_curve = Some(one_curve);
+                        }
                     });
                 });
                 for row in c::EasePresetKind::ALL.chunks(4) {
                     ui.horizontal(|ui| {
                         for kind in row {
-                            let supported = preset_easing(*kind, draft.easing).is_some();
+                            let supported = preset_easing(*kind, active_easing).is_some();
                             let response = ui.add_enabled(
                                 supported,
                                 c::EasePreset {
@@ -307,7 +493,7 @@ impl Editor {
                             );
                             c::not_available(response.clone(), kind.label());
                             if response.clicked() {
-                                new_easing = preset_easing(*kind, draft.easing);
+                                new_easing = preset_easing(*kind, active_easing);
                             }
                         }
                     });
@@ -363,7 +549,7 @@ impl Editor {
                     {
                         draft.playing_since = None;
                     }
-                    let eased = easing(f64::from(progress), draft.easing);
+                    let eased = easing(f64::from(progress), active_easing);
                     mono(
                         ui,
                         &format!(
@@ -375,24 +561,60 @@ impl Editor {
                 action = footer(ui, draft.dirty);
             });
         });
-        if let Some(easing) = new_easing.filter(|e| *e != draft.easing) {
-            draft.easing = easing;
-            draft.dirty = true;
+        if let Some(target) = picked_target {
+            draft.target = target;
+            if target.is_some() {
+                draft.one_curve_for_all = false;
+            }
+        }
+        if let Some(one_curve) = toggled_one_curve {
+            draft.one_curve_for_all = one_curve;
+            if one_curve {
+                draft.target = None;
+                draft.property_eases.clear();
+            }
+            draft.recompute_dirty();
+        }
+        if let Some(easing) = new_easing.filter(|e| *e != draft.active_easing()) {
+            if let Some(prop) = draft.target {
+                draft.one_curve_for_all = false;
+                draft.set_property_override(prop, easing);
+            } else {
+                draft.easing = easing;
+                if draft.one_curve_for_all {
+                    draft.property_eases.clear();
+                }
+            }
+            draft.recompute_dirty();
         }
         match action {
             Some(FooterAction::Reset) => {
-                draft.easing = Easing::Linear;
-                draft.dirty = span.as_ref().is_some_and(|s| s.easing != Easing::Linear);
+                if let Some(prop) = draft.target {
+                    if draft.easing == Easing::Linear {
+                        draft.property_eases.retain(|(p, _)| *p != prop);
+                    } else {
+                        draft.set_property_override(prop, Easing::Linear);
+                    }
+                } else {
+                    draft.easing = Easing::Linear;
+                    if draft.one_curve_for_all {
+                        draft.property_eases.clear();
+                    }
+                }
+                draft.recompute_dirty();
             }
             Some(FooterAction::Cancel) => {
                 draft.easing = draft.span.easing;
+                draft.property_eases = draft.span.property_eases.clone();
+                draft.one_curve_for_all = draft.property_eases.is_empty() && draft.target.is_none();
                 draft.dirty = false;
             }
             Some(FooterAction::Apply) => {
                 if let Some(span) = &span
-                    && self.set_tween_easing(span, draft.easing)
+                    && self.set_tween_eases(span, draft.easing, draft.property_eases.clone())
                 {
                     draft.span.easing = draft.easing;
+                    draft.span.property_eases = draft.property_eases.clone();
                     draft.dirty = false;
                 }
             }

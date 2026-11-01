@@ -1382,6 +1382,10 @@ pub struct TimelineView {
     pub loop_playback: bool,
     /// Frame view ▸ Preview / Preview in context: keyframe thumbnails in taller rows.
     pub preview: FramePreview,
+    /// Properties — Motion tween ▸ Show path (stage motion path overlay).
+    pub show_motion_path: bool,
+    /// Properties — Motion tween ▸ Show frame dots (per-frame dots along the stage motion path).
+    pub show_motion_frame_dots: bool,
 }
 
 /// Keyframe thumbnails in the Timeline (Frame view ▸ Preview / Preview in context, TL-10).
@@ -1405,6 +1409,8 @@ impl Default for TimelineView {
             snap_playhead: false,
             loop_playback: true,
             preview: FramePreview::Off,
+            show_motion_path: true,
+            show_motion_frame_dots: true,
         }
     }
 }

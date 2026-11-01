@@ -52,7 +52,7 @@ fn ease_amount(easing: Easing) -> (f64, &'static str) {
         Easing::EaseIn => Some(-100.),
         Easing::EaseOut => Some(100.),
         Easing::Flash { acceleration } => Some(acceleration),
-        Easing::EaseInOut | Easing::CubicBezier { .. } => None,
+        Easing::EaseInOut | Easing::Bounce | Easing::Elastic | Easing::CubicBezier { .. } => None,
     };
     match value {
         Some(v) if v < 0. => (v, "(in)"),
@@ -118,7 +118,7 @@ impl Editor {
         frame: u32,
     ) -> Option<f64> {
         let layer = self.span_layer(span)?;
-        sample_layer(layer, frame)
+        sample_layer_in(&self.symbol().timeline, layer, frame)
             .first()
             .map(|e| to_display(property, property_value(&e.transform, property)))
     }
@@ -280,6 +280,198 @@ impl Editor {
         let sign = if clockwise { 1. } else { -1. };
         let value = start + sign * (360. * turns as f64 + rest);
         self.set_motion_value(span, TweenProperty::Rotation, target, value, control);
+    }
+
+    /// Set or clear (`None` = inherit span ease) the per-property ease override of `property` on
+    /// the motion tween's start keyframe. One Undo step.
+    pub(crate) fn set_motion_property_ease(
+        &mut self,
+        span: &TweenSpan,
+        property: TweenProperty,
+        easing: Option<Easing>,
+    ) -> bool {
+        if span.kind != TweenKind::Motion || !self.layer_editable() {
+            return false;
+        }
+        let mut next = span.property_eases.clone();
+        match easing {
+            Some(ease) => {
+                if let Some((_, existing)) = next.iter_mut().find(|(p, _)| *p == property) {
+                    *existing = ease;
+                } else {
+                    next.push((property, ease));
+                }
+            }
+            None => next.retain(|(p, _)| *p != property),
+        }
+        self.set_tween_eases(span, span.easing, next)
+    }
+
+    /// Move a ◆ property key of `property` from `from_frame` to `to_frame` within the motion span's
+    /// interior `(span.start + 1)..=(span.end - 1)`. The start key at `span.start` is never moved.
+    /// Returns the resulting frame when `from_frame` was a valid ◆ key for `property`.
+    pub(crate) fn move_motion_key(
+        &mut self,
+        span: &TweenSpan,
+        property: TweenProperty,
+        from_frame: u32,
+        to_frame: u32,
+        control: Option<egui::Id>,
+    ) -> Option<u32> {
+        if span.kind != TweenKind::Motion
+            || !self.layer_editable()
+            || from_frame <= span.start
+            || from_frame >= span.end
+            || span.end <= span.start + 1
+        {
+            return None;
+        }
+        let to_frame = to_frame.clamp(span.start + 1, span.end - 1);
+        let source_elements = {
+            let layer = self.span_layer(span)?;
+            let key = layer.keyframes.iter().find(|k| k.frame == from_frame)?;
+            let keyed = key.keyed_properties.as_ref()?;
+            if !keyed.contains(&property) {
+                return None;
+            }
+            key.elements.clone()
+        };
+        if to_frame == from_frame {
+            return Some(from_frame);
+        }
+        let span = span.clone();
+        self.motion_edit(control, |s| {
+            s.ensure_key_at(&span.layer_id, to_frame, false);
+            if let Some(target_key) = s.span_key_mut(&span, to_frame) {
+                for element in &mut target_key.elements {
+                    if let Some(src) = source_elements
+                        .iter()
+                        .find(|e| e.id == element.id)
+                        .or_else(|| source_elements.first())
+                    {
+                        match property {
+                            TweenProperty::Color => {
+                                element.transform.color_transform = src.transform.color_transform;
+                            }
+                            _ => set_value(
+                                &mut element.transform,
+                                property,
+                                property_value(&src.transform, property),
+                            ),
+                        }
+                    }
+                }
+                if let Some(keyed) = &mut target_key.keyed_properties
+                    && !keyed.contains(&property)
+                {
+                    keyed.push(property);
+                }
+            }
+            let remove_source = s.span_key_mut(&span, from_frame).is_some_and(|key| {
+                if let Some(list) = &mut key.keyed_properties {
+                    list.retain(|p| *p != property);
+                    list.is_empty()
+                } else {
+                    false
+                }
+            });
+            if remove_source
+                && let Some(layer) = s
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == span.layer_id)
+            {
+                layer.keyframes.retain(|k| k.frame != from_frame);
+            }
+        });
+        Some(to_frame)
+    }
+
+    /// Toggle `Sync graphic symbols` on the motion span's start key; when enabled, immediately
+    /// synchronizes graphic symbol instances across the span in the same Undo step.
+    pub(crate) fn set_motion_sync_symbols(&mut self, span: &TweenSpan, on: bool) {
+        if !self.layer_editable() {
+            return;
+        }
+        let span = span.clone();
+        self.finish_edits();
+        self.transact_named("Sync graphic symbols", |s| {
+            if let Some(key) = s.span_key_mut(&span, span.start) {
+                key.sync_symbols = on;
+            }
+            if on {
+                let snapshot = s.project.clone();
+                if let Some(layer) = s
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == span.layer_id)
+                {
+                    neoflash_core::sync_layer_symbols(&snapshot, layer, span.start, span.end);
+                }
+            }
+        });
+    }
+
+    /// Toggle `Snap to motion guide` on the motion span's start key; when enabled on a guided
+    /// layer, snaps the span's X/Y key poses onto the guide stroke in the same Undo step.
+    pub(crate) fn set_motion_snap_to_guide(&mut self, span: &TweenSpan, on: bool) {
+        if !self.layer_editable() {
+            return;
+        }
+        let span = span.clone();
+        self.finish_edits();
+        self.transact_named("Snap to motion guide", |s| {
+            let guide_path = on
+                .then(|| {
+                    let timeline = &s.symbol().timeline;
+                    let layer = timeline.layers.iter().find(|l| l.id == span.layer_id)?;
+                    let guide_id = layer.properties.motion_guide.as_deref()?;
+                    let guide = timeline
+                        .layers
+                        .iter()
+                        .find(|l| l.id == guide_id && l.properties.role == LayerRole::Guide)?;
+                    guide_polyline(guide, span.start)
+                })
+                .flatten();
+            if let Some(layer) = s
+                .symbol_mut()
+                .timeline
+                .layers
+                .iter_mut()
+                .find(|l| l.id == span.layer_id)
+            {
+                for key in &mut layer.keyframes {
+                    if key.frame == span.start {
+                        key.snap_to_guide = on;
+                    }
+                    let keys_xy = key.frame == span.start
+                        || (key.frame > span.start
+                            && key.frame < span.end
+                            && key.keyed_properties.as_ref().is_some_and(|kp| {
+                                kp.contains(&TweenProperty::X) || kp.contains(&TweenProperty::Y)
+                            }));
+                    if keys_xy && let Some(path) = &guide_path {
+                        for element in &mut key.elements {
+                            let snapped = path
+                                .point_at(path.nearest([element.transform.x, element.transform.y]));
+                            element.transform.x = snapped[0];
+                            element.transform.y = snapped[1];
+                        }
+                        if let Some(kp) = &mut key.keyed_properties {
+                            for prop in [TweenProperty::X, TweenProperty::Y] {
+                                if !kp.contains(&prop) {
+                                    kp.push(prop);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 
     /// Orient to path of the span (stored on its start key). One Undo step.
@@ -483,22 +675,44 @@ impl Editor {
                         self.set_motion_path_bounds(span, bounds, Some(control));
                     }
                     ui.horizontal(|ui| {
-                        // The stage draws the path whenever the tweened instance is selected; hiding the
-                        // path or its frame dots is not wired yet (WIRING-PLAN §7.4).
-                        for label in ["Show path", "Show frame dots"] {
-                            let mut off = false;
-                            let response = ui.add_enabled(false, c::Checkbox::new(&mut off, label));
-                            c::not_available(response, label);
+                        let mut show_path = self.workspace.timeline.show_motion_path;
+                        if ui
+                            .add(c::Checkbox::new(&mut show_path, "Show path"))
+                            .changed()
+                        {
+                            self.workspace.timeline.show_motion_path = show_path;
+                        }
+                        let mut show_dots = self.workspace.timeline.show_motion_frame_dots;
+                        if ui
+                            .add_enabled(
+                                self.workspace.timeline.show_motion_path,
+                                c::Checkbox::new(&mut show_dots, "Show frame dots"),
+                            )
+                            .changed()
+                        {
+                            self.workspace.timeline.show_motion_frame_dots = show_dots;
                         }
                     });
                 });
             c::SectionHeader::new("Options")
                 .id_salt("motion-tween-options")
                 .show(ui, |ui| {
-                    for label in ["Sync graphic symbols", "Snap to motion guide"] {
-                        let mut off = false;
-                        let response = ui.add_enabled(false, c::Checkbox::new(&mut off, label));
-                        c::not_available(response, label);
+                    let start_key = self
+                        .span_layer(span)
+                        .and_then(|l| l.keyframes.iter().find(|k| k.frame == span.start));
+                    let mut sync = start_key.is_some_and(|k| k.sync_symbols);
+                    let mut snap = start_key.is_some_and(|k| k.snap_to_guide);
+                    if ui
+                        .add(c::Checkbox::new(&mut sync, "Sync graphic symbols"))
+                        .changed()
+                    {
+                        self.set_motion_sync_symbols(span, sync);
+                    }
+                    if ui
+                        .add(c::Checkbox::new(&mut snap, "Snap to motion guide"))
+                        .changed()
+                    {
+                        self.set_motion_snap_to_guide(span, snap);
                     }
                 });
         });

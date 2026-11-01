@@ -154,13 +154,34 @@ impl ClipboardPayload {
             .any(|element| {
                 element.transform.pivot.is_some() || element.transform.primitive.is_some()
             })
+            || self
+                .symbols
+                .iter()
+                .flat_map(|symbol| &symbol.timeline.layers)
+                .flat_map(|layer| &layer.keyframes)
+                .any(|key| {
+                    matches!(key.tween, Some(Easing::Bounce | Easing::Elastic))
+                        || !key.property_eases.is_empty()
+                        || key.sync_symbols
+                        || key.snap_to_guide
+                        || key.sound.as_ref().is_some_and(|s| {
+                            s.effect == SoundEffect::Custom || s.envelope.is_some()
+                        })
+                })
         {
             7
-        } else if self
-            .symbols
-            .iter()
-            .any(|symbol| !symbol.timeline.guides.is_empty())
-        {
+        } else if self.symbols.iter().any(|symbol| {
+            !symbol.timeline.guides.is_empty()
+                || symbol.timeline.layers.iter().any(|layer| {
+                    layer.properties.motion_guide.is_some()
+                        || layer.keyframes.iter().any(|k| {
+                            !k.tween_kind.is_classic()
+                                || k.keyed_properties.is_some()
+                                || k.orient_to_path
+                                || k.sound.is_some()
+                        })
+                })
+        }) {
             Guide::FORMAT_VERSION
         } else if self
             .elements

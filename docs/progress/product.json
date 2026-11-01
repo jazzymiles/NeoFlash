@@ -33,7 +33,7 @@
       "category": "editor",
       "title": "Classic workspace",
       "status": "partial",
-      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output, Align, Transform, Color, Swatches, Info, Ease, History, Scene, Motion editor and Project panels with Light/Dark themes. Dockable panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs and native floating windows. Header drag supports docking, tab merging/reordering, splits and undocking. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Info edits selection W/H/X/Y as one Undo step and shows live cursor coordinates in ruler units plus RGBA color under the stage pointer. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties separates selection and tool contexts with collapsible sections and paired fields; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts. View ▸ Rulers / Grid / Guides, zoom-control toggles and the Rulers, guides & grid popover share one setting state; Save as default stores it in the editor preferences. The Stage shows NF2 tool and handle cursors and NF2 selection/transform boxes, anchors and marquee in both themes.",
+      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output, Align, Transform, Color, Swatches, Info, Ease, History, Scene, Motion editor and Project panels with Light/Dark themes. Dockable panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs and native floating windows. Header drag supports docking, tab merging/reordering, splits and undocking. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Info edits selection W/H/X/Y as one Undo step and shows live cursor coordinates in ruler units plus RGBA color under the stage pointer. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties separates selection and tool contexts with collapsible sections and paired fields; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts. View ▸ Rulers / Grid / Guides, zoom-control toggles and the Rulers, guides & grid popover share one setting state; Save as default stores it in the editor preferences. The Stage breadcrumb opens the Symbols & scenes popover (with live search, Scenes, Matches, Recent, expandable folders, keyboard ↑↓ / ←→ / ↵ / ⌥↵ navigation and … overflow). The Stage shows NF2 tool and handle cursors and NF2 selection/transform boxes, anchors and marquee in both themes.",
       "limitations": "Main-window side groups remain stacked rows/columns; arbitrary recursive main-window splits, named workspace presets and multiple open documents remain unfinished. VoiceOver/IME and mixed-DPI monitors need broader platform acceptance.",
       "items": [
         {
@@ -120,11 +120,17 @@
           "id": "info-panel",
           "title": "Info panel: editable selection bounds, cursor position and RGBA color under pointer",
           "status": "working"
+        },
+        {
+          "id": "symbols-scenes-popover",
+          "title": "Stage breadcrumb Symbols & scenes popover with live search and keyboard navigation",
+          "status": "working"
         }
       ],
       "evidence": [
         "crates/neoflash-editor/src/panels/timeline.rs",
         "crates/neoflash-editor/src/panels/info.rs",
+        "crates/neoflash-editor/src/panels/symbols_popover.rs",
         "crates/neoflash-editor/src/panels/scene.rs",
         "crates/neoflash-editor/src/detached.rs",
         "crates/neoflash-editor/src/workspace.rs",
@@ -801,12 +807,17 @@
       "category": "editor",
       "title": "Layer organization",
       "status": "partial",
-      "scope": "Compact left-aligned layer names with row dividers and inline rename. Layer context menus provide visibility/locks, insert/delete, document-local copy/cut/paste/duplicate, merge and layer/group-to-symbol conversion. Folders support child grouping, collapse, inherited visibility/locks and editable properties. Guides remain authoring-only; mask relationships use stable layer IDs. Per-layer colored squares toggle authoring outlines; an RGB dialog edits the saved outline color with one Undo. Outlined folders include descendants within the edited symbol; nested symbol outline preferences do not leak into parent artwork. Native transport and publication retain original fills and strokes. Layer-column width is draggable and saved as a workspace preference. Name dragging reorders a layer or its dependent folder/mask group with insertion feedback, cancellation and one Undo. Upper sibling rows represent foreground layers; drag reordering and frame paste follow the visible order without reversing the serialized painter order. Add motion guide inserts \"Guide: <name>\" above a layer and guides it; classic tweens on the guided layer move along the guide's first stroke in the editor and HTML5, and the guide is never published.",
-      "limitations": "Orient to path turns guided objects in the editor and HTML5 but has no Properties control yet; arbitrary multi-row selection and drag-to-reparent remain unfinished. Reordering preserves existing parent/mask IDs. Layer clipboard stays within the current document. Merging tweened layers samples frames into keys.",
+      "scope": "Compact left-aligned layer names with row dividers and inline rename. Layer context menus provide visibility/locks, insert/delete, document-local copy/cut/paste/duplicate, merge and layer/group-to-symbol conversion. The modal Layer properties dialog (Modify ▸ Timeline ▸ Layer properties…, layer menu Properties… and double-click on a layer icon) edits Name, Show/Lock, Type (Normal, Guide, Guided ↔ motion_guide, Mask, Masked ↔ mask and Folder), outline color + outlines toggle and row height in one Undo step. Folders support child grouping, collapse, inherited visibility/locks and editable properties. Guides remain authoring-only; mask relationships use stable layer IDs. Per-layer colored squares toggle authoring outlines; an RGB dialog edits the saved outline color with one Undo. Outlined folders include descendants within the edited symbol; nested symbol outline preferences do not leak into parent artwork. Native transport and publication retain original fills and strokes. Layer-column width is draggable and saved as a workspace preference. Name dragging reorders a layer or its dependent folder/mask group with insertion feedback, cancellation and one Undo. Upper sibling rows represent foreground layers; drag reordering and frame paste follow the visible order without reversing the serialized painter order. Add motion guide inserts \"Guide: <name>\" above a layer and guides it; classic tweens on the guided layer move along the guide's first stroke in the editor and HTML5, and the guide is never published.",
+      "limitations": "Orient to path turns guided objects in the editor and HTML5 but has no classic Tween Properties control yet; Armature layers, arbitrary multi-row selection and drag-to-reparent remain unfinished. Reordering preserves existing parent/mask IDs. Layer clipboard stays within the current document. Merging tweened layers samples frames into keys.",
       "items": [
         {
           "id": "layer-commands",
           "title": "Insert, delete, rename, copy, paste and duplicate layers",
+          "status": "working"
+        },
+        {
+          "id": "layer-properties-dialog",
+          "title": "Layer properties dialog (Normal, Guide, Guided, Mask, Masked, Folder, outline color and row height)",
           "status": "working"
         },
         {
@@ -865,6 +876,7 @@
         "docs/BACKLOG.md",
         "crates/neoflash-editor/src/panel_tests.rs",
         "crates/neoflash-editor/src/layer_controls.rs",
+        "crates/neoflash-editor/src/panels/layer_properties.rs",
         "crates/neoflash-core/src/authored_layers.rs",
         "examples/authoring-workspace.nflash",
         "crates/neoflash-core/tests/timeline_tweens.rs",
@@ -1012,8 +1024,8 @@
       "category": "animation",
       "title": "Pose interpolation",
       "status": "partial",
-      "scope": "Tweens match stable object identities and interpolate position, scale, rotation, alpha and supported geometry/color properties. Format 5 also interpolates affine skew and color transforms, with classic Flash acceleration and single global cubic easing. Motion tweens (blue spans) target one symbol instance or text block: editing it inside the span creates a ◆ property keyframe that keys exactly the changed properties, F6 keys all of them, and each property interpolates on its own track with the span ease. Removing the tween drops its ◆ keys; switching to classic keeps their poses as keyframes. The selected motion-tweened instance shows its path on the stage with a dot per frame and ◆ key points; dragging a point moves that key (keys X and Y) with one Undo. The Motion editor shows each property track over the span, adds or removes one property's ◆ key at the playhead, edits values and jumps between keys; Properties — Motion tween edits the span ease, rotation turns and direction, Orient to path and the path box. Copy motion records the classic or motion tween under the playhead; Paste motion animates the selected object the same way relative to its own pose.",
-      "limitations": "Per-property eases, Sync graphic symbols, Snap to motion guide and moving keys in time inside the Motion editor are missing. Paste motion special has no dialog design yet (R-006). The path is edited only at its key points (no Bézier path editing).",
+      "scope": "Tweens match stable object identities and interpolate position, scale, rotation, alpha and supported geometry/color properties. Format 5 also interpolates affine skew and color transforms, with classic Flash acceleration and single global cubic easing. Motion tweens (blue spans) target one symbol instance or text block: editing it inside the span creates a ◆ property keyframe that keys exactly the changed properties, F6 keys all of them, and each property interpolates on its own track with either its own per-property ease (`Keyframe.property_eases` in format 7) or the span ease. Removing the tween drops its ◆ keys; switching to classic keeps their poses as keyframes. The selected motion-tweened instance shows its path on the stage with a dot per frame and ◆ key points (toggled via Show path / Show frame dots in workspace prefs); dragging a point moves that key (keys X and Y) with one Undo. The Motion editor shows each property track over the span, edits per-property eases, moves ◆ keys horizontally in time or vertically by value (one Undo per drag), adds or removes one property's ◆ key at the playhead and jumps between keys; Properties — Motion tween edits the span ease, rotation turns and direction, Orient to path, the path box, Show path / Show frame dots, Sync graphic symbols (`Keyframe.sync_symbols` in format 7) and Snap to motion guide (`Keyframe.snap_to_guide` in format 7). Copy motion records the classic or motion tween (including per-property eases) under the playhead; Paste motion animates the selected object the same way relative to its own pose.",
+      "limitations": "Paste motion special has no dialog design yet (R-006). The path is edited only at its key points (no Bézier path editing), and Add property in the Motion editor remains open.",
       "items": [
         {
           "id": "identity-matching",
@@ -1067,13 +1079,13 @@
         },
         {
           "id": "motion-editor",
-          "title": "Motion editor: property tracks, add/remove a property key, edit values",
+          "title": "Motion editor: property tracks, per-property eases, move ◆ keys in time and edit values",
           "status": "partial"
         },
         {
           "id": "motion-tween-properties",
-          "title": "Motion tween properties: ease, rotation turns, orient to path, path box",
-          "status": "partial"
+          "title": "Motion tween properties: ease, rotation, orient to path, path display, sync graphic symbols and snap to guide",
+          "status": "working"
         },
         {
           "id": "orient-to-path",
@@ -1094,13 +1106,13 @@
       "id": "animation-easing",
       "category": "animation",
       "title": "Easing and custom curves",
-      "status": "partial",
-      "scope": "Keyframe Properties selects Linear, EaseIn/Out/InOut, a custom cubic Bézier curve with four numeric control coordinates (Y may overshoot) or Flash acceleration (−100…100). The Ease panel edits the curve of the tween under the playhead (classic, shape or motion) with presets including Back, draggable Bézier handles, a preview track and Apply/Cancel as one Undo step. The shared model also preserves classic Flash acceleration from imported timelines. Scripted HTML5 easing/Tween uses a separate Rust family for built-in curves and bounded frame-based or seconds-based animation.",
-      "limitations": "Independent property curves remain unfinished. Bounce and Elastic are not single cubic curves and stay disabled in the Ease panel. Runtime Tween retains built-in easing identities and finite positive durations; complete Flash timing and curve conformance are not claimed.",
+      "status": "implemented",
+      "scope": "Keyframe Properties selects Linear, EaseIn/Out/InOut, Bounce or Elastic presets (format 7, evaluated via shared Penner curves in editor and HTML5), a custom cubic Bézier curve with four numeric control coordinates (Y may overshoot) or Flash acceleration (−100…100). The Ease panel edits either the span curve or independent per-property curves (`Keyframe.property_eases` in format 7, with Property select and One curve for all, also editable from the Motion editor Ease column) of the tween under the playhead (classic, shape or motion) with presets including Back, Bounce and Elastic, draggable Bézier handles, a preview track and Apply/Cancel as one Undo step. The shared model also preserves classic Flash acceleration from imported timelines. Scripted HTML5 easing/Tween uses a separate Rust family for built-in curves and bounded frame-based or seconds-based animation.",
+      "limitations": "Bounce and Elastic presets evaluate analytical Penner curves (dragging Bézier handles switches to Custom cubic Bézier). Runtime Tween retains built-in easing identities and finite positive durations; complete Flash timing and curve conformance are not claimed.",
       "items": [
         {
           "id": "preset-eases",
-          "title": "Linear and ease in/out presets",
+          "title": "Linear, ease in/out, Bounce and Elastic presets",
           "status": "working"
         },
         {
@@ -1126,7 +1138,7 @@
         {
           "id": "property-curves",
           "title": "Independent easing curves per property",
-          "status": "planned"
+          "status": "working"
         },
         {
           "id": "overshoot",
@@ -1142,6 +1154,9 @@
       "evidence": [
         "crates/neoflash-core/src/evaluate.rs",
         "crates/neoflash-core/tests/core.rs",
+        "crates/neoflash-core/tests/timeline_tweens.rs",
+        "crates/neoflash-editor/src/panels/ease.rs",
+        "crates/neoflash-editor/src/panels/motion_editor.rs",
         "docs/BACKLOG.md",
         "crates/neoflash-core/src/as_easing.rs",
         "crates/neoflash-web/src/as_easing.rs",
@@ -1252,8 +1267,8 @@
       "category": "animation",
       "title": "Frame-range operations",
       "status": "partial",
-      "scope": "Rectangular multi-layer selection; copy, cut, paste, move, clear, insert and remove time as atomic Undo operations. Explicit Include frame scripts transfers symbol-level code once and rejects destination collisions; object scripts travel with placements. Independent layer ends can be set numerically or dragged and stop exposure in native and HTML5 evaluation. macOS range clipboard and visible layer-order paste are supported.",
-      "limitations": "Creation of destination layer structure remain unfinished. Frame clips are session-local and require existing destination rows. Trimming deletes later keys with Undo recovery. Edits intersecting tweens bake the touched segment to integer-frame poses instead of retaining editable sliced easing curves. Edit multiple frames shows every keyframe in the onion range and moves the selected objects on all of them; other edits still apply to the current keyframe. Reversing a motion tween turns its ◆ poses into classic keyframes.",
+      "scope": "Rectangular multi-layer selection; copy, cut, paste, move, clear, insert and remove time as atomic Undo operations. Range edits splitting cubic-representable tweens (`Linear`, `EaseIn`, `EaseOut`, `EaseInOut`, `Flash` and `CubicBezier`, including motion `property_eases`) subdivide editable `CubicBezier` sub-curves via De Casteljau subdivision instead of integer-frame pose baking. Explicit Include frame scripts transfers symbol-level code once and rejects destination collisions; object scripts travel with placements. Independent layer ends can be set numerically or dragged and stop exposure in native and HTML5 evaluation. macOS range clipboard and visible layer-order paste are supported. Edit multiple frames renders every keyframe in the onion range opaque, allows selecting objects that exist only on neighbouring keyframes, and applies Move, Resize, Scale, Rotate and Skew across all keyframes in the range in one Undo step.",
+      "limitations": "Creation of destination layer structure remains unfinished. Frame clips are session-local and require existing destination rows. Trimming deletes later keys with Undo recovery. Range cuts through analytical Bounce/Elastic presets or guided motion spans fall back to frame-accurate pose keyframes, and reversing a motion tween turns its ◆ poses into classic keyframes. Edit multiple frames applies selection and transform gestures across the onion range; drawing and path-point reshape edits still target the current keyframe.",
       "items": [
         {
           "id": "range-selection",
@@ -1327,7 +1342,7 @@
       "category": "animation",
       "title": "Complete Flash timeline lifecycle",
       "status": "partial",
-      "scope": "Removing and recreating an instance starts a new lifetime; stale dispatches are rejected and goto has protection against an unbounded queue. Same-path symbol replacement resets subtree overrides, custom fields and clocks, invalidates old proxies and preserves siblings; accepted in Chrome/in-app HTML5.",
+      "scope": "Removing and recreating an instance starts a new lifetime; stale dispatches are rejected and goto has protection against an unbounded queue. Same-path symbol replacement resets subtree overrides, custom fields and clocks, invalidates old proxies and preserves siblings; accepted in Chrome/in-app HTML5. Scenes flatten in play order for Test Movie and HTML5 export, while Control ▸ Test scene (⌥⌘↵) publishes and previews only the currently edited scene.",
       "limitations": "Construction/re-entry order, complex nested goto and complete Flash Player semantics still need conformance work.",
       "items": [
         {
@@ -1359,6 +1374,11 @@
           "id": "scenes",
           "title": "Scenes played in order with scene-aware goto",
           "status": "working"
+        },
+        {
+          "id": "test-scene",
+          "title": "Test scene (⌥⌘↵) to publish and preview only the current scene",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -1377,8 +1397,8 @@
       "category": "animation",
       "title": "Audio and video synchronization",
       "status": "partial",
-      "scope": "Timeline sound with Event/Start/Stop/Stream sync, repeat/loop and preset effects in editor playback and HTML5, coordinated stream stops and seeks; timeline video.",
-      "limitations": "Timeline video, custom sound envelopes, Sound properties export settings and decoded waveform display are not implemented. Streams are not re-synchronised when a host drops frames, and editor scrubbing is silent. HTML5 timeline sound needs Enable audio and plays MP3/WAV.",
+      "scope": "Timeline sound with Event/Start/Stop/Stream sync, repeat/loop, preset effects and custom stereo volume envelopes (`SoundEffect::Custom` + `FrameSound.envelope` in format 7, edited in the modal Edit envelope dialog with L/R curves, seconds/frames ruler, zoom and audition) in editor playback and HTML5, modal Sound properties dialog (rename, decoded kHz/channels/duration/size stats, Test/Stop audition and Update/Import byte replacement in one Undo), coordinated stream stops and seeks; timeline video.",
+      "limitations": "Timeline video, Sound properties audio re-encoding at publish and decoded waveform display on timeline spans are not implemented. Streams are not re-synchronised when a host drops frames, and editor scrubbing is silent. HTML5 timeline sound needs Enable audio and plays MP3/WAV.",
       "items": [
         {
           "id": "timeline-audio",
@@ -1393,7 +1413,12 @@
         {
           "id": "sound-envelope-editing",
           "title": "Custom sound envelopes",
-          "status": "planned"
+          "status": "working"
+        },
+        {
+          "id": "sound-properties-dialog",
+          "title": "Sound properties dialog (rename, source info, audition and Update/Import replacement)",
+          "status": "partial"
         },
         {
           "id": "timeline-video",
@@ -1416,6 +1441,8 @@
         "docs/BACKLOG.md",
         "crates/neoflash-core/tests/timeline_sound.rs",
         "crates/neoflash-editor/src/timeline_sound_tests.rs",
+        "crates/neoflash-editor/src/panels/edit_envelope.rs",
+        "crates/neoflash-editor/src/panels/sound_properties.rs",
         "web/tests/wasm.test.cjs",
         "docs/decisions/0037-timeline-sound.md"
       ]
@@ -2650,7 +2677,7 @@
       "category": "platform",
       "title": "Independent project format",
       "status": "implemented",
-      "scope": "Versioned JSON stores stable symbols/placements/frames/scripts; version 2 adds logical project source units and document/symbol linkage with path, size and reference validation. Existing version-1 projects remain supported. Version 3 adds portable resource bytes, normalized logical paths/types, strict base64/size validation and shared immutable storage across native snapshots; versions 1 and 2 remain readable. Authored Bitmap elements reference portable PNG/JPEG resource IDs with validated intrinsic dimensions; mutable runtime pixels stay outside the document. TextBox stores explicit layout dimensions and uniform formatting; legacy Text remains readable without conversion, and runtime insertion defaults stay outside authored state. Format 4 adds authored layer roles/relationships and logical library folders with backward-compatible defaults. Format 5 adds affine skew, inherited color transforms, authored gradient paths, Flash easing and an explicit AS1 script identity. Format 6 adds multi-scene lists, tween kinds, motion property keys, motion and ruler guides and frame sounds. Format 7 adds parametric rectangle corner radii, oval start/end angles, inner radius and close-path options (`Transform.primitive`) and custom transform pivots (`Transform.pivot`). Modify ▸ Document… (⌘J) edits stage size, Match contents, anchored content scaling, units, background and frame rate in one Undo step and saves new-document defaults in workspace prefs.",
+      "scope": "Versioned JSON stores stable symbols/placements/frames/scripts; version 2 adds logical project source units and document/symbol linkage with path, size and reference validation. Existing version-1 projects remain supported. Version 3 adds portable resource bytes, normalized logical paths/types, strict base64/size validation and shared immutable storage across native snapshots; versions 1 and 2 remain readable. Authored Bitmap elements reference portable PNG/JPEG resource IDs with validated intrinsic dimensions; mutable runtime pixels stay outside the document. TextBox stores explicit layout dimensions and uniform formatting; legacy Text remains readable without conversion, and runtime insertion defaults stay outside authored state. Format 4 adds authored layer roles/relationships and logical library folders with backward-compatible defaults. Format 5 adds affine skew, inherited color transforms, authored gradient paths, Flash easing and an explicit AS1 script identity. Format 6 adds multi-scene lists, tween kinds, motion property keys, motion and ruler guides and frame sounds. Format 7 adds parametric rectangle corner radii, oval start/end angles, inner radius and close-path options (`Transform.primitive`), custom transform pivots (`Transform.pivot`), Bounce and Elastic ease presets (`Easing::{Bounce, Elastic}`), per-property motion eases (`Keyframe.property_eases`), motion graphic synchronization and guide snapping (`Keyframe.{sync_symbols, snap_to_guide}`) and custom stereo sound envelopes (`SoundEffect::Custom`, `FrameSound.envelope`). Modify ▸ Document… (⌘J) edits stage size, Match contents, anchored content scaling, units, background and frame rate in one Undo step and saves new-document defaults in workspace prefs.",
       "limitations": "Additional media consumers, embedded font layout and broader asset dependency authoring remain separate work. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass.",
       "items": [
         {
@@ -2695,7 +2722,7 @@
         },
         {
           "id": "format7-authoring",
-          "title": "Parametric rectangle/oval primitive options and custom transform pivots (format 7)",
+          "title": "Parametric primitives, transform pivots, Bounce/Elastic and per-property eases, motion sync/guide options and custom sound envelopes (format 7)",
           "status": "working"
         },
         {

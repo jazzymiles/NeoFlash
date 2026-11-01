@@ -369,3 +369,57 @@ fn validation_requires_an_audio_resource_and_format_6() {
     project.upgrade_format_for_features();
     assert_eq!(project.format_version, 6);
 }
+
+#[test]
+fn custom_stereo_sound_envelope_emits_points_and_validates_bounds() {
+    use neoflash_core::SoundEffect;
+    let pts = vec![[0.0, 0.2, 0.9], [0.5, 1.0, 0.3], [1.0, 0.0, 0.8]];
+    let mut proj = project(
+        4,
+        vec![layer("fx", vec![key(0, Some(("beep", SoundSync::Event)))])],
+    );
+    {
+        let sound = proj.symbols[0].timeline.layers[0].keyframes[0]
+            .sound
+            .as_mut()
+            .unwrap();
+        sound.effect = SoundEffect::Custom;
+        sound.envelope = Some(pts.clone());
+        let (gl, gr) = sound.gains_at(0.25);
+        assert!((gl - 0.6).abs() < 1e-9 && (gr - 0.6).abs() < 1e-9);
+    }
+    assert!(proj.uses_format_7());
+    assert!(
+        proj.validate().is_err(),
+        "format 6 rejects custom envelopes"
+    );
+    proj.upgrade_format_for_features();
+    assert_eq!(proj.format_version, 7);
+    proj.validate().unwrap();
+
+    let mut player = Player::new(&proj);
+    let cmds = player.drain_sound_commands();
+    assert!(matches!(
+        cmds.as_slice(),
+        [SoundCommand::Play { envelope, .. }] if *envelope == pts
+    ));
+
+    let round_trip = Project::from_json(&proj.to_json().unwrap()).unwrap();
+    assert_eq!(round_trip, proj);
+
+    // Reject empty, >32 points, unsorted timestamps, and out-of-range gains.
+    for bad in [
+        vec![],
+        (0..33).map(|i| [i as f64 / 32.0, 1.0, 1.0]).collect(),
+        vec![[0.6, 1.0, 1.0], [0.2, 1.0, 1.0]],
+        vec![[0.0, 1.5, 0.5]],
+    ] {
+        let mut invalid = proj.clone();
+        invalid.symbols[0].timeline.layers[0].keyframes[0]
+            .sound
+            .as_mut()
+            .unwrap()
+            .envelope = Some(bad);
+        assert!(invalid.validate().is_err());
+    }
+}
