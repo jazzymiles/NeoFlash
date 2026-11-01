@@ -289,14 +289,24 @@
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
     function logicalSize(){return [typeof preview==='undefined'?typeof project==='undefined'?800:project.width:preview.view.logicalWidth||project.width,typeof preview==='undefined'?typeof project==='undefined'?600:project.height:preview.view.logicalHeight||project.height];}
     function updateCursor() {
-      if(typeof canvas!=='undefined')canvas.style.cursor=!legacyCursorVisible?'none':typeof preview!=='undefined'&&preview.panMode?'grab':pointerOverContent?'pointer':'default';
+      if(typeof canvas==='undefined')return;
+      const as3Mouse=stageHost?.mouseState?.();
+      if(!legacyCursorVisible||(as3Mouse&&!as3Mouse.visible)){canvas.style.cursor='none';return;}
+      if(typeof preview!=='undefined'&&preview.panMode){canvas.style.cursor='grab';return;}
+      const cursor=as3Mouse?.cursor||'auto';
+      canvas.style.cursor=cursor==='arrow'?'default':cursor==='button'?'pointer':cursor==='hand'?'grab':cursor==='ibeam'?'text':pointerOverContent?'pointer':'default';
     }
     function inputFailure(error) {
       const cause=unwrapScriptThrow(error),failure=new Error(`Input callback: ${describeThrown(cause)}`,{cause});
       if(typeof fail==='function')fail(failure);else throw failure;
     }
     function stopTimers() {timerRenderGeneration++;easingHost?.reset?.();broadcasterHost?.reset?.();timerHost?.reset();}
-    function afterTimerEvent() {dispatchScripts();if(typeof context!=='undefined')render();}
+    function flushStageRender() {
+      if(!stageHost)return;
+      if(display&&(typeof player.runtime_snapshot_json==='function'||typeof player.display_nodes_json==='function'))stageHost.flushRender(display.nodes().map(node=>display.nodeProxy(node)));
+      else stageHost.flushRender([]);
+    }
+    function afterTimerEvent() {dispatchScripts();flushStageRender();if(typeof context!=='undefined')render();}
     function timerFailure(error) {
       const cause=unwrapScriptThrow(error),failure=new Error(`Timer callback: ${describeThrown(cause)}`,{cause});
       if(typeof fail==='function')fail(failure);else {stopTimers();throw failure;}
@@ -379,11 +389,15 @@
         const local=(target,x,y)=>{const p=target===stageHost?.stage?{x,y}:display.convert(target,{x,y},false);return[p.x,p.y];};
         eventHub=global.NeoFlashEvents.create({alive,parentOf:target=>target===stageHost?.stage?null:target.parent,
           localPoint:local,globalPoint:(target,x,y)=>{const p=target===stageHost?.stage?{x,y}:display.convert(target,{x,y},true);return[p.x,p.y];}});
+        const initialStageColor=typeof project!=='undefined'&&Array.isArray(project.background)?(((project.background[0]&255)<<16)|((project.background[1]&255)<<8)|(project.background[2]&255))>>>0:0xffffff;
         stageHost=global.NeoFlashStage.create({events:eventHub,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,
+          color:initialStageColor,viewport:typeof viewport==='undefined'?null:viewport,screen:global.screen,devicePixelRatio:global.devicePixelRatio,
+          numChildren:()=>{if(!display||(typeof player.runtime_snapshot_json!=='function'&&typeof player.display_nodes_json!=='function'))return 1;return display.nodes().filter(node=>node.on_stage!==false&&(node.parent_ref!==undefined?!node.parent_ref:node.path.length===0)).length||1;},
           frameRate:runtimeFrameRate,getFrameRate:()=>runtimeFrameRate,setFrameRate:value=>{runtimeFrameRate=value;},alive:target=>alive(target)&&(target===stageHost?.stage||display.descriptor(target).on_stage!==false),localPoint:local,
           canvas:typeof canvas==='undefined'?null:canvas,keyboardTarget:typeof viewport==='undefined'?null:viewport,pointerTarget:global,
           parentOf:target=>display.parentSpace(target),resolveInput:target=>display.resolveInput(target),beforePointer:()=>display.updateDrag(),hasDrag:()=>display.hasDrag(),cancelPointer:()=>display.cancelPointer(),
-          onPointerTarget:target=>{pointerOverContent=display.handCursor(target);updateCursor();},
+          onPointerTarget:target=>{pointerOverContent=display.handCursor(target);updateCursor();},onMouseChanged:updateCursor,
+          onColorChanged:()=>{if(typeof context!=='undefined')render();},onInvalidate:requestTimerRender,
           onFocusChanged:(next,previous)=>textInputHost?.focusChanged(next,previous),ownsTextInput:node=>textInputHost?.owns(node),canFocus:value=>{if(textInputHost&&!textInputHost.canFocus(value))return false;assertUnfilteredEditing(value);return true;},
           hitTest:event=>{if(typeof canvas==='undefined')return null;const rect=canvas.getBoundingClientRect(),[width,height]=logicalSize(),x=(event.clientX-rect.left)*width/rect.width,y=(event.clientY-rect.top)*height/rect.height;return x>=0&&y>=0&&x<=width&&y<=height?display.pick(x,y):null;},
           coordinates:event=>{if(typeof canvas==='undefined')return null;const r=canvas.getBoundingClientRect(),[width,height]=logicalSize();return[(event.clientX-r.left)*width/r.width,(event.clientY-r.top)*height/r.height];},
@@ -606,11 +620,18 @@
       if(xmlHost){builtins.__nfXML=xmlHost;builtins.XML=xmlHost.XML;builtins.XMLList=xmlHost.XMLList;}
       if(global.NeoFlashEvents)for(const name of ['Event','MouseEvent','KeyboardEvent','FocusEvent','TextEvent','EventDispatcher','EventPhase'])builtins['flash.events.'+name]=global.NeoFlashEvents[name];
       for(const [name,type] of Object.entries(eventFamilies))builtins['flash.events.'+name]=type;
-      if(global.NeoFlashStage)builtins['flash.display.Stage']=global.NeoFlashStage.Stage;
+      if(global.NeoFlashStage){
+        for(const name of ['Stage','StageScaleMode','StageAlign','StageDisplayState','StageQuality'])builtins['flash.display.'+name]=global.NeoFlashStage[name];
+        builtins['flash.ui.Keyboard']=stageHost?.Keyboard||global.NeoFlashStage.Keyboard;
+        builtins['flash.ui.Mouse']=stageHost?.Mouse||global.NeoFlashStage.Mouse;
+        for(const name of ['KeyLocation','KeyboardType','MouseCursor'])builtins['flash.ui.'+name]=global.NeoFlashStage[name];
+      }
       if(timerHost){builtins['flash.utils.Timer']=timerHost.Timer;builtins['flash.events.TimerEvent']=timerHost.TimerEvent;builtins['flash.utils.getTimer']=timerHost.getTimer;}
       if(timerHost)for(const name of ['setInterval','setTimeout','clearInterval','clearTimeout'])builtins['flash.utils.'+name]=timerHost[name];
-      if(bitmapHost){builtins['flash.display.BitmapData']=bitmapHost.BitmapData;builtins['flash.display.PixelSnapping']=bitmapHost.PixelSnapping;builtins['flash.display.PNGEncoderOptions']=bitmapHost.PNGEncoderOptions;}
-      if(textHost){builtins['flash.text.TextFormat']=textHost.TextFormat;builtins['flash.text.TextFormatAlign']=textHost.TextFormatAlign;builtins['flash.text.TextFieldType']=textHost.TextFieldType;}
+      if(bitmapHost){builtins['flash.display.BitmapData']=bitmapHost.BitmapData;builtins['flash.display.BitmapDataChannel']=bitmapHost.BitmapDataChannel;builtins['flash.display.PixelSnapping']=bitmapHost.PixelSnapping;builtins['flash.display.PNGEncoderOptions']=bitmapHost.PNGEncoderOptions;}
+      else if(global.NeoFlashBitmap?.BitmapDataChannel)builtins['flash.display.BitmapDataChannel']=global.NeoFlashBitmap.BitmapDataChannel;
+      const textSource=textHost||global.NeoFlashText;
+      if(textSource)for(const name of ['TextFormat','TextFormatAlign','TextFieldType','TextFieldAutoSize','AntiAliasType','GridFitType','TextLineMetrics'])if(textSource[name])builtins['flash.text.'+name]=textSource[name];
       if(filterHost)for(const name of ['BitmapFilter','BlurFilter','GlowFilter','DropShadowFilter','ColorMatrixFilter','BitmapFilterQuality','ConvolutionFilter','BevelFilter','GradientGlowFilter','GradientBevelFilter','BitmapFilterType'])builtins['flash.filters.'+name]=filterHost[name];
       if(storageHost)for(const name of ['SharedObject','SharedObjectFlushStatus','ObjectEncoding'])builtins['flash.net.'+name]=storageHost[name];
       if(loaderHost)for(const name of ['Loader','LoaderInfo'])builtins['flash.display.'+name]=loaderHost[name];
@@ -1013,6 +1034,7 @@
       return [m[0]/sx,m[1]/sy,m[2]/sx,m[3]/sy,m[4]/sx,m[5]/sy];
     }
     function render() {
+      flushStageRender();
       let snapshot=graphMode?JSON.parse(player.runtime_snapshot_json()):null;
       if(snapshot&&typeof videoHost!=='undefined'&&videoHost)snapshot=videoHost.prepareSnapshot(snapshot);
       scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
@@ -1021,7 +1043,8 @@
       const [width,height]=logicalSize();
       context.setTransform(canvas.width / width, 0, 0, canvas.height / height, 0, 0);
       context.clearRect(0, 0, width, height);
-      context.fillStyle = color(project.background);
+      const stageRgb=stageHost?.stage?.color;
+      context.fillStyle = Number.isInteger(stageRgb)&&stageHost?.colorAssigned?.() ? color([(stageRgb>>>16)&255,(stageRgb>>>8)&255,stageRgb&255,255]) : color(project.background);
       context.fillRect(0, 0, width, height);
       bitmapHost?.cache.beginFrame();
       const painter=createScenePainter({global,paths,gradients,clippings,bitmapHost,textHost,filterHost,videoHost,context,matrix:bitmapMatrix,hidden:ref=>Boolean(textInputHost?.hidden(ref))});

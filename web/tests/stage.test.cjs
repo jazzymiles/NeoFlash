@@ -1,7 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const Events = require('../events.js');
-const { create, Stage } = require('../stage.js');
+const { create, Stage, StageScaleMode, StageAlign, StageDisplayState, StageQuality,
+  Keyboard, KeyLocation, KeyboardType, MouseCursor } = require('../stage.js');
 
 // A real EventTarget drives the adapter's installed native listeners; no direct callback invocation.
 class Surface extends EventTarget {
@@ -39,7 +40,8 @@ test('Stage singleton exposes logical dimensions, transient frame rate and valid
   assert.throws(() => new Stage(), /created by the player/);
   assert.deepEqual([stage.stageWidth, stage.stageHeight], [800, 600]);
   assert.equal(Reflect.set(stage, 'stageWidth', 1), false);
-  assert.equal(Reflect.set(stage, 'scaleMode', 'noScale'), false);
+  assert.equal(Reflect.set(stage, 'allowsFullScreen', true), false);
+  assert.equal(Reflect.set(stage, 'wmodeGPU', true), false);
   stage.frameRate = 30;
   assert.equal(stage.frameRate, 30);
   assert.throws(() => { stage.frameRate = Infinity; }, /frameRate/);
@@ -184,4 +186,152 @@ test('actual runtime proxies share Stage ancestry, event facades, keyboard routi
   assert.notEqual(replacement, card);
   assert.equal(replacement.hasEventListener('click'), false);
   assert.throws(() => card.dispatchEvent(new Events.Event('click')), /removed or replaced/);
+});
+
+test('Stage scaleMode, align, quality, displayState, color, metrics, flags and invalidate/render contract', () => {
+  let requestedFs = null, exitedFs = 0, invalidatedCount = 0;
+  const { controller, stage, root, child, canvas } = setup({
+    color: 0x336699,
+    screen: { width: 1920, height: 1080 },
+    devicePixelRatio: 2,
+    numChildren: () => 3,
+    allowsFullScreen: false,
+    onInvalidate: () => invalidatedCount++,
+  });
+  assert.equal(stage.scaleMode, StageScaleMode.SHOW_ALL);
+  stage.scaleMode = StageScaleMode.NO_SCALE;
+  assert.equal(stage.scaleMode, 'noScale');
+  assert.throws(() => { stage.scaleMode = 'bogus'; }, err => err.name === 'ArgumentError');
+
+  assert.equal(stage.align, '');
+  stage.align = 'lt';
+  assert.equal(stage.align, StageAlign.TOP_LEFT);
+  stage.align = StageAlign.BOTTOM_RIGHT;
+  assert.equal(stage.align, 'BR');
+  stage.align = '';
+  assert.equal(stage.align, '');
+  assert.throws(() => { stage.align = 'CENTER'; }, err => err.name === 'ArgumentError');
+
+  assert.equal(stage.quality, 'HIGH');
+  stage.quality = StageQuality.HIGH_8X8_LINEAR;
+  assert.equal(stage.quality, '8X8LINEAR');
+  stage.quality = StageQuality.LOW;
+  assert.equal(stage.quality, 'LOW');
+  assert.throws(() => { stage.quality = 'ultra'; }, err => err.name === 'ArgumentError');
+
+  assert.equal(stage.displayState, StageDisplayState.NORMAL);
+  assert.equal(stage.allowsFullScreen, false);
+  assert.equal(stage.allowsFullScreenInteractive, false);
+  assert.throws(() => { stage.displayState = StageDisplayState.FULL_SCREEN; }, err => err.name === 'SecurityError');
+  const fsHost = setup({
+    allowsFullScreen: true,
+    allowsFullScreenInteractive: true,
+    requestFullscreen: state => { requestedFs = state; return true; },
+    exitFullscreen: () => { exitedFs++; },
+  });
+  fsHost.stage.displayState = StageDisplayState.FULL_SCREEN_INTERACTIVE;
+  assert.equal(requestedFs, 'fullScreenInteractive');
+  assert.equal(fsHost.stage.displayState, 'fullScreenInteractive');
+  fsHost.stage.displayState = StageDisplayState.NORMAL;
+  assert.equal(exitedFs, 1);
+  assert.equal(fsHost.stage.displayState, 'normal');
+
+  assert.equal(stage.color, 0x336699);
+  stage.color = 0xff112233;
+  assert.equal(stage.color, 0x112233);
+  assert.equal(stage.fullScreenWidth, 1920);
+  assert.equal(stage.fullScreenHeight, 1080);
+  assert.equal(stage.contentsScaleFactor, 2);
+  assert.equal(stage.numChildren, 3);
+  assert.equal(stage.tabChildren, true);
+  stage.tabChildren = false;
+  assert.equal(stage.tabChildren, false);
+  assert.equal(stage.stageFocusRect, true);
+  stage.stageFocusRect = false;
+  assert.equal(stage.stageFocusRect, false);
+
+  controller.attach();
+  assert.equal(canvas.send('contextmenu').defaultPrevented, false);
+  stage.showDefaultContextMenu = false;
+  assert.equal(canvas.send('contextmenu').defaultPrevented, true);
+
+  const downTargets = [];
+  stage.addEventListener(Events.MouseEvent.MOUSE_DOWN, event => downTargets.push(event.target === stage ? 'stage' : event.target.name));
+  stage.mouseChildren = false;
+  canvas.send('pointerdown', { clientX: 40, clientY: 40, button: 0, buttons: 1 });
+  assert.deepEqual(downTargets, ['stage']);
+
+  const renders = [];
+  stage.addEventListener(Events.Event.RENDER, () => {
+    renders.push('stage');
+    if (renders.length === 1) stage.invalidate();
+  });
+  child.addEventListener(Events.Event.RENDER, () => renders.push('child'));
+  stage.invalidate();
+  assert.equal(invalidatedCount, 1);
+  assert.deepEqual(renders, [], 'Event.RENDER waits for tick/render flush rather than firing synchronously');
+  controller.tick([root, child]);
+  assert.deepEqual(renders, ['stage', 'child'], 're-invalidating inside RENDER schedules next render without recursion');
+  controller.flushRender([root, child]);
+  assert.deepEqual(renders, ['stage', 'child', 'stage', 'child']);
+  controller.flushRender([root, child]);
+  assert.equal(renders.length, 4);
+
+  controller.reset();
+  assert.equal(stage.scaleMode, 'showAll');
+  assert.equal(stage.align, '');
+  assert.equal(stage.quality, 'HIGH');
+  assert.equal(stage.color, 0x336699);
+  assert.equal(stage.mouseChildren, true);
+  assert.equal(stage.tabChildren, true);
+  assert.equal(stage.showDefaultContextMenu, true);
+  assert.equal(stage.stageFocusRect, true);
+});
+
+test('flash.ui Keyboard, KeyLocation, KeyboardType, Mouse and MouseCursor contracts', () => {
+  let mouseUpdates = 0;
+  const { controller, keyboard } = setup({ onMouseChanged: () => mouseUpdates++ });
+  const { Keyboard: HostKeyboard, Mouse: HostMouse } = controller;
+  for (const EnumType of [StageScaleMode, StageAlign, StageDisplayState, StageQuality, Keyboard, HostKeyboard, KeyLocation, KeyboardType, HostMouse, MouseCursor]) {
+    assert.throws(() => new EnumType(), TypeError);
+  }
+  assert.equal(HostKeyboard.A, 65);
+  assert.equal(HostKeyboard.RED, 0x01000000);
+  assert.equal(HostKeyboard.PLAY_PAUSE, 0x01000020);
+  assert.equal(HostKeyboard.KEYNAME_UPARROW, 'Up');
+  assert.equal(HostKeyboard.STRING_UPARROW, '\uf700');
+  assert.equal(HostKeyboard.STRING_MODESWITCH, '\uf747');
+  assert.equal(HostKeyboard.CharCodeStrings.length, 72);
+  assert.equal(HostKeyboard.CharCodeStrings[0], 'Up');
+  assert.equal(HostKeyboard.CharCodeStrings[71], 'ModeSw');
+  assert.equal(HostKeyboard.capsLock, false);
+  assert.equal(HostKeyboard.numLock, false);
+  assert.equal(HostKeyboard.hasVirtualKeyboard, false);
+  assert.equal(HostKeyboard.physicalKeyboardType, KeyboardType.ALPHANUMERIC);
+  assert.equal(HostKeyboard.isAccessible(), false);
+  assert.deepEqual([KeyLocation.STANDARD, KeyLocation.LEFT, KeyLocation.RIGHT, KeyLocation.NUM_PAD, KeyLocation.D_PAD], [0, 1, 2, 3, 4]);
+
+  controller.attach();
+  keyboard.send('keydown', { key: 'A', code: 'KeyA', getModifierState: name => name === 'CapsLock' });
+  assert.equal(HostKeyboard.capsLock, true);
+  assert.equal(HostKeyboard.numLock, false);
+
+  assert.equal(HostMouse.cursor, MouseCursor.AUTO);
+  assert.equal(HostMouse.supportsCursor, true);
+  assert.equal(HostMouse.supportsNativeCursor, false);
+  HostMouse.cursor = MouseCursor.HAND;
+  assert.equal(HostMouse.cursor, 'hand');
+  assert.deepEqual(controller.mouseState(), { cursor: 'hand', visible: true });
+  HostMouse.hide();
+  assert.deepEqual(controller.mouseState(), { cursor: 'hand', visible: false });
+  HostMouse.show();
+  assert.deepEqual(controller.mouseState(), { cursor: 'hand', visible: true });
+  assert.equal(mouseUpdates, 3);
+  assert.throws(() => { HostMouse.cursor = 'crosshair'; }, err => err.name === 'ArgumentError');
+  assert.throws(() => HostMouse.registerCursor('custom', {}), /flash\.ui\.Mouse\.registerCursor/);
+  assert.throws(() => HostMouse.unregisterCursor('custom'), /flash\.ui\.Mouse\.unregisterCursor/);
+
+  controller.reset();
+  assert.equal(HostMouse.cursor, 'auto');
+  assert.equal(HostKeyboard.capsLock, false);
 });

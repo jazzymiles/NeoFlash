@@ -43,6 +43,26 @@
   Object.assign(TextFormatAlign,{LEFT:'left',CENTER:'center',RIGHT:'right',JUSTIFY:'justify'});Object.freeze(TextFormatAlign);
   class TextFieldType {constructor(){throw new TypeError('TextFieldType supplies INPUT and DYNAMIC constants.');}}
   Object.assign(TextFieldType,{INPUT:'input',DYNAMIC:'dynamic'});Object.freeze(TextFieldType);
+  class TextFieldAutoSize {constructor(){throw new TypeError('TextFieldAutoSize supplies CENTER, LEFT, NONE and RIGHT constants.');}}
+  Object.assign(TextFieldAutoSize,{CENTER:'center',LEFT:'left',NONE:'none',RIGHT:'right'});Object.freeze(TextFieldAutoSize);
+  class AntiAliasType {constructor(){throw new TypeError('AntiAliasType supplies ADVANCED and NORMAL constants.');}}
+  Object.assign(AntiAliasType,{ADVANCED:'advanced',NORMAL:'normal'});Object.freeze(AntiAliasType);
+  class GridFitType {constructor(){throw new TypeError('GridFitType supplies NONE, PIXEL and SUBPIXEL constants.');}}
+  Object.assign(GridFitType,{NONE:'none',PIXEL:'pixel',SUBPIXEL:'subpixel'});Object.freeze(GridFitType);
+  const lineMetrics=new WeakMap(),metricFields=['x','width','height','ascent','descent','leading'];
+  class TextLineMetrics {
+    constructor(x,width,height,ascent,descent,leading){
+      if(arguments.length!==6)throw new TypeError('TextLineMetrics requires six Number arguments: x, width, height, ascent, descent and leading.');
+      lineMetrics.set(this,{x:Number(x),width:Number(width),height:Number(height),ascent:Number(ascent),descent:Number(descent),leading:Number(leading)});
+      Object.seal(this);
+    }
+  }
+  for(const name of metricFields)Object.defineProperty(TextLineMetrics.prototype,name,{enumerable:true,
+    get(){const record=lineMetrics.get(this);if(!record)throw new TypeError('Expected TextLineMetrics.');return record[name];},
+    set(value){const record=lineMetrics.get(this);if(!record)throw new TypeError('Expected TextLineMetrics.');record[name]=Number(value);}});
+  TextLineMetrics.__nfIs=value=>lineMetrics.has(value);
+  TextLineMetrics.__nfInitialize=()=>{throw new TypeError('Native TextLineMetrics subclassing is not supported.');};
+  Object.defineProperty(TextLineMetrics,Symbol.hasInstance,{value:TextLineMetrics.__nfIs});
   function formatPatch(value){
     const record=formats.get(value);if(!record)throw new TypeError('Expected TextFormat from this runtime.');
     return Object.fromEntries(Object.entries(record).filter(([,item])=>item!==null));
@@ -159,6 +179,7 @@
       getLineLength:index=>{const item=line(info(ref),index);return item.end-item.start;},
       getLineOffset:index=>line(info(ref),index).start,
       getLineIndexOfChar:index=>{const field=info(ref);if(!Number.isInteger(index)||index<0||index>=field.text.length)throw new RangeError('TextField character index is outside the current UTF-16 text.');return layout(field).lines.findIndex(item=>index>=item.start&&index<item.end);},
+      getLineMetrics:index=>{const field=info(ref),item=line(field,index),ascent=field.format.size,descent=item.height-ascent,leading=field.format.leading;return new TextLineMetrics(item.x,item.width,item.height+leading,ascent,descent,leading);},
     };}
     function bounds(field,ink=false){
       if(ink&&field.alpha>0&&(field.as2_viewport?.background||field.as2_viewport?.border)){const surface=layout(field).surface;return {left:0,top:0,right:surface.width,bottom:surface.height};}
@@ -191,8 +212,8 @@
     function hit(field,x,y){const box=bounds(field);return !!box&&box.right>box.left&&box.bottom>box.top&&field.alpha>0&&x>=box.left&&y>=box.top&&x<=box.right&&y<=box.bottom;}
     function reset(){active();cache.clear();cacheBytes=0;}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({measure:(strings,format)=>strings.map(value=>measureText(value,format)),TextFormat,As2TextFormat,legacyFormatCopy,bindAs2:execute=>{as2Execute=execute;},bindAs2Layout:callback=>{as2Layout=callback;},bindAs2Wheel:callback=>{as2Wheel=callback;},wheel:(ref,event)=>as2Wheel?.(ref,event)||false,notifyLayout:ref=>onUpdate(ref),TextFormatAlign,TextFieldType,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
+    return Object.freeze({measure:(strings,format)=>strings.map(value=>measureText(value,format)),TextFormat,As2TextFormat,legacyFormatCopy,bindAs2:execute=>{as2Execute=execute;},bindAs2Layout:callback=>{as2Layout=callback;},bindAs2Wheel:callback=>{as2Wheel=callback;},wheel:(ref,event)=>as2Wheel?.(ref,event)||false,notifyLayout:ref=>onUpdate(ref),TextFormatAlign,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,TextLineMetrics,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
   }
-  const api={create,TextFormat,TextFormatAlign,TextFieldType,formatPatch,formatCopy,cssFont,applyFont};
+  const api={create,TextFormat,TextFormatAlign,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,TextLineMetrics,formatPatch,formatCopy,cssFont,applyFont};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashText=api;
 })(globalThis);

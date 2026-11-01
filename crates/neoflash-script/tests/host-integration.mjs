@@ -58,7 +58,7 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const netModule=require(resolve(root,'web/net.js'));
   globals.NeoFlashNet={create:settings=>netModule.create({...settings,...options.net})};
   const bitmapModule=require(resolve(root,'web/bitmap.js'));
-  globals.NeoFlashBitmap={create:settings=>bitmapModule.create({...settings,...options.bitmap})};
+  globals.NeoFlashBitmap={...bitmapModule,create:settings=>bitmapModule.create({...settings,...options.bitmap})};
   if(typeof player.filter_rgba==='function'){
     const filtersModule=require(resolve(root,'web/filters.js'));
     globals.NeoFlashFilters={create:settings=>filtersModule.create({...settings,...options.filters})};

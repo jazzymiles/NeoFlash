@@ -20,6 +20,9 @@
   class PixelSnapping {constructor(){throw new TypeError('PixelSnapping supplies AUTO, ALWAYS and NEVER constants.');}}
   Object.assign(PixelSnapping,{AUTO:'auto',ALWAYS:'always',NEVER:'never'});
   Object.freeze(PixelSnapping);
+  class BitmapDataChannel {constructor(){throw new TypeError('BitmapDataChannel supplies ALPHA, BLUE, GREEN and RED constants.');}}
+  Object.assign(BitmapDataChannel,{ALPHA:8,BLUE:4,GREEN:2,RED:1});
+  Object.freeze(BitmapDataChannel);
   const encoderOptions=new WeakMap();
   class PNGEncoderOptions {
     constructor(fastCompression=false){encoderOptions.set(this,false);this.fastCompression=fastCompression;Object.seal(this);}
@@ -255,7 +258,7 @@
     });
     function reset(){active();cache.clear();facades.clear();generation++;}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({BitmapData,PixelSnapping,PNGEncoderOptions,fromRef,refOf,cache,createCanvas:canvas,reset,dispose});
+    return Object.freeze({BitmapData,BitmapDataChannel,PixelSnapping,PNGEncoderOptions,fromRef,refOf,cache,createCanvas:canvas,reset,dispose});
   }
-  const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashBitmap=api;
+  const api=Object.freeze({create,BitmapDataChannel,PixelSnapping,PNGEncoderOptions});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashBitmap=api;
 })(globalThis);

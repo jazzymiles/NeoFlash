@@ -521,9 +521,13 @@ impl<'a> Analysis<'a> {
             Expr::NewClass(name, args, offset) if name == "flash.geom.Transform" && args.len() != 1 => return Err(self.error(*offset,"Transform construction requires one existing display object. Use object.transform or new Transform(object).")),
             Expr::NewClass(name, _, offset) if name == "flash.events.EventPhase" => return Err(self.error(*offset,"EventPhase contains constants and is not constructible.")),
             Expr::NewClass(name, _, offset) if project::is_graphics_constants(name) => return Err(self.error(*offset,"Graphics enum classes supply constants and are not constructible.")),
+            Expr::NewClass(name, _, offset) if name == "flash.display.Stage" => return Err(self.error(*offset,"Stage is created by the player and cannot be constructed.")),
             Expr::NewClass(name, _, offset) if name == "flash.display.PixelSnapping" => return Err(self.error(*offset,"PixelSnapping contains constants and is not constructible.")),
+            Expr::NewClass(name, _, offset) if matches!(name.as_str(),"flash.display.BitmapDataChannel"|"flash.display.StageScaleMode"|"flash.display.StageAlign"|"flash.display.StageDisplayState"|"flash.display.StageQuality") => return Err(self.error(*offset,"Stage and BitmapDataChannel enum classes contain constants and are not constructible.")),
             Expr::NewClass(name, args, offset) if name == "flash.display.PNGEncoderOptions" && args.len() > 1 => return Err(self.error(*offset,"PNGEncoderOptions accepts only an optional fastCompression Boolean.")),
-            Expr::NewClass(name, _, offset) if matches!(name.as_str(),"flash.text.TextFormatAlign"|"flash.text.TextFieldType") => return Err(self.error(*offset,"TextFormatAlign and TextFieldType contain constants and are not constructible.")),
+            Expr::NewClass(name, _, offset) if matches!(name.as_str(),"flash.text.TextFormatAlign"|"flash.text.TextFieldType"|"flash.text.TextFieldAutoSize"|"flash.text.AntiAliasType"|"flash.text.GridFitType") => return Err(self.error(*offset,"TextFormatAlign, TextFieldType and text enum classes contain constants and are not constructible.")),
+            Expr::NewClass(name, args, offset) if name == "flash.text.TextLineMetrics" && args.len() != 6 => return Err(self.error(*offset,"TextLineMetrics requires six Number arguments: x, width, height, ascent, descent and leading.")),
+            Expr::NewClass(name, _, offset) if matches!(name.as_str(),"flash.ui.Keyboard"|"flash.ui.KeyLocation"|"flash.ui.KeyboardType"|"flash.ui.Mouse"|"flash.ui.MouseCursor") => return Err(self.error(*offset,"flash.ui Keyboard and Mouse classes supply static members and constants and are not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.text.TextField" && self.script.language == ScriptLanguage::ActionScript2 => return Err(self.error(*offset,"AS2 TextField creation uses MovieClip.createTextField with an append-only depth, not new TextField().")),
             Expr::NewClass(name, args, offset) if name == "flash.text.TextField" && !args.is_empty() => return Err(self.error(*offset,"TextField construction takes no arguments in the bounded display-text profile.")),
             Expr::NewClass(name, _, offset) if matches!(name.as_str(),"flash.net.URLRequestMethod"|"flash.net.URLLoaderDataFormat"|"flash.net.ObjectEncoding"|"flash.net.SharedObjectFlushStatus") => return Err(self.error(*offset,"Network/persistence method, encoding and status facades provide constants and cannot be constructed.")),
@@ -574,11 +578,12 @@ impl<'a> Analysis<'a> {
                 // when the call executes; arbitrary member APIs stay blocked.
                 let dynamic_timeline = self.script.language == ScriptLanguage::ActionScript2
                     && binding.is_none() && matches!(callee.as_ref(), Expr::Name(name) if !is_global(name));
-                // AS3 MovieClip scene navigation resolves on the receiver at run
-                // time; AS2 keeps reaching these names through its dynamic lookup.
+                // AS3 MovieClip scene navigation and host stage/UI/text methods
+                // resolve on the receiver at run time.
                 let as3_scene_step = self.script.language == ScriptLanguage::ActionScript3
                     && binding.is_none()
-                    && matches!(callee.as_ref(), Expr::Name(name) | Expr::Member(_, name) if matches!(name.as_str(), "nextScene" | "prevScene"));
+                    && (matches!(callee.as_ref(), Expr::Name(name) | Expr::Member(_, name) if matches!(name.as_str(), "nextScene" | "prevScene"))
+                        || matches!(callee.as_ref(), Expr::Member(_, name) if matches!(name.as_str(), "invalidate" | "getLineMetrics" | "hide" | "show" | "registerCursor" | "unregisterCursor" | "isAccessible")));
                 if !builtin && !project_call && !user_binding && !dynamic_timeline && !as3_scene_step && !matches!(callee.as_ref(),Expr::Function(_) | Expr::TypeValue(_, _)) && !self.known_member(scope,callee) {
                     return Err(self.error(*offset,"This ActionScript call is not a supported API or a declared user function/value. Unknown member APIs and dynamic computed calls remain unsupported; source is not discarded."));
                 }
