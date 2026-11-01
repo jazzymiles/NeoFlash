@@ -649,7 +649,8 @@
       loader.addEventListener('complete',()=>done(true));loader.addEventListener('ioError',()=>done(false));
       try{loader.load(request||new net.URLRequest(url));}catch(error){cancel(r);throw error;}return true;
     }
-    for(const[Type,predicate]of [[XML,v=>records.get(v)?.kind==='xml'],[XMLList,v=>records.get(v)?.kind==='list'],[LegacyXML,v=>v instanceof LegacyXML&&records.get(v)?.kind==='legacy'&&records.get(v).nodes[0].kind==='document'],[XMLDocument,v=>v instanceof XMLDocument&&records.get(v)?.kind==='legacy'&&records.get(v).nodes[0].kind==='document'],[XMLNode,v=>records.get(v)?.kind==='legacy']])Object.defineProperties(Type,{__nfIs:{value:predicate},__nfInitialize:{value:()=>unsupported('native subclassing')},[Symbol.hasInstance]:{value:predicate}});
+    const hasProto=(Proto,v)=>Object.prototype.isPrototypeOf.call(Proto,v);
+    for(const[Type,predicate]of [[XML,v=>records.get(v)?.kind==='xml'],[XMLList,v=>records.get(v)?.kind==='list'],[LegacyXML,v=>hasProto(LegacyXML.prototype,v)&&records.get(v)?.kind==='legacy'&&records.get(v).nodes[0].kind==='document'],[XMLDocument,v=>hasProto(XMLDocument.prototype,v)&&records.get(v)?.kind==='legacy'&&records.get(v).nodes[0].kind==='document'],[XMLNode,v=>records.get(v)?.kind==='legacy']])Object.defineProperties(Type,{__nfIs:{value:predicate},__nfInitialize:{value:()=>unsupported('native subclassing')},[Symbol.hasInstance]:{value:predicate}});
     function ref(value,key,as3){
       const r=state(value);if(r.kind==='legacy')return {get:()=>value[key],set:next=>{value[key]=next;return next;},delete:()=>Reflect.deleteProperty(value,key),has:()=>key in value};
       if(!as3)unsupported('AS3 XML access from the AS2 DOM interface');
