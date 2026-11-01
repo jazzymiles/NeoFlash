@@ -110,6 +110,21 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** `timeline.rs` span painter, `timeline-states-legend.png`.
 - **Answer:**
 
+### R-011 · Canvas chrome on artwork: rotated boxes, contrast, Light transformation point, cursor map
+- **Status:** open
+- **Requested by / for:** Antigravity · ST-07, ST-11
+- **Where:** `neoflash_ui::components::canvas::{paint_selection_box, paint_transform_box, transformation_point}`,
+  `neoflash_ui::cursors`; used by `crates/neoflash-editor/src/stage_selection.rs` and `stage_cursor.rs`
+- **Need:** (1) a rotated/skewed (quad) variant of `Selection Box` and `Transform Box`; today rotated objects get the
+  axis-aligned box of their bounds. (2) A contrast rule over artwork: the 1 pt `accent/default` line has no halo and
+  disappears on blue or busy artwork (the old editor overlay used a halo pair). (3) The transformation point is
+  `#FFFFFF` with a `bg/canvas` outline, nearly invisible on light artwork in the Light theme. (4) A per-handle cursor
+  table (rotate zone size outside corners, skew vs scale hit areas); the editor follows Flash: handles scale, the edge
+  between handles skews, up to 18 pt outside a corner rotates.
+- **Why:** the boxes and cursors are now wired; these are the remaining visual decisions the editor must not improvise.
+- **Checked:** `canvas-editing-chrome.png` (Dark only), `cursors.png`, design doc §3.5 and the canvas chrome catalogue.
+- **Answer:**
+
 ## Resolved requests
 
 ### R-005 · Motion path on the stage

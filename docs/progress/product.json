@@ -33,7 +33,7 @@
       "category": "editor",
       "title": "Classic workspace",
       "status": "partial",
-      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output, Align, Transform and Color with Light/Dark themes. All ten panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs and native floating windows. Header drag supports docking, tab merging/reordering, splits and undocking. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties separates selection and tool contexts with collapsible sections and paired fields; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts. View ▸ Rulers / Grid / Guides, zoom-control toggles and the Rulers, guides & grid popover share one setting state; Save as default stores it in the editor preferences.",
+      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output, Align, Transform and Color with Light/Dark themes. All ten panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs and native floating windows. Header drag supports docking, tab merging/reordering, splits and undocking. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties separates selection and tool contexts with collapsible sections and paired fields; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts. View ▸ Rulers / Grid / Guides, zoom-control toggles and the Rulers, guides & grid popover share one setting state; Save as default stores it in the editor preferences. The Stage shows NF2 tool and handle cursors and NF2 selection/transform boxes, anchors and marquee in both themes.",
       "limitations": "Main-window side groups remain stacked rows/columns; arbitrary recursive main-window splits, named workspace presets and multiple open documents remain unfinished. VoiceOver/IME and mixed-DPI monitors need broader platform acceptance.",
       "items": [
         {
@@ -104,6 +104,16 @@
         {
           "id": "scene-panel",
           "title": "Scene panel: find, add, duplicate, delete, rename and reorder scenes",
+          "status": "working"
+        },
+        {
+          "id": "stage-cursors",
+          "title": "Tool and handle cursors over the Stage",
+          "status": "working"
+        },
+        {
+          "id": "canvas-chrome",
+          "title": "NF2 selection boxes, transform box and path points on the Stage",
           "status": "working"
         }
       ],
@@ -289,8 +299,8 @@
       "category": "editor",
       "title": "Free Transform",
       "status": "partial",
-      "scope": "Move, scale and rotate individual objects; uniformly scale and rotate a group through stage gestures. Transform panel adds exact position/dimensions, optional linked proportions and nonuniform W/H scaling of the selection, plus single-object rotation/skew, flips and reset. Skew-aware handle resizing preserves its fixed anchor and authored reflection.",
-      "limitations": "Custom pivots and direct group-skew editing remain unfinished. Numeric selection sizing and stage transform gestures have separate supported operations.",
+      "scope": "Move, scale and rotate individual objects; uniformly scale and rotate a group through stage gestures. Transform panel adds exact position/dimensions, optional linked proportions and nonuniform W/H scaling of the selection, plus single-object rotation/skew, flips and reset. Skew-aware handle resizing preserves its fixed anchor and authored reflection. Free Transform uses the NF2 transform box with Flash zones: handles scale, edges skew, just outside a corner rotates, inside moves; NF2 cursors show each zone.",
+      "limitations": "Custom pivots remain unfinished; the transform box is axis-aligned for rotated objects (NF2 request R-011). Numeric selection sizing and stage transform gestures have separate supported operations.",
       "items": [
         {
           "id": "stage-move-scale-rotate",
@@ -328,13 +338,18 @@
           "status": "working"
         },
         {
+          "id": "stage-skew-edges",
+          "title": "Skew objects by dragging a Free Transform edge",
+          "status": "working"
+        },
+        {
           "id": "custom-pivot",
           "title": "Custom transform pivot",
           "status": "planned"
         },
         {
           "id": "group-skew",
-          "title": "Direct skew editing of groups",
+          "title": "Direct skew editing of groups in the Transform panel",
           "status": "planned"
         }
       ],

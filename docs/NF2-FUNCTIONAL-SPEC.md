@@ -66,11 +66,11 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | ST-04 | Snapping (grid, guides, objects, pixels) + snap ring | Stage chrome | partial (grid, guides) | editor | P1 |
 | ST-05 | Zoom control toggles rulers/guides/grid/snap | Stage chrome | working | UI-only | P1 |
 | ST-06 | View settings popover | Stage chrome | working | UI-only | P1 |
-| ST-07 | NF2 stage cursors | Stage chrome | absent | UI-only | P1 |
+| ST-07 | NF2 stage cursors | Stage chrome | done | UI-only | P1 |
 | ST-08 | Breadcrumb ▾ menu + Symbols & scenes popover | Stage chrome | absent | editor | P2 |
 | ST-09 | Toasts / progress / spinner | Window chrome | absent | UI-only | P1 |
 | ST-10 | Dock compass | Docking | absent | UI-only | P3 |
-| ST-11 | Canvas editing chrome (Selection/Transform box variants, gradient transform focal handle) | Stage | partial | editor | P2 |
+| ST-11 | Canvas editing chrome (Selection/Transform box variants, gradient transform focal handle) | Stage | partial (boxes, anchors, marquee done) | editor | P2 |
 | PR-01 | Properties — Text (full NF2 variant) | Properties | partial | yes | P2 |
 | PR-02 | Properties — Oval / Rectangle primitive options | Properties | absent | yes | P2 |
 | PR-03 | Stroke style (line style, cap, join, miter, hinting, scale) + Stroke style dialog | Properties / dialog | absent | yes | P2 |
@@ -380,7 +380,14 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 - Depends on: UI-only (+ ST-01…ST-04). Acceptance: every control changes the stage immediately; Save as default
   survives restart.
 
-**ST-07 · NF2 stage cursors** — absent
+**ST-07 · NF2 stage cursors** — done (`stage_cursor.rs`)
+- Done: every stage tool shows its NF2 cursor over the canvas only (rulers, floating stage chrome, popovers and
+  dialogs keep system cursors; guides keep their system resize cursor). Hover targets: Selection — `arrow-move` over an
+  object; Free Transform — `resize-h/v/d1/d2` on handles (by screen direction), `skew-h/v` on the edge between handles,
+  `rotate` just outside a corner, `move` inside the box; Subselection — `subselect-point` over a path point; Pen —
+  `pen-close` over the first anchor; Hand — `hand-closed` while dragging; Zoom — `zoom-out` with ⌥; motion path ◆ —
+  `hand-open/closed`. The mapping follows Flash conventions; the design has no per-handle table (R-011). Cursors are
+  identical in both themes. Not yet: `arrow-reshape-curve/corner`, `pen-add/remove/convert`, `drag-copy`.
 - Purpose: 39 `NF2 Cursor/*` glyphs (tool cursors, reshape corner/curve, move, rotate, skew, hand open/closed,
   zoom in/out, eyedropper, bucket, pen add/remove/close …) over the canvas.
 - Behaviour: stage tools call `neoflash_ui::cursors::show(ctx, canvas, cursor)` (hides the system cursor); chrome
@@ -409,14 +416,22 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 - Depends on: UI-only (`components::dock_compass` exists). Acceptance: dropping on centre tabs the panel into the
   group; edges split.
 
-**ST-11 · Canvas editing chrome variants** — partial (editor draws selection/transform with `theme::StageOverlay`)
+**ST-11 · Canvas editing chrome variants** — partial
+- Done: Selection and Subselection draw `NF2/Selection Box` per selected placement (Symbol for instances, Static text
+  for point text, Dynamic text for text boxes, Group otherwise); Free Transform draws `NF2/Transform Box` (Scale mode)
+  on the selection's axis-aligned stage bounds, also for rotated objects, with Flash zones: handles scale (a single
+  placement resizes in its own axes), edges skew (`transform_geometry::skew_many`), outside a corner rotates about the
+  transformation point, inside moves. Marquee uses `NF2/Marquee`; path points and pen anchors use `NF2/Anchor Point`
+  and `NF2/Bezier Handle`. Open request R-011 (rotated box, contrast over artwork, Light transformation point).
+  Screenshot aid: `NEOFLASH_SCREENSHOT_SELECT=select|transform|subselect` selects everything on the frame with that tool.
 - Purpose: `NF2/Selection Box` kinds (Group, Symbol + registration point, Static text round handle, Dynamic text
   square handle, Primitive control points), `Transform Box` scale vs rotate/skew, Anchor / Bezier handle, Marquee,
   Shape Selection hatch, Gradient Transform focal triangle.
 - Behaviour: missing parts — custom transformation point (white circle draggable; `editor-transform` limit), radial
   focal handle (`editor-paint-effects` limit), primitive control points (TO-01).
-- Depends on: editor; `neoflash-ui` has no painters for these → keep existing `StageOverlay` drawing and **request**
-  NF2 painters before restyling. Acceptance: transformation point can be moved and rotation pivots around it.
+- Still `StageOverlay`: rectangle/oval/line drafts, pen/pencil draft stroke, lasso, brush/eraser size circle and the
+  gradient tool (2 handles; `NF2/Gradient Transform` has 5 that need focal/width gestures). Acceptance for the rest:
+  transformation point can be moved and rotation pivots around it.
 
 ## 4. Properties variants (`crates/neoflash-editor/src/panels/properties.rs`, `text_boxes.rs`, `paint_controls.rs`)
 

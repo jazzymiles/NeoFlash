@@ -502,14 +502,9 @@ impl Editor {
                         .min((rect.height() - 60.) / size.y)
                         .clamp(0.1, 2.);
                 }
+                // Tools and hover targets refine this during the frame; `show_stage_cursor` paints it.
+                self.stage_cursor = Some(crate::stage_cursor::tool_cursor(self.tool));
                 if response.hovered() {
-                    ctx.set_cursor_icon(match self.tool {
-                        Tool::Select | Tool::Transform | Tool::Subselect => {
-                            egui::CursorIcon::Default
-                        }
-                        Tool::Text => egui::CursorIcon::Text,
-                        _ => egui::CursorIcon::Crosshair,
-                    });
                     let delta = ctx.input(|input| input.smooth_scroll_delta);
                     if delta != Vec2::ZERO {
                         self.end_vector_pointer_phase();
@@ -722,6 +717,7 @@ impl Editor {
                 self.stage_context_menu(&response, &scene, &p, origin);
                 self.stage_rulers(ctx, rect, origin);
                 self.stage_chrome(ui, rect);
+                self.show_stage_cursor(ctx, rect, ui.layer_id());
             });
     }
 

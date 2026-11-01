@@ -540,11 +540,7 @@ impl Editor {
             .input(|i| i.pointer.hover_pos())
             .filter(|pos| canvas.contains(*pos))
             .and_then(hit);
-        if self.timeline_motion.drag.is_some() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-        } else if self.timeline_motion.hover.is_some() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-        }
+        // Hand cursor over a key point / while dragging one: `Editor::show_stage_cursor`.
     }
 
     /// `NF2/Motion Path` for the selected motion-tweened object, in screen points.

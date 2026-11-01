@@ -1,8 +1,9 @@
 //! Snapshot-based affine gestures. Points and bounds use the edited symbol's coordinates.
 //!
 //! A single resize works in the placement's own axes, including skew; it never decomposes a
-//! world AABB. Multi-selection supports only uniform scale and rotation, which
-//! can be composed with every existing affine pose without changing its skew.
+//! world AABB. Multi-selection scales only uniformly and rotates, which composes with every
+//! existing affine pose without changing its skew. Edge skew (`skew_many`) is the one gesture
+//! that shears in stage space and decomposes the result into scale, rotation and skew.
 
 use neoflash_core::{Transform, transform_matrix};
 
@@ -412,6 +413,55 @@ pub(crate) fn rotate_many_by(
     initial
         .iter()
         .map(|&t| rotated_about(t, pivot, delta))
+        .collect()
+}
+
+/// Free Transform edge drag: shear every placement in stage space. `horizontal` drags a top or
+/// bottom edge sideways (x shear), otherwise a left or right edge vertically (y shear). The line at
+/// `anchor` (stage y for x shear, stage x for y shear) stays fixed; the dragged `edge` moves by
+/// `displacement`. The sheared matrix is decomposed into scale, rotation and the single skew angle,
+/// with rotation and skew unwrapped to the turn nearest the original so tweens keep their direction.
+pub(crate) fn skew_many(
+    initial: &[Transform],
+    horizontal: bool,
+    edge: f64,
+    anchor: f64,
+    displacement: f64,
+) -> Option<Vec<Transform>> {
+    let span = edge - anchor;
+    if initial.is_empty()
+        || !span.is_finite()
+        || span.abs() <= EPSILON
+        || !displacement.is_finite()
+        || initial
+            .iter()
+            .any(|t| !valid_transform(*t) || !nonsingular(*t))
+    {
+        return None;
+    }
+    if displacement == 0.0 {
+        return Some(initial.to_vec());
+    }
+    let k = displacement / span;
+    let shear = if horizontal {
+        [1.0, 0.0, k, 1.0, -k * anchor, 0.0]
+    } else {
+        [1.0, k, 0.0, 1.0, 0.0, -k * anchor]
+    };
+    initial
+        .iter()
+        .map(|&t| {
+            let matrix = neoflash_core::affine_multiply(shear, transform_matrix(t));
+            let decomposed = Transform::from_matrix(matrix)?;
+            let mut result = Transform {
+                alpha: t.alpha,
+                color_transform: t.color_transform,
+                ..decomposed
+            };
+            result.rotation += 360.0 * ((t.rotation - result.rotation) / 360.0).round();
+            result.skew += 360.0 * ((t.skew - result.skew) / 360.0).round();
+            (valid_transform(result) && nonsingular(result)).then_some(result)
+        })
         .collect()
 }
 

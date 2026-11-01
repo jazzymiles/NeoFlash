@@ -120,7 +120,7 @@ if the preview frame differs from the modal frame in any visible way, file a req
 | W0.10 swatches chip | Approval to replace the egui RGB picker in the Tools fill/stroke popover with `SwatchesPopover` (changes the component used). |
 | W0.2 frame view | Resolved: Placement, Preview / Preview in context, Help (disabled) and Close panel rows are in the frame-view ⋯ menu. |
 | W0.15 menus | Confirm order/grouping for absent §8 menu items and View ▸ Grid/Guides/Snapping submenus. |
-| W2.x canvas chrome | NF2 painters for Selection Box variants, Transform Box, transformation point, gradient focal handle (ST-11) before restyling stage overlays. |
+| W2.x canvas chrome | Painters exist and are used for selection/transform boxes, anchors and marquee; open R-011 (rotated box, contrast over artwork, Light transformation point) and a gradient-transform gesture model. |
 | W1.1 History | Visual state for "steps after current" (dimmed?) in the History list. |
 | W3.6 Preferences | Accent colour / language / custom syntax colours imply new token behaviour — confirm or keep disabled. |
 
@@ -154,7 +154,7 @@ accepts Y1/Y2 in −100…100 and a Flash acceleration field. Bounce/Elastic pre
 - Tests: stage↔ruler coordinate mapping at zoom 0.25/1/4 and pan; label step Auto selection.
 - Registry: `editor-workspace`. Acceptance: spec ST-01/ST-03.
 
-**W0.5 · NF2 stage cursors (ST-07)**
+**W0.5 · NF2 stage cursors (ST-07)** — done (`stage_cursor.rs`; test `stage_cursor_follows_transform_zones_and_selection_targets`)
 - UI: `stage.rs` / `stage_selection.rs` / `authoring_tools.rs` tool hover code: replace `ctx.set_cursor_icon` over the
   canvas with `neoflash_ui::cursors::show(ctx, canvas, Cursor::by_name(..))`; chrome keeps system cursors.
 - Tests: mapping test tool/hover-state → cursor name exists in `cursors::ALL`.

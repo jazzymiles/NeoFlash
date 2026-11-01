@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Stage cursors and editing chrome
+
+- The Stage shows NF2 cursors for every tool, and they change with what is under the pointer: move over an object, resize arrows on Free Transform handles, rotate just outside a corner, skew on an edge, a point cursor over path points, pen-close over the first pen anchor, an open/closed hand for the Hand tool and motion-path keys, zoom out with ⌥. Rulers, panels and popovers keep system cursors.
+- Selected objects show NF2 selection boxes: symbols with their registration cross and transformation point, text with its sizing handle. Free Transform shows the NF2 transform box with eight square handles; the old rotation knob is replaced by Flash-style rotation just outside a corner, and dragging an edge between handles now skews (one Undo step). Dragging anywhere inside the transform box moves the selection.
+- Marquee selection, Subselection path points and pen anchors use the NF2 marquee, anchor and Bézier-handle styles. Both themes use the same cursors; the boxes follow the theme's accent colour.
+- Rotated objects show the box of their bounds (not rotated); contrast over artwork and the Light-theme transformation point are open design questions (NF2-REQUESTS R-011).
+
 ## Unreleased — Panels and menus
 
 - The ✕ in the header of planned dialog previews (Preferences, Document settings, Publish settings, Export image / video / audio, Import video, Sound properties, PolyStar settings, Layer properties, Edit envelope, Stroke style, Font embedding, Find and replace) closes them again; the header drag area used to swallow the click.

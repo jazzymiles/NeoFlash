@@ -50,6 +50,10 @@ pub struct Editor {
     pub layer: usize,
     pub selection: crate::selection::Selection,
     pub object_gesture: Option<crate::stage_selection::SelectionGesture>,
+    /// NF2 cursor proposed for the stage this frame (`stage_cursor.rs`).
+    pub(crate) stage_cursor: Option<neoflash_ui::cursors::Cursor>,
+    /// NF2 cursor painted over the stage in the last frame, if any.
+    pub(crate) shown_stage_cursor: Option<neoflash_ui::cursors::Cursor>,
     pub tool: Tool,
     pub(crate) authoring_tools: crate::authoring_tools::AuthoringToolsState,
     pub playing: bool,
@@ -168,6 +172,21 @@ impl Editor {
                 end: s.frame,
             });
         }
+        // Screenshot aid (canvas chrome): `NEOFLASH_SCREENSHOT_SELECT=select|transform|subselect`
+        // selects every editable object on the current frame with that tool, so captures show the
+        // NF2 selection boxes or the transform box.
+        if let Ok(tool) = std::env::var("NEOFLASH_SCREENSHOT_SELECT") {
+            let tool = match tool.as_str() {
+                "transform" => Some(Tool::Transform),
+                "subselect" => Some(Tool::Subselect),
+                "select" => Some(Tool::Select),
+                _ => None,
+            };
+            if let Some(tool) = tool {
+                s.set_tool(tool);
+                s.select_all();
+            }
+        }
         s
     }
     pub(crate) fn from_project(ctx: &egui::Context, project: Project) -> Self {
@@ -177,7 +196,7 @@ impl Editor {
         let root = project.root.clone();
         let mut s = Self {
             project, history: History::new(150), path: None, saved_project,
-            editing: vec![root.clone()], frame: 0, layer: 0, selection: crate::selection::Selection { symbol: root, targets: vec![] }, object_gesture: None, tool: Tool::Select,
+            editing: vec![root.clone()], frame: 0, layer: 0, selection: crate::selection::Selection { symbol: root, targets: vec![] }, object_gesture: None, stage_cursor: None, shown_stage_cursor: None, tool: Tool::Select,
             playing: false, authored_preview: None, last_tick: Instant::now(), accumulator: 0.,
             onion: false, onion_outlines: false, onion_before: 3, onion_after: 3,
             onion_anchor: false, anchored_range: (0, 6), onion_opacity: 0.3,

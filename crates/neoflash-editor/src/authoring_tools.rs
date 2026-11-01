@@ -552,22 +552,13 @@ impl Editor {
             && view.contains(pos)
         {
             let tool = if space { Tool::Hand } else { self.tool };
-            ui.ctx().set_cursor_icon(match tool {
-                Tool::Hand => {
-                    if self.authoring_tools.gesture.is_some() {
-                        egui::CursorIcon::Grabbing
-                    } else {
-                        egui::CursorIcon::Grab
-                    }
+            use neoflash_ui::cursors as nf;
+            self.stage_cursor = Some(match tool {
+                Tool::Hand if self.authoring_tools.gesture.is_some() => nf::HAND_CLOSED,
+                Tool::Zoom if ui.input(|i| i.modifiers.alt) || self.authoring_tools.zoom_out => {
+                    nf::ZOOM_OUT
                 }
-                Tool::Zoom => {
-                    if ui.input(|i| i.modifiers.alt) || self.authoring_tools.zoom_out {
-                        egui::CursorIcon::ZoomOut
-                    } else {
-                        egui::CursorIcon::ZoomIn
-                    }
-                }
-                _ => egui::CursorIcon::Crosshair,
+                _ => crate::stage_cursor::tool_cursor(tool),
             });
             if matches!(tool, Tool::Brush | Tool::Eraser) {
                 let radius = if tool == Tool::Brush {

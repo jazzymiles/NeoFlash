@@ -56,6 +56,28 @@ fn screen(page: egui::Rect, t: Transform, p: [f64; 2]) -> egui::Pos2 {
 fn near(a: f64, b: f64) {
     assert!((a - b).abs() < 1e-4, "{a} != {b}");
 }
+/// The `NF2/Transform Box` corner (screen) that drives the placement's local corner `local`: the box
+/// is the axis-aligned stage bounds, and each box corner drives the nearest local corner.
+fn box_corner(page: egui::Rect, t: Transform, local: [f64; 2]) -> egui::Pos2 {
+    let corners = [[0., 0.], [100., 0.], [100., 60.], [0., 60.]].map(|c| screen(page, t, c));
+    let frame = egui::Rect::from_points(&corners);
+    let target = screen(page, t, local);
+    let nearest = |at: egui::Pos2| {
+        corners
+            .into_iter()
+            .min_by(|a, b| a.distance(at).total_cmp(&b.distance(at)))
+            .unwrap()
+    };
+    [
+        frame.left_top(),
+        frame.right_top(),
+        frame.right_bottom(),
+        frame.left_bottom(),
+    ]
+    .into_iter()
+    .find(|c| nearest(*c) == target)
+    .expect("a box corner drives this local corner")
+}
 
 #[test]
 fn native_corner_resize_keeps_opposite_anchor_for_rotated_mirrored_object_and_undo() {
@@ -74,13 +96,14 @@ fn native_corner_resize_keeps_opposite_anchor_for_rotated_mirrored_object_and_un
     clean(&mut editor);
     let before = editor.project.clone();
     stage_input_frame(&mut editor, &ctx, 0.1, vec![]);
-    let press = screen(page, original, [100., 60.]);
+    let press = box_corner(page, original, [100., 60.]);
     let desired = Transform {
         scale_x: -3.5,
         scale_y: 2.4,
         ..original
     };
-    let end = screen(page, desired, [100., 60.]);
+    // Only pointer displacement resizes, so the box handle moves like the local corner would.
+    let end = press + (screen(page, desired, [100., 60.]) - screen(page, original, [100., 60.]));
     frame(
         &mut editor,
         &ctx,
@@ -125,9 +148,9 @@ fn native_alt_shift_resize_preserves_center_and_aspect_ratio() {
     clean(&mut editor);
     stage_input_frame(&mut editor, &ctx, 0.1, vec![]);
     let center = geometry::transformed_point(original, [50., 30.]);
-    let press = screen(page, original, [100., 60.]);
+    let press = box_corner(page, original, [100., 60.]);
     let center_screen = page.min + egui::vec2(center[0] as f32, center[1] as f32);
-    let end = center_screen + (press - center_screen) * 1.6;
+    let end = press + (screen(page, original, [100., 60.]) - center_screen) * 0.6;
     let modifiers = egui::Modifiers {
         alt: true,
         shift: true,
@@ -194,14 +217,15 @@ fn native_multi_corner_uniform_scale_preserves_opposite_group_corner_and_relativ
 }
 
 #[test]
-fn native_rotation_handle_accumulates_two_turns_as_one_undoable_gesture() {
+fn native_rotate_zone_accumulates_two_turns_as_one_undoable_gesture() {
     let (mut editor, ctx, page) = rectangle_stage();
     editor.add_element(shape(), 150., 150.);
     clean(&mut editor);
     let before = editor.project.clone();
     stage_input_frame(&mut editor, &ctx, 0.1, vec![]);
     let center = page.min + egui::vec2(200., 180.);
-    let press = center - egui::vec2(0., 55.);
+    // Flash layout: the rotate zone is just outside a corner of the transform box.
+    let press = page.min + egui::vec2(150., 150.) - egui::vec2(8., 8.);
     let mut events = vec![
         egui::Event::PointerMoved(press),
         button(press, true, egui::Modifiers::NONE),
@@ -218,6 +242,7 @@ fn native_rotation_handle_accumulates_two_turns_as_one_undoable_gesture() {
     {
         events.push(egui::Event::PointerMoved(center + offset));
     }
+    events.push(egui::Event::PointerMoved(press));
     events.push(button(press, false, egui::Modifiers::NONE));
     frame(&mut editor, &ctx, 0.2, events, egui::Modifiers::NONE);
     let transform = editor.selected_element().unwrap().transform;
@@ -286,4 +311,117 @@ fn midpoint_point_handle_click_and_return_to_origin_leave_no_materialized_key() 
     assert_eq!(editor.project, before);
     assert!(!editor.dirty());
     assert!(!editor.history.can_undo());
+}
+
+#[test]
+fn top_edge_drag_skews_about_the_bottom_edge_as_one_undo() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.add_element(shape(), 150., 150.);
+    clean(&mut editor);
+    let before = editor.project.clone();
+    stage_input_frame(&mut editor, &ctx, 0.1, vec![]);
+    // Top edge between the corner and middle handles.
+    let press = page.min + egui::vec2(170., 150.);
+    let end = press + egui::vec2(30., 0.);
+    frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![
+            egui::Event::PointerMoved(press),
+            button(press, true, egui::Modifiers::NONE),
+            egui::Event::PointerMoved(end),
+            button(end, false, egui::Modifiers::NONE),
+        ],
+        egui::Modifiers::NONE,
+    );
+    let t = editor.selected_element().unwrap().transform;
+    let top_left = geometry::transformed_point(t, [0., 0.]);
+    let bottom_left = geometry::transformed_point(t, [0., 60.]);
+    near(top_left[0], 180.);
+    near(top_left[1], 150.);
+    near(bottom_left[0], 150.);
+    near(bottom_left[1], 210.);
+    near(t.rotation, 0.);
+    near(t.scale_x, 1.);
+    assert!(t.skew > 20. && t.skew < 30., "skew {}", t.skew);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+}
+
+#[test]
+fn left_edge_drag_skews_vertically_about_the_right_edge() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.add_element(shape(), 150., 150.);
+    clean(&mut editor);
+    stage_input_frame(&mut editor, &ctx, 0.1, vec![]);
+    let press = page.min + egui::vec2(150., 165.);
+    let end = press + egui::vec2(0., 20.);
+    frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![
+            egui::Event::PointerMoved(press),
+            button(press, true, egui::Modifiers::NONE),
+            egui::Event::PointerMoved(end),
+            button(end, false, egui::Modifiers::NONE),
+        ],
+        egui::Modifiers::NONE,
+    );
+    let t = editor.selected_element().unwrap().transform;
+    let top_left = geometry::transformed_point(t, [0., 0.]);
+    let top_right = geometry::transformed_point(t, [100., 0.]);
+    near(top_left[0], 150.);
+    near(top_left[1], 170.);
+    near(top_right[0], 250.);
+    near(top_right[1], 150.);
+    editor.project.validate().unwrap();
+}
+
+/// ST-07: the NF2 cursor follows the Free Transform zone or Selection target under the pointer and
+/// replaces the system cursor over the canvas.
+#[test]
+fn stage_cursor_follows_transform_zones_and_selection_targets() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.add_element(shape(), 150., 150.);
+    clean(&mut editor);
+    stage_input_frame(&mut editor, &ctx, 0.1, vec![]);
+    let at = |x: f32, y: f32| page.min + egui::vec2(x, y);
+    let mut time = 0.2;
+    let mut hover = |editor: &mut Editor, pos: egui::Pos2| {
+        time += 0.1;
+        let out = stage_input_frame(editor, &ctx, time, vec![egui::Event::PointerMoved(pos)]);
+        let shown = editor.shown_stage_cursor.map(|c| c.name);
+        if shown.is_some() {
+            assert_eq!(out.platform_output.cursor_icon, egui::CursorIcon::None);
+        }
+        shown
+    };
+    let cases = [
+        (at(150., 150.), "resize-d1"),
+        (at(250., 210.), "resize-d1"),
+        (at(250., 150.), "resize-d2"),
+        (at(200., 150.), "resize-v"),
+        (at(250., 180.), "resize-h"),
+        (at(170., 150.), "skew-h"),
+        (at(150., 195.), "skew-v"),
+        (at(142., 142.), "rotate"),
+        (at(200., 180.), "move"),
+        (at(400., 400.), "arrow"),
+    ];
+    for (pos, name) in cases {
+        assert_eq!(
+            hover(&mut editor, pos),
+            Some(name),
+            "Free Transform at {pos:?}"
+        );
+    }
+    editor.set_tool(Tool::Select);
+    assert_eq!(hover(&mut editor, at(200., 180.)), Some("arrow-move"));
+    assert_eq!(hover(&mut editor, at(400., 400.)), Some("arrow"));
+    editor.set_tool(Tool::Brush);
+    assert_eq!(hover(&mut editor, at(400., 400.)), Some("brush"));
 }

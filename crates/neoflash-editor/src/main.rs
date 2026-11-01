@@ -24,6 +24,7 @@ mod snapping;
 mod sources;
 mod stage;
 mod stage_clipping;
+mod stage_cursor;
 mod stage_primitives;
 mod stage_selection;
 mod stage_view;

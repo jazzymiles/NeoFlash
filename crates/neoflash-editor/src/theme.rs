@@ -25,7 +25,6 @@ pub(crate) const TOOLS_WIDTH: f32 = nf::TOOLS_RAIL;
 /// Bottom dock: controls 44 + timeline body 336 (dock tabs 40 come from the group header).
 pub(crate) const TIMELINE_HEIGHT: f32 = nf::BOTTOM_DOCK - nf::DOCK_TAB;
 pub(crate) const TIMELINE_MIN_HEIGHT: f32 = 200.;
-pub(crate) const TRANSFORM_HANDLE: f32 = 6.;
 
 /// Install NF2 spacing and text styles once (fonts are installed by `fonts.rs`).
 pub(crate) fn initialize_editor_style(ctx: &egui::Context) {
@@ -96,7 +95,6 @@ pub struct UiPalette {
     pub onion_after: Color32,
     pub overlay: Color32,
     pub overlay_halo: Color32,
-    pub overlay_fill: Color32,
     pub handle_fill: Color32,
 }
 impl UiPalette {
@@ -142,7 +140,6 @@ fn palette(theme: ThemeMode) -> UiPalette {
         onion_after: x.onion_after,
         overlay: x.overlay,
         overlay_halo: x.overlay_halo,
-        overlay_fill: x.overlay.gamma_multiply(24. / 255.),
         handle_fill: x.handle,
     }
 }

@@ -9,6 +9,7 @@ use lyon_tessellation::{
     path::Path,
 };
 use neoflash_core::*;
+use neoflash_ui::components::canvas as cv;
 
 pub(crate) fn tessellate(
     commands: &[PathCommand],
@@ -680,7 +681,6 @@ impl Editor {
         }
         if let Some(draft) = &self.vector.draft {
             let blue = UiPalette::current(p.ctx()).overlay;
-            let halo = UiPalette::current(p.ctx()).overlay_halo;
             paint_path(
                 p,
                 &draft.commands(false),
@@ -693,17 +693,37 @@ impl Editor {
                 },
                 screen,
             );
-            for anchor in &draft.anchors {
-                let at = screen(anchor.point);
-                p.rect_filled(Rect::from_center_size(at, Vec2::splat(8.)), 0., halo);
-                p.rect_filled(Rect::from_center_size(at, Vec2::splat(6.)), 0., blue);
-                if anchor.tangent.length_sq() > 0.1 {
-                    for handle in [anchor.point + anchor.tangent, anchor.point - anchor.tangent] {
-                        p.line_segment([at, screen(handle)], Stroke::new(3.0_f32, halo));
-                        p.circle_filled(screen(handle), 4.5, halo);
-                        p.line_segment([at, screen(handle)], Stroke::new(1.0_f32, blue));
-                        p.circle_filled(screen(handle), 3., blue);
+            // `NF2/Anchor Point` + `NF2/Bezier Handle`; the anchor being placed is the selected one,
+            // the first anchor shows Hover while a click there would close the path.
+            let hover = response.hover_pos();
+            let closes = |at: Pos2| {
+                !draft.pencil
+                    && draft.anchors.len() >= 2
+                    && hover.is_some_and(|pos| at.distance(pos) < 8.)
+            };
+            if !draft.pencil {
+                let last = draft.anchors.len().saturating_sub(1);
+                for (i, anchor) in draft.anchors.iter().enumerate() {
+                    let at = screen(anchor.point);
+                    if anchor.tangent.length_sq() > 0.1 {
+                        for handle in [anchor.point + anchor.tangent, anchor.point - anchor.tangent]
+                        {
+                            cv::paint_bezier_handle(p, p.ctx(), at, screen(handle));
+                        }
                     }
+                    let state = if i == last {
+                        cv::AnchorState::Selected
+                    } else if i == 0 && closes(at) {
+                        cv::AnchorState::Hover
+                    } else {
+                        cv::AnchorState::Unselected
+                    };
+                    cv::paint_anchor(p, p.ctx(), at, state);
+                }
+                if let Some(first) = draft.anchors.first()
+                    && closes(screen(first.point))
+                {
+                    self.stage_cursor = Some(neoflash_ui::cursors::PEN_CLOSE);
                 }
             }
             if let (Some(last), Some(hover)) = (draft.anchors.last(), response.hover_pos())
@@ -736,7 +756,7 @@ impl Editor {
         let zoom = self.zoom;
         let screen = |pos: Pos2| origin + crate::stage::affine(matrix, pos).to_vec2() * zoom;
         let handles = handles(commands);
-        let blue = UiPalette::current(p.ctx()).overlay;
+        // `NF2/Bezier Handle` from each anchor to its control points, then `NF2/Anchor Point`s.
         let mut previous = Pos2::ZERO;
         for command in commands {
             match *command {
@@ -744,13 +764,10 @@ impl Editor {
                     previous = Pos2::new(x as f32, y as f32)
                 }
                 PathCommand::QuadraticTo { cx, cy, x, y } => {
-                    let control = Pos2::new(cx as f32, cy as f32);
+                    let control = screen(Pos2::new(cx as f32, cy as f32));
                     let end = Pos2::new(x as f32, y as f32);
-                    p.line_segment(
-                        [screen(previous), screen(control)],
-                        Stroke::new(1.0_f32, blue),
-                    );
-                    p.line_segment([screen(control), screen(end)], Stroke::new(1.0_f32, blue));
+                    cv::paint_bezier_handle(p, p.ctx(), screen(previous), control);
+                    cv::paint_bezier_handle(p, p.ctx(), screen(end), control);
                     previous = end;
                 }
                 PathCommand::CubicTo {
@@ -762,39 +779,39 @@ impl Editor {
                     y,
                 } => {
                     let end = Pos2::new(x as f32, y as f32);
-                    p.line_segment(
-                        [screen(previous), screen(Pos2::new(cx1 as f32, cy1 as f32))],
-                        Stroke::new(1.0_f32, blue),
-                    );
-                    p.line_segment(
-                        [screen(end), screen(Pos2::new(cx2 as f32, cy2 as f32))],
-                        Stroke::new(1.0_f32, blue),
-                    );
+                    let first = screen(Pos2::new(cx1 as f32, cy1 as f32));
+                    let second = screen(Pos2::new(cx2 as f32, cy2 as f32));
+                    cv::paint_bezier_handle(p, p.ctx(), screen(previous), first);
+                    cv::paint_bezier_handle(p, p.ctx(), screen(end), second);
                     previous = end;
                 }
                 PathCommand::Close => {}
             }
         }
+        let hover = response
+            .hover_pos()
+            .filter(|_| self.vector.point_drag.is_none());
+        let dragged = self
+            .vector
+            .point_drag
+            .as_ref()
+            .map(|drag| (drag.handle.command, drag.handle.role));
+        let near = |at: Pos2| hover.is_some_and(|pos| at.distance(pos) < 8.);
         for handle in &handles {
             if handle.role == PointRole::Anchor {
-                p.rect_filled(
-                    Rect::from_center_size(screen(handle.point), Vec2::splat(9.)),
-                    0.,
-                    UiPalette::current(p.ctx()).overlay_halo,
-                );
-                p.rect_filled(
-                    Rect::from_center_size(screen(handle.point), Vec2::splat(7.)),
-                    0.,
-                    blue,
-                );
-            } else {
-                p.circle_filled(
-                    screen(handle.point),
-                    5.,
-                    UiPalette::current(p.ctx()).overlay_halo,
-                );
-                p.circle_filled(screen(handle.point), 3.5, blue);
+                let at = screen(handle.point);
+                let state = if dragged == Some((handle.command, handle.role)) {
+                    cv::AnchorState::Selected
+                } else if near(at) {
+                    cv::AnchorState::Hover
+                } else {
+                    cv::AnchorState::Unselected
+                };
+                cv::paint_anchor(p, p.ctx(), at, state);
             }
+        }
+        if dragged.is_some() || handles.iter().any(|h| near(screen(h.point))) {
+            self.stage_cursor = Some(neoflash_ui::cursors::SUBSELECT_POINT);
         }
         let events = ui.input(|i| i.events.clone());
         for event in events {

@@ -4,8 +4,10 @@ use crate::{
     selection::{Selection, SelectionTarget},
     transform_geometry as geometry,
 };
-use eframe::egui::{self, Pos2, Rect, Stroke, StrokeKind, Vec2};
+use eframe::egui::{self, Pos2, Rect, Stroke, StrokeKind};
 use neoflash_core::*;
+use neoflash_ui::components::canvas as cv;
+use neoflash_ui::cursors::{self as nf, Cursor};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone)]
@@ -50,7 +52,39 @@ enum GestureKind {
         bounds: Option<geometry::Bounds>,
         pivot: geometry::Point,
     },
+    /// Free Transform edge drag: shear along the edge (`horizontal` = top/bottom edge, x shear)
+    /// about the opposite edge, or about the centre with ⌥. Stage coordinates on the shear's axis.
+    Skew {
+        horizontal: bool,
+        edge: f64,
+        opposite: f64,
+        center: f64,
+    },
     Marquee,
+}
+
+/// Free Transform hit zone on the screen (Flash layout): handles scale, the edge between handles
+/// skews, just outside a corner rotates.
+#[derive(Clone, Copy)]
+enum Zone {
+    Handle(Rect),
+    Edge(Pos2, Pos2),
+    Rotate { corner: Pos2, frame: Rect },
+}
+impl Zone {
+    fn contains(self, pos: Pos2) -> bool {
+        match self {
+            Zone::Handle(rect) => rect.expand(3.).contains(pos),
+            Zone::Edge(a, b) => {
+                let ab = b - a;
+                let t = ((pos - a).dot(ab) / ab.length_sq().max(1e-6)).clamp(0., 1.);
+                (a + ab * t).distance(pos) <= 4.
+            }
+            Zone::Rotate { corner, frame } => {
+                !frame.expand(2.).contains(pos) && corner.distance(pos) <= 18.
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -69,6 +103,8 @@ pub(crate) struct SelectionGesture {
     angle: f64,
     /// Selection bounds (stage) when the move started: the edges that snap (ST-04).
     snap_bounds: Option<Rect>,
+    /// NF2 cursor shown for the whole gesture.
+    cursor: Cursor,
 }
 
 pub(crate) struct ShapeDraft {
@@ -79,11 +115,23 @@ pub(crate) struct ShapeDraft {
 }
 
 struct SelectionGeometry {
-    corners: [Pos2; 4],
     local: Option<geometry::Bounds>,
     initial: Option<Transform>,
     world: Rect,
     resizable: bool,
+    /// Stage bounds and NF2 selection-box kind of every selected placement.
+    boxes: Vec<(Rect, cv::SelectionKind)>,
+}
+
+/// `NF2/Selection Box` kind for a placement: symbols show their registration and transformation
+/// points, text shows its sizing handle (point text = auto width, text box = fixed size).
+fn selection_kind(kind: &ElementKind) -> cv::SelectionKind {
+    match kind {
+        ElementKind::Instance { .. } => cv::SelectionKind::Symbol,
+        ElementKind::Text { .. } => cv::SelectionKind::TextStatic,
+        ElementKind::TextBox { .. } => cv::SelectionKind::TextDynamic,
+        _ => cv::SelectionKind::Group,
+    }
 }
 
 fn bounds(rect: Rect) -> geometry::Bounds {
@@ -212,6 +260,7 @@ impl Editor {
             .collect();
         let mut world = Rect::NOTHING;
         let mut local = Rect::NOTHING;
+        let mut per_target: Vec<(&Id, Rect)> = Vec::new();
         for item in scene {
             let Some(id) = item.instance_path.first() else {
                 continue;
@@ -220,7 +269,12 @@ impl Editor {
                 continue;
             }
             let rect = crate::stage::local_bounds(item, p);
-            world = world.union(transformed_rect(rect, item.transform));
+            let item_world = transformed_rect(rect, item.transform);
+            world = world.union(item_world);
+            match per_target.iter_mut().find(|(target, _)| *target == id) {
+                Some((_, bounds)) => *bounds = bounds.union(item_world),
+                None => per_target.push((id, item_world)),
+            }
             if let Some(matrix) = inverse {
                 local = local.union(transformed_rect(
                     rect,
@@ -232,22 +286,6 @@ impl Editor {
             return None;
         }
         let local = local.is_finite().then(|| bounds(local));
-        let corners = if let (Some(local), Some(initial)) = (local, initial) {
-            [
-                geometry::ResizeHandle::NorthWest,
-                geometry::ResizeHandle::NorthEast,
-                geometry::ResizeHandle::SouthEast,
-                geometry::ResizeHandle::SouthWest,
-            ]
-            .map(|handle| position(geometry::transformed_point(initial, handle.point(local))))
-        } else {
-            [
-                world.left_top(),
-                world.right_top(),
-                world.right_bottom(),
-                world.left_bottom(),
-            ]
-        };
         let resizable = if let (Some(local), Some(initial)) = (local, initial) {
             let point = geometry::transformed_point(initial, local.max);
             geometry::resize_single(
@@ -262,12 +300,25 @@ impl Editor {
         } else {
             self.selection.len() > 1 && world.width() > 1e-6 && world.height() > 1e-6
         };
+        let kinds: HashMap<_, _> = self
+            .sampled_targets()
+            .into_iter()
+            .map(|(target, element)| (target.element, selection_kind(&element.kind)))
+            .collect();
+        let boxes = per_target
+            .into_iter()
+            .filter(|(_, rect)| rect.is_finite())
+            .map(|(id, rect)| {
+                let kind = kinds.get(id).copied().unwrap_or(cv::SelectionKind::Group);
+                (rect, kind)
+            })
+            .collect();
         Some(SelectionGeometry {
-            corners,
             local,
             initial,
             world,
             resizable,
+            boxes,
         })
     }
     pub(crate) fn pick_placement(
@@ -434,6 +485,21 @@ impl Editor {
                 bounds: None,
                 pivot,
             } => geometry::rotate_many_by(&originals, pivot, gesture.angle, modifiers.shift),
+            GestureKind::Skew {
+                horizontal,
+                edge,
+                opposite,
+                center,
+            } => {
+                let axis = if horizontal { 0 } else { 1 };
+                geometry::skew_many(
+                    &originals,
+                    horizontal,
+                    edge,
+                    if modifiers.alt { center } else { opposite },
+                    current[axis] - press[axis],
+                )
+            }
             GestureKind::Marquee => unreachable!(),
         };
         if let Some(transforms) = transforms {
@@ -452,6 +518,10 @@ impl Editor {
             }
             if gesture.began {
                 let frame = self.frame;
+                // Affine axes (skew) need document format 5, like the Transform panel's Skew field.
+                if transforms.iter().any(|t| t.skew != 0.) {
+                    self.project.format_version = self.project.format_version.max(5);
+                }
                 let changed: HashMap<_, _> = gesture
                     .targets
                     .iter()
@@ -492,106 +562,132 @@ impl Editor {
         self.normalize_targets();
         let screen = |point: Pos2| origin + point.to_vec2() * self.zoom;
         let geometry = self.selection_geometry(scene, p);
-        let mut handles = Vec::new();
+        // Free Transform zones, first match wins: handles, then skew edges, then rotate corners.
+        let mut zones: Vec<(Zone, GestureKind, Cursor)> = Vec::new();
+        let mut transform_frame = None;
         if let Some(g) = &geometry {
-            let corners = g.corners.map(screen);
-            p.add(egui::Shape::closed_line(
-                corners.to_vec(),
-                Stroke::new(3.0_f32, UiPalette::current(p.ctx()).overlay_halo),
-            ));
-            p.add(egui::Shape::closed_line(
-                corners.to_vec(),
-                Stroke::new(1.0_f32, UiPalette::current(p.ctx()).overlay),
-            ));
             if self.tool == Tool::Transform {
+                // `NF2/Transform Box` (Scale mode) on the selection's stage bounds, also for
+                // rotated objects (the box itself is never rotated).
+                let frame = Rect::from_min_max(screen(g.world.min), screen(g.world.max));
+                transform_frame = Some(frame);
+                let rects = cv::paint_transform_box(p, p.ctx(), frame, cv::TransformMode::Scale);
+                let world = bounds(g.world);
+                use geometry::ResizeHandle as H;
+                // `paint_transform_box` order: corners clockwise from top-left, then edges T R B L.
+                const BOX: [H; 8] = [
+                    H::NorthWest,
+                    H::NorthEast,
+                    H::SouthEast,
+                    H::SouthWest,
+                    H::North,
+                    H::East,
+                    H::South,
+                    H::West,
+                ];
                 if g.resizable {
-                    for handle in geometry::ResizeHandle::ALL {
-                        if self.selection.len() > 1 && !handle.is_corner() {
-                            continue;
-                        }
-                        let point = if let (Some(local), Some(initial)) = (g.local, g.initial) {
-                            position(geometry::transformed_point(initial, handle.point(local)))
-                        } else {
-                            position(handle.point(bounds(g.world)))
-                        };
-                        let point = screen(point);
-                        p.rect_filled(
-                            Rect::from_center_size(point, Vec2::splat(9.)),
-                            0.,
-                            UiPalette::current(p.ctx()).overlay_halo,
-                        );
-                        p.rect_filled(
-                            Rect::from_center_size(
-                                point,
-                                Vec2::splat(crate::theme::TRANSFORM_HANDLE),
-                            ),
-                            0.,
-                            UiPalette::current(p.ctx()).handle_fill,
-                        );
-                        p.rect_stroke(
-                            Rect::from_center_size(
-                                point,
-                                Vec2::splat(crate::theme::TRANSFORM_HANDLE),
-                            ),
-                            0.,
-                            Stroke::new(1.0_f32, UiPalette::current(p.ctx()).overlay),
-                            StrokeKind::Inside,
-                        );
-                        let kind = if let Some(local) = g.local {
+                    for (rect, box_handle) in rects.iter().zip(BOX) {
+                        let kind = if let (Some(local), Some(initial)) = (g.local, g.initial) {
+                            // A single placement resizes in its own axes: the box handle drives the
+                            // local handle of the same kind nearest to it on screen.
+                            let distance = |h: &H| {
+                                screen(position(geometry::transformed_point(
+                                    initial,
+                                    h.point(local),
+                                )))
+                                .distance(rect.center())
+                            };
+                            let handle = H::ALL
+                                .into_iter()
+                                .filter(|h| h.is_corner() == box_handle.is_corner())
+                                .min_by(|a, b| distance(a).total_cmp(&distance(b)))
+                                .unwrap_or(box_handle);
                             GestureKind::Resize {
                                 bounds: local,
                                 handle,
                             }
                         } else {
                             GestureKind::Scale {
-                                pivot: handle.opposite().point(bounds(g.world)),
-                                center: bounds(g.world).center(),
+                                pivot: box_handle.opposite().point(world),
+                                center: world.center(),
                             }
                         };
-                        handles.push((point, kind));
+                        let cursor =
+                            crate::stage_cursor::resize_cursor(rect.center() - frame.center());
+                        zones.push((Zone::Handle(*rect), kind, cursor));
                     }
+                }
+                let [nw, ne, se, sw, n, e, s, w] = rects.map(|r| r.center());
+                let center = world.center();
+                let edges = [
+                    (nw, n, true, world.min[1], world.max[1]),
+                    (n, ne, true, world.min[1], world.max[1]),
+                    (sw, s, true, world.max[1], world.min[1]),
+                    (s, se, true, world.max[1], world.min[1]),
+                    (nw, w, false, world.min[0], world.max[0]),
+                    (w, sw, false, world.min[0], world.max[0]),
+                    (ne, e, false, world.max[0], world.min[0]),
+                    (e, se, false, world.max[0], world.min[0]),
+                ];
+                for (from, to, horizontal, edge, opposite) in edges {
+                    // Leave room around the handles; tiny boxes have no skew zone.
+                    let gap = (to - from).normalized() * 9.;
+                    if from.distance(to) <= 18. || !gap.is_finite() {
+                        continue;
+                    }
+                    let kind = GestureKind::Skew {
+                        horizontal,
+                        edge,
+                        opposite,
+                        center: center[if horizontal { 1 } else { 0 }],
+                    };
+                    let cursor = if horizontal { nf::SKEW_H } else { nf::SKEW_V };
+                    zones.push((Zone::Edge(from + gap, to - gap), kind, cursor));
                 }
                 let pivot = if let (Some(local), Some(initial)) = (g.local, g.initial) {
                     geometry::transformed_point(initial, local.center())
                 } else {
-                    bounds(g.world).center()
+                    world.center()
                 };
-                let center = screen(position(pivot));
-                let top = corners[0].lerp(corners[1], 0.5);
-                let direction = (top - center).normalized();
-                let rotate = top
-                    + if direction.is_finite() && direction.length_sq() > 0. {
-                        direction * 25.
-                    } else {
-                        Vec2::new(0., -25.)
-                    };
-                p.line_segment(
-                    [top, rotate],
-                    Stroke::new(3.0_f32, UiPalette::current(p.ctx()).overlay_halo),
-                );
-                p.circle_filled(rotate, 5.5, UiPalette::current(p.ctx()).overlay_halo);
-                p.line_segment(
-                    [top, rotate],
-                    Stroke::new(1.0_f32, UiPalette::current(p.ctx()).overlay),
-                );
-                p.circle_filled(rotate, 4., UiPalette::current(p.ctx()).overlay);
-                handles.push((
-                    rotate,
-                    GestureKind::Rotate {
+                for corner in [nw, ne, se, sw] {
+                    let kind = GestureKind::Rotate {
                         bounds: g.local,
                         pivot,
-                    },
-                ));
+                    };
+                    zones.push((Zone::Rotate { corner, frame }, kind, nf::ROTATE));
+                }
+            } else {
+                // `NF2/Selection Box` around every selected placement.
+                for (rect, kind) in &g.boxes {
+                    let rect = Rect::from_min_max(screen(rect.min), screen(rect.max));
+                    cv::paint_selection_box(p, p.ctx(), rect, *kind);
+                }
             }
         }
         if !matches!(self.tool, Tool::Select | Tool::Transform) {
             return;
         }
-        if response.hovered()
-            && let Some(pos) = ui.input(|input| input.pointer.hover_pos())
-            && handles.iter().any(|(point, _)| point.distance(pos) < 9.)
+        let move_cursor = if self.tool == Tool::Transform {
+            nf::MOVE
+        } else {
+            nf::ARROW_MOVE
+        };
+        if let Some(pos) = ui.input(|input| input.pointer.hover_pos())
+            && rect.contains(pos)
         {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+            let local = Pos2::ZERO + (pos - origin) / self.zoom;
+            self.stage_cursor = Some(if let Some(gesture) = &self.object_gesture {
+                gesture.cursor
+            } else if let Some((_, _, cursor)) = zones.iter().find(|(zone, ..)| zone.contains(pos))
+            {
+                *cursor
+            } else if transform_frame.is_some_and(|frame| frame.contains(pos))
+                || self.pick_placement(scene, p, local).is_some()
+            {
+                move_cursor
+            } else {
+                nf::ARROW
+            });
         }
         let events = ui.input(|input| input.events.clone());
         for event in events {
@@ -611,14 +707,22 @@ impl Editor {
                     self.playing = false;
                     let original_selection = self.selection.clone();
                     let local = Pos2::ZERO + (pos - origin) / self.zoom;
-                    let handle = handles
+                    let zone = zones
                         .iter()
-                        .rev()
-                        .find(|(point, _)| point.distance(pos) < 9.)
-                        .map(|(_, kind)| *kind);
+                        .find(|(zone, ..)| zone.contains(pos))
+                        .map(|(_, kind, cursor)| (*kind, *cursor));
                     let hit = self.pick_placement(scene, p, local);
-                    let kind = if let Some(handle) = handle {
-                        handle
+                    let mut cursor = move_cursor;
+                    let kind = if let Some((kind, zone_cursor)) = zone {
+                        cursor = zone_cursor;
+                        kind
+                    } else if hit
+                        .as_ref()
+                        .is_none_or(|target| self.selection.targets.contains(target))
+                        && transform_frame.is_some_and(|frame| frame.contains(pos))
+                    {
+                        // Free Transform: dragging anywhere inside the box moves the selection.
+                        GestureKind::Move
                     } else if let Some(target) = &hit {
                         if !self.selection.targets.contains(target) {
                             let mut targets = if modifiers.shift {
@@ -634,6 +738,7 @@ impl Editor {
                         if !modifiers.shift {
                             self.clear_selection();
                         }
+                        cursor = nf::ARROW;
                         GestureKind::Marquee
                     };
                     let targets = self
@@ -655,6 +760,7 @@ impl Editor {
                         changed: false,
                         angle: 0.,
                         snap_bounds: None,
+                        cursor,
                     });
                 }
                 egui::Event::PointerMoved(pos) => {
@@ -698,20 +804,7 @@ impl Editor {
             && matches!(g.kind, GestureKind::Marquee)
             && g.moved
         {
-            let marquee = Rect::from_two_pos(g.press, g.latest);
-            p.rect_filled(marquee, 0., UiPalette::current(p.ctx()).overlay_fill);
-            p.rect_stroke(
-                marquee,
-                0.,
-                Stroke::new(3.0_f32, UiPalette::current(p.ctx()).overlay_halo),
-                StrokeKind::Inside,
-            );
-            p.rect_stroke(
-                marquee,
-                0.,
-                Stroke::new(1.0_f32, UiPalette::current(p.ctx()).overlay),
-                StrokeKind::Inside,
-            );
+            cv::paint_marquee(p, p.ctx(), Rect::from_two_pos(g.press, g.latest));
         }
         if self.tool == Tool::Select
             && response.double_clicked()
