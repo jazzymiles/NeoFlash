@@ -1,0 +1,3637 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "86b12c3b4d0ef30cda72e5183f2f57a1d401820ab5fd836baabb0b4bdb106a9e",
+  "reviews": [
+    {
+      "id": "AS3-AIR-DESKTOP-FS-DATA-20261101",
+      "date": "2026-11-01",
+      "commit": "7be1a371157c782e1481d620af3a74b77869ae20",
+      "title": "AS3 AIR virtual filesystem, relational SQL engine, desktop/windowing, and events",
+      "summary": "Implements the shared Rust AirRuntime (virtual AIR filesystem with read-only app:/ roots, EncryptedLocalStore, AIR 32.0 descriptor XML, and relational SQLite-compatible engine), WASM AirKernel, web/air.js host adapters, and AS3 compiler builtins/IFilePromise contracts across flash.filesystem, flash.data, flash.desktop, flash.display, flash.events, and companion AIR packages.",
+      "tests": [
+        "web/tests/air.test.cjs",
+        "crates/neoflash-script/tests/air_surface.rs",
+        "crates/neoflash-core/src/as3_air.rs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:class:flash/data/EncryptedLocalStore.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/data/SQLCollationType.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/data/SQLColumnNameStyle.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/data/SQLColumnSchema.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/data/SQLConnection.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/data/SQLIndexSchema.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/data/SQLMode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/data/SQLResult.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/data/SQLSchema.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/data/SQLSchemaResult.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/data/SQLStatement.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/data/SQLTableSchema.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/data/SQLTransactionLockType.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/data/SQLTriggerSchema.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/data/SQLViewSchema.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/DockIcon.html#",
+          "status": "partial",
+          "note": "In-process DockIcon state, bitmap sizing, bounce(), and NativeMenu attachment work; OS dock icon rendering is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/Icon.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/InteractiveIcon.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/InvokeEventReason.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/NativeApplication.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/NativeDragActions.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/NativeDragManager.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/NativeDragOptions.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/NativeProcess.html#",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/NativeProcessStartupInfo.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/NotificationType.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/SystemIdleMode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/SystemTrayIcon.html#",
+          "status": "partial",
+          "note": "In-process SystemTrayIcon state, tooltip truncation, and ScreenMouseEvent dispatch work; OS system tray integration is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/Updater.html#",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on update() because AIR package self-updating is unavailable in HTML5."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/FocusDirection.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/NativeMenu.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/NativeMenuItem.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/NativeWindow.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/NativeWindowDisplayState.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/NativeWindowInitOptions.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/NativeWindowRenderMode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/NativeWindowResize.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/NativeWindowSystemChrome.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/NativeWindowType.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Screen.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ScreenMode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/StageAspectRatio.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/StageOrientation.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/errors/DRMManagerError.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/errors/PermissionError.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/errors/SQLError.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/errors/SQLErrorOperation.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/BrowserInvokeEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DNSResolverEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMAuthenticateEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DatagramSocketDataEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DeviceRotationEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/FileListEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/GameInputEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/HTMLUncaughtScriptExceptionEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/InvokeEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/LocationChangeEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/MediaEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/NativeDragEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/NativeProcessExitEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/NativeWindowBoundsEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/NativeWindowDisplayStateEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/OutputProgressEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/PermissionEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/RemoteNotificationEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/SQLErrorEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/SQLEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/SQLUpdateEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/ScreenMouseEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/ServerSocketConnectEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/StorageVolumeChangeEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/TouchEventIntent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/VsyncStateChangeAvailabilityEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filesystem/File.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filesystem/FileMode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filesystem/FileStream.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filesystem/StorageVolume.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filesystem/StorageVolumeInfo.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/dns/AAAARecord.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/dns/ARecord.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/dns/DNSResolver.html#",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError #3219 on lookup() because raw DNS packet resolution is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:class:flash/net/dns/MXRecord.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/dns/PTRRecord.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/dns/ResourceRecord.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/dns/SRVRecord.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/notifications/NotificationStyle.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/notifications/RemoteNotifier.html#",
+          "status": "partial",
+          "note": "Dispatches StatusEvent error on subscribe()/unsubscribe() because native APNs/FCM remote push tokens are unavailable in standalone HTML5 exports."
+        },
+        {
+          "catalogId": "AS3:class:flash/notifications/RemoteNotifierSubscribeOptions.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/permissions/PermissionStatus.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/sensors/DeviceRotation.html#",
+          "status": "partial",
+          "note": "Validates update intervals and reports isSupported=false, muted=true without live OS gyroscope quaternion streaming."
+        },
+        {
+          "catalogId": "AS3:class:flash/sensors/Geolocation.html#",
+          "status": "partial",
+          "note": "Stores accuracy/interval settings and dispatches PermissionEvent on requestPermission(), without continuous navigator.geolocation streaming yet."
+        },
+        {
+          "catalogId": "AS3:constant:flash/data/SQLCollationType.html#BINARY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/data/SQLCollationType.html#NO_CASE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/data/SQLColumnNameStyle.html#DEFAULT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/data/SQLColumnNameStyle.html#LONG",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/data/SQLColumnNameStyle.html#SHORT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/data/SQLMode.html#CREATE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/data/SQLMode.html#READ",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/data/SQLMode.html#UPDATE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/data/SQLTransactionLockType.html#DEFERRED",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/data/SQLTransactionLockType.html#EXCLUSIVE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/data/SQLTransactionLockType.html#IMMEDIATE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/ClipboardFormats.html#BITMAP_FORMAT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/ClipboardFormats.html#FILE_LIST_FORMAT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/ClipboardFormats.html#FILE_PROMISE_LIST_FORMAT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/ClipboardFormats.html#URL_FORMAT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/InvokeEventReason.html#LOGIN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/InvokeEventReason.html#NOTIFICATION",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/InvokeEventReason.html#OPEN_URL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/InvokeEventReason.html#STANDARD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/NativeDragActions.html#COPY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/NativeDragActions.html#LINK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/NativeDragActions.html#MOVE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/NativeDragActions.html#NONE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/NotificationType.html#CRITICAL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/NotificationType.html#INFORMATIONAL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/SystemIdleMode.html#KEEP_AWAKE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/SystemIdleMode.html#NORMAL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/desktop/SystemTrayIcon.html#MAX_TIP_LENGTH",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/FocusDirection.html#BOTTOM",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/FocusDirection.html#NONE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/FocusDirection.html#TOP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowDisplayState.html#MAXIMIZED",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowDisplayState.html#MINIMIZED",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowDisplayState.html#NORMAL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowRenderMode.html#AUTO",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowRenderMode.html#CPU",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowRenderMode.html#DIRECT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowRenderMode.html#GPU",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowResize.html#BOTTOM",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowResize.html#BOTTOM_LEFT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowResize.html#BOTTOM_RIGHT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowResize.html#LEFT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowResize.html#NONE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowResize.html#RIGHT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowResize.html#TOP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowResize.html#TOP_LEFT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowResize.html#TOP_RIGHT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowSystemChrome.html#ALTERNATE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowSystemChrome.html#NONE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowSystemChrome.html#STANDARD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowType.html#LIGHTWEIGHT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowType.html#NORMAL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/NativeWindowType.html#UTILITY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAspectRatio.html#ANY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAspectRatio.html#LANDSCAPE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAspectRatio.html#PORTRAIT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageOrientation.html#DEFAULT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageOrientation.html#ROTATED_LEFT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageOrientation.html#ROTATED_RIGHT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageOrientation.html#UNKNOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageOrientation.html#UPSIDE_DOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#ANALYZE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#ATTACH",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#BEGIN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#CLOSE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#COMMIT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#COMPACT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#DEANALYZE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#DETACH",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#EXECUTE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#OPEN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#REENCRYPT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#RELEASE_SAVEPOINT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#ROLLBACK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#ROLLBACK_TO_SAVEPOINT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#SCHEMA",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/errors/SQLErrorOperation.html#SET_SAVEPOINT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/BrowserInvokeEvent.html#BROWSER_INVOKE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/DNSResolverEvent.html#LOOKUP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/DRMAuthenticateEvent.html#AUTHENTICATION_TYPE_DRM",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/DRMAuthenticateEvent.html#AUTHENTICATION_TYPE_PROXY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/DRMAuthenticateEvent.html#DRM_AUTHENTICATE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/DatagramSocketDataEvent.html#DATA",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/DeviceRotationEvent.html#UPDATE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/FileListEvent.html#DIRECTORY_LISTING",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/FileListEvent.html#SELECT_MULTIPLE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/GameInputEvent.html#DEVICE_ADDED",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/GameInputEvent.html#DEVICE_REMOVED",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/GameInputEvent.html#DEVICE_UNUSABLE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/HTMLUncaughtScriptExceptionEvent.html#UNCAUGHT_SCRIPT_EXCEPTION",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/HTTPStatusEvent.html#HTTP_RESPONSE_STATUS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/IOErrorEvent.html#STANDARD_ERROR_IO_ERROR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/IOErrorEvent.html#STANDARD_INPUT_IO_ERROR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/IOErrorEvent.html#STANDARD_OUTPUT_IO_ERROR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/InvokeEvent.html#INVOKE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/LocationChangeEvent.html#LOCATION_CHANGE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/LocationChangeEvent.html#LOCATION_CHANGING",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MediaEvent.html#COMPLETE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MediaEvent.html#SELECT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/NativeDragEvent.html#NATIVE_DRAG_COMPLETE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/NativeDragEvent.html#NATIVE_DRAG_DROP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/NativeDragEvent.html#NATIVE_DRAG_ENTER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/NativeDragEvent.html#NATIVE_DRAG_EXIT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/NativeDragEvent.html#NATIVE_DRAG_OVER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/NativeDragEvent.html#NATIVE_DRAG_START",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/NativeDragEvent.html#NATIVE_DRAG_UPDATE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/NativeProcessExitEvent.html#EXIT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/NativeWindowBoundsEvent.html#MOVE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/NativeWindowBoundsEvent.html#MOVING",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/NativeWindowBoundsEvent.html#RESIZE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/NativeWindowBoundsEvent.html#RESIZING",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/NativeWindowDisplayStateEvent.html#DISPLAY_STATE_CHANGE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/NativeWindowDisplayStateEvent.html#DISPLAY_STATE_CHANGING",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/OutputProgressEvent.html#OUTPUT_PROGRESS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/ProgressEvent.html#STANDARD_ERROR_DATA",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/ProgressEvent.html#STANDARD_INPUT_PROGRESS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/ProgressEvent.html#STANDARD_OUTPUT_DATA",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/RemoteNotificationEvent.html#NOTIFICATION",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/RemoteNotificationEvent.html#TOKEN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLErrorEvent.html#ERROR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#ANALYZE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#ATTACH",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#BEGIN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#CANCEL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#CLOSE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#COMMIT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#COMPACT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#DEANALYZE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#DETACH",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#OPEN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#REENCRYPT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#RELEASE_SAVEPOINT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#RESULT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#ROLLBACK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#ROLLBACK_TO_SAVEPOINT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#SCHEMA",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLEvent.html#SET_SAVEPOINT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLUpdateEvent.html#DELETE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLUpdateEvent.html#INSERT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/SQLUpdateEvent.html#UPDATE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/ScreenMouseEvent.html#CLICK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/ScreenMouseEvent.html#MOUSE_DOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/ScreenMouseEvent.html#MOUSE_UP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/ScreenMouseEvent.html#RIGHT_CLICK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/ScreenMouseEvent.html#RIGHT_MOUSE_DOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/ScreenMouseEvent.html#RIGHT_MOUSE_UP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/ServerSocketConnectEvent.html#CONNECT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/StorageVolumeChangeEvent.html#STORAGE_VOLUME_MOUNT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/StorageVolumeChangeEvent.html#STORAGE_VOLUME_UNMOUNT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TouchEventIntent.html#ERASER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TouchEventIntent.html#PEN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TouchEventIntent.html#UNKNOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/VsyncStateChangeAvailabilityEvent.html#VSYNC_STATE_CHANGE_AVAILABILITY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/filesystem/FileMode.html#APPEND",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/filesystem/FileMode.html#READ",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/filesystem/FileMode.html#UPDATE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/filesystem/FileMode.html#WRITE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/notifications/NotificationStyle.html#ALERT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/notifications/NotificationStyle.html#BADGE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/notifications/NotificationStyle.html#SOUND",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/permissions/PermissionStatus.html#DENIED",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/permissions/PermissionStatus.html#GRANTED",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/permissions/PermissionStatus.html#ONLY_WHEN_IN_USE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/permissions/PermissionStatus.html#UNKNOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/sensors/Geolocation.html#LOCATION_ACCURACY_BEST",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/sensors/Geolocation.html#LOCATION_ACCURACY_BEST_FOR_NAVIGATION",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/sensors/Geolocation.html#LOCATION_ACCURACY_HUNDRED_METERS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/sensors/Geolocation.html#LOCATION_ACCURACY_KILOMETER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/sensors/Geolocation.html#LOCATION_ACCURACY_NEAREST_TEN_METERS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/sensors/Geolocation.html#LOCATION_ACCURACY_THREE_KILOMETERS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/data/SQLColumnSchema.html#SQLColumnSchema()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/data/SQLConnection.html#SQLConnection()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/data/SQLIndexSchema.html#SQLIndexSchema()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/data/SQLResult.html#SQLResult()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/data/SQLSchema.html#SQLSchema()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/data/SQLSchemaResult.html#SQLSchemaResult()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/data/SQLStatement.html#SQLStatement()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/data/SQLTableSchema.html#SQLTableSchema()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/data/SQLTriggerSchema.html#SQLTriggerSchema()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/data/SQLViewSchema.html#SQLViewSchema()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/desktop/NativeProcess.html#NativeProcess()",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/desktop/NativeProcessStartupInfo.html#NativeProcessStartupInfo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/desktop/Updater.html#Updater()",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on update() because AIR package self-updating is unavailable in HTML5."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/NativeMenu.html#NativeMenu()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/NativeMenuItem.html#NativeMenuItem()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/NativeWindow.html#NativeWindow()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/NativeWindowInitOptions.html#NativeWindowInitOptions()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/errors/DRMManagerError.html#DRMManagerError()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/errors/PermissionError.html#PermissionError()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/errors/SQLError.html#SQLError()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/BrowserInvokeEvent.html#BrowserInvokeEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DNSResolverEvent.html#DNSResolverEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DRMAuthenticateEvent.html#DRMAuthenticateEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DatagramSocketDataEvent.html#DatagramSocketDataEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DeviceRotationEvent.html#DeviceRotationEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/FileListEvent.html#FileListEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/GameInputEvent.html#GameInputEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/HTMLUncaughtScriptExceptionEvent.html#HTMLUncaughtScriptExceptionEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/InvokeEvent.html#InvokeEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/LocationChangeEvent.html#LocationChangeEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/MediaEvent.html#MediaEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/NativeDragEvent.html#NativeDragEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/NativeProcessExitEvent.html#NativeProcessExitEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/NativeWindowBoundsEvent.html#NativeWindowBoundsEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/NativeWindowDisplayStateEvent.html#NativeWindowDisplayStateEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/OutputProgressEvent.html#OutputProgressEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/PermissionEvent.html#PermissionEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/RemoteNotificationEvent.html#RemoteNotificationEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/SQLErrorEvent.html#SQLErrorEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/SQLEvent.html#SQLEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/SQLUpdateEvent.html#SQLUpdateEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/ScreenMouseEvent.html#ScreenMouseEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/ServerSocketConnectEvent.html#ServerSocketConnectEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/StorageVolumeChangeEvent.html#StorageVolumeChangeEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/VsyncStateChangeAvailabilityEvent.html#VsyncStateChangeAvailabilityEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/filesystem/File.html#File()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/filesystem/FileStream.html#FileStream()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/filesystem/StorageVolume.html#StorageVolume()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/dns/AAAARecord.html#AAAARecord()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/dns/ARecord.html#ARecord()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/dns/DNSResolver.html#DNSResolver()",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError #3219 on lookup() because raw DNS packet resolution is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/dns/MXRecord.html#MXRecord()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/dns/PTRRecord.html#PTRRecord()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/dns/SRVRecord.html#SRVRecord()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/notifications/RemoteNotifier.html#RemoteNotifier()",
+          "status": "partial",
+          "note": "Dispatches StatusEvent error on subscribe()/unsubscribe() because native APNs/FCM remote push tokens are unavailable in standalone HTML5 exports."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/notifications/RemoteNotifierSubscribeOptions.html#RemoteNotifierSubscribeOptions()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/sensors/DeviceRotation.html#DeviceRotation()",
+          "status": "partial",
+          "note": "Validates update intervals and reports isSupported=false, muted=true without live OS gyroscope quaternion streaming."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/sensors/Geolocation.html#Geolocation()",
+          "status": "partial",
+          "note": "Stores accuracy/interval settings and dispatches PermissionEvent on requestPermission(), without continuous navigator.geolocation streaming yet."
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:analyze",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:attach",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:begin",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:cancel",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:close",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:commit",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:compact",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:deanalyze",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:delete",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:detach",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:error",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:insert",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:open",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:reencrypt",
+          "status": "partial",
+          "note": "Database encryption keys and re-encryption are unavailable in the HTML5 profile; throws SQLError #3143."
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:releaseSavepoint",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:rollback",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:rollbackToSavepoint",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:schema",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:setSavepoint",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:update",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLStatement.html#event:error",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLStatement.html#event:result",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:activate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:browserInvoke",
+          "status": "partial",
+          "note": "Event listener registration and dispatch work on NativeApplication; automatic OS/browser lifecycle bridging for this event is not wired."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:deactivate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:exiting",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:invoke",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:keyDown",
+          "status": "partial",
+          "note": "Event listener registration and dispatch work on NativeApplication; automatic OS/browser lifecycle bridging for this event is not wired."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:keyUp",
+          "status": "partial",
+          "note": "Event listener registration and dispatch work on NativeApplication; automatic OS/browser lifecycle bridging for this event is not wired."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:networkChange",
+          "status": "partial",
+          "note": "Event listener registration and dispatch work on NativeApplication; automatic OS/browser lifecycle bridging for this event is not wired."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:suspend",
+          "status": "partial",
+          "note": "Event listener registration and dispatch work on NativeApplication; automatic OS/browser lifecycle bridging for this event is not wired."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:userIdle",
+          "status": "partial",
+          "note": "Event listener registration and dispatch work on NativeApplication; automatic OS/browser lifecycle bridging for this event is not wired."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:userPresent",
+          "status": "partial",
+          "note": "Event listener registration and dispatch work on NativeApplication; automatic OS/browser lifecycle bridging for this event is not wired."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:exit",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardErrorClose",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardErrorData",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardErrorIoError",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardInputClose",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardInputIoError",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardInputProgress",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardOutputClose",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardOutputData",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardOutputIoError",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/SystemTrayIcon.html#event:click",
+          "status": "partial",
+          "note": "In-process SystemTrayIcon state, tooltip truncation, and ScreenMouseEvent dispatch work; OS system tray integration is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/SystemTrayIcon.html#event:mouseDown",
+          "status": "partial",
+          "note": "In-process SystemTrayIcon state, tooltip truncation, and ScreenMouseEvent dispatch work; OS system tray integration is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/SystemTrayIcon.html#event:mouseUp",
+          "status": "partial",
+          "note": "In-process SystemTrayIcon state, tooltip truncation, and ScreenMouseEvent dispatch work; OS system tray integration is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/SystemTrayIcon.html#event:rightClick",
+          "status": "partial",
+          "note": "In-process SystemTrayIcon state, tooltip truncation, and ScreenMouseEvent dispatch work; OS system tray integration is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/SystemTrayIcon.html#event:rightMouseDown",
+          "status": "partial",
+          "note": "In-process SystemTrayIcon state, tooltip truncation, and ScreenMouseEvent dispatch work; OS system tray integration is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/SystemTrayIcon.html#event:rightMouseUp",
+          "status": "partial",
+          "note": "In-process SystemTrayIcon state, tooltip truncation, and ScreenMouseEvent dispatch work; OS system tray integration is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeMenu.html#event:displaying",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeMenu.html#event:preparing",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeMenu.html#event:select",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeMenuItem.html#event:displaying",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeMenuItem.html#event:preparing",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeMenuItem.html#event:select",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeWindow.html#event:activate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeWindow.html#event:close",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeWindow.html#event:closing",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeWindow.html#event:deactivate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeWindow.html#event:displayStateChange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeWindow.html#event:displayStateChanging",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeWindow.html#event:move",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeWindow.html#event:moving",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeWindow.html#event:resize",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/NativeWindow.html#event:resizing",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/Stage.html#event:VsyncStateChangeAvailability",
+          "status": "partial",
+          "note": "Event listener registration and VsyncStateChangeAvailabilityEvent dispatch work; browser requestAnimationFrame does not expose hardware vsync availability transitions."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/Stage.html#event:orientationChange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/Stage.html#event:orientationChanging",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/File.html#event:cancel",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/File.html#event:complete",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/File.html#event:directoryListing",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/File.html#event:ioError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/File.html#event:permissionStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/File.html#event:securityError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/File.html#event:select",
+          "status": "partial",
+          "note": "Schedules Event.CANCEL in the virtual AIR filesystem without opening a native OS file picker."
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/File.html#event:selectMultiple",
+          "status": "partial",
+          "note": "Schedules Event.CANCEL in the virtual AIR filesystem without opening a native OS file picker."
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/FileStream.html#event:close",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/FileStream.html#event:complete",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/FileStream.html#event:ioError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/FileStream.html#event:outputProgress",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/FileStream.html#event:progress",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/StorageVolumeInfo.html#event:storageVolumeMount",
+          "status": "partial",
+          "note": "Event listener registration and StorageVolumeChangeEvent dispatch work; browser sandbox does not emit OS volume mount/unmount hardware events."
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/StorageVolumeInfo.html#event:storageVolumeUnmount",
+          "status": "partial",
+          "note": "Event listener registration and StorageVolumeChangeEvent dispatch work; browser sandbox does not emit OS volume mount/unmount hardware events."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/dns/DNSResolver.html#event:error",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError #3219 on lookup() because raw DNS packet resolution is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/dns/DNSResolver.html#event:lookup",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError #3219 on lookup() because raw DNS packet resolution is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:event:flash/notifications/RemoteNotifier.html#event:notification",
+          "status": "partial",
+          "note": "Dispatches StatusEvent error on subscribe()/unsubscribe() because native APNs/FCM remote push tokens are unavailable in standalone HTML5 exports."
+        },
+        {
+          "catalogId": "AS3:event:flash/notifications/RemoteNotifier.html#event:status",
+          "status": "partial",
+          "note": "Dispatches StatusEvent error on subscribe()/unsubscribe() because native APNs/FCM remote push tokens are unavailable in standalone HTML5 exports."
+        },
+        {
+          "catalogId": "AS3:event:flash/notifications/RemoteNotifier.html#event:token",
+          "status": "partial",
+          "note": "Dispatches StatusEvent error on subscribe()/unsubscribe() because native APNs/FCM remote push tokens are unavailable in standalone HTML5 exports."
+        },
+        {
+          "catalogId": "AS3:event:flash/sensors/DeviceRotation.html#event:status",
+          "status": "partial",
+          "note": "Validates update intervals and reports isSupported=false, muted=true without live OS gyroscope quaternion streaming."
+        },
+        {
+          "catalogId": "AS3:event:flash/sensors/DeviceRotation.html#event:update",
+          "status": "partial",
+          "note": "Validates update intervals and reports isSupported=false, muted=true without live OS gyroscope quaternion streaming."
+        },
+        {
+          "catalogId": "AS3:event:flash/sensors/Geolocation.html#event:status",
+          "status": "partial",
+          "note": "Stores accuracy/interval settings and dispatches PermissionEvent on requestPermission(), without continuous navigator.geolocation streaming yet."
+        },
+        {
+          "catalogId": "AS3:event:flash/sensors/Geolocation.html#event:update",
+          "status": "partial",
+          "note": "Stores accuracy/interval settings and dispatches PermissionEvent on requestPermission(), without continuous navigator.geolocation streaming yet."
+        },
+        {
+          "catalogId": "AS3:interface:flash/desktop/IFilePromise.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/EncryptedLocalStore.html#getItem()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/EncryptedLocalStore.html#removeItem()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/EncryptedLocalStore.html#reset()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/EncryptedLocalStore.html#setItem()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#addEventListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#analyze()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#attach()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#begin()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#cancel()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#commit()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#compact()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#deanalyze()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#detach()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#getSchemaResult()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#loadSchema()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#open()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#openAsync()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#reencrypt()",
+          "status": "partial",
+          "note": "Database encryption keys and re-encryption are unavailable in the HTML5 profile; throws SQLError #3143."
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#releaseSavepoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#removeEventListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#rollback()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#rollbackToSavepoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#setSavepoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLStatement.html#cancel()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLStatement.html#clearParameters()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLStatement.html#execute()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLStatement.html#getResult()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLStatement.html#next()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/DockIcon.html#bounce()",
+          "status": "partial",
+          "note": "In-process DockIcon state, bitmap sizing, bounce(), and NativeMenu attachment work; OS dock icon rendering is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/IFilePromise.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/IFilePromise.html#open()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/IFilePromise.html#reportError()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#activate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#addEventListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#clear()",
+          "status": "partial",
+          "note": "Reports false capability flags or throws IllegalOperationError where OS default-application, login-item, or native menu edit commands are blocked by the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#copy()",
+          "status": "partial",
+          "note": "Reports false capability flags or throws IllegalOperationError where OS default-application, login-item, or native menu edit commands are blocked by the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#cut()",
+          "status": "partial",
+          "note": "Reports false capability flags or throws IllegalOperationError where OS default-application, login-item, or native menu edit commands are blocked by the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#dispatchEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#exit()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#getDefaultApplication()",
+          "status": "partial",
+          "note": "Reports false capability flags or throws IllegalOperationError where OS default-application, login-item, or native menu edit commands are blocked by the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#isSetAsDefaultApplication()",
+          "status": "partial",
+          "note": "Reports false capability flags or throws IllegalOperationError where OS default-application, login-item, or native menu edit commands are blocked by the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#paste()",
+          "status": "partial",
+          "note": "Reports false capability flags or throws IllegalOperationError where OS default-application, login-item, or native menu edit commands are blocked by the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#removeAsDefaultApplication()",
+          "status": "partial",
+          "note": "Reports false capability flags or throws IllegalOperationError where OS default-application, login-item, or native menu edit commands are blocked by the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#removeEventListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#selectAll()",
+          "status": "partial",
+          "note": "Reports false capability flags or throws IllegalOperationError where OS default-application, login-item, or native menu edit commands are blocked by the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#setAsDefaultApplication()",
+          "status": "partial",
+          "note": "Reports false capability flags or throws IllegalOperationError where OS default-application, login-item, or native menu edit commands are blocked by the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeDragManager.html#acceptDragDrop()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeDragManager.html#doDrag()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeDragOptions.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeProcess.html#closeInput()",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeProcess.html#exit()",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeProcess.html#start()",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/Updater.html#update()",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on update() because AIR package self-updating is unavailable in HTML5."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenu.html#addItem()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenu.html#addItemAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenu.html#addSubmenu()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenu.html#addSubmenuAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenu.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenu.html#containsItem()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenu.html#display()",
+          "status": "partial",
+          "note": "Dispatches displaying event cleanly, without rendering a native OS popup menu outside the HTML5 canvas."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenu.html#getItemAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenu.html#getItemByName()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenu.html#getItemIndex()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenu.html#removeAllItems()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenu.html#removeItem()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenu.html#removeItemAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenu.html#setItemIndex()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenuItem.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenuItem.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#activate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#globalToScreen()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#listOwnedWindows()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#maximize()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#minimize()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#notifyUser()",
+          "status": "partial",
+          "note": "Updates in-process NativeWindow state or returns false without moving, resizing, or flashing the outer browser OS window."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#orderInBackOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#orderInFrontOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#orderToBack()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#orderToFront()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#restore()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#startMove()",
+          "status": "partial",
+          "note": "Updates in-process NativeWindow state or returns false without moving, resizing, or flashing the outer browser OS window."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#startResize()",
+          "status": "partial",
+          "note": "Updates in-process NativeWindow state or returns false without moving, resizing, or flashing the outer browser OS window."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Screen.html#getScreensForRectangle()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#assignFocus()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#setAspectRatio()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#setOrientation()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/errors/SQLError.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/BrowserInvokeEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/DNSResolverEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/DNSResolverEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/DRMAuthenticateEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/DRMAuthenticateEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/DatagramSocketDataEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/DatagramSocketDataEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/DeviceRotationEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/DeviceRotationEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/HTMLUncaughtScriptExceptionEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/InvokeEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/LocationChangeEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/LocationChangeEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/MediaEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/MediaEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/NativeDragEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/NativeDragEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/NativeProcessExitEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/NativeProcessExitEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/NativeWindowBoundsEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/NativeWindowBoundsEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/NativeWindowDisplayStateEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/NativeWindowDisplayStateEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/OutputProgressEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/OutputProgressEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/PermissionEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/PermissionEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/SQLErrorEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/SQLErrorEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/SQLEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/SQLUpdateEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/ScreenMouseEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/ScreenMouseEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/ServerSocketConnectEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/ServerSocketConnectEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/StorageVolumeChangeEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/StorageVolumeChangeEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/VsyncStateChangeAvailabilityEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/VsyncStateChangeAvailabilityEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#browseForDirectory()",
+          "status": "partial",
+          "note": "Schedules Event.CANCEL in the virtual AIR filesystem without opening a native OS file picker."
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#browseForOpen()",
+          "status": "partial",
+          "note": "Schedules Event.CANCEL in the virtual AIR filesystem without opening a native OS file picker."
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#browseForOpenMultiple()",
+          "status": "partial",
+          "note": "Schedules Event.CANCEL in the virtual AIR filesystem without opening a native OS file picker."
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#browseForSave()",
+          "status": "partial",
+          "note": "Schedules Event.CANCEL in the virtual AIR filesystem without opening a native OS file picker."
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#cancel()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#canonicalize()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#copyTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#copyToAsync()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#createDirectory()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#createTempDirectory()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#createTempFile()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#deleteDirectory()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#deleteDirectoryAsync()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#deleteFile()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#deleteFileAsync()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#getDirectoryListing()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#getDirectoryListingAsync()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#getRelativePath()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#getRootDirectories()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#moveTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#moveToAsync()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#moveToTrash()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#moveToTrashAsync()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#openWithDefaultApplication()",
+          "status": "partial",
+          "note": "Throws IllegalOperationError #3000 in the HTML5 browser sandbox because external OS applications cannot be launched."
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#requestPermission()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#resolvePath()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#open()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#openAsync()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#readBoolean()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#readByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#readBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#readDouble()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#readFloat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#readInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#readMultiByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#readObject()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#readShort()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#readUTF()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#readUTFBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#readUnsignedByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#readUnsignedInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#readUnsignedShort()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#truncate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#writeBoolean()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#writeByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#writeBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#writeDouble()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#writeFloat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#writeInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#writeMultiByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#writeObject()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#writeShort()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#writeUTF()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#writeUTFBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/FileStream.html#writeUnsignedInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/StorageVolumeInfo.html#getStorageVolumes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/dns/DNSResolver.html#lookup()",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError #3219 on lookup() because raw DNS packet resolution is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:method:flash/notifications/RemoteNotifier.html#subscribe()",
+          "status": "partial",
+          "note": "Dispatches StatusEvent error on subscribe()/unsubscribe() because native APNs/FCM remote push tokens are unavailable in standalone HTML5 exports."
+        },
+        {
+          "catalogId": "AS3:method:flash/notifications/RemoteNotifier.html#unsubscribe()",
+          "status": "partial",
+          "note": "Dispatches StatusEvent error on subscribe()/unsubscribe() because native APNs/FCM remote push tokens are unavailable in standalone HTML5 exports."
+        },
+        {
+          "catalogId": "AS3:method:flash/sensors/DeviceRotation.html#setRequestedUpdateInterval()",
+          "status": "partial",
+          "note": "Validates update intervals and reports isSupported=false, muted=true without live OS gyroscope quaternion streaming."
+        },
+        {
+          "catalogId": "AS3:method:flash/sensors/Geolocation.html#setRequestedUpdateInterval()",
+          "status": "partial",
+          "note": "Stores accuracy/interval settings and dispatches PermissionEvent on requestPermission(), without continuous navigator.geolocation streaming yet."
+        },
+        {
+          "catalogId": "AS3:property:flash/data/EncryptedLocalStore.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLColumnSchema.html#allowNull",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLColumnSchema.html#autoIncrement",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLColumnSchema.html#dataType",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLColumnSchema.html#defaultCollationType",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLColumnSchema.html#name",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLColumnSchema.html#primaryKey",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLConnection.html#autoCompact",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLConnection.html#cacheSize",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLConnection.html#columnNameStyle",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLConnection.html#connected",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLConnection.html#inTransaction",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLConnection.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLConnection.html#lastInsertRowID",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLConnection.html#pageSize",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLConnection.html#totalChanges",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLIndexSchema.html#table",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLResult.html#complete",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLResult.html#data",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLResult.html#lastInsertRowID",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLResult.html#rowsAffected",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLSchema.html#database",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLSchema.html#name",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLSchema.html#sql",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLSchemaResult.html#indices",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLSchemaResult.html#tables",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLSchemaResult.html#triggers",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLSchemaResult.html#views",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLStatement.html#executing",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLStatement.html#itemClass",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLStatement.html#parameters",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLStatement.html#sqlConnection",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLStatement.html#text",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLTableSchema.html#columns",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/data/SQLTriggerSchema.html#table",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/Clipboard.html#supportsFilePromise",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/DockIcon.html#bitmaps",
+          "status": "partial",
+          "note": "In-process DockIcon state, bitmap sizing, bounce(), and NativeMenu attachment work; OS dock icon rendering is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/DockIcon.html#height",
+          "status": "partial",
+          "note": "In-process DockIcon state, bitmap sizing, bounce(), and NativeMenu attachment work; OS dock icon rendering is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/DockIcon.html#menu",
+          "status": "partial",
+          "note": "In-process DockIcon state, bitmap sizing, bounce(), and NativeMenu attachment work; OS dock icon rendering is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/DockIcon.html#width",
+          "status": "partial",
+          "note": "In-process DockIcon state, bitmap sizing, bounce(), and NativeMenu attachment work; OS dock icon rendering is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/IFilePromise.html#isAsync",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/IFilePromise.html#relativePath",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/Icon.html#bitmaps",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/InteractiveIcon.html#bitmaps",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/InteractiveIcon.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/InteractiveIcon.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#activeWindow",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#applicationDescriptor",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#applicationID",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#autoExit",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#executeInBackground",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#icon",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#idleThreshold",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#isCompiledAOT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#menu",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#nativeApplication",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#openedWindows",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#publisherID",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#runtimePatchLevel",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#runtimeVersion",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#startAtLogin",
+          "status": "partial",
+          "note": "Reports false capability flags or throws IllegalOperationError where OS default-application, login-item, or native menu edit commands are blocked by the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#supportsDefaultApplication",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#supportsDockIcon",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#supportsMenu",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#supportsStartAtLogin",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#supportsSystemTrayIcon",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#systemIdleMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#timeSinceLastUserInput",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeDragManager.html#dragInitiator",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeDragManager.html#dropAction",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeDragManager.html#isDragging",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeDragManager.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeDragOptions.html#allowCopy",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeDragOptions.html#allowLink",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeDragOptions.html#allowMove",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeProcess.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeProcess.html#running",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeProcess.html#standardError",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeProcess.html#standardInput",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeProcess.html#standardOutput",
+          "status": "partial",
+          "note": "Reports isSupported=false and throws IllegalOperationError on start()/closeInput()/exit() because spawning OS child processes is prohibited in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeProcessStartupInfo.html#arguments",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeProcessStartupInfo.html#executable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeProcessStartupInfo.html#workingDirectory",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/SystemTrayIcon.html#bitmaps",
+          "status": "partial",
+          "note": "In-process SystemTrayIcon state, tooltip truncation, and ScreenMouseEvent dispatch work; OS system tray integration is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/SystemTrayIcon.html#height",
+          "status": "partial",
+          "note": "In-process SystemTrayIcon state, tooltip truncation, and ScreenMouseEvent dispatch work; OS system tray integration is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/SystemTrayIcon.html#menu",
+          "status": "partial",
+          "note": "In-process SystemTrayIcon state, tooltip truncation, and ScreenMouseEvent dispatch work; OS system tray integration is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/SystemTrayIcon.html#tooltip",
+          "status": "partial",
+          "note": "In-process SystemTrayIcon state, tooltip truncation, and ScreenMouseEvent dispatch work; OS system tray integration is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/SystemTrayIcon.html#width",
+          "status": "partial",
+          "note": "In-process SystemTrayIcon state, tooltip truncation, and ScreenMouseEvent dispatch work; OS system tray integration is unavailable in the browser sandbox."
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/Updater.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeMenu.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeMenu.html#items",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeMenu.html#numItems",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeMenu.html#parent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeMenuItem.html#checked",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeMenuItem.html#data",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeMenuItem.html#enabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeMenuItem.html#isSeparator",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeMenuItem.html#keyEquivalent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeMenuItem.html#keyEquivalentModifiers",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeMenuItem.html#label",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeMenuItem.html#menu",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeMenuItem.html#mnemonicIndex",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeMenuItem.html#name",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeMenuItem.html#submenu",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#active",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#alwaysInFront",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#bounds",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#closed",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#displayState",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#maxSize",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#maximizable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#menu",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#minSize",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#minimizable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#owner",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#renderMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#resizable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#stage",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#supportsMenu",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#supportsNotification",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#supportsTransparency",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#systemChrome",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#systemMaxSize",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#systemMinSize",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#title",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#transparent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#type",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#visible",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#x",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindow.html#y",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindowInitOptions.html#maximizable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindowInitOptions.html#minimizable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindowInitOptions.html#owner",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindowInitOptions.html#renderMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindowInitOptions.html#resizable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindowInitOptions.html#systemChrome",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindowInitOptions.html#transparent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/NativeWindowInitOptions.html#type",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Screen.html#bounds",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Screen.html#colorDepth",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Screen.html#mainScreen",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Screen.html#mode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Screen.html#modes",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Screen.html#screens",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Screen.html#visibleBounds",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ScreenMode.html#colorDepth",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ScreenMode.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ScreenMode.html#refreshRate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ScreenMode.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#autoOrients",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#deviceOrientation",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#nativeWindow",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#orientation",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#supportedOrientations",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#supportsOrientationChange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#vsyncEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/errors/DRMManagerError.html#subErrorID",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/errors/SQLError.html#detailArguments",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/errors/SQLError.html#detailID",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/errors/SQLError.html#details",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/errors/SQLError.html#operation",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/BrowserInvokeEvent.html#arguments",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/BrowserInvokeEvent.html#isHTTPS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/BrowserInvokeEvent.html#isUserEvent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/BrowserInvokeEvent.html#sandboxType",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/BrowserInvokeEvent.html#securityDomain",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DNSResolverEvent.html#host",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DNSResolverEvent.html#resourceRecords",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticateEvent.html#authenticationType",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticateEvent.html#header",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticateEvent.html#netstream",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticateEvent.html#passwordPrompt",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticateEvent.html#urlPrompt",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticateEvent.html#usernamePrompt",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DatagramSocketDataEvent.html#data",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DatagramSocketDataEvent.html#dstAddress",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DatagramSocketDataEvent.html#dstPort",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DatagramSocketDataEvent.html#srcAddress",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DatagramSocketDataEvent.html#srcPort",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DeviceRotationEvent.html#pitch",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DeviceRotationEvent.html#quaternion",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DeviceRotationEvent.html#roll",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DeviceRotationEvent.html#timestamp",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DeviceRotationEvent.html#yaw",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/FileListEvent.html#files",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/GameInputEvent.html#device",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/HTMLUncaughtScriptExceptionEvent.html#exceptionValue",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/HTMLUncaughtScriptExceptionEvent.html#stackTrace",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/HTTPStatusEvent.html#responseHeaders",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/HTTPStatusEvent.html#responseURL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/InvokeEvent.html#arguments",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/InvokeEvent.html#currentDirectory",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/InvokeEvent.html#reason",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/LocationChangeEvent.html#location",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MediaEvent.html#data",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/NativeDragEvent.html#allowedActions",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/NativeDragEvent.html#clipboard",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/NativeDragEvent.html#dropAction",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/NativeProcessExitEvent.html#exitCode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/NativeWindowBoundsEvent.html#afterBounds",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/NativeWindowBoundsEvent.html#beforeBounds",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/NativeWindowDisplayStateEvent.html#afterDisplayState",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/NativeWindowDisplayStateEvent.html#beforeDisplayState",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/OutputProgressEvent.html#bytesPending",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/OutputProgressEvent.html#bytesTotal",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/PermissionEvent.html#status",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/RemoteNotificationEvent.html#data",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/RemoteNotificationEvent.html#tokenId",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/SQLErrorEvent.html#error",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/SQLUpdateEvent.html#rowID",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/SQLUpdateEvent.html#table",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/ScreenMouseEvent.html#screenX",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/ScreenMouseEvent.html#screenY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/ServerSocketConnectEvent.html#socket",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/StorageVolumeChangeEvent.html#rootDirectory",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/StorageVolumeChangeEvent.html#storageVolume",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/VsyncStateChangeAvailabilityEvent.html#available",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#applicationDirectory",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#applicationStorageDirectory",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#cacheDirectory",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#desktopDirectory",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#documentsDirectory",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#downloaded",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#exists",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#icon",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#isDirectory",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#isHidden",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#isPackage",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#isSymbolicLink",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#lineEnding",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#nativePath",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#parent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#permissionStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#preventBackup",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#separator",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#spaceAvailable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#systemCharset",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#url",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/File.html#userDirectory",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/FileStream.html#bytesAvailable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/FileStream.html#endian",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/FileStream.html#objectEncoding",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/FileStream.html#position",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/FileStream.html#readAhead",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/StorageVolume.html#drive",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/StorageVolume.html#fileSystemType",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/StorageVolume.html#isRemovable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/StorageVolume.html#isWritable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/StorageVolume.html#name",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/StorageVolume.html#rootDirectory",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/StorageVolumeInfo.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filesystem/StorageVolumeInfo.html#storageVolumeInfo",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/dns/AAAARecord.html#address",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/dns/ARecord.html#address",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/dns/DNSResolver.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/dns/MXRecord.html#exchange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/dns/MXRecord.html#preference",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/dns/PTRRecord.html#ptrdName",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/dns/ResourceRecord.html#name",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/dns/ResourceRecord.html#ttl",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/dns/SRVRecord.html#port",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/dns/SRVRecord.html#priority",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/dns/SRVRecord.html#target",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/dns/SRVRecord.html#weight",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/notifications/RemoteNotifier.html#supportedNotificationStyles",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/notifications/RemoteNotifierSubscribeOptions.html#notificationStyles",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/sensors/DeviceRotation.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/sensors/DeviceRotation.html#muted",
+          "status": "partial",
+          "note": "Validates update intervals and reports isSupported=false, muted=true without live OS gyroscope quaternion streaming."
+        },
+        {
+          "catalogId": "AS3:property:flash/sensors/Geolocation.html#desiredAccuracy",
+          "status": "partial",
+          "note": "Stores accuracy/interval settings and dispatches PermissionEvent on requestPermission(), without continuous navigator.geolocation streaming yet."
+        },
+        {
+          "catalogId": "AS3:property:flash/sensors/Geolocation.html#isSupported",
+          "status": "partial",
+          "note": "Stores accuracy/interval settings and dispatches PermissionEvent on requestPermission(), without continuous navigator.geolocation streaming yet."
+        },
+        {
+          "catalogId": "AS3:property:flash/sensors/Geolocation.html#locationAlwaysUsePermission",
+          "status": "partial",
+          "note": "Stores accuracy/interval settings and dispatches PermissionEvent on requestPermission(), without continuous navigator.geolocation streaming yet."
+        },
+        {
+          "catalogId": "AS3:property:flash/sensors/Geolocation.html#muted",
+          "status": "partial",
+          "note": "Stores accuracy/interval settings and dispatches PermissionEvent on requestPermission(), without continuous navigator.geolocation streaming yet."
+        },
+        {
+          "catalogId": "AS3:property:flash/sensors/Geolocation.html#pausesLocationUpdatesAutomatically",
+          "status": "partial",
+          "note": "Stores accuracy/interval settings and dispatches PermissionEvent on requestPermission(), without continuous navigator.geolocation streaming yet."
+        }
+      ]
+    }
+  ]
+}

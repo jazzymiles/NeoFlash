@@ -1,0 +1,2408 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "a5b3d77e95c5372e4644ff211d8267a2bb5e646c752ca005e363b03440a33304",
+  "reviews": [
+    {
+      "id": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+      "date": "2026-11-01",
+      "commit": "7be1a371157c782e1481d620af3a74b77869ae20",
+      "title": "AS3 foundation Batch 4: 3D geometry, AMF aliases, legacy XML, display/stage, graphics data and text",
+      "summary": "Implements Matrix3D decompose/recompose/interpolate/pointAt, Orientation3D, Utils3D.pointTowards, flash.errors, AMF class aliases, flash.xml DOM, DisplayObject scale9Grid/lifecycle events, Stage/Sprite/Container methods, MouseCursorData, IGraphicsData/drawTriangles/lineBitmapStyle, BitmapData histogram/drawWithQuality, TextField htmlText/styleSheet and StaticText/TextSnapshot.",
+      "tests": [
+        "crates/neoflash-core/src/as3_geom.rs",
+        "crates/neoflash-core/tests/amf.rs",
+        "crates/neoflash-script/tests/core-surface.mjs",
+        "crates/neoflash-script/tests/core-surface.json",
+        "crates/neoflash-script/tests/gradient-graphics.mjs",
+        "crates/neoflash-script/tests/bitmap-pixels.mjs",
+        "crates/neoflash-script/tests/text-layout.mjs",
+        "crates/neoflash-script/tests/display-transforms.mjs",
+        "crates/neoflash-script/tests/clipped-scene.mjs",
+        "crates/neoflash-script/tests/drag-drop.mjs",
+        "crates/neoflash-script/tests/geometry-timer.mjs",
+        "crates/neoflash-script/tests/function-workflow.mjs",
+        "web/tests/display-family.test.cjs",
+        "web/tests/stage.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:class:Math.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:Math.html#E",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:Math.html#LN10",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:Math.html#LN2",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:Math.html#LOG10E",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:Math.html#LOG2E",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:Math.html#PI",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:Math.html#SQRT1_2",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:Math.html#SQRT2",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#abs()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#acos()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#asin()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#atan()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#atan2()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#ceil()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#cos()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#exp()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#floor()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#log()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#max()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#min()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#pow()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#random()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#round()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#sin()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#sqrt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Math.html#tan()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:Number.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:Number.html#MAX_VALUE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:Number.html#MIN_VALUE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:Number.html#NEGATIVE_INFINITY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:Number.html#NaN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:Number.html#POSITIVE_INFINITY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:Number.html#Number()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Number.html#toExponential()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Number.html#toFixed()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Number.html#toPrecision()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Number.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Number.html#valueOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:int.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:int.html#MAX_VALUE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:int.html#MIN_VALUE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:int.html#int()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:int.html#toExponential()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:int.html#toFixed()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:int.html#toPrecision()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:int.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:int.html#valueOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:uint.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:uint.html#MAX_VALUE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:uint.html#MIN_VALUE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:uint.html#uint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:uint.html#toExponential()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:uint.html#toFixed()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:uint.html#toPrecision()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:uint.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:uint.html#valueOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/geom/Point.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/geom/Point.html#Point()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Point.html#add()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Point.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Point.html#copyFrom()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Point.html#distance()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Point.html#equals()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Point.html#interpolate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Point.html#normalize()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Point.html#offset()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Point.html#polar()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Point.html#setTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Point.html#subtract()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Point.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Point.html#length",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Point.html#x",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Point.html#y",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/geom/Rectangle.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/geom/Rectangle.html#Rectangle()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#contains()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#containsPoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#containsRect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#copyFrom()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#equals()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#inflate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#inflatePoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#intersection()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#intersects()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#isEmpty()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#offset()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#offsetPoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#setEmpty()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#setTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Rectangle.html#union()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Rectangle.html#bottom",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Rectangle.html#bottomRight",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Rectangle.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Rectangle.html#left",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Rectangle.html#right",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Rectangle.html#size",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Rectangle.html#top",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Rectangle.html#topLeft",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Rectangle.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Rectangle.html#x",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Rectangle.html#y",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/geom/Matrix.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/geom/Matrix.html#Matrix()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#concat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#copyColumnFrom()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#copyColumnTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#copyFrom()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#copyRowFrom()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#copyRowTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#createBox()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#createGradientBox()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#deltaTransformPoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#identity()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#invert()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#rotate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#scale()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#setTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#transformPoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix.html#translate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Matrix.html#a",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Matrix.html#b",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Matrix.html#c",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Matrix.html#d",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Matrix.html#tx",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Matrix.html#ty",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/geom/ColorTransform.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/geom/ColorTransform.html#ColorTransform()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/ColorTransform.html#concat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/ColorTransform.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/ColorTransform.html#alphaMultiplier",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/ColorTransform.html#alphaOffset",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/ColorTransform.html#blueMultiplier",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/ColorTransform.html#blueOffset",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/ColorTransform.html#color",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/ColorTransform.html#greenMultiplier",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/ColorTransform.html#greenOffset",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/ColorTransform.html#redMultiplier",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/ColorTransform.html#redOffset",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/geom/Vector3D.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/geom/Vector3D.html#X_AXIS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/geom/Vector3D.html#Y_AXIS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/geom/Vector3D.html#Z_AXIS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/geom/Vector3D.html#Vector3D()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#add()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#angleBetween()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#copyFrom()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#crossProduct()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#decrementBy()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#distance()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#dotProduct()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#equals()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#incrementBy()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#nearEquals()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#negate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#normalize()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#project()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#scaleBy()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#setTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#subtract()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Vector3D.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Vector3D.html#length",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Vector3D.html#lengthSquared",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Vector3D.html#w",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Vector3D.html#x",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Vector3D.html#y",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Vector3D.html#z",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/geom/PerspectiveProjection.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/geom/PerspectiveProjection.html#PerspectiveProjection()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/PerspectiveProjection.html#toMatrix3D()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/PerspectiveProjection.html#fieldOfView",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/PerspectiveProjection.html#focalLength",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/PerspectiveProjection.html#projectionCenter",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/geom/Matrix3D.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/geom/Matrix3D.html#Matrix3D()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#append()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#appendRotation()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#appendScale()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#appendTranslation()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#copyColumnFrom()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#copyColumnTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#copyFrom()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#copyRawDataFrom()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#copyRawDataTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#copyRowFrom()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#copyRowTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#copyToMatrix3D()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#decompose()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#deltaTransformVector()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#identity()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#interpolate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#interpolateTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#invert()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#pointAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#prepend()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#prependRotation()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#prependScale()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#prependTranslation()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#recompose()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#transformVector()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#transformVectors()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Matrix3D.html#transpose()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Matrix3D.html#determinant",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Matrix3D.html#position",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Matrix3D.html#rawData",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/geom/Utils3D.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Utils3D.html#pointTowards()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Utils3D.html#projectVector()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Utils3D.html#projectVectors()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/geom/Orientation3D.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/geom/Orientation3D.html#AXIS_ANGLE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/geom/Orientation3D.html#EULER_ANGLES",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/geom/Orientation3D.html#QUATERNION",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Transform.html#colorTransform",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Transform.html#concatenatedColorTransform",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Transform.html#concatenatedMatrix",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Transform.html#matrix",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Transform.html#pixelBounds",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#isFinite()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#isNaN()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#parseFloat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:Boolean.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:Boolean.html#Boolean()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Boolean.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Boolean.html#valueOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:String.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:String.html#String()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#charAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#charCodeAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#concat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#fromCharCode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#indexOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#lastIndexOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#localeCompare()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#match()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#replace()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#search()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#slice()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#split()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#substr()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#substring()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#toLocaleLowerCase()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#toLocaleUpperCase()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#toLowerCase()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#toUpperCase()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:String.html#valueOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:String.html#length",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:arguments.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:arguments.html#callee",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:arguments.html#length",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/errors/EOFError.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/errors/EOFError.html#EOFError()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/errors/IOError.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/errors/IOError.html#IOError()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/errors/IllegalOperationError.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/errors/IllegalOperationError.html#IllegalOperationError()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/errors/InvalidSWFError.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/errors/InvalidSWFError.html#InvalidSWFError()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/errors/MemoryError.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/errors/MemoryError.html#MemoryError()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/errors/ScriptTimeoutError.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/errors/ScriptTimeoutError.html#ScriptTimeoutError()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/errors/StackOverflowError.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/errors/StackOverflowError.html#StackOverflowError()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/utils/Endian.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/utils/Endian.html#BIG_ENDIAN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/utils/Endian.html#LITTLE_ENDIAN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/xml/XMLNodeType.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/xml/XMLNodeType.html#ELEMENT_NODE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/xml/XMLNodeType.html#TEXT_NODE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/xml/XMLNode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/xml/XMLNode.html#XMLNode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/xml/XMLNode.html#appendChild()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/xml/XMLNode.html#cloneNode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/xml/XMLNode.html#getNamespaceForPrefix()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/xml/XMLNode.html#getPrefixForNamespace()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/xml/XMLNode.html#hasChildNodes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/xml/XMLNode.html#insertBefore()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/xml/XMLNode.html#removeNode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/xml/XMLNode.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLNode.html#attributes",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLNode.html#childNodes",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLNode.html#firstChild",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLNode.html#lastChild",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLNode.html#localName",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLNode.html#namespaceURI",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLNode.html#nextSibling",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLNode.html#nodeName",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLNode.html#nodeType",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLNode.html#nodeValue",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLNode.html#parentNode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLNode.html#prefix",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLNode.html#previousSibling",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/xml/XMLDocument.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/xml/XMLDocument.html#XMLDocument()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/xml/XMLDocument.html#createElement()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/xml/XMLDocument.html#createTextNode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/xml/XMLDocument.html#parseXML()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/xml/XMLDocument.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLDocument.html#docTypeDecl",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLDocument.html#idMap",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLDocument.html#ignoreWhite",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/xml/XMLDocument.html#xmlDecl",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#Array()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#Boolean()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#Number()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#Object()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#String()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#XML()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#XMLList()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#decodeURI()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#decodeURIComponent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#encodeURI()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#encodeURIComponent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#escape()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#int()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#isXMLName()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#trace()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#uint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#unescape()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/net/package.html#registerClassAlias()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/net/package.html#getClassByAlias()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:package:flash/xml/package-detail.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#clearInterval()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#clearTimeout()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#describeType()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#escapeMultiByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getDefinitionByName()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedClassName()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedSuperclassName()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getTimer()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#setInterval()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#setTimeout()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#unescapeMultiByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:package:flash/errors/package-detail.html#",
+          "status": "partial",
+          "note": "All seven Flash Player flash.errors classes work; AIR-only SQLError, DRMManagerError and PermissionError extensions are outside the HTML5 target."
+        },
+        {
+          "catalogId": "AS3:package:flash/net/package-detail.html#",
+          "status": "partial",
+          "note": "AMF class aliases, URL navigation/loading, SharedObject and NetConnection/NetStream file playback work; raw TCP/UDP sockets and P2P groups are outside the HTML5 profile."
+        },
+        {
+          "catalogId": "AS3:package:flash/utils/package-detail.html#",
+          "status": "partial",
+          "note": "ByteArray, Endian, Timer, Dictionary, intervals, getTimer and reflection helpers work; flash_proxy Proxy interception is outside the current AS3 profile."
+        },
+        {
+          "catalogId": "AS3:function:flash/net/package.html#navigateToURL()",
+          "status": "partial",
+          "note": "Validates URLRequest and navigates through the browser window host; Flash cross-domain policy files do not apply in HTML5."
+        },
+        {
+          "catalogId": "AS3:function:flash/net/package.html#sendToURL()",
+          "status": "partial",
+          "note": "Validates URLRequest and dispatches an asynchronous browser fetch/beacon request subject to standard CORS rules."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/MovieClip.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/MovieClip.html#MovieClip()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/MovieClip.html#gotoAndPlay()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/MovieClip.html#gotoAndStop()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/MovieClip.html#nextFrame()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/MovieClip.html#play()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/MovieClip.html#prevFrame()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/MovieClip.html#stop()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#currentFrame",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#currentFrameLabel",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#currentLabel",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#currentLabels",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#enabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#framesLoaded",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#isPlaying",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#totalFrames",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/MovieClip.html#trackAsMenu",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/FrameLabel.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/FrameLabel.html#FrameLabel()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/FrameLabel.html#event:frameLabel",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/FrameLabel.html#frame",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/FrameLabel.html#name",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/DisplayObjectContainer.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/DisplayObjectContainer.html#DisplayObjectContainer()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#addChild()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#addChildAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#areInaccessibleObjectsUnderPoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#contains()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#getChildAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#getChildByName()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#getChildIndex()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#getObjectsUnderPoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#removeChild()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#removeChildAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#removeChildren()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#setChildIndex()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#stopAllMovieClips()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#swapChildren()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#swapChildrenAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObjectContainer.html#mouseChildren",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObjectContainer.html#numChildren",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObjectContainer.html#textSnapshot",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Sprite.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/Sprite.html#Sprite()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Sprite.html#startDrag()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Sprite.html#startTouchDrag()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Sprite.html#stopDrag()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Sprite.html#stopTouchDrag()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#buttonMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#dropTarget",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#graphics",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#hitArea",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#soundTransform",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Sprite.html#useHandCursor",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/FocusEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/FocusEvent.html#FOCUS_IN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/FocusEvent.html#FOCUS_OUT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/FocusEvent.html#FocusEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/FocusEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/FocusEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/FocusEvent.html#direction",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/FocusEvent.html#isRelatedObjectInaccessible",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/FocusEvent.html#keyCode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/FocusEvent.html#relatedObject",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/FocusEvent.html#shiftKey",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/KeyboardEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/KeyboardEvent.html#KEY_DOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/KeyboardEvent.html#KeyboardEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/KeyboardEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/KeyboardEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/KeyboardEvent.html#updateAfterEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#altKey",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#charCode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#commandKey",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#controlKey",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#ctrlKey",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#keyCode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#keyLocation",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/KeyboardEvent.html#shiftKey",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/MouseCursorData.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/ui/MouseCursorData.html#MouseCursorData()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#data",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#frameRate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#hotSpot",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/Mouse.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#registerCursor()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#unregisterCursor()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#scale9Grid",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/DisplayObject.html#event:added",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/DisplayObject.html#event:addedToStage",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/DisplayObject.html#event:removed",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/DisplayObject.html#event:removedFromStage",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/DisplayObject.html#event:enterFrame",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/DisplayObject.html#event:exitFrame",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/DisplayObject.html#event:frameConstructed",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/DisplayObject.html#event:render",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#getBounds()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#getRect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#globalToLocal()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#localToGlobal()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#hitTestObject()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#hitTestPoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#alpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#blendMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#filters",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#loaderInfo",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mouseX",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mouseY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#name",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#parent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#root",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#rotation",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#scaleX",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#scaleY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#scrollRect",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#stage",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#transform",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#x",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#y",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#addChild()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#addChildAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#removeChildAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#setChildIndex()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#swapChildrenAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#isFocusInaccessible()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#textSnapshot",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#colorCorrection",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#colorCorrectionSupport",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#fullScreenSourceRect",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#wmodeGPU",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#browserZoomFactor",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/Stage.html#event:resize",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/Stage.html#event:fullScreen",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/Stage.html#event:mouseLeave",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#mouseLock",
+          "status": "partial",
+          "note": "Reads false and rejects programmatic pointer lock with IllegalOperationError outside active fullscreen user-gesture state."
+        },
+        {
+          "catalogId": "AS3:interface:flash/display/IBitmapDrawable.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:interface:flash/display/IGraphicsData.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:interface:flash/display/IGraphicsFill.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:interface:flash/display/IGraphicsPath.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:interface:flash/display/IGraphicsStroke.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/TriangleCulling.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/TriangleCulling.html#NEGATIVE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/TriangleCulling.html#NONE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/TriangleCulling.html#POSITIVE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsSolidFill.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/GraphicsSolidFill.html#GraphicsSolidFill()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsSolidFill.html#alpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsSolidFill.html#color",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsGradientFill.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/GraphicsGradientFill.html#GraphicsGradientFill()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsGradientFill.html#alphas",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsGradientFill.html#colors",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsGradientFill.html#focalPointRatio",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsGradientFill.html#interpolationMethod",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsGradientFill.html#matrix",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsGradientFill.html#ratios",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsGradientFill.html#spreadMethod",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsGradientFill.html#type",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsBitmapFill.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/GraphicsBitmapFill.html#GraphicsBitmapFill()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsBitmapFill.html#bitmapData",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsBitmapFill.html#matrix",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsBitmapFill.html#repeat",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsBitmapFill.html#smooth",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsEndFill.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/GraphicsEndFill.html#GraphicsEndFill()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsStroke.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/GraphicsStroke.html#GraphicsStroke()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#caps",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#fill",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#joints",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#miterLimit",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#pixelHinting",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#scaleMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#thickness",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsPath.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/GraphicsPath.html#GraphicsPath()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/GraphicsPath.html#cubicCurveTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/GraphicsPath.html#curveTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/GraphicsPath.html#lineTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/GraphicsPath.html#moveTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/GraphicsPath.html#wideLineTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/GraphicsPath.html#wideMoveTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsPath.html#commands",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsPath.html#data",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsPath.html#winding",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsTrianglePath.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/GraphicsTrianglePath.html#GraphicsTrianglePath()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsTrianglePath.html#culling",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsTrianglePath.html#indices",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsTrianglePath.html#uvtData",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsTrianglePath.html#vertices",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/BitmapEncodingColorSpace.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_0",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_2",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_4_4",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_AUTO",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/JPEGXREncoderOptions.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/JPEGXREncoderOptions.html#JPEGXREncoderOptions()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#colorSpace",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#quantization",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#trimFlexBits",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/StaticText.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StaticText.html#text",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextSnapshot.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextSnapshot.html#findText()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextSnapshot.html#getSelected()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextSnapshot.html#getSelectedText()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextSnapshot.html#getText()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextSnapshot.html#getTextRunInfo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextSnapshot.html#hitTestTextNearPos()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextSnapshot.html#setSelectColor()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextSnapshot.html#setSelected()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextSnapshot.html#charCount",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#beginFill()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#beginGradientFill()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#clear()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#copyFrom()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#cubicCurveTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#curveTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#drawCircle()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#drawEllipse()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#drawGraphicsData()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#drawPath()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#drawRect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#drawRoundRect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#drawTriangles()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#endFill()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#lineBitmapStyle()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#lineGradientStyle()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#lineStyle()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#lineTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#moveTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#readGraphicsData()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#histogram()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#useRichTextClipboard",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#isFontCompatible()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/TextField.html#event:link",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/TextField.html#event:scroll",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#drawWithQuality()",
+          "status": "partial",
+          "note": "Validates StageQuality and renders through BitmapData.draw; quality levels share standard HTML5 rasterization."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#htmlText",
+          "status": "partial",
+          "note": "Parses HTML tags, links and CSS stylesheets into uniform TextField formatting; mixed multi-run formatting raises an explicit diagnostic."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#styleSheet",
+          "status": "partial",
+          "note": "Applies StyleSheet rules to uniform TextField HTML content; mixed multi-run formatting raises an explicit diagnostic."
+        }
+      ]
+    }
+  ]
+}

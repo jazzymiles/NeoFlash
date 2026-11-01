@@ -19,16 +19,16 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 | Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1. Mathematics and 2D geometry | 155 | 2 | 152 | 1 | 0 | 1.3% | 99.4% |
-| 2. Objects, language and collections | 582 | 224 | 285 | 73 | 0 | 38.5% | 87.5% |
-| 3. MovieClip and timeline | 37 | 12 | 20 | 5 | 0 | 32.4% | 86.5% |
-| 4. Display, events and basic input | 678 | 477 | 135 | 66 | 0 | 70.4% | 90.3% |
-| 5. Graphics, bitmaps and filters | 313 | 222 | 21 | 70 | 0 | 70.9% | 77.6% |
-| 6. Text and fonts | 174 | 128 | 26 | 20 | 0 | 73.6% | 88.5% |
+| 1. Mathematics and 2D geometry | 155 | 153 | 2 | 0 | 0 | 98.7% | 100.0% |
+| 2. Objects, language and collections | 582 | 331 | 235 | 16 | 0 | 56.9% | 97.3% |
+| 3. MovieClip and timeline | 37 | 37 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 4. Display, events and basic input | 678 | 593 | 60 | 25 | 0 | 87.5% | 96.3% |
+| 5. Graphics, bitmaps and filters | 313 | 307 | 6 | 0 | 0 | 98.1% | 100.0% |
+| 6. Text and fonts | 174 | 144 | 28 | 2 | 0 | 82.8% | 98.9% |
 | 7. File audio and video playback | 91 | 5 | 34 | 52 | 0 | 5.5% | 42.9% |
-| 8. Services and advanced Player APIs | 2,134 | 7 | 355 | 1,772 | 0 | 0.3% | 17.0% |
-| **Now: areas 1–6** | 1,939 | 1,065 | 639 | 235 | 0 | 54.9% | 87.9% |
-| **All Flash Player areas** | 4,164 | 1,077 | 1,028 | 2,059 | 0 | 25.9% | 50.6% |
+| 8. Services and advanced Player APIs | 2,134 | 82 | 293 | 1,759 | 0 | 3.8% | 17.6% |
+| **Now: areas 1–6** | 1,939 | 1,565 | 331 | 43 | 0 | 80.7% | 97.8% |
+| **All Flash Player areas** | 4,164 | 1,652 | 658 | 1,854 | 0 | 39.7% | 55.5% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -36,16 +36,16 @@ Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, compo
 
 | Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1. Mathematics and 2D geometry | 128 | 124 | 4 | 0 | 0 | 96.9% | 100.0% |
-| 2. Objects, language and collections | 281 | 26 | 255 | 0 | 0 | 9.3% | 100.0% |
-| 3. MovieClip and timeline | 123 | 7 | 116 | 0 | 0 | 5.7% | 100.0% |
-| 4. Display, events and basic input | 130 | 5 | 125 | 0 | 0 | 3.8% | 100.0% |
-| 5. Graphics, bitmaps and filters | 145 | 3 | 142 | 0 | 0 | 2.1% | 100.0% |
-| 6. Text and fonts | 118 | 4 | 114 | 0 | 0 | 3.4% | 100.0% |
-| 7. File audio and video playback | 83 | 6 | 77 | 0 | 0 | 7.2% | 100.0% |
-| 8. Services and advanced Player APIs | 230 | 14 | 216 | 0 | 0 | 6.1% | 100.0% |
-| **Now: areas 1–6** | 925 | 169 | 756 | 0 | 0 | 18.3% | 100.0% |
-| **All Flash Player areas** | 1,238 | 189 | 1,049 | 0 | 0 | 15.3% | 100.0% |
+| 1. Mathematics and 2D geometry | 128 | 128 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 2. Objects, language and collections | 281 | 280 | 1 | 0 | 0 | 99.6% | 100.0% |
+| 3. MovieClip and timeline | 123 | 10 | 113 | 0 | 0 | 8.1% | 100.0% |
+| 4. Display, events and basic input | 130 | 22 | 108 | 0 | 0 | 16.9% | 100.0% |
+| 5. Graphics, bitmaps and filters | 145 | 132 | 13 | 0 | 0 | 91.0% | 100.0% |
+| 6. Text and fonts | 118 | 103 | 15 | 0 | 0 | 87.3% | 100.0% |
+| 7. File audio and video playback | 83 | 7 | 76 | 0 | 0 | 8.4% | 100.0% |
+| 8. Services and advanced Player APIs | 230 | 29 | 201 | 0 | 0 | 12.6% | 100.0% |
+| **Now: areas 1–6** | 925 | 675 | 250 | 0 | 0 | 73.0% | 100.0% |
+| **All Flash Player areas** | 1,238 | 711 | 527 | 0 | 0 | 57.4% | 100.0% |
 
 Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
 

@@ -1,0 +1,2116 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "e5ccbb7bb2c70c8b659b7b4f1cd397ffd0d08ec96cb4d4776b84567d4367ddb4",
+  "reviews": [
+    {
+      "id": "AS2-CONFORMANCE-LEGACY-GRAPHICS-TEXT-20261101",
+      "date": "2026-11-01",
+      "commit": "7be1a371157c782e1481d620af3a74b77869ae20",
+      "title": "AS2 core language, legacy events/operators, XML/LoadVars, BitmapData/filters and text conformance",
+      "summary": "Closes AS1/AS2 legacy on/onClipEvent handlers, Flash 4 operators and property constants, Sound(target), Number radix formatting, Object primitive boxing, instanceof, XML.send POST, and BitmapData.loadBitmap linkage; verifies core language, XML/LoadVars, Selection/timers, Color, BitmapData, nine filters, TextFormat, StyleSheet, TextSnapshot, and TextField.",
+      "tests": [
+        "crates/neoflash-core/tests/bitmap_pixels.rs",
+        "crates/neoflash-script/tests/project.rs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "crates/neoflash-script/tests/bitmap-pixels.mjs",
+        "crates/neoflash-script/tests/filter-gallery.mjs",
+        "crates/neoflash-script/tests/xml-catalog.mjs",
+        "crates/neoflash-script/tests/data-processing.mjs",
+        "crates/neoflash-script/tests/text-layout.mjs",
+        "crates/neoflash-script/tests/text-form.mjs",
+        "crates/neoflash-script/tests/legacy-import.mjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:Array.html#Array()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#CASEINSENSITIVE",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#DESCENDING",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#NUMERIC",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#RETURNINDEXEDARRAY",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#UNIQUESORT",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#concat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#join()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#length",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#pop()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#push()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#reverse()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#shift()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#slice()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#sort()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#sortOn()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#splice()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Array.html#unshift()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:AsBroadcaster.html#_listeners",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:AsBroadcaster.html#addListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:AsBroadcaster.html#broadcastMessage()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:AsBroadcaster.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:AsBroadcaster.html#initialize()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:AsBroadcaster.html#removeListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Boolean.html#Boolean()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Boolean.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Boolean.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Boolean.html#valueOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Color.html#Color()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Color.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Color.html#getRGB()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Color.html#getTransform()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Color.html#setRGB()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Color.html#setTransform()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#Date()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#UTC()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getDate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getDay()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getFullYear()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getHours()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getMilliseconds()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getMinutes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getMonth()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getSeconds()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getTime()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getUTCDate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getUTCDay()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getUTCFullYear()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getUTCHours()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getUTCMilliseconds()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getUTCMinutes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getUTCMonth()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getUTCSeconds()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getYear()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setDate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setFullYear()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setHours()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setMilliseconds()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setMinutes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setMonth()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setSeconds()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setTime()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setUTCDate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setUTCFullYear()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setUTCHours()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setUTCMilliseconds()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setUTCMinutes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setUTCMonth()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setUTCSeconds()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#setYear()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#valueOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Error.html#Error()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Error.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Error.html#message",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Error.html#name",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Error.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Function.html#apply()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Function.html#call()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Function.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LoadVars.html#LoadVars()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LoadVars.html#addRequestHeader()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LoadVars.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LoadVars.html#contentType",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LoadVars.html#decode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LoadVars.html#event:onData",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LoadVars.html#event:onHTTPStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LoadVars.html#event:onLoad",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LoadVars.html#getBytesLoaded()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LoadVars.html#getBytesTotal()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LoadVars.html#load()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LoadVars.html#loaded",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LoadVars.html#send()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LoadVars.html#sendAndLoad()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LoadVars.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Number.html#Number()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Number.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Number.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Object.html#Object()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Object.html#__resolve",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Object.html#addProperty()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Object.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Object.html#hasOwnProperty()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Object.html#isPropertyEnumerable()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Object.html#isPrototypeOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Object.html#prototype",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Object.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Object.html#unwatch()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Object.html#valueOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Object.html#watch()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Selection.html#addListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Selection.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Selection.html#event:onSetFocus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Selection.html#getBeginIndex()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Selection.html#getCaretIndex()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Selection.html#getEndIndex()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Selection.html#getFocus()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Selection.html#removeListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Selection.html#setFocus()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Selection.html#setSelection()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#Sound()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#String()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#charAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#charCodeAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#concat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#fromCharCode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#indexOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#lastIndexOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#length",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#slice()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#split()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#substr()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#substring()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#toLowerCase()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#toUpperCase()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:String.html#valueOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_alpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_height",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_name",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_parent",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_rotation",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_soundbuftime",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_target",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_url",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_visible",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_width",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_x",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_xmouse",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_xscale",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_y",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_ymouse",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_yscale",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#addListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#autoSize",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#background",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#backgroundColor",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#border",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#borderColor",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#bottomScroll",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#condenseWhite",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#event:onChanged",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#event:onKillFocus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#event:onScroller",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#event:onSetFocus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#filters",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#getDepth()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#getFontList()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#getNewTextFormat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#hscroll",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#html",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#length",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#maxChars",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#maxhscroll",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#maxscroll",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#mouseWheelEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#multiline",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#password",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#removeListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#removeTextField()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#replaceSel()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#replaceText()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#restrict",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#scroll",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#selectable",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#setNewTextFormat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#styleSheet",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#tabEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#tabIndex",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#text",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#textColor",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#textHeight",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#textWidth",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#type",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#variable",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#wordWrap",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField/StyleSheet.html#StyleSheet()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField/StyleSheet.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField/StyleSheet.html#clear()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField/StyleSheet.html#event:onLoad",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField/StyleSheet.html#getStyle()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField/StyleSheet.html#getStyleNames()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField/StyleSheet.html#load()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField/StyleSheet.html#parseCSS()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField/StyleSheet.html#setStyle()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField/StyleSheet.html#transform()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#TextFormat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#blockIndent",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#bold",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#bullet",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#color",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#font",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#getTextExtent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#indent",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#italic",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#kerning",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#leading",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#leftMargin",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#letterSpacing",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#rightMargin",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#size",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#target",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#underline",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#url",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextSnapshot.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextSnapshot.html#findText()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextSnapshot.html#getCount()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextSnapshot.html#getSelected()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextSnapshot.html#getSelectedText()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextSnapshot.html#getText()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextSnapshot.html#getTextRunInfo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextSnapshot.html#hitTestTextNearPos()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextSnapshot.html#setSelectColor()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextSnapshot.html#setSelected()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#XML()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#addRequestHeader()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#contentType",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#createElement()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#createTextNode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#docTypeDecl",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#event:onData",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#event:onHTTPStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#event:onLoad",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#getBytesLoaded()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#getBytesTotal()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#idMap",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#ignoreWhite",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#load()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#loaded",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#parseXML()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#send()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#sendAndLoad()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#status",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XML.html#xmlDecl",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#XMLNode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#appendChild()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#attributes",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#childNodes",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#cloneNode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#firstChild",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#getNamespaceForPrefix()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#getPrefixForNamespace()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#hasChildNodes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#insertBefore()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#lastChild",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#localName",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#namespaceURI",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#nextSibling",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#nodeName",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#nodeType",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#nodeValue",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#parentNode",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#prefix",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#previousSibling",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#removeNode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLNode.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:arguments.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:arguments.html#length",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:constants.html#false",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:constants.html#newline",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:constants.html#null",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:constants.html#true",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:constants.html#undefined",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:directives.html##include()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#BitmapData()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#applyFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#colorTransform()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#compare()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#copyChannel()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#copyPixels()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#dispose()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#draw()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#fillRect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#floodFill()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#generateFilterRect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#getColorBoundsRect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#getPixel()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#getPixel32()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#hitTest()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#loadBitmap()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#merge()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#noise()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#paletteMap()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#perlinNoise()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#pixelDissolve()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#rectangle",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#scroll()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#setPixel()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#setPixel32()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#threshold()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#transparent",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/display/BitmapData.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#BevelFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#angle",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#blurX",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#blurY",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#distance",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#highlightAlpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#highlightColor",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#knockout",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#shadowAlpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#shadowColor",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#strength",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BevelFilter.html#type",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BitmapFilter.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BitmapFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BlurFilter.html#BlurFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BlurFilter.html#blurX",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BlurFilter.html#blurY",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BlurFilter.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BlurFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/BlurFilter.html#quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ColorMatrixFilter.html#ColorMatrixFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ColorMatrixFilter.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ColorMatrixFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ColorMatrixFilter.html#matrix",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ConvolutionFilter.html#ConvolutionFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ConvolutionFilter.html#alpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ConvolutionFilter.html#bias",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ConvolutionFilter.html#clamp",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ConvolutionFilter.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ConvolutionFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ConvolutionFilter.html#color",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ConvolutionFilter.html#divisor",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ConvolutionFilter.html#matrix",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ConvolutionFilter.html#matrixX",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ConvolutionFilter.html#matrixY",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/ConvolutionFilter.html#preserveAlpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#DropShadowFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#alpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#angle",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#blurX",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#blurY",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#color",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#distance",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#hideObject",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#inner",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#knockout",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DropShadowFilter.html#strength",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#GlowFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#alpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#blurX",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#blurY",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#color",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#inner",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#knockout",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GlowFilter.html#strength",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientBevelFilter.html#GradientBevelFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientBevelFilter.html#alphas",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientBevelFilter.html#angle",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientBevelFilter.html#blurX",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientBevelFilter.html#blurY",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientBevelFilter.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientBevelFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientBevelFilter.html#colors",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientBevelFilter.html#distance",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientBevelFilter.html#knockout",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientBevelFilter.html#quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientBevelFilter.html#ratios",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientBevelFilter.html#strength",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientBevelFilter.html#type",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientGlowFilter.html#GradientGlowFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientGlowFilter.html#alphas",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientGlowFilter.html#angle",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientGlowFilter.html#blurX",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientGlowFilter.html#blurY",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientGlowFilter.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientGlowFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientGlowFilter.html#colors",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientGlowFilter.html#distance",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientGlowFilter.html#knockout",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientGlowFilter.html#quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientGlowFilter.html#ratios",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientGlowFilter.html#strength",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/GradientGlowFilter.html#type",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#Array()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#Boolean()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#Number()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#Object()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#String()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#chr()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#clearInterval()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#clearTimeout()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#escape()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#eval()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#event:on",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#event:onClipEvent",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#getProperty()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#getTimer()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#length()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#mbchr()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#mblength()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#mbord()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#mbsubstring()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#ord()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#parseInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#setInterval()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#setProperty()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#setTimeout()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#substring()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#trace()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#unescape()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#updateAfterEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_props.html#_global",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_props.html#this",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#addition",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#addition_assignment",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#array_access",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#assignment",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#bitwise_AND",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#bitwise_AND_assignment",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#bitwise_NOT",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#bitwise_OR",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#bitwise_OR_assignment",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#bitwise_XOR",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#bitwise_XOR_assignment",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#bitwise_left_shift",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#bitwise_left_shift_and_assignment",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#bitwise_right_shift",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#bitwise_right_shift_and_assignment",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#bitwise_unsigned_right_shift",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#bitwise_unsigned_right_shift_and_assignment",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#comma",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#concatenation_(strings)_deprecated",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#conditional",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#decrement",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#division",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#division_assignment",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#dot",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#equality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#equality_(strings)_deprecated",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#greater_than",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#greater_than_(strings)_deprecated",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#greater_than_or_equal_to",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#greater_than_or_equal_to_(strings)_deprecated",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#increment",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#inequality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#inequality_deprecated",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#instanceof",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#less_than",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#less_than_(strings)_deprecated",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#less_than_or_equal_to",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#less_than_or_equal_to_(strings)_deprecated",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#logical_AND",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#logical_AND_deprecated",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#logical_NOT",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#logical_NOT_deprecated",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#logical_OR",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#logical_OR_deprecated",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#modulo",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#modulo_assignment",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#multiplication",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#multiplication_assignment",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#new",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#not_equal_(strings)_deprecated",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#object_initializer",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#strict_equality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#strict_inequality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#string_delimiter",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#subtraction",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#subtraction_assignment",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#type",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#typeof",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:operators.html#void",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#delete",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#dynamic",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#extends",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#function",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#get",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#implements",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#import",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#interface",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#private",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#public",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#return",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#set",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#set_variable",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#static",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#super",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#throw",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#try..catch..finally",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#var",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#with",
+          "status": "working"
+        }
+      ]
+    }
+  ]
+}
