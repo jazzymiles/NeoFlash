@@ -1242,3 +1242,35 @@ fn built_in_interfaces_interactive_object_font_subclasses_and_custom_namespaces_
         );
     }
 }
+
+#[test]
+fn as3_timeline_frame_scripts_auto_import_flash_packages_while_classes_require_explicit_imports() {
+    let empty_proj = project(&[]);
+    let program = neoflash_script::compile_project(&empty_proj).expect("empty AS3 project");
+    let frame_script = neoflash_core::Script {
+        language: ScriptLanguage::ActionScript3,
+        source: "var clock:Timer = new Timer(250, 2); function onClick(e:MouseEvent):void { trace(e.type, getTimer()); } clock.addEventListener(TimerEvent.TIMER, function(ev:TimerEvent):void { var pt:Point = new Point(1, 2); trace(pt.x); });".into(),
+    };
+    let compiled = neoflash_script::compile_with_program(&frame_script, &program);
+    assert!(compiled.is_ok(), "{:?}", compiled.err());
+
+    // Top-level project classes and explicit imports override implicit flash.* frame auto-imports.
+    let custom_timer_proj = project(&[(
+        "Timer.as",
+        "package { public class Timer { public var label:String = 'custom'; public function Timer() {} } }",
+    )]);
+    let custom_program =
+        neoflash_script::compile_project(&custom_timer_proj).expect("top-level Timer class");
+    let override_frame = neoflash_core::Script {
+        language: ScriptLanguage::ActionScript3,
+        source: "var t:Timer = new Timer(); trace(t.label);".into(),
+    };
+    assert!(neoflash_script::compile_with_program(&override_frame, &custom_program).is_ok());
+
+    // External .as class units still require explicit imports for flash.* types.
+    let unimported_class = project(&[(
+        "Broken.as",
+        "package app { public class Broken { public function handle(e:MouseEvent):void {} } }",
+    )]);
+    assert!(neoflash_script::compile_project(&unimported_class).is_err());
+}

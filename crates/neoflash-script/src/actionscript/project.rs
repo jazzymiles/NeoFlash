@@ -2646,6 +2646,38 @@ pub fn compile_with_program(
         compile_prepared(script, program)
     }
 }
+fn apply_as3_timeline_auto_imports(
+    c: &mut CompileContext,
+    visible: &BTreeSet<String>,
+    languages: &BTreeMap<String, ScriptLanguage>,
+) {
+    // Match Adobe Flash CS3+ timeline frame scripts, which implicitly wildcard-import
+    // standard flash.* packages while letting top-level project classes and explicit
+    // or wildcard user imports take precedence.
+    let mut counts = BTreeMap::<&str, usize>::new();
+    for name in visible {
+        if !languages.contains_key(name) && name.starts_with("flash.") {
+            let short = name.rsplit('.').next().unwrap_or(name);
+            *counts.entry(short).or_insert(0) += 1;
+        }
+    }
+    for name in visible {
+        if !languages.contains_key(name) && name.starts_with("flash.") {
+            let short = name.rsplit('.').next().unwrap_or(name);
+            if counts.get(short) == Some(&1)
+                && !c.types.contains_key(short)
+                && !c.functions.contains_key(short)
+            {
+                if BUILTIN_FUNCTIONS.contains(&name.as_str()) {
+                    c.functions.insert(short.into(), name.clone());
+                } else {
+                    c.types.insert(short.into(), name.clone());
+                }
+            }
+        }
+    }
+}
+
 fn compile_prepared(script: &Script, program: &ProjectProgram) -> Result<String, Vec<Diagnostic>> {
     if !matches!(
         script.language,
@@ -2656,20 +2688,24 @@ fn compile_prepared(script: &Script, program: &ProjectProgram) -> Result<String,
     let tokens = TokenCursor::default();
     let mut p = frontend(script, tokens, CompileContext::default());
     let imported = imports(&mut p).map_err(|e| vec![e])?;
+    let visible = visible_names(
+        &program.names,
+        &program.languages,
+        script.language,
+        &program.public_types,
+        "",
+    );
     let mut c = context(
-        &visible_names(
-            &program.names,
-            &program.languages,
-            script.language,
-            &program.public_types,
-            "",
-        ),
+        &visible,
         "",
         &imported,
         script.language,
         &program.interfaces,
     )
     .map_err(|m| vec![Diagnostic::at(script, 0, m)])?;
+    if script.language == ScriptLanguage::ActionScript3 {
+        apply_as3_timeline_auto_imports(&mut c, &visible, &program.languages);
+    }
     c.as2_private = program.as2_private.clone();
     // Keep original byte positions/line numbers when removing import statements.
     let end = p.token().offset;
